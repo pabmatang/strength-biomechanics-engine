@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Node environment localStorage mock
 if (typeof localStorage === 'undefined') {
@@ -13,66 +13,161 @@ if (typeof localStorage === 'undefined') {
   };
 }
 
-import { registerUser, loginUser, getCurrentUser } from '../utils/cloudSync';
+import {
+  getCurrentUser,
+  isGuestUser,
+  loginDemoUser,
+  loginUser,
+  registerUser,
+  setCurrentUser
+} from '../utils/cloudSync';
+import { getToken } from '../utils/api';
 
-describe('Authentication & Cloud Sync Engine', () => {
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function authPayload(username = 'pablo_coach', email = 'pablo@strength-lab.io') {
+  return {
+    token: 'jwt-token-for-tests',
+    tokenType: 'Bearer',
+    username,
+    expiresIn: 86_400_000,
+    user: {
+      id: '0f8e5f30-5f6a-4f9b-9f0f-1f2f3f4f5f6f',
+      username,
+      email,
+      goal: 'strength',
+      role: 'USER',
+      createdAt: '2026-10-26T10:00:00Z'
+    }
+  };
+}
+
+describe('Authentication against the Spring Boot API', () => {
+  const fetchMock = vi.fn();
+
   beforeEach(() => {
     localStorage.clear();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('rejects registration with invalid email format', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects registration with an invalid email before calling the API', async () => {
     const result = await registerUser('Test User', 'notanemail', 'password123');
+
     expect(result.success).toBe(false);
     expect(result.error).toContain('correo electrónico');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('rejects registration with short password (<4 chars)', async () => {
-    const result = await registerUser('Test User', 'test@example.com', '123');
+  it('rejects passwords shorter than the 6 characters required by the backend', async () => {
+    const result = await registerUser('Test User', 'test@example.com', '12345');
+
     expect(result.success).toBe(false);
-    expect(result.error).toContain('al menos 4 caracteres');
+    expect(result.error).toContain('al menos 6 caracteres');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('successfully registers a new user with valid credentials', async () => {
-    const result = await registerUser('Joan Pradells', 'joan@pradells.com', 'secret123');
+  it('registers through /auth/register and stores the JWT', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, authPayload('joan_pradells', 'joan@pradells.com')));
+
+    const result = await registerUser('Joan Pradells', 'joan@pradells.com', 'secret123', 'strength');
+
     expect(result.success).toBe(true);
-    expect(result.user?.name).toBe('Joan Pradells');
     expect(result.user?.email).toBe('joan@pradells.com');
+    expect(getToken()).toBe('jwt-token-for-tests');
+    expect(getCurrentUser()?.name).toBe('joan_pradells');
 
-    // User is stored in session
-    const current = getCurrentUser();
-    expect(current?.email).toBe('joan@pradells.com');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/v1/auth/register');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      username: 'joan_pradells',
+      email: 'joan@pradells.com',
+      goal: 'strength'
+    });
+    expect(JSON.parse(String(init?.body))).not.toHaveProperty('name');
   });
 
-  it('rejects duplicate user registration with same email', async () => {
-    await registerUser('User One', 'duplicate@example.com', 'pass123');
-    const duplicateAttempt = await registerUser('User Two', 'duplicate@example.com', 'differentPass');
-    expect(duplicateAttempt.success).toBe(false);
-    expect(duplicateAttempt.error).toContain('Ya existe una cuenta con este correo');
-  });
+  it('surfaces the 409 message returned when the email is already registered', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, {
+      timestamp: '2026-10-26T10:00:00Z',
+      status: 409,
+      error: 'Conflict',
+      message: 'Ya existe una cuenta con este correo electrónico',
+      path: '/api/v1/auth/register'
+    }));
 
-  it('rejects login for unregistered email', async () => {
-    const result = await loginUser('nonexistent@example.com', 'password123');
+    const result = await registerUser('User Two', 'duplicate@example.com', 'password123');
+
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Usuario no registrado');
+    expect(result.error).toContain('Ya existe una cuenta con este correo');
   });
 
-  it('rejects login with incorrect password for registered user', async () => {
-    await registerUser('Carlos', 'carlos@example.com', 'correctPassword');
+  it('logs in through /auth/login keeping the canonical username from the server', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, authPayload()));
+
+    const result = await loginUser('pablo@strength-lab.io', 'StrongBioPass2026!');
+
+    expect(result.success).toBe(true);
+    expect(result.user?.id).toBe('0f8e5f30-5f6a-4f9b-9f0f-1f2f3f4f5f6f');
+    expect(getToken()).toBe('jwt-token-for-tests');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/v1/auth/login');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      username: 'pablo@strength-lab.io',
+      password: 'StrongBioPass2026!'
+    });
+  });
+
+  it('maps a 401 to a credentials message and keeps no session', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(401, {
+      status: 401,
+      message: 'Credenciales incorrectas'
+    }));
+
     const result = await loginUser('carlos@example.com', 'wrongPassword');
+
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Contraseña incorrecta');
+    expect(result.error).toContain('Credenciales incorrectas');
+    expect(getToken()).toBeNull();
+    expect(getCurrentUser()).toBeNull();
   });
 
-  it('successfully logs in with correct password', async () => {
-    await registerUser('Carlos', 'carlos@example.com', 'correctPassword');
+  it('explains that the backend is down when fetch fails', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+
     const result = await loginUser('carlos@example.com', 'correctPassword');
-    expect(result.success).toBe(true);
-    expect(result.user?.email).toBe('carlos@example.com');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('No se pudo conectar con la API');
   });
 
-  it('logs in default seeded athlete (pablo@chance.app / pablo123)', async () => {
-    const result = await loginUser('pablo@chance.app', 'pablo123');
-    expect(result.success).toBe(true);
-    expect(result.user?.name).toContain('Pablo');
+  it('clears the JWT on logout', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, authPayload()));
+    await loginUser('pablo_coach', 'StrongBioPass2026!');
+    expect(getToken()).not.toBeNull();
+
+    setCurrentUser(null);
+
+    expect(getToken()).toBeNull();
+    expect(getCurrentUser()).toBeNull();
+  });
+
+  it('supports a local guest session without a JWT', () => {
+    const guest = loginDemoUser();
+
+    expect(guest.name).toContain('Invitado');
+    expect(isGuestUser(guest)).toBe(true);
+    expect(getCurrentUser()?.email).toBe('invitado@local');
+    expect(getToken()).toBeNull();
   });
 });

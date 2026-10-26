@@ -2,8 +2,9 @@ package com.mia.fitness.infrastructure.web;
 
 import com.mia.fitness.application.dto.BiomechanicalAlternativeDto;
 import com.mia.fitness.application.dto.SubstitutionRequestDto;
-import com.mia.fitness.application.service.BiomechanicalRagService;
+import com.mia.fitness.application.service.BiomechanicalSubstitutionService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -13,22 +14,24 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/biomechanics")
-@Tag(name = "Biomechanical Substitution RAG", description = "Endpoints de sustitución cinemática y protección articular con pgvector")
-@CrossOrigin(origins = "*")
+@Tag(name = "Biomechanical Substitution", description = "Sustitución cinemática por similitud semántica con pgvector")
+@SecurityRequirement(name = "bearerAuth")
 public class BiomechanicalSubstitutionController {
 
-    private final BiomechanicalRagService ragService;
+    private final BiomechanicalSubstitutionService substitutionService;
 
-    public BiomechanicalSubstitutionController(BiomechanicalRagService ragService) {
-        this.ragService = ragService;
+    public BiomechanicalSubstitutionController(BiomechanicalSubstitutionService substitutionService) {
+        this.substitutionService = substitutionService;
     }
 
     @PostMapping("/substitute")
-    @Operation(summary = "Sustitución cinemática por molestia articular", description = "Calcula la distancia coseno en pgvector para devolver alternativas mecánicamente equivalentes sin estrés articular")
+    @Operation(summary = "Sustitución cinemática por molestia articular",
+            description = "Embebe la consulta y recupera por distancia coseno (<=>) las alternativas más cercanas, " +
+                    "devolviendo la similitud real calculada por PostgreSQL")
     public ResponseEntity<List<BiomechanicalAlternativeDto>> getSubstitutes(
             @Valid @RequestBody SubstitutionRequestDto request
     ) {
-        List<BiomechanicalAlternativeDto> substitutes = ragService.findJointFriendlySubstitutes(request);
+        List<BiomechanicalAlternativeDto> substitutes = substitutionService.findJointFriendlySubstitutes(request);
         return ResponseEntity.ok(substitutes);
     }
 }

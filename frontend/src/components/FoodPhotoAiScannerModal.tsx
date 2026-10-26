@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { 
-  X, Camera, Upload, Sparkles, Check, Plus, Minus, Trash2, 
-  Flame, Utensils, AlertCircle, RefreshCw, Eye
+import {
+  X, Camera, Upload, Plus, Minus, Trash2,
+  Flame, AlertTriangle, Check, Info
 } from 'lucide-react';
 import { MealType, LoggedFoodItem } from '../types/workout';
 import { MEAL_TYPE_CONFIG } from '../data/spanishFoodDatabase';
@@ -23,6 +23,10 @@ interface DetectedIngredient {
   baseFatPer100g: number;
 }
 
+/**
+ * Curated example dishes. Their ingredients and macros are fixed data shipped
+ * with the app; they are NOT the output of a vision model.
+ */
 const SAMPLE_DISHES = [
   {
     id: 'dish_chicken_rice',
@@ -81,48 +85,36 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
 }) => {
   const [selectedMeal, setSelectedMeal] = useState<MealType>(targetMeal);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [uploadedOwnPhoto, setUploadedOwnPhoto] = useState(false);
   const [detectedIngredients, setDetectedIngredients] = useState<DetectedIngredient[] | null>(null);
-  const [detectedConfidence, setDetectedConfidence] = useState<number>(0.96);
+  const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  // Handle uploaded file or camera capture
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const url = event.target?.result as string;
-      setPhotoPreview(url);
-      runAiVisionAnalysis(SAMPLE_DISHES[0].ingredients);
+      setPhotoPreview(event.target?.result as string);
+      setUploadedOwnPhoto(true);
+      setSelectedSampleId(null);
+      setDetectedIngredients(null);
     };
     reader.readAsDataURL(file);
   };
 
-  // Run AI analysis with sample plate
   const handleSelectSample = (sample: typeof SAMPLE_DISHES[0]) => {
     setPhotoPreview(sample.imageUrl);
-    runAiVisionAnalysis(sample.ingredients);
+    setUploadedOwnPhoto(false);
+    setSelectedSampleId(sample.id);
+    setDetectedIngredients(sample.ingredients.map(ingredient => ({ ...ingredient })));
   };
 
-  const runAiVisionAnalysis = (initialIngredients: DetectedIngredient[]) => {
-    setIsAnalyzing(true);
-    setDetectedIngredients(null);
-
-    // Simulate multi-modal Vision model inference with structured JSON output
-    setTimeout(() => {
-      setDetectedIngredients(JSON.parse(JSON.stringify(initialIngredients)));
-      setDetectedConfidence(0.94 + Math.random() * 0.05);
-      setIsAnalyzing(false);
-    }, 1100);
-  };
-
-  // Adjust grams for an ingredient
   const handleAdjustGrams = (id: string, delta: number) => {
     if (!detectedIngredients) return;
-    setDetectedIngredients(prev => 
+    setDetectedIngredients(prev =>
       prev!.map(ing => {
         if (ing.id === id) {
           const next = Math.max(5, ing.estimatedGrams + delta);
@@ -133,13 +125,11 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
     );
   };
 
-  // Delete ingredient from detection
   const handleDeleteIngredient = (id: string) => {
     if (!detectedIngredients) return;
     setDetectedIngredients(prev => prev!.filter(ing => ing.id !== id));
   };
 
-  // Totals calculated from detected ingredients
   const totalCalories = detectedIngredients
     ? Math.round(detectedIngredients.reduce((sum, ing) => sum + (ing.estimatedGrams * ing.baseCaloriesPer100g) / 100, 0))
     : 0;
@@ -155,6 +145,8 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
   const totalFat = detectedIngredients
     ? Math.round(detectedIngredients.reduce((sum, ing) => sum + (ing.estimatedGrams * ing.baseFatPer100g) / 100, 0) * 10) / 10
     : 0;
+
+  const selectedSample = SAMPLE_DISHES.find(dish => dish.id === selectedSampleId) ?? null;
 
   const handleConfirmAndAdd = () => {
     if (!detectedIngredients || detectedIngredients.length === 0) return;
@@ -184,7 +176,7 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-[max(1rem,calc(env(safe-area-inset-top)+0.5rem))] pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] bg-black/85 backdrop-blur-md overflow-hidden">
       <div className="w-full max-w-xl bg-[#12141e] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-4 max-h-full flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3.5">
           <div className="flex items-center gap-2.5">
@@ -193,13 +185,13 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white">Escáner IA de Comida por Foto</h3>
+                <h3 className="text-base sm:text-lg font-black text-white">Comidas de Ejemplo</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  Llama 3.2 Vision
+                  Catálogo local
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Calcula calorías y macronutrientes a partir de la foto de tu plato
+                Carga los ingredientes y macros de un plato de ejemplo
               </p>
             </div>
           </div>
@@ -238,12 +230,12 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
             </div>
           </div>
 
-          {/* Upload / Capture Buttons */}
+          {/* Upload preview */}
           <div className="grid grid-cols-2 gap-2.5">
             <label className="p-3.5 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 border border-blue-500/40 rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition text-center shadow-md">
               <Camera className="w-5 h-5 text-blue-400" />
               <span className="text-xs font-bold text-white">Hacer Foto con Cámara</span>
-              <span className="text-[10px] text-slate-400">Capturar plato en directo</span>
+              <span className="text-[10px] text-slate-400">Solo vista previa</span>
               <input
                 type="file"
                 accept="image/*"
@@ -256,7 +248,7 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
             <label className="p-3.5 bg-[#181a28] hover:bg-[#202026] border border-slate-700/80 rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition text-center shadow-md">
               <Upload className="w-5 h-5 text-slate-400" />
               <span className="text-xs font-bold text-slate-200">Subir desde Galería</span>
-              <span className="text-[10px] text-slate-400">Seleccionar imagen o captura</span>
+              <span className="text-[10px] text-slate-400">Solo vista previa</span>
               <input
                 type="file"
                 accept="image/*"
@@ -266,10 +258,28 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
             </label>
           </div>
 
-          {/* Sample Photos Carousel for Instant Testing */}
+          {uploadedOwnPhoto && photoPreview && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-300 space-y-1.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  El reconocimiento de comida a partir de una foto propia <b>no está implementado</b>.
+                  La imagen solo se muestra como vista previa: elige un plato de ejemplo o registra los
+                  alimentos manualmente desde la pantalla de nutrición.
+                </span>
+              </div>
+              <img
+                src={photoPreview}
+                alt="Vista previa de tu foto"
+                className="w-full h-32 object-cover rounded-xl border border-amber-500/20"
+              />
+            </div>
+          )}
+
+          {/* Sample dishes */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-400 font-semibold">
-              <span>O prueba con un plato de ejemplo del gimnasio:</span>
+            <div className="text-xs text-slate-400 font-semibold">
+              Platos de ejemplo incluidos en la app:
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {SAMPLE_DISHES.map(dish => (
@@ -278,7 +288,7 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
                   type="button"
                   onClick={() => handleSelectSample(dish)}
                   className={`relative rounded-xl overflow-hidden border-2 text-left p-1 transition ${
-                    photoPreview === dish.imageUrl
+                    selectedSampleId === dish.id
                       ? 'border-blue-500 ring-2 ring-blue-500/30'
                       : 'border-slate-800 hover:border-slate-700 opacity-70 hover:opacity-100'
                   }`}
@@ -292,31 +302,22 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
             </div>
           </div>
 
-          {/* Analysis Progress State */}
-          {isAnalyzing && (
-            <div className="p-5 bg-[#181a28] border border-blue-500/30 rounded-2xl flex flex-col items-center justify-center text-center space-y-2.5 animate-in fade-in">
-              <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              <div className="text-xs font-bold text-white">Segmentando alimentos y analizando volumen del plato...</div>
-              <p className="text-[11px] text-slate-400">
-                Llama 3.2-Vision está extrayendo los ingredientes, pesaje estimado y densidad calórica.
-              </p>
-            </div>
-          )}
-
-          {/* Results: Ingredients Breakdown and Macros */}
-          {detectedIngredients && !isAnalyzing && (
+          {/* Example result */}
+          {detectedIngredients && !uploadedOwnPhoto && (
             <div className="space-y-3.5 bg-[#18181c] border border-white/[0.08] p-4 rounded-2xl animate-in fade-in">
-              
-              {/* Macro Summary Header */}
+
+              <div className="p-2 bg-amber-500/10 border border-amber-500/40 rounded-lg text-[11px] text-amber-300 flex items-start gap-1.5">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  Ejemplo ilustrativo: los ingredientes, pesos y macros pertenecen a la receta de muestra
+                  «{selectedSample?.title}», no a un análisis de imagen.
+                </span>
+              </div>
+
               <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
                 <div className="flex items-center gap-2">
                   <Flame className="w-5 h-5 text-amber-400" />
-                  <div>
-                    <div className="text-sm font-black text-white">Estimación Nutricional Total</div>
-                    <div className="text-[11px] text-emerald-400 font-bold tabular-nums">
-                      {(detectedConfidence * 100).toFixed(0)}% Confianza de Reconocimiento IA
-                    </div>
-                  </div>
+                  <div className="text-sm font-black text-white">Estimación nutricional del ejemplo</div>
                 </div>
 
                 <div className="text-right">
@@ -325,7 +326,6 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
                 </div>
               </div>
 
-              {/* 3 Macros Chips */}
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="bg-[#121215] p-2 rounded-xl border border-white/[0.04]">
                   <div className="text-[10px] font-bold text-blue-400 uppercase">Proteína</div>
@@ -341,10 +341,9 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
                 </div>
               </div>
 
-              {/* Detected Ingredients List with Grams Controls */}
               <div className="space-y-1.5 pt-1">
                 <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Alimentos detectados en el plato (puedes ajustar el peso):
+                  Ingredientes del ejemplo (puedes ajustar el peso):
                 </div>
 
                 {detectedIngredients.map(ing => {
@@ -363,7 +362,6 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
                         </div>
                       </div>
 
-                      {/* Grams Adjustment Buttons */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
@@ -423,7 +421,7 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition flex items-center gap-1.5"
             >
               <Check className="w-4 h-4" />
-              <span>Añadir {detectedIngredients.length} alimentos a mi comida</span>
+              <span>Añadir {detectedIngredients.length} alimentos de ejemplo</span>
             </button>
           ) : (
             <button
@@ -431,7 +429,7 @@ export const FoodPhotoAiScannerModal: React.FC<FoodPhotoAiScannerModalProps> = (
               disabled
               className="px-5 py-2.5 bg-slate-800 text-slate-500 text-xs font-bold rounded-xl cursor-not-allowed"
             >
-              Captura o elige un plato para escanear
+              Elige un plato de ejemplo
             </button>
           )}
         </div>

@@ -539,7 +539,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
             <div className="text-sm font-extrabold text-white flex items-center gap-2">
               Auditoría Biomecánica & Redundancias
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-500/40 font-bold">
-                IA & Curvas
+                Motor de reglas
               </span>
             </div>
             <div className="text-xs text-slate-300">

@@ -10,13 +10,16 @@ public record AuthResponse(
         @Schema(description = "Tipo de token", example = "Bearer")
         String tokenType,
 
-        @Schema(description = "Nombre del usuario autenticado", example = "pablo.mateos")
+        @Schema(description = "Nombre del usuario autenticado", example = "pablo_coach")
         String username,
 
         @Schema(description = "Milisegundos de validez del token", example = "86400000")
-        long expiresIn
+        long expiresIn,
+
+        @Schema(description = "Perfil público del usuario")
+        UserProfileDto user
 ) {
-    public static AuthResponse of(String token, String username, long expiresIn) {
-        return new AuthResponse(token, "Bearer", username, expiresIn);
+    public static AuthResponse of(String token, UserProfileDto user, long expiresIn) {
+        return new AuthResponse(token, "Bearer", user.username(), expiresIn, user);
     }
 }

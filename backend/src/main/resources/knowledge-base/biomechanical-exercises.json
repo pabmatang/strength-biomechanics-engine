@@ -1,0 +1,182 @@
+[
+  {
+    "name": "Technogym Pure Strength Chest Press",
+    "brand": "Technogym",
+    "targetMuscle": "chest",
+    "movementPlane": "Scapular convergent",
+    "jointStress": "Low subacromial shear",
+    "axialLoading": false,
+    "description": "Press convergente con brazos independientes y pedal de precarga; mantiene el húmero en el plano escapular."
+  },
+  {
+    "name": "Hammer Strength Iso-Lateral Decline Press",
+    "brand": "Hammer Strength",
+    "targetMuscle": "chest",
+    "movementPlane": "Sagittal decline",
+    "jointStress": "Moderate anterior capsule load",
+    "axialLoading": false,
+    "description": "Placas independientes con trayectoria declinada; reduce la tensión sobre el labrum anterosuperior."
+  },
+  {
+    "name": "Technogym Selection Pec Deck",
+    "brand": "Technogym",
+    "targetMuscle": "chest",
+    "movementPlane": "Transverse adduction",
+    "jointStress": "Low shoulder extension stress",
+    "axialLoading": false,
+    "description": "Aducción horizontal guiada con cojín de apoyo; evita el componente de extensión de hombro."
+  },
+  {
+    "name": "Technogym Pure Pulldown",
+    "brand": "Technogym",
+    "targetMuscle": "back",
+    "movementPlane": "Frontal vertical pull",
+    "jointStress": "Low lumbar shear",
+    "axialLoading": false,
+    "description": "Tracción vertical con trayectoria convergente; sin compresión axial sobre la columna lumbar."
+  },
+  {
+    "name": "Matrix Ultra Seated Row",
+    "brand": "Matrix",
+    "targetMuscle": "back",
+    "movementPlane": "Horizontal row",
+    "jointStress": "No spinal compression",
+    "axialLoading": false,
+    "description": "Remo sentado con apoyo torácico; el torso queda estabilizado y los erectores no sostienen momento flexor."
+  },
+  {
+    "name": "Hammer Strength Chest Supported T-Bar Row",
+    "brand": "Hammer Strength",
+    "targetMuscle": "back",
+    "movementPlane": "Horizontal row",
+    "jointStress": "Zero lumbar shear",
+    "axialLoading": false,
+    "description": "Remo con pecho apoyado; elimina el cizallamiento lumbar típico del remo inclinado con barra."
+  },
+  {
+    "name": "Technogym Selection Low Row",
+    "brand": "Technogym",
+    "targetMuscle": "back",
+    "movementPlane": "Horizontal row",
+    "jointStress": "Low lumbar load",
+    "axialLoading": false,
+    "description": "Remo bajo con apoyo de pies y pecho; carga traccional sin compresión vertebral."
+  },
+  {
+    "name": "Technogym Pure Shoulder Press",
+    "brand": "Technogym",
+    "targetMuscle": "shoulders",
+    "movementPlane": "Scapular plane press",
+    "jointStress": "Moderate subacromial stress",
+    "axialLoading": false,
+    "description": "Press vertical con agarre neutro y trayectoria en el plano escapular."
+  },
+  {
+    "name": "Matrix Ultra Lateral Raise",
+    "brand": "Matrix",
+    "targetMuscle": "shoulders",
+    "movementPlane": "Frontal abduction",
+    "jointStress": "Low impingement risk",
+    "axialLoading": false,
+    "description": "Elevación lateral con leva y punto de partida ajustable por debajo del pinzamiento."
+  },
+  {
+    "name": "Technogym Pure Leg Press 45",
+    "brand": "Technogym",
+    "targetMuscle": "quadriceps",
+    "movementPlane": "Sagittal closed chain",
+    "jointStress": "Low patellar shear",
+    "axialLoading": false,
+    "description": "Prensa inclinada 45 grados con plataforma amplia; permite modificar el brazo de momento rotuliano."
+  },
+  {
+    "name": "Technogym Pure Belt Squat",
+    "brand": "Technogym",
+    "targetMuscle": "quadriceps",
+    "movementPlane": "Sagittal guided",
+    "jointStress": "Zero spinal loading",
+    "axialLoading": false,
+    "description": "Sentadilla con cinturón y lastre separado del raquis; cero carga axial sobre la columna."
+  },
+  {
+    "name": "Panatta Super Hack Squat",
+    "brand": "Panatta",
+    "targetMuscle": "quadriceps",
+    "movementPlane": "Sagittal guided",
+    "jointStress": "Moderate patellofemoral compression",
+    "axialLoading": false,
+    "description": "Hack squat guiado a 45 grados con respaldo curvo que estabiliza el sacro."
+  },
+  {
+    "name": "Technogym Selection Leg Extension",
+    "brand": "Technogym",
+    "targetMuscle": "quadriceps",
+    "movementPlane": "Knee extension",
+    "jointStress": "High patellofemoral shear",
+    "axialLoading": false,
+    "description": "Extensión de rodilla aislada; útil para hipertrofia del cuádriceps pero con alta cizalla rotuliana."
+  },
+  {
+    "name": "Technogym Pure Hip Thrust",
+    "brand": "Technogym",
+    "targetMuscle": "glutes",
+    "movementPlane": "Hip extension",
+    "jointStress": "No lumbar flexion moment",
+    "axialLoading": false,
+    "description": "Empuje de cadera con respaldo escapular; el glúteo trabaja sin momento de flexión lumbar."
+  },
+  {
+    "name": "Hammer Strength Kneeling Leg Curl",
+    "brand": "Hammer Strength",
+    "targetMuscle": "hamstrings",
+    "movementPlane": "Knee flexion",
+    "jointStress": "Low patellar stress",
+    "axialLoading": false,
+    "description": "Curl femoral arrodillado unilateral; pre-estira el isquiosural en la cadera."
+  },
+  {
+    "name": "Technogym Selection Standing Calf",
+    "brand": "Technogym",
+    "targetMuscle": "calves",
+    "movementPlane": "Ankle plantarflexion",
+    "jointStress": "Low ankle shear",
+    "axialLoading": false,
+    "description": "Elevación de talones de pie con hombros cargados; rango completo con dorsiflexión controlada."
+  },
+  {
+    "name": "Technogym Selection Abdominal Crunch",
+    "brand": "Technogym",
+    "targetMuscle": "abs",
+    "movementPlane": "Trunk flexion",
+    "jointStress": "Moderate lumbar flexion load",
+    "axialLoading": false,
+    "description": "Flexión de tronco guiada con rango limitado para proteger la columna lumbar."
+  },
+  {
+    "name": "Barbell Back Squat",
+    "brand": "Eleiko",
+    "targetMuscle": "quadriceps",
+    "movementPlane": "Sagittal barbell",
+    "jointStress": "High axial spinal loading",
+    "axialLoading": true,
+    "description": "Sentadilla trasera con barra; máxima transferencia pero alta compresión axial en L4-L5."
+  },
+  {
+    "name": "Barbell Bench Press",
+    "brand": "Eleiko",
+    "targetMuscle": "chest",
+    "movementPlane": "Horizontal press",
+    "jointStress": "High subacromial shear",
+    "axialLoading": false,
+    "description": "Press de banca con barra; la abducción a 90 grados incrementa el riesgo de pinzamiento subacromial."
+  },
+  {
+    "name": "Conventional Deadlift",
+    "brand": "Eleiko",
+    "targetMuscle": "back",
+    "movementPlane": "Hip hinge",
+    "jointStress": "High axial spinal loading",
+    "axialLoading": true,
+    "description": "Peso muerto convencional; gran demanda de erectores y alta compresión axial."
+  }
+]

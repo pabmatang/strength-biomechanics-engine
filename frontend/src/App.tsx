@@ -14,7 +14,7 @@ import { EnergyBalanceScreen } from './components/EnergyBalanceScreen';
 import { SocialFeedScreen } from './components/SocialFeedScreen';
 import { FatSecretNutritionScreen } from './components/FatSecretNutritionScreen';
 import { AuthScreen } from './components/AuthScreen';
-import { getCurrentUser, setCurrentUser, fetchSnapshotFromCloud, syncSnapshotToCloud } from './utils/cloudSync';
+import { getCurrentUser, setCurrentUser, loadSnapshotLocally, saveSnapshotLocally } from './utils/cloudSync';
 import { UserProfile, UserDataSnapshot } from './types/workout';
 import { Cloud } from 'lucide-react';
 import { checkAndTriggerDailyReminder } from './utils/notificationService';
@@ -151,15 +151,14 @@ const INITIAL_MEASUREMENTS: BodyTapeMeasurement[] = [
   }
 ];
 
-const INITIAL_STEP_HISTORY: DailyStepEntry[] = [
-  { id: 'step_1', date: '2026-10-21', steps: 9450, distance_km: 7.1, active_calories: 380, source: 'Google Health Connect' },
-  { id: 'step_2', date: '2026-10-20', steps: 11200, distance_km: 8.4, active_calories: 450, source: 'Google Health Connect' },
-  { id: 'step_3', date: '2026-10-19', steps: 10400, distance_km: 7.8, active_calories: 415, source: 'Google Health Connect' },
-  { id: 'step_4', date: '2026-10-18', steps: 8900, distance_km: 6.7, active_calories: 355, source: 'Google Health Connect' },
-  { id: 'step_5', date: '2026-10-17', steps: 12500, distance_km: 9.3, active_calories: 500, source: 'Sensor del Dispositivo' },
-  { id: 'step_6', date: '2026-10-16', steps: 9800, distance_km: 7.3, active_calories: 390, source: 'Sensor del Dispositivo' },
-  { id: 'step_7', date: '2026-10-15', steps: 8600, distance_km: 6.4, active_calories: 345, source: 'Manual' }
-];
+const INITIAL_STEP_HISTORY: DailyStepEntry[] = [];
+
+/**
+ * This app has no Health Connect / Apple Health integration, so any stored entry
+ * claiming one of those sources came from the old simulated sync and is dropped.
+ */
+const sanitizeStepHistory = (entries: DailyStepEntry[] | undefined): DailyStepEntry[] =>
+  (entries ?? []).filter(entry => entry.source === 'Manual');
 
 const INITIAL_SOCIAL_POSTS: SocialPost[] = [
   {
@@ -253,8 +252,7 @@ const INITIAL_SETTINGS: AppSettings = {
   show_rpe: true,
   weight_unit: 'kg',
   auto_start_timer: true,
-  sound_enabled: true,
-  sync_health_apps: true
+  sound_enabled: true
 };
 
 // Safe localStorage getter helper
@@ -319,8 +317,8 @@ export function App() {
     getStoredJson('mia_tape_measurements', INITIAL_MEASUREMENTS)
   );
 
-  const [stepHistory, setStepHistory] = useState<DailyStepEntry[]>(() => 
-    getStoredJson('mia_step_history', INITIAL_STEP_HISTORY)
+  const [stepHistory, setStepHistory] = useState<DailyStepEntry[]>(() =>
+    sanitizeStepHistory(getStoredJson('mia_step_history', INITIAL_STEP_HISTORY))
   );
 
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>(() => 
@@ -423,23 +421,22 @@ export function App() {
       if (snapshot.history) setHistory(snapshot.history);
       if (snapshot.weights) setWeights(snapshot.weights);
       if (snapshot.calorieHistory) setCalorieHistory(snapshot.calorieHistory);
-      if (snapshot.stepHistory) setStepHistory(snapshot.stepHistory);
+      if (snapshot.stepHistory) setStepHistory(sanitizeStepHistory(snapshot.stepHistory));
       if (snapshot.cardioSessions) setCardioSessions(snapshot.cardioSessions);
       if (snapshot.measurements) setMeasurements(snapshot.measurements);
       if (snapshot.settings) setSettings(snapshot.settings);
     } else {
-      fetchSnapshotFromCloud(user.email).then(remoteSnapshot => {
-        if (remoteSnapshot) {
-          if (remoteSnapshot.routines && remoteSnapshot.routines.length > 0) setRoutines(remoteSnapshot.routines);
-          if (remoteSnapshot.history) setHistory(remoteSnapshot.history);
-          if (remoteSnapshot.weights) setWeights(remoteSnapshot.weights);
-          if (remoteSnapshot.calorieHistory) setCalorieHistory(remoteSnapshot.calorieHistory);
-          if (remoteSnapshot.stepHistory) setStepHistory(remoteSnapshot.stepHistory);
-          if (remoteSnapshot.cardioSessions) setCardioSessions(remoteSnapshot.cardioSessions);
-          if (remoteSnapshot.measurements) setMeasurements(remoteSnapshot.measurements);
-          if (remoteSnapshot.settings) setSettings(remoteSnapshot.settings);
-        }
-      });
+      const localSnapshot = loadSnapshotLocally(user.email);
+      if (localSnapshot) {
+        if (localSnapshot.routines && localSnapshot.routines.length > 0) setRoutines(localSnapshot.routines);
+        if (localSnapshot.history) setHistory(localSnapshot.history);
+        if (localSnapshot.weights) setWeights(localSnapshot.weights);
+        if (localSnapshot.calorieHistory) setCalorieHistory(localSnapshot.calorieHistory);
+        if (localSnapshot.stepHistory) setStepHistory(sanitizeStepHistory(localSnapshot.stepHistory));
+        if (localSnapshot.cardioSessions) setCardioSessions(localSnapshot.cardioSessions);
+        if (localSnapshot.measurements) setMeasurements(localSnapshot.measurements);
+        if (localSnapshot.settings) setSettings(localSnapshot.settings);
+      }
     }
   };
 
@@ -464,12 +461,11 @@ export function App() {
       settings,
       lastSyncedAt: new Date().toISOString()
     };
-    const ok = await syncSnapshotToCloud(snapshot);
+    const ok = await saveSnapshotLocally(snapshot);
     setSyncStatus(ok ? 'synced' : 'error');
-    setTimeout(() => setSyncStatus('synced'), 2500);
   };
 
-  // Debounced auto-sync to cloud when data changes
+  // Debounced local persistence when data changes
   useEffect(() => {
     if (!currentUser) return;
     const timer = setTimeout(async () => {
@@ -486,8 +482,8 @@ export function App() {
         settings,
         lastSyncedAt: new Date().toISOString()
       };
-      await syncSnapshotToCloud(snapshot);
-      setSyncStatus('synced');
+      const ok = await saveSnapshotLocally(snapshot);
+      setSyncStatus(ok ? 'synced' : 'error');
     }, 2000);
     return () => clearTimeout(timer);
   }, [currentUser, routines, history, weights, calorieHistory, cardioSessions, stepHistory, measurements, settings]);
@@ -572,8 +568,8 @@ export function App() {
 
     setActiveWorkout({
       id: `workout_${Date.now()}`,
-      title: `Sesión IA: ${template.title}`,
-      description: 'Generada con IA Biomecánica (Llama 3.2-Vision / pgvector)',
+      title: `Sesión: ${template.title}`,
+      description: 'Ejercicio añadido desde el módulo de IA biomecánica',
       start_time: new Date().toISOString(),
       end_time: '',
       duration_seconds: 0,
@@ -687,7 +683,7 @@ export function App() {
               <span>Libre</span>
             </button>
 
-            {/* Unified User Profile, Cloud Sync & Settings Pill */}
+            {/* Unified User Profile, Local Storage & Settings Pill */}
             <button
               onClick={() => setIsSettingsModalOpen(true)}
               className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-900 border border-slate-800 hover:border-slate-700 active:scale-95 rounded-xl transition text-xs shadow-sm"
@@ -761,7 +757,7 @@ export function App() {
                 }`}
               >
                 <Utensils className="w-3.5 h-3.5" />
-                <span>Nutrición IA</span>
+                <span>Nutrición</span>
               </button>
 
               <button
@@ -816,7 +812,7 @@ export function App() {
                       protein_grams: protein,
                       carbs_grams: carbs,
                       fat_grams: fat,
-                      notes: 'Sincronizado desde Nutrición Inteligente (IA de Voz)'
+                      notes: 'Añadido desde el registro nutricional (dictado por voz)'
                     }, ...filtered];
                   });
                 }}
@@ -827,7 +823,6 @@ export function App() {
               <DailyStepsScreen
                 stepHistory={stepHistory}
                 onAddStepEntry={(entry) => setStepHistory(prev => [entry, ...prev])}
-                syncHealthEnabled={settings.sync_health_apps}
                 cardioSessions={cardioSessions}
                 onAddCardioSession={(session) => setCardioSessions(prev => [session, ...prev])}
                 onDeleteCardioSession={(id) => setCardioSessions(prev => prev.filter(c => c.id !== id))}
@@ -838,8 +833,13 @@ export function App() {
               <EnergyBalanceScreen
                 currentWeightKg={weights[0]?.weight_kg || 78}
                 weights={weights}
-                avgDailySteps={stepHistory[0]?.steps || 9500}
-                weeklyWorkoutsCount={history.length > 0 ? 4 : 3}
+                avgDailySteps={stepHistory.length
+                  ? Math.round(stepHistory.reduce((sum, entry) => sum + entry.steps, 0) / stepHistory.length)
+                  : 0}
+                weeklyWorkoutsCount={history.filter(workout => {
+                  const start = new Date(workout.start_time).getTime();
+                  return Number.isFinite(start) && Date.now() - start <= 7 * 24 * 60 * 60 * 1000;
+                }).length}
                 cardioSessions={cardioSessions}
                 calorieHistory={calorieHistory}
                 onAddCalorieEntry={(entry) => setCalorieHistory(prev => [entry, ...prev])}
@@ -935,7 +935,7 @@ export function App() {
         onAddExercise={handleAddExerciseFromAi}
       />
 
-      {/* App Settings Modal with Account & Cloud Sync */}
+      {/* App Settings Modal with Account & Local Storage */}
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}

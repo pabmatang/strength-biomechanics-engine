@@ -202,7 +202,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       routines.push({
         id: `smart_routine_${Date.now()}_${dayIdx}`,
         title: day.name,
-        folder_name: `Plan IA (${daysPerWeek} días • ${durationMinutes} min)`,
+        folder_name: `Plan automático (${daysPerWeek} días • ${durationMinutes} min)`,
         description: `Rutina optimizada con ${exercises.length} ejercicios. Enfoque en: ${priorityMuscles.map(m => formatMuscleName(m)).join(', ')}.`,
         exercises,
         created_at: new Date().toISOString(),
@@ -535,7 +535,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 <div>
                   <h4 className="text-sm font-bold text-white flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Rutinas Generadas por IA ({generatedRoutines.length} sesiones)</span>
+                    <span>Rutinas generadas ({generatedRoutines.length} sesiones)</span>
                   </h4>
                   <p className="text-xs text-slate-400">
                     Músculos prioritarios ubicados al inicio con mayor volumen.
@@ -665,7 +665,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center gap-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Generar Rutina con IA</span>
+              <span>Generar rutina automática</span>
             </button>
           ) : (
             <div className="flex items-center gap-2">

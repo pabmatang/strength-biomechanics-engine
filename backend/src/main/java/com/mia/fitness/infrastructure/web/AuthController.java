@@ -3,10 +3,14 @@ package com.mia.fitness.infrastructure.web;
 import com.mia.fitness.application.dto.AuthRequest;
 import com.mia.fitness.application.dto.AuthResponse;
 import com.mia.fitness.application.dto.RegisterRequest;
+import com.mia.fitness.application.dto.UserProfileDto;
+import com.mia.fitness.application.service.AuthService;
+import com.mia.fitness.domain.model.User;
 import com.mia.fitness.infrastructure.security.JwtService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -17,45 +21,55 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@Tag(name = "Authentication", description = "Endpoints de autenticación y emisión de tokens JWT")
+@Tag(name = "Authentication", description = "Registro, login y perfil con JWT stateless")
 public class AuthController {
 
+    private final AuthService authService;
     private final JwtService jwtService;
 
-    public AuthController(JwtService jwtService) {
+    public AuthController(AuthService authService, JwtService jwtService) {
+        this.authService = authService;
         this.jwtService = jwtService;
     }
 
     @PostMapping("/login")
-    @Operation(summary = "Autenticar usuario y emitir JWT", description = "Valida credenciales y genera un Bearer Token con expiración de 24h")
+    @Operation(summary = "Autenticar usuario y emitir JWT",
+            description = "Verifica la contraseña con BCrypt y emite un Bearer token")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Autenticación exitosa"),
-            @ApiResponse(responseCode = "400", description = "Credenciales inválidas")
+            @ApiResponse(responseCode = "401", description = "Credenciales incorrectas")
     })
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody AuthRequest request) {
-        // Issue token for the authenticated user
-        String token = jwtService.generateToken(request.username(), Map.of("role", "ROLE_USER"));
-        return ResponseEntity.ok(AuthResponse.of(token, request.username(), 86400000L));
+        User user = authService.authenticate(request.username(), request.password());
+        return ResponseEntity.ok(issueToken(user));
     }
 
     @PostMapping("/register")
-    @Operation(summary = "Registrar nuevo usuario", description = "Crea un nuevo perfil y devuelve el token de sesión JWT inmediato")
+    @Operation(summary = "Registrar nuevo usuario",
+            description = "Crea la cuenta con la contraseña hasheada y devuelve el token de sesión")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Registro exitoso"),
-            @ApiResponse(responseCode = "400", description = "Datos de registro inválidos")
+            @ApiResponse(responseCode = "400", description = "Datos de registro inválidos"),
+            @ApiResponse(responseCode = "409", description = "Usuario o email ya registrados")
     })
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-        String token = jwtService.generateToken(request.username(), Map.of("email", request.email(), "role", "ROLE_USER"));
-        return ResponseEntity.ok(AuthResponse.of(token, request.username(), 86400000L));
+        User user = authService.register(request);
+        return ResponseEntity.ok(issueToken(user));
     }
 
     @GetMapping("/me")
-    @Operation(summary = "Obtener perfil del usuario actual", description = "Devuelve el usuario decodificado a partir del Bearer token")
-    public ResponseEntity<Map<String, Object>> getCurrentUser(@AuthenticationPrincipal String username) {
-        return ResponseEntity.ok(Map.of(
-                "username", username != null ? username : "anonymous",
-                "authenticated", username != null,
-                "engineStatus", "ONLINE"
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Obtener perfil del usuario actual",
+            description = "Devuelve el perfil asociado al Bearer token")
+    public ResponseEntity<UserProfileDto> getCurrentUser(@AuthenticationPrincipal String username) {
+        return ResponseEntity.ok(UserProfileDto.from(authService.requireByUsername(username)));
+    }
+
+    private AuthResponse issueToken(User user) {
+        String token = jwtService.generateToken(user.getUsername(), Map.of(
+                "role", "ROLE_" + user.getRole(),
+                "email", user.getEmail()
         ));
+        return AuthResponse.of(token, UserProfileDto.from(user), jwtService.getExpirationMs());
     }
 }

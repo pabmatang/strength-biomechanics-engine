@@ -1,21 +1,18 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: mia_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mia_fitness
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-mia_fitness}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d mia_fitness"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-mia_fitness}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,7 +22,7 @@ services:
     container_name: mia_ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama_storage:/root/.ollama
 
@@ -43,12 +40,15 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/mia_fitness
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-mia_fitness}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
-      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2-vision
-      SPRING_AI_OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+      SPRING_AI_OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2-vision}
+      SPRING_AI_OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      SEED_KNOWLEDGE_BASE: ${SEED_KNOWLEDGE_BASE:-true}
 
 volumes:
   postgres_data:

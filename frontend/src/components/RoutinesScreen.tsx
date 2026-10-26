@@ -350,7 +350,7 @@ export const RoutinesScreen: React.FC<RoutinesScreenProps> = ({
             title="Asistente inteligente: recomienda rutina según días, prioridad de músculos y tiempo"
           >
             <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
-            <span>Asistente IA</span>
+            <span>Asistente de rutinas</span>
           </button>
 
           <button

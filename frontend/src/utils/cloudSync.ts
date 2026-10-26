@@ -1,8 +1,17 @@
 import { UserProfile, UserDataSnapshot } from '../types/workout';
+import {
+  ApiError,
+  ApiUserProfile,
+  TrainingGoal,
+  loginRequest,
+  registerRequest,
+  setToken
+} from './api';
 
 const AUTH_USER_KEY = 'chance_auth_user';
-const USERS_REGISTRY_KEY = 'chance_local_users_registry';
-const USER_DATA_PREFIX = 'chance_userdata_';
+const USER_DATA_PREFIX = 'chance_local_snapshot_';
+const GUEST_EMAIL = 'invitado@local';
+const GUEST_ID = 'guest_local';
 
 export interface AuthResult {
   success: boolean;
@@ -11,230 +20,192 @@ export interface AuthResult {
   snapshot?: UserDataSnapshot | null;
 }
 
-// Helper to sanitize email as storage key
+/**
+ * Accounts live in PostgreSQL and are verified by the Spring Boot API (BCrypt + JWT).
+ * This module only persists the returned token and a local UI cache of the profile,
+ * plus per-user workout data for offline use. There is no client-side password
+ * registry and no fake "cloud" stored in the browser.
+ */
+
 function getSafeKey(email: string): string {
   return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
 }
 
-/**
- * Get users registry from localStorage, initialized with default demo athlete if empty
- */
-function getUsersRegistry(): Record<string, { user: UserProfile; passwordHash: string; created_at: string }> {
-  try {
-    const raw = localStorage.getItem(USERS_REGISTRY_KEY);
-    const registry = raw ? JSON.parse(raw) : {};
-
-    // Seed default demo account if not exists
-    const demoEmail = 'pablo@chance.app';
-    if (!registry[demoEmail]) {
-      registry[demoEmail] = {
-        user: {
-          id: 'user_pablo_athlete',
-          name: 'Pablo (Atleta CHΔNCE)',
-          email: demoEmail,
-          goal: 'hypertrophy',
-          created_at: '2026-01-01T00:00:00.000Z'
-        },
-        passwordHash: btoa('pablo123'),
-        created_at: '2026-01-01T00:00:00.000Z'
-      };
-      localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(registry));
-    }
-
-    return registry;
-  } catch {
-    return {};
-  }
+function toUserProfile(user: ApiUserProfile): UserProfile {
+  const goal: TrainingGoal = user.goal ?? 'hypertrophy';
+  return {
+    id: user.id,
+    name: user.username,
+    email: user.email,
+    goal,
+    created_at: user.createdAt
+  };
 }
 
-/**
- * Get the currently logged-in user session from localStorage
- */
+function toAuthResult(user: ApiUserProfile, token: string): AuthResult {
+  setToken(token);
+  const profile = toUserProfile(user);
+  setCurrentUser(profile);
+  return { success: true, user: profile, snapshot: loadSnapshotLocally(profile.email) };
+}
+
 export function getCurrentUser(): UserProfile | null {
   try {
     const raw = localStorage.getItem(AUTH_USER_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+
+    const user = JSON.parse(raw) as UserProfile;
+    if (!user?.email) return null;
+
+    // Guests have no backend session on purpose; real accounts must keep their JWT.
+    const isGuest = user.id === GUEST_ID;
+    if (!isGuest && !localStorage.getItem('chance_auth_token')) {
+      localStorage.removeItem(AUTH_USER_KEY);
+      return null;
+    }
+    return user;
   } catch {
     return null;
   }
 }
 
-/**
- * Save user session to localStorage
- */
-export function setCurrentUser(user: UserProfile | null) {
-  if (user) {
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-  } else {
-    localStorage.removeItem(AUTH_USER_KEY);
+/** Saves the session profile. Passing null logs out and clears the JWT. */
+export function setCurrentUser(user: UserProfile | null): void {
+  try {
+    if (user) {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(AUTH_USER_KEY);
+      setToken(null);
+    }
+  } catch {
+    // Ignore storage failures: the app still works for the current tab.
   }
 }
 
 /**
- * Register a new user account (Strict verification - fails if user already exists)
+ * Derives a backend-compatible username (3-50 chars) from the display name.
+ * The backend accepts login with either username or email.
  */
+export function usernameFromName(name: string, email: string): string {
+  const normalized = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  if (normalized.length >= 3) {
+    return normalized.slice(0, 50);
+  }
+
+  const emailPrefix = email.split('@')[0] ?? '';
+  const fallback = emailPrefix
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return (fallback.length >= 3 ? fallback : `user_${fallback}`).slice(0, 50);
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 export async function registerUser(
   name: string,
   email: string,
   password: string,
-  goal: 'hypertrophy' | 'fat_loss' | 'strength' | 'recomposition' = 'hypertrophy'
+  goal: TrainingGoal = 'hypertrophy'
 ): Promise<AuthResult> {
   const cleanEmail = email.trim().toLowerCase();
-  const cleanPass = password.trim();
+  const cleanName = name.trim();
 
-  if (!cleanEmail) {
-    return { success: false, error: 'Por favor, introduce tu correo electrónico.' };
+  if (!EMAIL_PATTERN.test(cleanEmail)) {
+    return { success: false, error: 'El formato del correo electrónico no es válido.' };
   }
-  if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-    return { success: false, error: 'El formato de correo electrónico no es válido.' };
+  if (password.length < 6) {
+    return { success: false, error: 'La contraseña debe tener al menos 6 caracteres.' };
   }
-  if (!cleanPass || cleanPass.length < 4) {
-    return { success: false, error: 'La contraseña debe tener al menos 4 caracteres.' };
-  }
-
-  const registry = getUsersRegistry();
-
-  // STRICT: Check if user already exists
-  if (registry[cleanEmail]) {
-    return {
-      success: false,
-      error: 'Ya existe una cuenta con este correo electrónico. Por favor, inicia sesión.'
-    };
-  }
-
-  const user: UserProfile = {
-    id: `user_${getSafeKey(cleanEmail)}`,
-    name: name.trim() || cleanEmail.split('@')[0],
-    email: cleanEmail,
-    goal,
-    created_at: new Date().toISOString()
-  };
-
-  registry[cleanEmail] = {
-    user,
-    passwordHash: btoa(cleanPass),
-    created_at: new Date().toISOString()
-  };
 
   try {
-    localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(registry));
-    setCurrentUser(user);
-    return { success: true, user };
-  } catch (err: any) {
-    return { success: false, error: 'Error al registrar usuario: ' + err.message };
-  }
-}
-
-/**
- * Log in with existing credentials (Strict verification of email/username & password)
- */
-export async function loginUser(emailOrUsername: string, password: string): Promise<AuthResult> {
-  const cleanInput = emailOrUsername.trim().toLowerCase();
-  const cleanPass = password.trim();
-
-  if (!cleanInput) {
-    return { success: false, error: 'Por favor, introduce tu correo o nombre de usuario.' };
-  }
-  if (!cleanPass) {
-    return { success: false, error: 'Por favor, introduce tu contraseña.' };
-  }
-
-  const registry = getUsersRegistry();
-
-  // 1. Direct match by email
-  let record = registry[cleanInput];
-
-  // 2. If not found by email, search by username or email prefix
-  if (!record) {
-    const matchingKey = Object.keys(registry).find(key => {
-      const regUser = registry[key]?.user;
-      return (
-        regUser?.name?.toLowerCase() === cleanInput ||
-        key.split('@')[0].toLowerCase() === cleanInput
-      );
+    const response = await registerRequest({
+      username: usernameFromName(cleanName, cleanEmail),
+      email: cleanEmail,
+      password,
+      goal
     });
-    if (matchingKey) {
-      record = registry[matchingKey];
-    }
+    return toAuthResult(response.user, response.token);
+  } catch (error) {
+    return { success: false, error: describeAuthError(error, 'No se pudo crear la cuenta.') };
+  }
+}
+
+export async function loginUser(emailOrUsername: string, password: string): Promise<AuthResult> {
+  const identifier = emailOrUsername.trim();
+
+  if (!identifier) {
+    return { success: false, error: 'Introduce tu email o nombre de usuario.' };
+  }
+  if (!password) {
+    return { success: false, error: 'Introduce tu contraseña.' };
   }
 
-  // 3. User does not exist in registry
-  if (!record) {
-    return {
-      success: false,
-      error: 'Usuario no registrado. Comprueba tus datos o ve a la pestaña "Crear Cuenta".'
-    };
+  try {
+    const response = await loginRequest(identifier, password);
+    return toAuthResult(response.user, response.token);
+  } catch (error) {
+    return { success: false, error: describeAuthError(error, 'No se pudo iniciar sesión.') };
   }
-
-  // 4. Verify password hash
-  const expectedHash = record.passwordHash;
-  const providedHash = btoa(cleanPass);
-
-  if (expectedHash !== providedHash) {
-    return {
-      success: false,
-      error: 'Contraseña incorrecta. Por favor, verifica tu clave de acceso.'
-    };
-  }
-
-  // 5. Successful login
-  setCurrentUser(record.user);
-  
-  // Load user's saved snapshot if available
-  const safeKey = getSafeKey(record.user.email);
-  const savedSnapshotRaw = localStorage.getItem(`${USER_DATA_PREFIX}${safeKey}`);
-  const snapshot = savedSnapshotRaw ? JSON.parse(savedSnapshotRaw) : null;
-
-  return { success: true, user: record.user, snapshot };
 }
 
 /**
- * Quick Demo Login
+ * Local guest session: no account, no JWT, no server persistence.
+ * The UI labels it explicitly so it is never confused with a real login.
  */
 export function loginDemoUser(): UserProfile {
-  const demoUser: UserProfile = {
-    id: 'user_pablo_athlete',
-    name: 'Pablo (Atleta CHΔNCE)',
-    email: 'pablo@chance.app',
+  const guest: UserProfile = {
+    id: GUEST_ID,
+    name: 'Invitado (solo local)',
+    email: GUEST_EMAIL,
     goal: 'hypertrophy',
     created_at: new Date().toISOString()
   };
-  setCurrentUser(demoUser);
-  return demoUser;
+  setCurrentUser(guest);
+  return guest;
+}
+
+export function isGuestUser(user: UserProfile | null): boolean {
+  return user?.id === GUEST_ID;
 }
 
 /**
- * Push snapshot to Cloud & Local Storage
+ * Persists the snapshot in localStorage for offline use. This is local-first
+ * storage, not a cloud backup: the API has workout endpoints for analytics, but
+ * there is no multi-device snapshot sync endpoint.
  */
-export async function syncSnapshotToCloud(snapshot: UserDataSnapshot): Promise<boolean> {
-  const safeKey = getSafeKey(snapshot.user.email);
-  
-  // Always save locally per-user first
+export async function saveSnapshotLocally(snapshot: UserDataSnapshot): Promise<boolean> {
   try {
-    localStorage.setItem(`${USER_DATA_PREFIX}${safeKey}`, JSON.stringify(snapshot));
+    localStorage.setItem(
+      `${USER_DATA_PREFIX}${getSafeKey(snapshot.user.email)}`,
+      JSON.stringify(snapshot)
+    );
     return true;
   } catch {
     return false;
   }
 }
 
-/**
- * Pull latest snapshot from Cloud / Local
- */
-export async function fetchSnapshotFromCloud(email: string): Promise<UserDataSnapshot | null> {
+export function loadSnapshotLocally(email: string): UserDataSnapshot | null {
   try {
-    const safeKey = getSafeKey(email);
-    const raw = localStorage.getItem(`${USER_DATA_PREFIX}${safeKey}`);
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(`${USER_DATA_PREFIX}${getSafeKey(email)}`);
+    return raw ? JSON.parse(raw) as UserDataSnapshot : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Multi-device instant transfer code (base64 compressed sync payload)
- */
+/** Base64 payload for moving a snapshot between devices by hand (clipboard/QR). */
 export function exportSyncPayload(snapshot: UserDataSnapshot): string {
   try {
     const jsonStr = JSON.stringify(snapshot);
@@ -255,4 +226,17 @@ export function importSyncPayload(code: string): UserDataSnapshot | null {
   } catch {
     return null;
   }
+}
+
+function describeAuthError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return 'Credenciales incorrectas. Revisa tu email/usuario y contraseña.';
+    }
+    if (error.status === 0) {
+      return error.message;
+    }
+    return error.message || fallback;
+  }
+  return fallback;
 }

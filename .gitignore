@@ -51,3 +51,7 @@ logs/
 *.log
 scratch/
 tmp/
+
+# Local persisted user data (the API stores accounts in PostgreSQL)
+frontend/data/
+frontend/data/users/

@@ -87,10 +87,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onUpdateSettings({ ...settings, sound_enabled: !settings.sound_enabled });
   };
 
-  const toggleHealthSync = () => {
-    onUpdateSettings({ ...settings, sync_health_apps: !settings.sync_health_apps });
-  };
-
   const toggleWeightUnit = (unit: 'kg' | 'lbs') => {
     onUpdateSettings({ ...settings, weight_unit: unit });
   };
@@ -107,7 +103,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold">Ajustes & Cuenta</h2>
-              <p className="text-xs text-slate-400">CHΔNCE · Sincronización en la Nube</p>
+              <p className="text-xs text-slate-400">CHΔNCE · Cuenta y datos locales</p>
             </div>
           </div>
           <button
@@ -150,12 +146,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
-            {/* Cloud Sync Status */}
+            {/* Local storage status */}
             <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs">
               <div className="flex items-center gap-1.5 text-slate-300">
                 <Cloud className={`w-4 h-4 ${syncStatus === 'syncing' ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`} />
                 <span>
-                  {syncStatus === 'syncing' ? 'Guardando en la nube...' : 'Sincronizado con todos tus dispositivos'}
+                  {syncStatus === 'syncing' ? 'Guardando en este navegador...' : 'Guardado en este dispositivo'}
                 </span>
               </div>
               {onForceSync && (
@@ -165,7 +161,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-semibold transition flex items-center gap-1"
                 >
                   <RefreshCw className={`w-3 h-3 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                  <span>Sincronizar</span>
+                  <span>Guardar</span>
                 </button>
               )}
             </div>
@@ -294,7 +290,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
-          {/* Toggle Health Apps Sync */}
+          {/* Health integrations: intentionally not implemented */}
           <div className="flex items-center justify-between p-3.5 bg-[#181a28] rounded-2xl border border-slate-800">
             <div className="space-y-0.5 pr-2">
               <div className="font-bold text-slate-100 flex items-center gap-1.5">
@@ -302,18 +298,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span>Sincronizar Pasos & Salud</span>
               </div>
               <p className="text-xs text-slate-400">
-                Conectar con Google Health Connect, Apple Health o podómetro del dispositivo.
+                Sin integración con Health Connect ni Apple Health: los pasos se registran a mano
+                y se guardan solo en este dispositivo.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={toggleHealthSync}
-              className={`w-12 h-6 flex items-center rounded-full p-1 transition duration-300 ${
-                settings.sync_health_apps ? 'bg-emerald-600 justify-end' : 'bg-slate-700 justify-start'
-              }`}
-            >
-              <div className="w-4 h-4 rounded-full bg-white shadow-md transform" />
-            </button>
+            <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-800 text-slate-400 border border-slate-700 whitespace-nowrap">
+              No disponible
+            </span>
           </div>
 
           {/* Toggle Sound Effects */}

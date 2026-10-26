@@ -1,5 +1,5 @@
-# Stage 1: Build React PWA with Node.js 20
-FROM node:20-alpine AS build
+# Stage 1: Build React PWA with Node.js 22 (Vite 8 requires >= 20.19 / 22.12)
+FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./

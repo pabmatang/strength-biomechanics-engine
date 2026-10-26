@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dumbbell, ShieldCheck, User, Mail, Lock, Target, ArrowRight, Zap, Cloud, Smartphone, Laptop, AlertTriangle } from 'lucide-react';
+import { Dumbbell, ShieldCheck, User, Mail, Lock, Target, ArrowRight, Zap, Server, Database, AlertTriangle } from 'lucide-react';
 import { UserProfile, UserDataSnapshot } from '../types/workout';
 import { loginUser, registerUser, loginDemoUser } from '../utils/cloudSync';
 
@@ -50,8 +50,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       setErrorMsg('Introduce un email válido.');
       return;
     }
-    if (!password || password.length < 4) {
-      setErrorMsg('La contraseña debe tener al menos 4 caracteres.');
+    if (!password || password.length < 6) {
+      setErrorMsg('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
 
@@ -92,7 +92,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           </span>
         </div>
         <p className="text-xs text-slate-400 font-medium max-w-xs">
-          Biomecánica de Alta Precisión & Nutrición Inteligente
+          Biomecánica aplicada & registro nutricional
         </p>
       </div>
 
@@ -144,7 +144,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                     type="text"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ej. pablo@chance.app"
+                    placeholder="tu@email.com o tu usuario"
                     required
                     className="w-full bg-[#18181c] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition font-medium"
                   />
@@ -183,8 +183,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                 )}
               </button>
 
-              <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-300">
-                <span className="font-bold">Cuenta de demostración:</span> pablo@chance.app · Clave: <span className="font-mono font-bold">pablo123</span>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-white/[0.06] text-[11px] text-slate-400 leading-relaxed">
+                <span className="font-bold text-slate-300">Autenticación real:</span> las credenciales se validan
+                contra PostgreSQL a través de la API Spring Boot (BCrypt + JWT). No hay contraseñas guardadas en el navegador.
               </div>
             </form>
           ) : (
@@ -224,7 +225,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Contraseña (mínimo 4 caracteres)
+                  Contraseña (mínimo 6 caracteres)
                 </label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
@@ -234,7 +235,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    minLength={4}
+                    minLength={6}
                     className="w-full bg-[#18181c] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition font-medium"
                   />
                 </div>
@@ -276,7 +277,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                   <span>Registrando...</span>
                 ) : (
                   <>
-                    <span>Crear Cuenta & Activar Sincronización</span>
+                    <span>Crear Cuenta</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -284,33 +285,36 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             </form>
           )}
 
-          {/* Guest / Demo Shortcut */}
-          <div className="pt-2 border-t border-white/[0.08] text-center">
+          {/* Local guest session */}
+          <div className="pt-2 border-t border-white/[0.08] text-center space-y-1">
             <button
               type="button"
               onClick={handleDemo}
               className="text-xs text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5 mx-auto"
             >
               <Zap className="w-3.5 h-3.5 text-blue-400" />
-              <span>Entrar como Invitado (Modo Demo)</span>
+              <span>Entrar como invitado (sin cuenta)</span>
             </button>
+            <p className="text-[10px] text-slate-500">
+              Modo local: los datos se guardan solo en este navegador, no en el servidor.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Multi-device sync highlight */}
+      {/* Real backend stack */}
       <div className="pb-4 flex items-center justify-center gap-6 text-[11px] text-slate-500 font-medium relative z-10">
         <div className="flex items-center gap-1.5">
-          <Cloud className="w-3.5 h-3.5 text-blue-400" />
-          <span>Sincronización en la Nube</span>
+          <Server className="w-3.5 h-3.5 text-blue-400" />
+          <span>API Spring Boot</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Smartphone className="w-3.5 h-3.5 text-blue-400" />
-          <span>iOS / Android</span>
+          <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+          <span>JWT + BCrypt</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Laptop className="w-3.5 h-3.5 text-blue-400" />
-          <span>PC / Mac</span>
+          <Database className="w-3.5 h-3.5 text-blue-400" />
+          <span>PostgreSQL + pgvector</span>
         </div>
       </div>
 

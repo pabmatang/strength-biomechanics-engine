@@ -281,7 +281,6 @@ export interface AppSettings {
   weight_unit: 'kg' | 'lbs';
   auto_start_timer: boolean;
   sound_enabled: boolean;
-  sync_health_apps: boolean;
   gym_brands?: string[];
 }
 

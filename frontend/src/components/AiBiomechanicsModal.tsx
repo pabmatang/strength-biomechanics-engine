@@ -1,12 +1,234 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Camera, ShieldCheck, Check, ArrowRight, BrainCircuit, Activity, Cpu, Sliders, Code2, ChevronDown, ChevronUp } from 'lucide-react';
-import { ExerciseTemplate } from '../types/workout';
+import {
+  X,
+  Sparkles,
+  Camera,
+  ShieldCheck,
+  Check,
+  ArrowRight,
+  BrainCircuit,
+  Activity,
+  Cpu,
+  Code2,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+  Upload,
+  Info
+} from 'lucide-react';
+import { ExerciseTemplate, GymBrand, MuscleGroup, EquipmentCategory } from '../types/workout';
 import { EXERCISE_DATABASE } from '../data/exercises';
+import {
+  ApiError,
+  BiomechanicalAlternativeDto,
+  ScannedMachineDto,
+  findSubstitutes,
+  scanMachineImage
+} from '../utils/api';
 
 interface AiBiomechanicsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddExercise: (template: ExerciseTemplate) => void;
+}
+
+interface MACHINE_SAMPLE {
+  id: string;
+  name: string;
+  brand: string;
+  img: string;
+  description: string;
+}
+
+// Bundled sample photos (frontend/public/machines), so the demo works offline.
+const MACHINE_SAMPLES: MACHINE_SAMPLE[] = [
+  {
+    id: 'technogym_pure_chest',
+    name: 'Technogym Pure Strength Chest Press',
+    brand: 'Technogym',
+    img: '/machines/technogym_pure_chest_press.png',
+    description: 'Máquina de palancas convergentes con brazos independientes.'
+  },
+  {
+    id: 'hammer_iso_lat',
+    name: 'Hammer Strength Iso-Lateral Front Lat Pulldown',
+    brand: 'Hammer Strength',
+    img: '/machines/hammer_iso_front_lat_pulldown.png',
+    description: 'Placas de discos con curva de resistencia divergente.'
+  },
+  {
+    id: 'panatta_monolith_hack',
+    name: 'Panatta Super Hack Squat 45°',
+    brand: 'Panatta',
+    img: '/machines/panatta_super_hack_squat.jpg',
+    description: 'Plataforma curva con respaldo ergonómico de 45 grados.'
+  }
+];
+
+const JOINT_OPTIONS = [
+  { value: 'shoulder_impingement', label: 'Hombro anterior / Pinzamiento subacromial' },
+  { value: 'lower_back_l4l5', label: 'Zona lumbar / Compresión axial raquídea (L4-S1)' },
+  { value: 'knee_patellar', label: 'Rodilla / Tendón rotuliano y cizallamiento anterior' }
+];
+
+const MUSCLE_GROUPS: MuscleGroup[] = [
+  'abdominals', 'shoulders', 'biceps', 'triceps', 'forearms', 'quadriceps', 'hamstrings',
+  'calves', 'glutes', 'abductors', 'adductors', 'lats', 'upper_back', 'traps', 'lower_back',
+  'chest', 'cardio', 'neck', 'full_body', 'other'
+];
+
+const BRANDS: GymBrand[] = [
+  'Technogym', 'Hammer Strength', 'Life Fitness', 'Matrix', 'Panatta',
+  'Gym80', 'Eleiko', 'Booty Builder', 'Concept2', 'General'
+];
+
+const EQUIPMENT_CATEGORIES: EquipmentCategory[] = [
+  'none', 'barbell', 'dumbbell', 'kettlebell', 'machine', 'cable', 'plate',
+  'smith', 'cardio_machine', 'resistance_band'
+];
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toMuscleGroup(value: string | null | undefined): MuscleGroup {
+  if (!value) return 'other';
+
+  const normalized = normalizeText(value);
+  const direct = MUSCLE_GROUPS.find(group => normalizeText(group) === normalized);
+  if (direct) return direct;
+
+  const keywords: Array<[RegExp, MuscleGroup]> = [
+    [/pectoral|chest|pecho/, 'chest'],
+    [/dorsal|lats?\b|latissimus|jalon/, 'lats'],
+    [/upper back|trapecio superior|romboides|espalda alta/, 'upper_back'],
+    [/lower back|lumbar|erector/, 'lower_back'],
+    [/trap/, 'traps'],
+    [/shoulder|delt|hombro/, 'shoulders'],
+    [/tricep|triceps/, 'triceps'],
+    [/bicep|biceps/, 'biceps'],
+    [/forearm|antebrazo/, 'forearms'],
+    [/quad|cuadriceps/, 'quadriceps'],
+    [/hamstring|isquio|femoral/, 'hamstrings'],
+    [/glute|gluteo/, 'glutes'],
+    [/calf|calves|gemelo|gastrocnemio|soleo/, 'calves'],
+    [/abduct/, 'abductors'],
+    [/adduct/, 'adductors'],
+    [/abdomin|core|recto abdominal/, 'abdominals'],
+    [/cardio|running|cycling/, 'cardio'],
+    [/neck|cervical/, 'neck'],
+    [/full body|cuerpo completo/, 'full_body']
+  ];
+
+  return keywords.find(([pattern]) => pattern.test(normalized))?.[1] ?? 'other';
+}
+
+function toBrand(value: string | null | undefined): GymBrand {
+  if (!value) return 'General';
+  const normalized = normalizeText(value);
+  return BRANDS.find(brand => normalizeText(brand) === normalized)
+    ?? BRANDS.find(brand => normalized.includes(normalizeText(brand)))
+    ?? 'General';
+}
+
+function toEquipmentCategory(value: string | null | undefined): EquipmentCategory {
+  if (!value) return 'machine';
+  const normalized = normalizeText(value);
+
+  if (/plate.?loaded|placa/.test(normalized)) return 'plate';
+  if (/machine|maquina/.test(normalized)) return 'machine';
+  if (/cable|polea/.test(normalized)) return 'cable';
+  if (/barbell|barra/.test(normalized)) return 'barbell';
+  if (/dumbbell|mancuerna/.test(normalized)) return 'dumbbell';
+  if (/kettlebell/.test(normalized)) return 'kettlebell';
+  if (/smith/.test(normalized)) return 'smith';
+  if (/cardio/.test(normalized)) return 'cardio_machine';
+  if (/band|goma/.test(normalized)) return 'resistance_band';
+  if (/bodyweight|none|peso corporal/.test(normalized)) return 'none';
+
+  return EQUIPMENT_CATEGORIES.find(category => normalizeText(category) === normalized) ?? 'machine';
+}
+
+function slugify(value: string): string {
+  return normalizeText(value).replace(/ /g, '_').slice(0, 60) || 'machine';
+}
+
+function findTemplate(name: string): ExerciseTemplate | undefined {
+  const target = normalizeText(name);
+
+  const exact = EXERCISE_DATABASE.find(item => normalizeText(item.title) === target);
+  if (exact) return exact;
+
+  return EXERCISE_DATABASE.find(item => {
+    const title = normalizeText(item.title);
+    return title.includes(target) || target.includes(title);
+  }) ?? EXERCISE_DATABASE.find(item => {
+    // Token overlap: "Technogym Pure Strength Chest Press" vs "Technogym Pure - Chest Press".
+    const targetTokens = new Set(target.split(' ').filter(token => token.length > 3));
+    const titleTokens = normalizeText(item.title).split(' ').filter(token => token.length > 3);
+    const shared = titleTokens.filter(token => targetTokens.has(token)).length;
+    return shared >= 2;
+  });
+}
+
+function templateFromScan(dto: ScannedMachineDto, imageUrl: string): ExerciseTemplate {
+  const primary = toMuscleGroup(dto.primaryMuscleGroup);
+  const secondary = (dto.secondaryMuscleGroups ?? [])
+    .map(toMuscleGroup)
+    .filter(muscle => muscle !== primary && muscle !== 'other');
+
+  return {
+    id: `scanned_${slugify(dto.machineName)}`,
+    title: dto.machineName,
+    brand: toBrand(dto.brand),
+    model_series: dto.modelSeries ?? undefined,
+    muscle_group: primary,
+    other_muscles: secondary,
+    equipment_category: toEquipmentCategory(dto.equipmentCategory),
+    exercise_type: 'weight_reps',
+    image_url: imageUrl,
+    description: [dto.brand, dto.modelSeries].filter(Boolean).join(' · ') || 'Máquina identificada por visión multimodal.',
+    setup_tips: dto.biomechanicalSetupTips ?? []
+  };
+}
+
+function templateFromAlternative(alternative: BiomechanicalAlternativeDto): ExerciseTemplate {
+  const match = findTemplate(alternative.name);
+  if (match) return match;
+
+  return {
+    id: `substitute_${slugify(alternative.name)}`,
+    title: alternative.name,
+    brand: toBrand(alternative.brand),
+    muscle_group: toMuscleGroup(alternative.targetMuscle),
+    equipment_category: 'machine',
+    exercise_type: 'weight_reps',
+    description: `${alternative.movementPlane} · ${alternative.jointStressAvoided}`,
+    setup_tips: [alternative.biomechanicalRationale]
+  };
+}
+
+function describeApiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  return 'Error inesperado al llamar a la API.';
+}
+
+async function sampleAsFile(sample: MACHINE_SAMPLE): Promise<File> {
+  const response = await fetch(sample.img);
+  if (!response.ok) {
+    throw new Error(`No se pudo cargar la imagen de ejemplo (${response.status}).`);
+  }
+  const blob = await response.blob();
+  const extension = sample.img.split('.').pop() ?? 'png';
+  return new File([blob], `${sample.id}.${extension}`, { type: blob.type || 'image/png' });
 }
 
 export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
@@ -17,249 +239,154 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'scan' | 'rag'>('scan');
   const [showDevMode, setShowDevMode] = useState(false);
 
-  // Scanner state (Step 3: Multimodal Vision)
-  const [selectedSamplePhoto, setSelectedSamplePhoto] = useState<string>('technogym_pure_chest');
+  // Scanner state
+  const [selectedSamplePhoto, setSelectedSamplePhoto] = useState<string>(MACHINE_SAMPLES[0].id);
+  const [customFile, setCustomFile] = useState<File | null>(null);
+  const [customPreview, setCustomPreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [scannedResult, setScannedResult] = useState<any | null>(null);
+  const [scanResult, setScanResult] = useState<{
+    dto: ScannedMachineDto;
+    imageUrl: string;
+    demo: boolean;
+  } | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
-  // RAG state (Step 4: Vector Biomechanical Substitution)
-  const [selectedJointPain, setSelectedJointPain] = useState<string>('shoulder_impingement');
+  // Substitution state
+  const [selectedJointPain, setSelectedJointPain] = useState<string>(JOINT_OPTIONS[0].value);
   const [baseExercise, setBaseExercise] = useState<string>('Press de Banca con Barra Plana');
   const [isSearchingRag, setIsSearchingRag] = useState(false);
-  const [ragResults, setRagResults] = useState<any[] | null>(null);
+  const [ragResults, setRagResults] = useState<BiomechanicalAlternativeDto[] | null>(null);
+  const [ragDemo, setRagDemo] = useState(false);
+  const [ragError, setRagError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  // Preset machine samples for vision scanner testing
-  const MACHINE_SAMPLES = [
-    {
-      id: 'technogym_pure_chest',
-      name: 'Technogym Pure Strength Chest Press',
-      brand: 'Technogym',
-      img: 'https://www.technogym.com/es-INT/feed/images/MG05/pure-strength-chest-press_MG05_grey.jpg',
-      description: 'Máquina de palancas convergentes con brazos independientes.'
-    },
-    {
-      id: 'hammer_iso_lat',
-      name: 'Hammer Strength Iso-Lateral Front Lat Pulldown',
-      brand: 'Hammer Strength',
-      img: 'https://www.lifefitness.com/Kentico13CoreBase/media/LFMedia/LifeFitnessImages/MediaSync/252-486-plateloaded-frontpulldown.png',
-      description: 'Placas de discos con curva de resistencia divergente.'
-    },
-    {
-      id: 'panatta_monolith_hack',
-      name: 'Panatta FreeWeight Super Hack Squat 45°',
-      brand: 'Panatta',
-      img: 'https://www.panattagymequipment.com.au/wp-content/uploads/2021/11/1FW087-pic-01.jpeg',
-      description: 'Plataforma curva con respaldo ergonómico de 45 grados.'
-    }
-  ];
+  const selectedSample = MACHINE_SAMPLES.find(sample => sample.id === selectedSamplePhoto) ?? MACHINE_SAMPLES[0];
 
-  const handleRunScan = () => {
+  const handleSelectSample = (sample: MACHINE_SAMPLE) => {
+    setSelectedSamplePhoto(sample.id);
+    setCustomFile(null);
+    setCustomPreview(null);
+    setScanResult(null);
+    setScanError(null);
+  };
+
+  const handleCustomFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setCustomFile(file);
+    setCustomPreview(URL.createObjectURL(file));
+    setScanResult(null);
+    setScanError(null);
+  };
+
+  const handleRunScan = async () => {
     setIsScanning(true);
-    setScannedResult(null);
+    setScanError(null);
+    setScanResult(null);
 
-    // Simulate Spring AI Multimodal Llama 3.2-Vision inference with JSON Schema output
-    setTimeout(() => {
-      const sample = MACHINE_SAMPLES.find(s => s.id === selectedSamplePhoto) || MACHINE_SAMPLES[0];
-      
-      let structuredOutput;
-      if (sample.id === 'technogym_pure_chest') {
-        structuredOutput = {
-          machineName: 'Technogym Pure Strength Incline / Wide Chest Press',
-          brand: 'Technogym',
-          modelSeries: 'Pure Strength (Iso-Inertial)',
-          primaryMuscleGroup: 'chest',
-          secondaryMuscleGroups: ['triceps', 'shoulders'],
-          equipmentCategory: 'machine',
-          confidence: 0.984,
-          leverPhysics: 'Palanca convergente de segundo género. Brazo de momento máximo d_perp = L * cos(40°) a mitad del empuje; pedal de despegue elimina torque peligroso en cápsula articular anterior.',
-          resistanceCurve: {
-            curve: 'lengthened',
-            title: 'Perfil Biomecánico en Estiramiento / Zona Media',
-            phases: [
-              { phase: 'Estiramiento (0°-30°)', pct: 92, level: 'Tensión Máxima (92%)' },
-              { phase: 'Zona Media (45°-90°)', pct: 85, level: 'Tensión Alta (85%)' },
-              { phase: 'Bloqueo Concéntrico', pct: 62, level: 'Tensión Moderada (62%)' }
-            ]
-          },
-          hotspots: [
-            { id: 1, label: 'Regulador Asiento', part: 'Pasador de altura', top: '65%', left: '38%' },
-            { id: 2, label: 'Pedal de Arranque', part: 'Foot release de precarga', top: '82%', left: '46%' },
-            { id: 3, label: 'Mangos Iso-Laterales', part: 'Empuñaduras ergonómicas', top: '48%', left: '54%' }
-          ],
-          biomechanicalTips: [
-            'Ajusta la palanca amarilla del asiento para que los mangos queden alineados con el pezón inferior.',
-            'Utiliza el pedal de precarga (foot release) para iniciar el movimiento sin forzar la cápsula articular del hombro.',
-            'Mantén las escápulas retraídas y deprimidas contra el respaldo; la trayectoria convergente replica el plano escapular a 45°.'
-          ],
-          exerciseTemplate: {
-            id: 'tg_pure_chest_press',
-            title: 'Technogym Pure Strength Chest Press',
-            brand: 'Technogym',
-            model_series: 'Pure Strength',
-            muscle_group: 'chest',
-            equipment_category: 'machine',
-            exercise_type: 'weight_reps',
-            image_url: sample.img,
-            description: 'Press de palancas convergentes con pedal de arranque.',
-            setup_tips: [
-              'Ajuste de asiento a nivel del pectoral medio.',
-              'Pisa el pedal amarillo para comenzar la repetición.',
-              'No bloquees los codos en la fase concéntrica.'
-            ]
-          }
-        };
-      } else if (sample.id === 'hammer_iso_lat') {
-        structuredOutput = {
-          machineName: 'Hammer Strength Iso-Lateral High Row / Pulldown',
-          brand: 'Hammer Strength',
-          modelSeries: 'Iso-Lateral Plate Loaded',
-          primaryMuscleGroup: 'lats',
-          secondaryMuscleGroups: ['biceps', 'upper_back'],
-          equipmentCategory: 'plate_loaded',
-          confidence: 0.976,
-          biomechanicalTips: [
-            'Fija los rodillos acolchados sobre los muslos firmemente para anular la fuerza de elevación en cargas submáximas.',
-            'Utiliza el agarre neutro o prono con rotación natural siguiendo el arco de movimiento divergente.',
-            'Tracciona llevando los codos hacia las crestas ilíacas para maximizar el reclutamiento de las fibras ilíacas del dorsal.'
-          ],
-          exerciseTemplate: {
-            id: 'hammer_iso_lat_pulldown',
-            title: 'Hammer Strength Iso-Lateral Lat Pulldown',
-            brand: 'Hammer Strength',
-            model_series: 'Iso-Lateral',
-            muscle_group: 'lats',
-            equipment_category: 'plate_loaded',
-            exercise_type: 'weight_reps',
-            image_url: sample.img,
-            description: 'Jalón divergente en placas olímpicas con movimiento independiente de brazos.',
-            setup_tips: [
-              'Ajusta el rodillo para fijar los cuádriceps.',
-              'Lleva el codo hacia la cadera en el plano del dorsal.',
-              'Pausa 1s en contracción máxima.'
-            ]
-          }
-        };
-      } else {
-        structuredOutput = {
-          machineName: 'Panatta Monolith Hack Squat 45°',
-          brand: 'Panatta',
-          modelSeries: 'Monolith Sport',
-          primaryMuscleGroup: 'quadriceps',
-          secondaryMuscleGroups: ['glutes', 'calves'],
-          equipmentCategory: 'machine',
-          confidence: 0.991,
-          biomechanicalTips: [
-            'Coloca los pies en la mitad inferior de la plataforma para favorecer la flexión de rodilla sin levantar los talones.',
-            'El respaldo curvo estabiliza el sacro y evita la retroversión pélvica ("butt wink").',
-            'Desbloquea los pestillos laterales con las empuñaduras ergonómicas y desciende controlando 3 segundos la fase excéntrica.'
-          ],
-          exerciseTemplate: {
-            id: 'panatta_hack_squat',
-            title: 'Panatta Monolith Hack Squat',
-            brand: 'Panatta',
-            model_series: 'Monolith',
-            muscle_group: 'quadriceps',
-            equipment_category: 'machine',
-            exercise_type: 'weight_reps',
-            image_url: sample.img,
-            description: 'Hack Squat de 45° con guiado de baja fricción.',
-            setup_tips: [
-              'Pies a la anchura de hombros.',
-              'Espalda y cabeza pegadas al respaldo en todo el rango.',
-              'Frenos de emergencia ajustados a tu profundidad máxima segura.'
-            ]
-          }
-        };
-      }
-
-      setScannedResult(structuredOutput);
+    try {
+      const imageUrl = customPreview ?? selectedSample.img;
+      const file = customFile ?? await sampleAsFile(selectedSample);
+      const dto = await scanMachineImage(file);
+      setScanResult({ dto, imageUrl, demo: false });
+    } catch (error) {
+      setScanError(describeApiError(error));
+    } finally {
       setIsScanning(false);
-    }, 1100);
+    }
   };
 
-  const handleRunRagSearch = () => {
+  const handleRunRagSearch = async () => {
+    if (!baseExercise.trim()) {
+      setRagError('Indica el ejercicio que te genera molestias.');
+      return;
+    }
+
     setIsSearchingRag(true);
+    setRagError(null);
     setRagResults(null);
+    setRagDemo(false);
 
-    // Simulate pgvector cosine similarity search over Biomechanical knowledge base
-    setTimeout(() => {
-      let results: any[] = [];
-      if (selectedJointPain === 'shoulder_impingement') {
-        results = [
-          {
-            name: 'Technogym Pure Strength Chest Press (Convergente)',
-            targetMuscle: 'Pecho',
-            jointStressAvoided: 'Hombro Anterior (Evita abducción horizontal forzada a 90°)',
-            similarityScore: 0.942,
-            axialLoading: false,
-            biomechanicalRationale: 'La trayectoria convergente y el agarre neutro mantienen el húmero en el plano escapular (30-45°), eliminando el pinzamiento subacromial característico de la barra plana.',
-            template: EXERCISE_DATABASE.find(e => e.id === 'tg_pure_chest_press') || EXERCISE_DATABASE[0]
-          },
-          {
-            name: 'Hammer Strength Iso-Lateral Decline Press',
-            targetMuscle: 'Pecho',
-            jointStressAvoided: 'Cápsula anterior del hombro',
-            similarityScore: 0.915,
-            axialLoading: false,
-            biomechanicalRationale: 'El ángulo declinado reduce en un 60% la tensión sobre el tendón del bíceps braquial y el labrum antero-superior mientras estimula la porción esternocostal.',
-            template: EXERCISE_DATABASE.find(e => e.id === 'hammer_iso_decline') || EXERCISE_DATABASE[1]
-          }
-        ];
-      } else if (selectedJointPain === 'lower_back_l4l5') {
-        results = [
-          {
-            name: 'Matrix Versa Chest Supported Row',
-            targetMuscle: 'Espalda / Dorsal',
-            jointStressAvoided: 'Columna Lumbar L4-S1 (Cizallamiento cero)',
-            similarityScore: 0.965,
-            axialLoading: false,
-            biomechanicalRationale: 'Al estar el pecho completamente soportado por el cojín frontal, los erectores espinales no tienen que sostener momento de flexión, permitiendo trabajar el dorsal sin dolor lumbar.',
-            template: EXERCISE_DATABASE.find(e => e.id === 'matrix_chest_supported_row') || EXERCISE_DATABASE[2]
-          },
-          {
-            name: 'Technogym Selection Lat Pulldown',
-            targetMuscle: 'Dorsal Ancho',
-            jointStressAvoided: 'Fuerzas compresivas axiales',
-            similarityScore: 0.898,
-            axialLoading: false,
-            biomechanicalRationale: 'Vector de tracción vertical sin sobrecarga axial en el raquis lumbosacro.',
-            template: EXERCISE_DATABASE.find(e => e.id === 'tg_selection_pulldown') || EXERCISE_DATABASE[3]
-          }
-        ];
-      } else {
-        results = [
-          {
-            name: 'Technogym Pure Leg Press 45°',
-            targetMuscle: 'Cuádriceps / Cadena Posterior',
-            jointStressAvoided: 'Tendón rotuliano y ligamento cruzado anterior',
-            similarityScore: 0.938,
-            axialLoading: false,
-            biomechanicalRationale: 'Permite colocar los pies en la parte alta de la plataforma aumentando el ángulo cadera-rodilla, lo cual reduce el brazo de momento de la rótula.',
-            template: EXERCISE_DATABASE.find(e => e.id === 'tg_pure_leg_press') || EXERCISE_DATABASE[4]
-          },
-          {
-            name: 'Matrix Ultra Seated Leg Curl',
-            targetMuscle: 'Isquiosurales',
-            jointStressAvoided: 'Rótula en flexión extrema',
-            similarityScore: 0.887,
-            axialLoading: false,
-            biomechanicalRationale: 'Posición sentada pre-estira los isquiotibiales en la cadera mientras estabiliza la articulación tibiofemoral.',
-            template: EXERCISE_DATABASE.find(e => e.id === 'matrix_seated_leg_curl') || EXERCISE_DATABASE[5]
-          }
-        ];
-      }
+    const jointLabel = JOINT_OPTIONS.find(option => option.value === selectedJointPain)?.label
+      ?? selectedJointPain;
 
+    try {
+      const results = await findSubstitutes({
+        currentExercise: baseExercise.trim(),
+        jointDiscomfort: jointLabel
+      });
       setRagResults(results);
+    } catch (error) {
+      setRagError(describeApiError(error));
+    } finally {
       setIsSearchingRag(false);
-    }, 900);
+    }
   };
+
+  /**
+   * Explicitly labelled illustrative output for demos without the backend running.
+   * It never touches the API and is rendered with a visible "ejemplo" banner.
+   */
+  const handleShowDemoScan = () => {
+    setScanError(null);
+    setScanResult({
+      demo: true,
+      imageUrl: selectedSample.img,
+      dto: {
+        machineName: 'Technogym Pure Strength Chest Press',
+        brand: 'Technogym',
+        modelSeries: 'Pure Strength (Iso-Inertial)',
+        primaryMuscleGroup: 'chest',
+        secondaryMuscleGroups: ['triceps', 'shoulders'],
+        equipmentCategory: 'machine',
+        biomechanicalSetupTips: [
+          'Ajusta el asiento para que los mangos queden alineados con el pecho medio.',
+          'Usa el pedal de precarga para empezar la repetición sin forzar el hombro.',
+          'Mantén las escápulas retraídas y no bloquees los codos al final del empuje.'
+        ]
+      }
+    });
+  };
+
+  const handleShowDemoRag = () => {
+    setRagError(null);
+    setRagDemo(true);
+    setRagResults([
+      {
+        id: 'demo-1',
+        name: 'Technogym Pure Strength Chest Press',
+        brand: 'Technogym',
+        targetMuscle: 'chest',
+        movementPlane: 'Scapular convergent',
+        jointStressAvoided: 'Low subacromial shear',
+        axialLoading: false,
+        similarityScore: 0.932,
+        biomechanicalRationale:
+          'Ejemplo ilustrativo: la trayectoria convergente mantiene el húmero en el plano escapular y reduce el pinzamiento subacromial.'
+      },
+      {
+        id: 'demo-2',
+        name: 'Technogym Selection Pec Deck',
+        brand: 'Technogym',
+        targetMuscle: 'chest',
+        movementPlane: 'Transverse adduction',
+        jointStressAvoided: 'Low shoulder extension stress',
+        axialLoading: false,
+        similarityScore: 0.874,
+        biomechanicalRationale:
+          'Ejemplo ilustrativo: aducción horizontal guiada que evita el componente de extensión de hombro.'
+      }
+    ]);
+  };
+
+  const scanTemplate = scanResult ? templateFromScan(scanResult.dto, scanResult.imageUrl) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-[max(1rem,calc(env(safe-area-inset-top)+0.5rem))] pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] bg-black/85 backdrop-blur-md overflow-hidden">
       <div className="w-full max-w-2xl bg-[#12141e] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-4 sm:space-y-5 max-h-full flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-start justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
@@ -270,11 +397,11 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-black text-white">IA & Biomecánica</h2>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  CHΔNCE Vision & RAG
+                  Spring AI · pgvector
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Sistema inteligente de análisis de máquinas y prescripción articular
+                Escaneo multimodal y sustitución semántica contra la API real
               </p>
             </div>
           </div>
@@ -283,7 +410,7 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
             <button
               onClick={() => setShowDevMode(!showDevMode)}
               className="text-[11px] font-semibold px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700/60 hover:border-slate-600 text-slate-300 hover:text-white transition flex items-center gap-1.5"
-              title="Alternar vista técnica de endpoints y embeddings"
+              title="Alternar vista técnica de endpoints"
             >
               <Code2 className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Modo Developer</span>
@@ -333,10 +460,20 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
               <div className="bg-slate-900/80 border border-blue-500/30 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
                 <div className="font-bold text-blue-400 flex items-center gap-1.5 text-sm">
                   <Cpu className="w-4 h-4" />
-                  <span>Pipeline Técnico (Llama 3.2-Vision + Spring AI)</span>
+                  <span>Pipeline real (Spring AI + Ollama)</span>
                 </div>
                 <p className="leading-relaxed">
-                  Envía la captura al endpoint <code className="text-blue-300 bg-slate-800 px-1.5 py-0.5 rounded font-semibold">POST /api/v1/exercises/scan</code> con <b>Structured Output (JSON Schema)</b>. Extrae fabricante, familia biomecánica, curva de resistencia y brazo de momento para calibración automática.
+                  Envía la imagen a{' '}
+                  <code className="text-blue-300 bg-slate-800 px-1.5 py-0.5 rounded font-semibold">
+                    POST /api/v1/exercises/scan
+                  </code>{' '}
+                  (multipart, JWT obligatorio). El backend pide a llama3.2-vision un JSON con el esquema
+                  <code className="text-blue-300 bg-slate-800 px-1.5 py-0.5 rounded font-semibold ml-1">ScannedMachineDto</code>.
+                  No se inventan marcas: si el modelo no está seguro, lo indica en el campo correspondiente.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Los porcentajes de confianza, curvas de resistencia y puntos hotspot de versiones anteriores
+                  eran simulados y se han eliminado de la interfaz.
                 </p>
               </div>
             ) : (
@@ -345,26 +482,24 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
                   <Camera className="w-4 h-4" />
                 </div>
                 <p className="leading-relaxed">
-                  Apunta con la cámara a cualquier máquina del gimnasio para identificar su perfil de resistencia, palancas y regulación óptima del asiento.
+                  Sube una foto real de la máquina o usa una de las muestras incluidas. La imagen se envía al
+                  backend, que la analiza con el modelo de visión local.
                 </p>
               </div>
             )}
 
-            {/* Select a sample image or upload */}
+            {/* Sample images */}
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Selecciona una fotografía de prueba del gimnasio:
+                Muestras incluidas en la app:
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {MACHINE_SAMPLES.map(sample => (
                   <button
                     key={sample.id}
-                    onClick={() => {
-                      setSelectedSamplePhoto(sample.id);
-                      setScannedResult(null);
-                    }}
+                    onClick={() => handleSelectSample(sample)}
                     className={`relative rounded-xl overflow-hidden border-2 text-left p-1 transition ${
-                      selectedSamplePhoto === sample.id
+                      !customFile && selectedSamplePhoto === sample.id
                         ? 'border-blue-500 ring-2 ring-blue-500/20'
                         : 'border-slate-800 hover:border-slate-700 opacity-70 hover:opacity-100'
                     }`}
@@ -379,10 +514,27 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
               </div>
             </div>
 
+            {/* Upload own photo */}
+            <div className="flex items-center gap-2">
+              <label className="flex-1 cursor-pointer text-[11px] font-semibold text-slate-300 bg-slate-900 border border-slate-700 hover:border-blue-500 rounded-xl px-3 py-2.5 transition flex items-center justify-center gap-2">
+                <Upload className="w-3.5 h-3.5 text-blue-400" />
+                <span>{customFile ? customFile.name : 'Subir mi propia foto (máx. 10 MB)'}</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleCustomFile}
+                  className="hidden"
+                />
+              </label>
+              {customPreview && (
+                <img src={customPreview} alt="Previsualización" className="h-10 w-10 rounded-lg object-cover border border-slate-700" />
+              )}
+            </div>
+
             <button
               onClick={handleRunScan}
               disabled={isScanning}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2"
+              className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-60 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2"
             >
               {isScanning ? (
                 <>
@@ -392,115 +544,109 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  <span>Escanear y Extraer Metadatos</span>
+                  <span>Escanear con el backend</span>
                 </>
               )}
             </button>
 
-            {/* Structured Scan Results */}
-            {scannedResult && (
+            {scanError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{scanError}</span>
+                </div>
+                <button
+                  onClick={handleShowDemoScan}
+                  className="text-[11px] font-semibold text-slate-300 underline decoration-dotted hover:text-white"
+                >
+                  Ver ejemplo ilustrativo (sin backend)
+                </button>
+              </div>
+            )}
+
+            {/* Scan result */}
+            {scanResult && (
               <div className="p-4 bg-[#181a28] border border-emerald-500/40 rounded-2xl space-y-3 animate-in fade-in zoom-in-95 duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 tabular-nums">
-                      {(scannedResult.confidence * 100).toFixed(1)}% Confianza
-                    </span>
-                    <span className="text-xs font-bold text-slate-400">{scannedResult.modelSeries}</span>
+                {scanResult.demo && (
+                  <div className="p-2 bg-amber-500/10 border border-amber-500/40 rounded-lg text-[11px] text-amber-300 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 shrink-0" />
+                    <span>Ejemplo ilustrativo: no procede de la API ni del modelo de visión.</span>
                   </div>
-                  <span className="text-xs text-blue-400 uppercase font-bold">{scannedResult.brand}</span>
+                )}
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <Check className="w-3 h-3" />
+                    <span>{scanResult.demo ? 'Datos de ejemplo' : 'Respuesta de la API'}</span>
+                  </div>
+                  <span className="text-xs text-blue-400 uppercase font-bold">{scanResult.dto.brand ?? 'Marca no identificada'}</span>
                 </div>
 
-                <div className="text-base font-black text-white">{scannedResult.machineName}</div>
+                <div>
+                  <div className="text-base font-black text-white">{scanResult.dto.machineName}</div>
+                  <div className="text-xs text-slate-400">{scanResult.dto.modelSeries ?? 'Serie no identificada'}</div>
+                </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <span className="text-xs px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-300 font-semibold capitalize">
-                    Foco: {scannedResult.primaryMuscleGroup}
+                    Foco: {scanResult.dto.primaryMuscleGroup ?? 'sin identificar'}
                   </span>
-                  {scannedResult.secondaryMuscleGroups.map((m: string) => (
-                    <span key={m} className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 capitalize">
-                      {m}
+                  {(scanResult.dto.secondaryMuscleGroups ?? []).map(muscle => (
+                    <span key={muscle} className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 capitalize">
+                      {muscle}
                     </span>
                   ))}
                 </div>
 
-                {/* Real Lever Physics and Moment Arm Box */}
-                {scannedResult.leverPhysics && (
-                  <div className="p-3 bg-blue-950/40 border border-blue-500/30 rounded-xl space-y-1.5 text-xs">
-                    <div className="flex items-center justify-between text-blue-400 font-bold">
-                      <div className="flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5" />
-                        <span>Física de Palancas & Brazo de Momento:</span>
-                      </div>
-                      <span className="tabular-nums text-[10px] bg-blue-500/20 px-2 py-0.5 rounded">τ = F · L · cos(θ)</span>
-                    </div>
-                    <p className="text-slate-300 text-[11px] leading-relaxed">{scannedResult.leverPhysics}</p>
-                  </div>
-                )}
-
-                {/* 3-Phase Resistance Curve */}
-                {scannedResult.resistanceCurve && (
-                  <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2 text-xs">
-                    <div className="font-bold text-slate-300 flex items-center justify-between">
-                      <span>Curva de Resistencia Calculada:</span>
-                      <span className="text-[10px] text-emerald-400 font-semibold">{scannedResult.resistanceCurve.title}</span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {scannedResult.resistanceCurve.phases.map((ph: any, idx: number) => (
-                        <div key={idx} className="space-y-0.5">
-                          <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-                            <span>{ph.phase}</span>
-                            <span className="text-white tabular-nums font-bold">{ph.level}</span>
-                          </div>
-                          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full"
-                              style={{ width: `${ph.pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 <div className="space-y-1.5 pt-2 border-t border-slate-800">
                   <div className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Instrucciones Biomecánicas de Regulación:</span>
+                    <span>Consejos de ajuste devueltos por el modelo:</span>
                   </div>
                   <ul className="text-xs text-slate-400 space-y-1 pl-4 list-disc">
-                    {scannedResult.biomechanicalTips.map((tip: string, i: number) => (
-                      <li key={i}>{tip}</li>
+                    {(scanResult.dto.biomechanicalSetupTips ?? []).map((tip, index) => (
+                      <li key={index}>{tip}</li>
                     ))}
+                    {(scanResult.dto.biomechanicalSetupTips ?? []).length === 0 && (
+                      <li>El modelo no devolvió consejos de ajuste para esta imagen.</li>
+                    )}
                   </ul>
                 </div>
 
-                <button
-                  onClick={() => {
-                    onAddExercise(scannedResult.exerciseTemplate);
-                    onClose();
-                  }}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Añadir esta máquina escaneada a mi sesión</span>
-                </button>
+                {scanTemplate && (
+                  <button
+                    onClick={() => {
+                      onAddExercise(scanTemplate);
+                      onClose();
+                    }}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Añadir esta máquina a mi sesión</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
         )}
 
-        {/* Tab 2: RAG Biomecánico & Sustitución con pgvector */}
+        {/* Tab 2: Semantic substitution */}
         {activeTab === 'rag' && (
           <div className="flex-1 overflow-y-auto space-y-4 pr-1">
             {showDevMode ? (
               <div className="bg-slate-900/80 border border-indigo-500/30 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
                 <div className="font-bold text-indigo-400 flex items-center gap-1.5 text-sm">
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Pipeline RAG Biomecánico (pgvector + Embeddings)</span>
+                  <span>Pipeline real (embeddings + pgvector)</span>
                 </div>
                 <p className="leading-relaxed">
-                  Búsqueda vectorial con operador <b>Cosine Distance (&lt;=&gt;)</b> sobre embeddings de 768 dimensiones en PostgreSQL. Mapea vectores articulares para sustituir ejercicios con idéntico reclutamiento muscular eliminando fuerzas de cizallamiento y sobrecarga axial.
+                  <code className="text-blue-300 bg-slate-800 px-1.5 py-0.5 rounded font-semibold">
+                    POST /api/v1/biomechanics/substitute
+                  </code>{' '}
+                  embebe la consulta con nomic-embed-text y ejecuta un kNN con el operador coseno
+                  <code className="text-blue-300 bg-slate-800 px-1.5 py-0.5 rounded font-semibold mx-1">&lt;=&gt;</code>
+                  sobre <b>vector(768)</b>. La similitud que se muestra la calcula PostgreSQL; la justificación se
+                  compone de los atributos recuperados, sin generar texto con un LLM.
                 </p>
               </div>
             ) : (
@@ -509,7 +655,8 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <p className="leading-relaxed">
-                  ¿Molestias articulares? Selecciona la zona afectada para obtener de forma inteligente máquinas alternativas seguras que estimulen el músculo sin comprometer articulaciones o tendones.
+                  Describe la molestia y el ejercicio. La API devuelve las alternativas más cercanas del catálogo
+                  biomecánico con su similitud vectorial real.
                 </p>
               </div>
             )}
@@ -522,26 +669,29 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
                 <input
                   type="text"
                   value={baseExercise}
-                  onChange={(e) => setBaseExercise(e.target.value)}
+                  onChange={(event) => {
+                    setBaseExercise(event.target.value);
+                    setRagResults(null);
+                  }}
                   className="w-full mt-1 bg-[#181a28] border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-blue-500 font-semibold"
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Zona / Articulación Afectada:
+                  Zona / Articulación afectada:
                 </label>
                 <select
                   value={selectedJointPain}
-                  onChange={(e) => {
-                    setSelectedJointPain(e.target.value);
+                  onChange={(event) => {
+                    setSelectedJointPain(event.target.value);
                     setRagResults(null);
                   }}
                   className="w-full mt-1 bg-[#181a28] border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-blue-500 font-semibold"
                 >
-                  <option value="shoulder_impingement">Hombro anterior / Pinzamiento subacromial</option>
-                  <option value="lower_back_l4l5">Zona lumbar / Compresión axial raquídea (L4-S1)</option>
-                  <option value="knee_patellar">Rodilla / Tendón rotuliano y cizallamiento anterior</option>
+                  {JOINT_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -549,58 +699,95 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
             <button
               onClick={handleRunRagSearch}
               disabled={isSearchingRag}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2"
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 disabled:opacity-60 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2"
             >
               {isSearchingRag ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  <span>Buscando alternativas en pgvector (Cosine Sim)...</span>
+                  <span>Buscando vecinos en pgvector...</span>
                 </>
               ) : (
                 <>
                   <Activity className="w-4 h-4" />
-                  <span>Consultar Alternativas Biomecánicas RAG</span>
+                  <span>Consultar alternativas en la API</span>
                 </>
               )}
             </button>
 
-            {/* RAG Query Results */}
+            {ragError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{ragError}</span>
+                </div>
+                <button
+                  onClick={handleShowDemoRag}
+                  className="text-[11px] font-semibold text-slate-300 underline decoration-dotted hover:text-white"
+                >
+                  Ver ejemplo ilustrativo (sin backend)
+                </button>
+              </div>
+            )}
+
+            {ragDemo && ragResults && (
+              <div className="p-2 bg-amber-500/10 border border-amber-500/40 rounded-lg text-[11px] text-amber-300 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 shrink-0" />
+                <span>Ejemplo ilustrativo: similitudes y textos inventados, no calculados por pgvector.</span>
+              </div>
+            )}
+
             {ragResults && (
               <div className="space-y-3 pt-2">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Alternativas Óptimas Encontradas ({ragResults.length}):
+                  Alternativas recuperadas ({ragResults.length}):
                 </div>
 
-                {ragResults.map((alt, idx) => (
-                  <div key={idx} className="p-4 bg-[#181a28] border border-slate-800 rounded-2xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm text-white">{alt.name}</span>
-                      <span className="text-[10px] tabular-nums font-bold text-indigo-400 px-2 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/30">
-                        {(alt.similarityScore * 100).toFixed(1)}% Similitud Vectorial
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span><b>Protección articular:</b> {alt.jointStressAvoided}</span>
-                    </div>
-
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      {alt.biomechanicalRationale}
-                    </p>
-
-                    <button
-                      onClick={() => {
-                        onAddExercise(alt.template);
-                        onClose();
-                      }}
-                      className="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border border-indigo-500/30"
-                    >
-                      <span>Usar este sustituto en mi entrenamiento</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                {ragResults.length === 0 && (
+                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-400">
+                    No hay alternativas con embeddings en el catálogo. Revisa que el backend haya sembrado la
+                    base de conocimiento y que Ollama esté disponible.
                   </div>
-                ))}
+                )}
+
+                {ragResults.map(alternative => {
+                  const template = templateFromAlternative(alternative);
+                  return (
+                    <div key={alternative.id} className="p-4 bg-[#181a28] border border-slate-800 rounded-2xl space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-sm text-white">{alternative.name}</span>
+                        <span className="text-[10px] tabular-nums font-bold text-indigo-400 px-2 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/30 whitespace-nowrap">
+                          {(alternative.similarityScore * 100).toFixed(1)}% similitud
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] text-slate-400 flex flex-wrap gap-x-3 gap-y-1">
+                        <span>Músculo: <b className="text-slate-300 capitalize">{alternative.targetMuscle}</b></span>
+                        <span>Plano: <b className="text-slate-300">{alternative.movementPlane}</b></span>
+                        <span>Carga axial: <b className="text-slate-300">{alternative.axialLoading ? 'sí' : 'no'}</b></span>
+                      </div>
+
+                      <div className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span><b>Protección articular:</b> {alternative.jointStressAvoided}</span>
+                      </div>
+
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        {alternative.biomechanicalRationale}
+                      </p>
+
+                      <button
+                        onClick={() => {
+                          onAddExercise(template);
+                          onClose();
+                        }}
+                        className="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border border-indigo-500/30"
+                      >
+                        <span>Usar este sustituto en mi entrenamiento</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

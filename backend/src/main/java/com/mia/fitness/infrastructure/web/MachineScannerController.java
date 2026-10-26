@@ -3,6 +3,7 @@ package com.mia.fitness.infrastructure.web;
 import com.mia.fitness.application.dto.ScannedMachineDto;
 import com.mia.fitness.application.service.MachineScannerService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -13,9 +14,11 @@ import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/v1/exercises")
-@Tag(name = "Machine Vision Scanner", description = "Endpoints para escaneo multimodal de máquinas de gimnasio con Spring AI")
-@CrossOrigin(origins = "*")
+@Tag(name = "Machine Vision Scanner", description = "Escaneo multimodal de máquinas de gimnasio con Spring AI")
+@SecurityRequirement(name = "bearerAuth")
 public class MachineScannerController {
+
+    private static final long MAX_IMAGE_BYTES = 10L * 1024 * 1024;
 
     private final MachineScannerService scannerService;
 
@@ -24,17 +27,24 @@ public class MachineScannerController {
     }
 
     @PostMapping(value = "/scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "Escanear máquina con IA Multimodal", description = "Recibe una fotografía y extrae marca, modelo, plano motor y tips biomecánicos con Llama 3.2-Vision")
-    public ResponseEntity<ScannedMachineDto> scanExerciseImage(@RequestParam("file") MultipartFile file) throws IOException {
-        if (file.isEmpty()) {
-            return ResponseEntity.badRequest().build();
+    @Operation(summary = "Escanear máquina con IA Multimodal",
+            description = "Recibe una fotografía (JPEG/PNG/WebP, máx. 10 MB) y extrae marca, modelo, " +
+                    "plano motor y consejos de ajuste con structured output")
+    public ResponseEntity<ScannedMachineDto> scanExerciseImage(@RequestParam("file") MultipartFile file)
+            throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Debes adjuntar una imagen en el campo 'file'");
+        }
+        if (file.getSize() > MAX_IMAGE_BYTES) {
+            throw new IllegalArgumentException("La imagen supera el tamaño máximo permitido (10 MB)");
         }
 
-        ScannedMachineDto result = scannerService.scanMachineImage(
-                file.getBytes(),
-                file.getContentType()
-        );
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("El archivo debe ser una imagen (image/jpeg, image/png o image/webp)");
+        }
 
+        ScannedMachineDto result = scannerService.scanMachineImage(file.getBytes(), contentType);
         return ResponseEntity.ok(result);
     }
 }

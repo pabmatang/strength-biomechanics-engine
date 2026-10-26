@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.temporal.WeekFields;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,10 +26,13 @@ public class ProgressiveOverloadService {
     public WeeklyVolumeSummaryDto calculateWeeklyVolume(String userId, List<Workout> recentWorkouts) {
         Map<String, Integer> effectiveSetsByMuscle = new HashMap<>();
         Map<String, Double> tonnageByMuscle = new HashMap<>();
+        int[] isoWeek = resolveIsoWeek(recentWorkouts);
+        int weekNumber = isoWeek[0];
+        int year = isoWeek[1];
 
         for (Workout workout : recentWorkouts) {
             for (WorkoutExercise exercise : workout.getExercises()) {
-                String muscle = exercise.getMuscleGroup().toLowerCase();
+                String muscle = exercise.getMuscleGroup().toLowerCase(Locale.ROOT);
 
                 for (WorkoutSet set : exercise.getSets()) {
                     if (Boolean.TRUE.equals(set.getIsCompleted()) && !"warmup".equalsIgnoreCase(set.getSetType())) {
@@ -56,7 +61,20 @@ public class ProgressiveOverloadService {
             status = "OVERREACHING_MRV";
         }
 
-        return new WeeklyVolumeSummaryDto(userId, 1, 2026, effectiveSetsByMuscle, tonnageByMuscle, status);
+        return new WeeklyVolumeSummaryDto(userId, weekNumber, year, effectiveSetsByMuscle, tonnageByMuscle, status);
+    }
+
+    private static int[] resolveIsoWeek(List<Workout> workouts) {
+        Instant reference = workouts.stream()
+                .map(Workout::getStartTime)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElseGet(Instant::now);
+        ZonedDateTime zoned = reference.atZone(ZoneOffset.UTC);
+        return new int[]{
+                zoned.get(WeekFields.ISO.weekOfWeekBasedYear()),
+                zoned.get(WeekFields.ISO.weekBasedYear())
+        };
     }
 
     /**
@@ -92,7 +110,7 @@ public class ProgressiveOverloadService {
         boolean rpeIncreasedForSameLoad = recentRpe.compareTo(initialRpe.add(BigDecimal.valueOf(1.0))) >= 0 && tonnageStagnated;
 
         if (tonnageStagnated || rpeIncreasedForSameLoad) {
-            String rationale = String.format(
+            String rationale = String.format(Locale.ROOT,
                     "Estancamiento detectado: El tonelaje no ha crecido en 4 semanas (Inicial: %.1f kg, Actual: %.1f kg) " +
                     "y el RPE medio subió de %.1f a %.1f, indicativo de fatiga neuromuscular acumulada.",
                     initialTonnage, recentTonnage, initialRpe.doubleValue(), recentRpe.doubleValue()

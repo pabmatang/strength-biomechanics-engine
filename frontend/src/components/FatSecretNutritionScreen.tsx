@@ -530,12 +530,12 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 tabular-nums text-[11px] font-bold border border-emerald-500/30">
-              Escáner Nutricional IA
+              Registro Nutricional
             </span>
             <span className="text-[11px] text-slate-400 font-medium">Dieta Semanal & Macros</span>
           </div>
-          <h2 className="text-xl font-extrabold text-white mt-1">Nutrición Inteligente & Macros</h2>
-          <p className="text-xs text-slate-400">Control estricto de alimentos, cálculo de macros y registro automático por voz con IA.</p>
+          <h2 className="text-xl font-extrabold text-white mt-1">Registro Nutricional & Macros</h2>
+          <p className="text-xs text-slate-400">Control de alimentos, cálculo de macros y dictado por voz desde el navegador.</p>
         </div>
 
         {/* Actions: Barcode Scanner & Big Voice Button */}
@@ -560,10 +560,10 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
                 ? 'bg-rose-600 text-white animate-pulse shadow-rose-600/40 ring-4 ring-rose-500/30'
                 : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30'
             }`}
-            title="Dicta lo que has comido y la IA lo añadirá automáticamente"
+            title="Dicta lo que has comido y se añadirá al registro"
           >
             {isListening ? <MicOff className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
-            <span>{isListening ? 'Escuchando audio...' : 'Dictar por Voz (IA)'}</span>
+            <span>{isListening ? 'Escuchando audio...' : 'Dictar por voz'}</span>
           </button>
         </div>
       </div>
@@ -689,7 +689,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
         </div>
       </div>
 
-      {/* AI Smart Inputs: Photo Scanner & Voice Dictation Banner */}
+      {/* Photo example & voice dictation shortcuts */}
       <div className="grid grid-cols-2 gap-2.5">
         <button
           type="button"
@@ -705,10 +705,10 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
             </div>
             <div className="min-w-0">
               <div className="text-xs font-bold text-white flex items-center gap-1">
-                <span className="truncate">Foto IA</span>
+                <span className="truncate">Ejemplo</span>
                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-bold shrink-0">Plato</span>
               </div>
-              <div className="text-[10px] text-slate-400 truncate">Calorías con cámara</div>
+              <div className="text-[10px] text-slate-400 truncate">Datos del plato</div>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 transition shrink-0 ml-1" />
@@ -725,7 +725,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
             </div>
             <div className="min-w-0">
               <div className="text-xs font-bold text-white flex items-center gap-1">
-                <span className="truncate">Voz IA</span>
+                <span className="truncate">Dictado</span>
                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold shrink-0">Audio</span>
               </div>
               <div className="text-[10px] text-slate-400 truncate">Dicta tu comida</div>
@@ -735,7 +735,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
         </button>
       </div>
 
-      {/* Meal Buckets with Dedicated Voice & Photo Buttons Per Meal */}
+      {/* Meal buckets with per-meal shortcuts */}
       <div className="space-y-4">
         {currentPlan.meals.map(meal => {
           const mealCalories = meal.foods.reduce((sum, f) => sum + f.calories, 0);
@@ -756,7 +756,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
                   </div>
                 </div>
 
-                {/* Per-Meal Actions: Photo AI + Voice Dictation + Manual Search */}
+                {/* Per-meal actions: example dish, voice dictation & manual search */}
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
@@ -765,20 +765,20 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
                       setIsPhotoAiModalOpen(true);
                     }}
                     className="px-2 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 active:scale-95 text-cyan-400 text-xs font-bold border border-cyan-500/30 flex items-center gap-1 transition"
-                    title={`Escanear foto de plato con IA para ${meal.label}`}
+                    title={`Cargar un plato de ejemplo para ${meal.label}`}
                   >
                     <Camera className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="hidden sm:inline">Foto IA</span>
+                    <span className="hidden sm:inline">Ejemplo</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => startVoiceRecordingForMeal(meal.meal_type)}
                     className="px-2 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-400 text-xs font-bold border border-emerald-500/30 flex items-center gap-1 transition"
-                    title={`Dictar alimentos con IA para ${meal.label}`}
+                    title={`Dictar alimentos por voz para ${meal.label}`}
                   >
                     <Mic className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span className="hidden sm:inline">Voz IA</span>
+                    <span className="hidden sm:inline">Dictado</span>
                   </button>
 
                   <button
@@ -798,7 +798,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
               {/* Foods List */}
               {meal.foods.length === 0 ? (
                 <div className="text-center py-4 text-xs text-zinc-500 border border-dashed border-white/[0.06] rounded-xl">
-                  No hay alimentos registrados en {meal.label.toLowerCase()}. Toca <strong className="text-emerald-400 font-semibold">Voz IA</strong> para dictar lo que comiste.
+                  No hay alimentos registrados en {meal.label.toLowerCase()}. Toca <strong className="text-emerald-400 font-semibold">Dictado</strong> para dictar lo que comiste.
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -835,7 +835,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
       </div>
 
       {/* ======================================================== */}
-      {/* MODAL 1: VOICE / AUDIO AI FOOD PARSER                    */}
+      {/* MODAL 1: VOICE FOOD PARSER                                */}
       {/* ======================================================== */}
       {isVoiceModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
@@ -846,7 +846,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
                   <Mic className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-white">Dictado de Alimentos por Voz (IA)</h3>
+                  <h3 className="font-bold text-base text-white">Dictado de alimentos por voz</h3>
                   <p className="text-[11px] text-zinc-400">Habla con naturalidad o escribe los alimentos</p>
                 </div>
               </div>
@@ -951,7 +951,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
                   onClick={handleManualVoiceParse}
                   className="px-3 py-2 bg-[#18181c] hover:bg-[#202026] text-emerald-400 font-bold text-xs rounded-xl border border-white/[0.08] transition"
                 >
-                  Procesar IA
+                  Procesar texto
                 </button>
               </div>
             </div>
@@ -961,7 +961,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
               <div className="bg-[#18181c] border border-emerald-500/30 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
                   <span className="flex items-center gap-1.5">
-                    <Check className="w-4 h-4" /> Alimentos Detectados por la IA:
+                    <Check className="w-4 h-4" /> Alimentos detectados en el dictado:
                   </span>
                   <span className="bg-emerald-500/20 px-2 py-0.5 rounded capitalize tabular-nums text-[11px]">
                     Destino: {MEAL_TYPE_CONFIG.find(m => m.type === (targetMealType || parsedVoiceResult.detectedMeal))?.label}
@@ -1011,7 +1011,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <h3 className="font-bold text-base text-white">Nuevo Alimento Personalizado</h3>
-                <p className="text-[11px] text-slate-400">Se guardará en tu base de datos y en la nube</p>
+                <p className="text-[11px] text-slate-400">Se guardará en este dispositivo</p>
               </div>
               <button
                 type="button"
@@ -1322,7 +1322,7 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 3: FREE CAMERA BARCODE SCANNER (OPENFOODFACTS)     */}
+      {/* MODAL 3: CAMERA BARCODE SCANNER (OPENFOODFACTS)          */}
       {/* ======================================================== */}
       <BarcodeScannerModal
         isOpen={isBarcodeScannerOpen}

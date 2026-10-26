@@ -123,7 +123,7 @@ function generateWizardRoutines(params: {
     return {
       id: `smart_routine_${dayIdx}`,
       title: day.name,
-      folder_name: `Plan IA (${daysPerWeek} días)`,
+      folder_name: `Plan automático (${daysPerWeek} días)`,
       exercises,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()

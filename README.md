@@ -1,238 +1,266 @@
-# 🏋️‍♂️ Biomechanics & Hypertrophy AI Engine (MIA Strength Lab)
+# Strength & Biomechanics Engine
 
-[![Java 21](https://img.shields.io/badge/Java-21%20LTS-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/21/)
-[![Spring Boot 3.3.4](https://img.shields.io/badge/Spring%20Boot-3.3.4-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-Ollama%20Vision-6DB33F?style=for-the-badge&logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
-[![PostgreSQL pgvector](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
-[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![JWT Security](https://img.shields.io/badge/Security-JWT%20Stateless-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white)](https://jwt.io/)
-[![OpenAPI 3 / Swagger](https://img.shields.io/badge/OpenAPI%203-Swagger%20UI-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)](http://localhost:8080/swagger-ui.html)
-[![Testcontainers](https://img.shields.io/badge/Tested%20With-Testcontainers-00A98F?style=for-the-badge&logo=testcontainers&logoColor=white)](https://testcontainers.com/)
-[![React 19](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TS-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![CI](https://github.com/pabmatang/strength-biomechanics-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/pabmatang/strength-biomechanics-engine/actions/workflows/ci.yml)
+[![Java 21](https://img.shields.io/badge/Java-21%20LTS-ED8B00?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/21/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.4-6DB33F?style=flat-square&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791?style=flat-square&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
+[![React 19](https://img.shields.io/badge/React-19%20%2B%20TypeScript-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
 
-> **Engine backend de alto rendimiento para biomecánica deportiva, prescripción hipertrófica y sustitución vectorial de maquinaria gym.**  
-> Diseñado bajo arquitectura hexagonal limpia (DDD) con **Java 21**, **Spring Boot 3.3+**, **Spring AI Multimodal**, **PostgreSQL con pgvector** y **Virtual Threads (Project Loom)**.
+Aplicación full-stack de entrenamiento de fuerza con dos capacidades de IA ejecutadas en local (la interfaz se llama **CHΔNCE**):
+
+1. **Sustitución biomecánica**: dado un ejercicio y una molestia articular, recupera alternativas del catálogo por similitud semántica usando embeddings y `pgvector`.
+2. **Escaneo de máquinas**: identifica una máquina de gimnasio a partir de una foto con un modelo de visión y devuelve su grupo muscular, categoría y consejos de ajuste.
+
+El frontend React consume **la API real** (no hay mocks de autenticación ni de IA en el flujo principal). La autenticación se valida en el backend con BCrypt y JWT y las cuentas viven en PostgreSQL. La UI guarda su snapshot de entrenamiento en `localStorage` (local-first); la tabla `workouts` se escribe a través de la API y alimenta los endpoints analíticos, no es el backup del snapshot.
+
+> Proyecto personal de portfolio. No es un producto sanitario ni sustituye el criterio de un profesional. Las recomendaciones son informativas.
 
 ---
 
-## 🏛️ Arquitectura del Sistema
+## Arquitectura
 
 ```mermaid
-flowchart TD
-    subgraph ClientLayer["🖥️ Cliente / Frontend PWA"]
-        React["React 19 + TypeScript + Vitest\n(Tailwind CSS + ExerciseDB + Lucide)"]
+flowchart LR
+    subgraph Client["Frontend · React 19 + TS + Vite"]
+        UI["UI + local-first snapshot\n(localStorage)"]
+        API["utils/api.ts\nfetch + JWT"]
     end
 
-    subgraph SecurityGateway["🛡️ Spring Security 6 & JWT Filter"]
-        JWT["JwtAuthenticationFilter\n(Stateless Bearer Validation)"]
-        AuthCtrl["AuthController\n(/api/v1/auth/login | /register)"]
+    subgraph Backend["Backend · Java 21 + Spring Boot 3.3"]
+        SEC["Spring Security\nJwtAuthenticationFilter"]
+        AUTH["AuthController\n/register /login /me"]
+        SCAN["MachineScannerController\n/exercises/scan"]
+        SUB["BiomechanicalSubstitutionController\n/biomechanics/substitute"]
+        WORK["WorkoutController\n/workouts + análisis"]
+        FLY["Flyway\nV1__init_schema.sql"]
     end
 
-    subgraph CoreApplication["⚡ Java 21 Spring Boot 3.3 Application Core"]
-        VThreads["Virtual Threads Executor\n(Executors.newVirtualThreadPerTaskExecutor)"]
-        RagService["BiomechanicalRagService\n(Semantic Substitution Engine)"]
-        PatternService["BiomechanicalAssessmentService\n(Record Patterns + Sealed Hierarchy)"]
-        ProgService["ProgressiveOverloadService\n(MAV/MRV Volume & Deload Detection)"]
-        ScanService["MachineScannerService\n(Multimodal Vision Analyzer)"]
+    subgraph Data["Datos e IA local"]
+        PG[("PostgreSQL 16\n+ pgvector vector(768)")]
+        OLL["Ollama\nllama3.2-vision + nomic-embed-text"]
     end
 
-    subgraph StorageAI["📦 Capa de Datos & Modelos de IA"]
-        PG["PostgreSQL 16 + pgvector\n(Cosine Distance Search: <=>)"]
-        Ollama["Ollama Local Engine\n(Llama 3.2 Vision + Nomic Embed Text)"]
-    end
-
-    React -->|Bearer JWT + REST JSON| JWT
-    JWT --> CoreApplication
-    CoreApplication -->|pgvector cosine distance| PG
-    CoreApplication -->|Embeddings & Vision Prompts| Ollama
-    VThreads -.->|Concurrent Sub-millisecond Execution| CoreApplication
+    UI --> API
+    API -->|REST + Bearer JWT| SEC
+    SEC --> AUTH & SCAN & SUB & WORK
+    AUTH & WORK --> PG
+    SCAN -->|imagen| OLL
+    SUB -->|embedding de la consulta| OLL
+    SUB -->|kNN cosine <=>| PG
+    FLY --> PG
 ```
+
+### Decisiones técnicas relevantes
+
+- **Flyway es la única fuente del esquema** (`backend/src/main/resources/db/migration/V1__init_schema.sql`), incluido `CREATE EXTENSION vector` y el índice HNSW. Hibernate usa `ddl-auto: none`.
+- **La columna `vector(768)` no está mapeada en JPA**: Hibernate no tiene un tipo nativo para pgvector. `BiomechanicalVectorRepository` usa `JdbcTemplate` y SQL nativo con `cast(? as vector)`.
+- **La similitud que se muestra es la que calcula PostgreSQL** (`1 - (embedding <=> query)`); no hay porcentajes inventados.
+- **La sustitución es recuperación, no generación**: se embebe la consulta y se ejecutan kNN. La justificación se compone de los atributos recuperados (plano, estrés articular, carga axial) para que sea trazable. No se pide al LLM que invente texto.
+- **La app arranca sin Ollama**: el catálogo se siembra igualmente y la búsqueda vectorial devuelve `503` con un mensaje claro hasta que el runtime esté disponible.
+- **Datos de entrenamiento local-first**: el snapshot completo (rutinas, historial, medidas…) vive en `localStorage`. Solo las cuentas y los entrenamientos creados por API se persisten en PostgreSQL; no hay un endpoint de sincronización multi-dispositivo.
 
 ---
 
-## 🚀 Puntos Clave del Stack Tecnológico Backend
+## Stack
 
-### 1. Lenguaje: Java 21 LTS
-- **Java 21 Records:** Utilizados como DTOs inmutables y contratos de dominio seguros (`AuthRequest`, `BiomechanicalAlternativeDto`, `PlateauAlertDto`, `WeeklyVolumeSummaryDto`).
-- **Pattern Matching for Switch & Record Deconstruction (JEP 440 & 441):** Jerarquía sellada (`sealed interface BiomechanicalAssessment permits ...`) con evaluación exhaustiva sin cláusula default requerida.
-- **Virtual Threads (Project Loom):** Concurrencia masiva habilitada nativamente (`spring.threads.virtual.enabled: true`) y `ExecutorService` con hilos virtuales para procesamiento simultáneo de biomecánica.
-
-### 2. Framework: Spring Boot 3.3+
-- **Spring Data JPA & Hibernate 6:** Mapeo de entidades complejas con soporte de tipos vectoriales.
-- **Spring Security 6 con JWT (jjwt 0.12.6):** Autenticación sin estado (Stateless), CORS configurado para producción, hashing BCrypt, filtros personalizados `OncePerRequestFilter`.
-- **Spring AI (Ollama Starter):**
-  - Generación de embeddings semánticos (768 dimensiones con `nomic-embed-text`).
-  - Reconocimiento multimodal de maquinaria deportiva (`llama3.2-vision`) para clasificar palancas, poleas y perfiles de resistencia a partir de fotos.
-
-### 3. Persistencia: PostgreSQL 16 con pgvector
-- Almacenamiento híbrido: Datos relacionales transaccionales (rutinas, usuarios, series, RPE, tonelaje) y embeddings vectoriales (`vector(768)`).
-- Búsqueda de ejercicios y máquinas por **distancia coseno (`<=>`)**, permitiendo sustitución inteligente cuando un usuario reporta dolor articular (ej: pinzamiento subacromial o cizallamiento patelar).
-
-### 4. Infraestructura & Contenedores: Docker Compose
-- Orquestación en un solo comando:
-  - `postgres` (`pgvector/pgvector:pg16` con inicialización `init.sql`).
-  - `ollama` (`ollama/ollama:latest` con persistencia de modelos).
-  - `backend` (Spring Boot 3.3.4 en Eclipse Temurin JRE 21 Alpine con ZGC generational y usuario no root).
-  - `frontend` (React 19 compilado con Nginx reverse-proxy integrado).
-
-### 5. Calidad & Pruebas: JUnit 5, Mockito & Testcontainers
-- Pruebas unitarias completas con **JUnit 5** y **Mockito** para servicios de dominio, RAG, seguridad y algoritmos de sobrecarga progresiva.
-- **Testcontainers:** Pruebas de integración sobre un contenedor PostgreSQL real con la extensión `pgvector` activada (`BiomechanicalPersistenceIntegrationTest.java`).
-- Frontend cubierto por **65 tests unitarios e integrados** en Vitest.
-
-### 6. Documentación de API: OpenAPI 3 & Swagger UI
-- Especificación viva y ejecutable interactiva en `/swagger-ui.html` y `/api-docs`.
-- Esquemas `@Schema`, códigos de respuesta `@ApiResponse` y descripciones operativas documentadas para cada endpoint REST.
+| Capa | Tecnología |
+| :--- | :--- |
+| Backend | Java 21, Spring Boot 3.3.4, Spring Security 6, Spring Data JPA, Flyway |
+| IA | Spring AI `1.0.0-M1` + Ollama (`llama3.2-vision`, `nomic-embed-text`) |
+| Datos | PostgreSQL 16 + pgvector (HNSW, distancia coseno) |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, Vitest |
+| Infra | Docker Compose, Nginx, GitHub Actions |
+| Tests backend | JUnit 5, Mockito, Testcontainers (`pgvector/pgvector:pg16`) |
 
 ---
 
-## 💻 Demostración de Código Java 21
+## Puesta en marcha con Docker
 
-### Pattern Matching exhaustivo con Jerarquía Sellada (Sealed Types)
-```java
-public sealed interface BiomechanicalAssessment permits
-        BiomechanicalAssessment.OptimalHypertrophy,
-        BiomechanicalAssessment.AxialFatigueRisk,
-        BiomechanicalAssessment.JointStressWarning,
-        BiomechanicalAssessment.PlateauDetected {
+Requisitos: Docker con Compose v2.
 
-    record OptimalHypertrophy(String targetMuscle, int effectiveWeeklySets, double mechanicalTonnageKg) implements BiomechanicalAssessment {}
-    record AxialFatigueRisk(String exerciseName, double axialLoadingFactor, String correctiveRecommendation) implements BiomechanicalAssessment {}
-    record JointStressWarning(String anatomicalJoint, String restrictedMovementPlane, String recommendedSubstituteMachine) implements BiomechanicalAssessment {}
-    record PlateauDetected(String exerciseName, int consecutiveStagnantWeeks, double recommendedDeloadPercentage) implements BiomechanicalAssessment {}
-}
-
-// Evaluación en servicio mediante Pattern Matching switch expression (Java 21)
-public String formulateActionPlan(BiomechanicalAssessment assessment) {
-    return switch (assessment) {
-        case BiomechanicalAssessment.OptimalHypertrophy(var muscle, var sets, var tonnage) ->
-                "Progreso óptimo en %s: %d series efectivas completadas (tonelaje: %.1f kg).".formatted(muscle.toUpperCase(), sets, tonnage);
-
-        case BiomechanicalAssessment.AxialFatigueRisk(var exercise, var factor, var rec) ->
-                "Alerta de fatiga en columna axial para '%s' (Factor: %.2f). %s".formatted(exercise, factor, rec);
-
-        case BiomechanicalAssessment.JointStressWarning(var joint, var plane, var substitute) ->
-                "Cizallamiento en %s (Plano: %s). Reemplazo prescrito: %s.".formatted(joint, plane, substitute);
-
-        case BiomechanicalAssessment.PlateauDetected(var exercise, var weeks, var deload) ->
-                "Estancamiento en '%s' tras %d semanas. Aplicar deload del %.0f%%.".formatted(exercise, weeks, deload * 100);
-    };
-}
-```
-
-### Búsqueda Vectorial Semántica con pgvector
-```java
-@Query(value = """
-    SELECT * FROM biomechanical_exercises e
-    WHERE (:muscle IS NULL OR LOWER(e.target_muscle) = LOWER(:muscle))
-    ORDER BY e.embedding <=> cast(:queryVector as vector)
-    LIMIT :maxResults
-    """, nativeQuery = true)
-List<BiomechanicalExercise> findSimilarExercises(
-        @Param("queryVector") String queryVector,
-        @Param("muscle") String muscle,
-        @Param("maxResults") int maxResults
-);
-```
-
----
-
-## 🛠️ Ejecución Local con Docker Compose
-
-Requisitos:
-- Docker Engine 24+ y Docker Compose v2+
-- Git
-
-### 1. Clonar el repositorio y arrancar la infraestructura
 ```bash
 git clone https://github.com/pabmatang/strength-biomechanics-engine.git
 cd strength-biomechanics-engine
-
-# Construir y levantar PostgreSQL (pgvector), Ollama, Backend y Frontend
+cp .env.example .env        # ajusta JWT_SECRET_KEY antes de publicar nada
 docker compose up -d --build
 ```
 
-### 2. Verificar el estado de los servicios
+La primera vez hay que descargar los modelos en el contenedor de Ollama:
+
 ```bash
-docker compose ps
+docker compose exec ollama ollama pull llama3.2-vision
+docker compose exec ollama ollama pull nomic-embed-text
+docker compose restart backend   # fuerza el seeding de embeddings
 ```
 
-| Servicio | Puerto Host | Descripción |
+| Servicio | URL | Notas |
 | :--- | :--- | :--- |
-| **Frontend PWA** | `http://localhost:3000` | Interfaz React 19 con animaciones 2D y análisis biomecánico |
-| **Backend REST API** | `http://localhost:8080` | Spring Boot 3.3.4 con Java 21 y Virtual Threads |
-| **Swagger UI** | `http://localhost:8080/swagger-ui.html` | Explorador interactivo OpenAPI 3 |
-| **PostgreSQL pgvector** | `localhost:5432` | Base de datos relacional y vectorial (`mia_fitness`) |
-| **Ollama Server** | `localhost:11434` | Inferencia local Llama 3.2 Vision y Nomic Embed |
+| Frontend | http://localhost:3000 | Nginx hace proxy de `/api/` al backend |
+| API | http://localhost:8080 | Spring Boot |
+| Swagger UI | http://localhost:8080/swagger-ui.html | OpenAPI 3 |
+| Health | http://localhost:8080/actuator/health | `health,info` expuestos |
+| PostgreSQL | localhost:5433 | `mia_fitness` (solo escucha en 127.0.0.1) |
+| Ollama | http://localhost:11434 | Modelos locales |
 
-### 3. Descargar modelos de IA en Ollama (Primera ejecución)
+### Desarrollo sin contenedores para el backend
+
 ```bash
-docker exec -it mia_ollama ollama pull llama3.2-vision
-docker exec -it mia_ollama ollama pull nomic-embed-text
-```
+# Solo base de datos y Ollama
+docker compose up -d postgres ollama
 
----
-
-## 🧪 Ejecución de Tests
-
-### Backend (JUnit 5, Mockito & Testcontainers)
-```bash
 cd backend
-mvn test
-```
+# El contenedor publica PostgreSQL en 5433 para no chocar con una instancia local.
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5433/mia_fitness \
+  mvn spring-boot:run       # Flyway crea el esquema al arrancar
 
-### Frontend (Vitest - 65 Tests en verde)
-```bash
-cd frontend
-npm install
-npm test
+cd ../frontend
+npm ci
+npm run dev                # Vite en :5173, proxy /api -> :8080
 ```
 
 ---
 
-## 📂 Estructura del Proyecto
+## API
+
+Todos los endpoints salvo registro/login y la documentación requieren `Authorization: Bearer <jwt>`.
+
+| Método | Ruta | Descripción |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/register` | Crea la cuenta (BCrypt) y devuelve JWT + perfil |
+| `POST` | `/api/v1/auth/login` | Verifica credenciales (email o usuario) y emite JWT |
+| `GET` | `/api/v1/auth/me` | Perfil del usuario autenticado |
+| `POST` | `/api/v1/exercises/scan` | Multipart `file` (JPEG/PNG/WebP, ≤10 MB) → `ScannedMachineDto` |
+| `POST` | `/api/v1/biomechanics/substitute` | `{ currentExercise, jointDiscomfort, targetMuscle? }` → alternativas con similitud real |
+| `POST` | `/api/v1/workouts` | Persiste un entrenamiento completo con series y RPE |
+| `GET` | `/api/v1/workouts` | Historial del usuario autenticado |
+| `GET` | `/api/v1/workouts/{id}` | Entrenamiento por ID |
+| `GET` | `/api/v1/workouts/analysis/weekly-volume` | Series efectivas y tonelaje por músculo |
+| `GET` | `/api/v1/workouts/analysis/plateau-detection?exerciseTemplateId=…&exerciseTitle=…` | Detección de estancamiento en la ventana de 4 semanas |
+
+Ejemplo de sustitución:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/biomechanics/substitute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"currentExercise":"Press de banca con barra","jointDiscomfort":"Hombro anterior, pinzamiento subacromial","targetMuscle":"chest"}'
+```
+
+Respuesta (recortada):
+
+```json
+[
+  {
+    "name": "Technogym Pure Strength Chest Press",
+    "targetMuscle": "chest",
+    "movementPlane": "Scapular convergent",
+    "jointStressAvoided": "Low subacromial shear",
+    "axialLoading": false,
+    "similarityScore": 0.7149,
+    "biomechanicalRationale": "Recuperado por similitud semántica (0.715) frente a 'Press de banca con barra'. Plano Scapular convergent; Low subacromial shear; sin carga axial."
+  }
+]
+```
+
+Errores con un contrato único (`timestamp`, `status`, `error`, `message`, `path`):
+
+| Código | Caso |
+| :--- | :--- |
+| `400` | Validación de entrada o JSON mal formado |
+| `401` | Credenciales incorrectas o falta el Bearer token |
+| `404` | Recurso inexistente o perteneciente a otro usuario |
+| `405` | Método HTTP no soportado |
+| `409` | Username o email duplicado |
+| `413` | Imagen mayor de 10 MB |
+| `503` | Ollama/embeddings no disponible |
+
+---
+
+## Tests
+
+```bash
+# Backend: 18 tests unitarios (sin Docker)
+cd backend && mvn test
+
+# Backend: unitarios + 13 tests de integración con Testcontainers (requiere Docker)
+cd backend && mvn verify
+
+# Frontend: 66 tests
+cd frontend && npm ci && npm test
+
+# Build de producción (tsc + Vite)
+cd frontend && npm run build
+```
+
+Los tests de integración (`AuthFlowIT`, `BiomechanicalPersistenceIT`, `WorkoutFlowIT`) arrancan `pgvector/pgvector:pg16`, aplican la migración de Flyway y comprueban:
+
+- registro → login → `/me` con BCrypt y JWT reales;
+- `401`/`409`/`400`/`404`/`405` con el contrato JSON;
+- ordenación por distancia coseno y filtro por músculo en SQL;
+- creación de entrenamientos con series, agregación de volumen semanal y aislamiento entre usuarios.
+
+`AuthService`, `BiomechanicalSubstitutionService`, `ProgressiveOverloadService`, `BiomechanicalAssessmentService` y `JwtService` tienen tests unitarios con Mockito.
+
+---
+
+## Estructura
 
 ```
 strength-biomechanics-engine/
-├── docker-compose.yml              # Orquestación multicontenedor completa
-├── README.md                       # Documentación técnica de arquitectura
-├── LICENSE                         # Licencia MIT
-├── .gitignore                      # Reglas de exclusión para Maven, Node y OS
-│
-├── backend/                        # Java 21 + Spring Boot 3.3.4 Engine
-│   ├── pom.xml                     # Maven POM con dependencias Spring AI, pgvector, JWT
-│   ├── Dockerfile                  # Multi-stage Eclipse Temurin 21 JRE Alpine + ZGC
-│   ├── init.sql                    # Script de inicialización PostgreSQL + CREATE EXTENSION vector
+├── .github/workflows/ci.yml        # Java 21 + Node 22: verify, lint, test, build
+├── docker-compose.yml              # postgres + ollama + backend + frontend
+├── .env.example
+├── backend/
+│   ├── Dockerfile
+│   ├── pom.xml
 │   └── src/
 │       ├── main/java/com/mia/fitness/
-│       │   ├── application/dto/    # Java 21 Records (Auth, Biomechanics, Plateau, Volume)
-│       │   ├── application/service/# BiomechanicalRagService, Assessment, Overload
-│       │   ├── domain/model/       # BiomechanicalAssessment (Sealed), Workout, Exercise
-│       │   ├── infrastructure/
-│       │   │   ├── persistence/    # BiomechanicalExerciseRepository con pgvector native queries
-│       │   │   ├── security/       # JwtService, JwtAuthenticationFilter, SecurityConfig
-│       │   │   └── web/            # AuthController, BiomechanicalSubstitutionController
-│       └── test/java/com/mia/fitness/
-│           ├── application/service/# Unit tests con Mockito y JUnit 5
-│           ├── infrastructure/     # JwtServiceTest
-│           └── BiomechanicalPersistenceIntegrationTest.java # Testcontainers con pgvector
-│
-└── frontend/                       # React 19 + TypeScript PWA (MIA Strength Lab)
-    ├── package.json                # React 19, Tailwind CSS v4, Lucide, Vitest
-    ├── Dockerfile                  # Multi-stage Node 20 build + Nginx Alpine
-    ├── nginx.conf                  # Proxy pass hacia backend y manejo de SPA routing
+│       │   ├── application/dto/        # Records de entrada/salida
+│       │   ├── application/service/    # Auth, sustitución, escáner, sobrecarga
+│       │   ├── domain/model/           # User, Workout, series, catálogo biomecánico
+│       │   └── infrastructure/
+│       │       ├── bootstrap/          # KnowledgeBaseSeeder (20 ejercicios)
+│       │       ├── persistence/        # JPA + BiomechanicalVectorRepository (pgvector)
+│       │       ├── security/           # JWT, UserDetailsService, CORS
+│       │       └── web/                # Controllers + GlobalExceptionHandler
+│       ├── main/resources/
+│       │   ├── application.yml
+│       │   ├── db/migration/V1__init_schema.sql
+│       │   └── knowledge-base/biomechanical-exercises.json
+│       └── test/
+│           ├── java/...                # Unitarios (*Test) + ITs (*IT)
+│           └── resources/docker-java.properties
+└── frontend/
+    ├── Dockerfile / nginx.conf
+    ├── public/machines/                # Fotos de muestra incluidas
     └── src/
-        ├── components/             # Modales biomecánicos, balance calórico, escáner IA
-        ├── data/                   # Base de datos de maquinaria Technogym, Hammer Strength
-        ├── utils/                  # Algoritmos cinemáticos, fórmulas TDEE/NEAT, Vitest suites
-        └── __tests__/              # 65 tests automatizados de lógica deportiva y nutricional
+        ├── components/                 # AuthScreen, AiBiomechanicsModal...
+        ├── utils/api.ts                # Cliente tipado de la API + JWT
+        ├── utils/cloudSync.ts          # Sesión local y snapshots local-first
+        └── __tests__/                  # 66 tests de Vitest
 ```
 
 ---
 
-## 👤 Autor
+## Limitaciones conocidas
 
-**Pablo Mateos Angulo**  
-- GitHub: [@pabmatang](https://github.com/pabmatang)  
-- Email: [pablo-mateos@hotmail.es](mailto:pablo-mateos@hotmail.es)  
-- Rol: Backend Software Engineer (Java / Spring Boot / AI Architect)
+- **Spring AI `1.0.0-M1`**: es una versión milestone. Se mantiene porque el proyecto compila contra ella; una actualización puede requerir cambios de API.
+- **Sin refresh token ni revocación**: el JWT dura 24 h (`JWT_EXPIRATION_MS`). Para producción haría falta rotación/refresh y HTTPS.
+- **Ollama local**: el escaneo y la búsqueda semántica devuelven `503` si el runtime o los modelos no están disponibles. No hay fallback a un proveedor cloud.
+- **Catálogo pequeño**: 20 ejercicios sembrados. La calidad del kNN depende de ese catálogo y del modelo de embeddings.
+- **Snapshot no sincronizado**: el historial completo de la UI se guarda en el navegador; la tabla `workouts` se usa para los endpoints analíticos, no como backup del snapshot.
+- **Bundle único**: Vite genera un chunk de ~1,1 MB (sin code splitting).
+- **Datos de ejemplo en la UI**: el modal de IA permite cargar un ejemplo ilustrativo cuando el backend no está disponible, siempre con un aviso visible de que no procede de la API. El selector de comidas solo ofrece recetas de ejemplo con macros fijos; el reconocimiento de fotos de comida propias no está implementado y la interfaz lo indica.
+- **Historial inicial de ejemplo**: las pantallas de peso, nutrición, medidas y comunidad arrancan con datos de ejemplo para poder probar la interfaz; no pertenecen a ninguna cuenta real y se pueden editar o borrar. Los pasos empiezan vacíos y solo se registran a mano.
+- **Pasos y salud**: no hay integración con Health Connect ni Apple Health. Los pasos se registran a mano y no se generan datos sintéticos.
+
+---
+
+## Autor
+
+**Pablo Mateos Angulo**
+
+- GitHub: [@pabmatang](https://github.com/pabmatang)
+- Email: [pablo-mateos@hotmail.es](mailto:pablo-mateos@hotmail.es)
+
+Licencia MIT — ver [LICENSE](LICENSE).

@@ -4,7 +4,7 @@ WORKDIR /app
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN mvn clean package -Dmaven.test.skip=true
 
 # Stage 2: Minimal Distroless / Temurin JRE 21 Runtime
 FROM eclipse-temurin:21-jre-alpine

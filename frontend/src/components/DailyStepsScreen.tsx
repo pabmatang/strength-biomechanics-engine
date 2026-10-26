@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Footprints, Flame, MapPin, RefreshCw, Smartphone, Heart, Calendar, Plus, Trophy, Check, TrendingUp, Bike, Trash2, X } from 'lucide-react';
 import { DailyStepEntry, CardioSession } from '../types/workout';
+import { calculateCardioSessionCalories, stepsToActiveCalories, stepsToDistanceKm } from '../utils/stepMath';
 
 interface DailyStepsScreenProps {
   stepHistory: DailyStepEntry[];
   onAddStepEntry: (entry: DailyStepEntry) => void;
-  syncHealthEnabled: boolean;
   cardioSessions?: CardioSession[];
   onAddCardioSession?: (session: CardioSession) => void;
   onDeleteCardioSession?: (id: string) => void;
@@ -26,12 +26,10 @@ const formatDisplayDate = (dateStr: string) => {
 export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
   stepHistory,
   onAddStepEntry,
-  syncHealthEnabled,
   cardioSessions = [],
   onAddCardioSession,
   onDeleteCardioSession
 }) => {
-  const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualSteps, setManualSteps] = useState('10000');
@@ -50,15 +48,15 @@ export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
     return cardioSessions.reduce((acc, curr) => acc + curr.duration_minutes, 0);
   }, [cardioSessions]);
 
-  // Today's entry or fallback
+  // Today's entry or zeroes. Never show an old entry as today's data.
   const todayStr = new Date().toISOString().split('T')[0];
-  const todayEntry = stepHistory.find(s => s.date === todayStr) || stepHistory[0] || {
+  const todayEntry = stepHistory.find(s => s.date === todayStr) || {
     id: 'step_today',
     date: todayStr,
-    steps: 8420,
-    distance_km: 6.3,
-    active_calories: 335,
-    source: 'Google Health Connect'
+    steps: 0,
+    distance_km: 0,
+    active_calories: 0,
+    source: 'Sin datos'
   };
 
   const STEP_GOAL = 10000;
@@ -70,39 +68,20 @@ export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
   const totalKm7d = recent7Days.reduce((sum, s) => sum + s.distance_km, 0).toFixed(1);
   const totalKcal7d = recent7Days.reduce((sum, s) => sum + s.active_calories, 0);
 
-  // Sync handler (Web Sensors API / Health Connect)
+  // There is no automatic Health Connect / Apple Health integration in this app:
+  // browsers cannot read those stores, and inventing step counts would be fake data.
   const handleSyncHealth = () => {
-    setIsSyncing(true);
-    setSyncMessage(null);
-
-    setTimeout(() => {
-      // Simulate live sync from device accelerometer / Apple Health / Health Connect
-      const randomSyncSteps = Math.floor(8800 + Math.random() * 2500);
-      const randomKm = (randomSyncSteps * 0.00075).toFixed(2);
-      const randomKcal = Math.round(randomSyncSteps * 0.04);
-
-      const syncedEntry: DailyStepEntry = {
-        id: `step_${Date.now()}`,
-        date: todayStr,
-        steps: randomSyncSteps,
-        distance_km: parseFloat(randomKm),
-        active_calories: randomKcal,
-        source: 'Google Health Connect'
-      };
-
-      onAddStepEntry(syncedEntry);
-      setIsSyncing(false);
-      setSyncMessage(`¡Sincronizado con éxito! +${randomSyncSteps.toLocaleString()} pasos detectados.`);
-      setTimeout(() => setSyncMessage(null), 4000);
-    }, 1200);
+    setSyncMessage(
+      'La sincronización automática con Health Connect o Apple Health no está implementada. Usa «Añadir» para registrar tus pasos manualmente.'
+    );
   };
 
   const handleSaveManual = () => {
     const s = parseInt(manualSteps, 10);
     if (!s || s <= 0) return;
 
-    const km = parseFloat((s * 0.00075).toFixed(2));
-    const kcal = Math.round(s * 0.04);
+    const km = stepsToDistanceKm(s, 0.75);
+    const kcal = stepsToActiveCalories(s, 78);
 
     const newEntry: DailyStepEntry = {
       id: `step_${Date.now()}`,
@@ -127,8 +106,13 @@ export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
       rower: 'Remo Indoor Concept2'
     };
 
-    const kcalPerMin = cardioActivity === 'running' ? 12.0 : cardioActivity === 'incline_treadmill' ? 10.5 : 8.8;
-    const estimatedKcal = Math.round(cardioDuration * kcalPerMin);
+    const estimatedKcal = calculateCardioSessionCalories({
+      activity_type: cardioActivity,
+      duration_minutes: cardioDuration,
+      weightKg: 78,
+      incline_percentage: cardioActivity === 'incline_treadmill' ? cardioIncline : undefined,
+      speed_kmh: cardioSpeed
+    });
 
     const newSession: CardioSession = {
       id: `cardio_${Date.now()}`,
@@ -160,12 +144,12 @@ export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-black text-white">Pasos Diarios & NEAT</h2>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {syncHealthEnabled ? 'Sensor Activo' : 'Manual'}
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                Registro local
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Sincronización con Google Health Connect, Apple Health y podómetro del teléfono
+              Pasos introducidos a mano y cardio de este dispositivo. Sin integración con Health Connect ni Apple Health.
             </p>
           </div>
         </div>
@@ -181,18 +165,17 @@ export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
 
           <button
             onClick={handleSyncHealth}
-            disabled={isSyncing}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition flex items-center gap-1.5 disabled:opacity-50"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition flex items-center gap-1.5"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Sincronizar</span>
           </button>
         </div>
       </div>
 
       {syncMessage && (
-        <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-400 flex items-center gap-2 animate-in fade-in">
-          <Check className="w-4 h-4 flex-shrink-0" />
+        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-300 flex items-start gap-2 animate-in fade-in">
+          <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{syncMessage}</span>
         </div>
       )}
@@ -292,8 +275,13 @@ export const DailyStepsScreen: React.FC<DailyStepsScreenProps> = ({
       rower: 'Remo Indoor Concept2'
     };
 
-    const kcalPerMin = cardioActivity === 'running' ? 12.0 : cardioActivity === 'incline_treadmill' ? 10.5 : 8.8;
-    const estimatedKcal = Math.round(cardioDuration * kcalPerMin);
+    const estimatedKcal = calculateCardioSessionCalories({
+      activity_type: cardioActivity,
+      duration_minutes: cardioDuration,
+      weightKg: 78,
+      incline_percentage: cardioActivity === 'incline_treadmill' ? cardioIncline : undefined,
+      speed_kmh: cardioSpeed
+    });
 
     const newSession: CardioSession = {
       id: `cardio_${Date.now()}`,

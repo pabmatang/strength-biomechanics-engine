@@ -2,10 +2,16 @@ package com.mia.fitness.domain.model;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
+
 import java.util.UUID;
 
+/**
+ * Biomechanical knowledge-base entry.
+ *
+ * <p>The {@code embedding vector(768)} column is intentionally <b>not</b> mapped here:
+ * Hibernate has no native pgvector type, so the vector is written and queried through
+ * {@code BiomechanicalVectorRepository} using native SQL with explicit casts.</p>
+ */
 @Entity
 @Table(name = "biomechanical_exercises")
 @Getter
@@ -24,21 +30,18 @@ public class BiomechanicalExercise {
 
     private String brand;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "target_muscle", nullable = false, length = 100)
     private String targetMuscle;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "movement_plane", nullable = false, length = 100)
     private String movementPlane; // Sagittal, Frontal, Transverse, Scapular
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "joint_stress", nullable = false, length = 100)
     private String jointStress; // e.g. "Low shoulder impingement", "No axial spine loading"
 
-    @Column(nullable = false)
+    @Column(name = "axial_loading", nullable = false)
     private Boolean axialLoading; // false = protects lower back
 
     @Column(columnDefinition = "TEXT")
     private String description;
-
-    @Column(columnDefinition = "vector(768)")
-    private String embedding; // String or pgvector PGvector representation
 }

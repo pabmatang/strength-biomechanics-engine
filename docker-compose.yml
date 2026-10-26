@@ -1,41 +1,44 @@
-version: '3.8'
-
 services:
-  # PostgreSQL 16 with pgvector extension for relational data and semantic vector search
+  # PostgreSQL 16 with pgvector for relational data and semantic vector search.
+  # The schema (including CREATE EXTENSION vector) is created by Flyway on backend boot.
   postgres:
     image: pgvector/pgvector:pg16
     container_name: mia_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mia_fitness
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-mia_fitness}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      # 5433 on the host by default: many machines already run PostgreSQL on 5432.
+      # The backend reaches PostgreSQL over the Docker network, so this mapping is
+      # only for local tooling (psql, DBeaver...). Bound to localhost.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d mia_fitness"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-mia_fitness}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - mia_net
 
-  # Local Ollama AI Server with Llama 3.2 Vision and Nomic Embed Text
+  # Local Ollama runtime. Pull the models once:
+  #   docker compose exec ollama ollama pull llama3.2-vision
+  #   docker compose exec ollama ollama pull nomic-embed-text
   ollama:
     image: ollama/ollama:latest
     container_name: mia_ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama_storage:/root/.ollama
     networks:
       - mia_net
 
-  # Java 21 / Spring Boot 3.3.4 Biomechanics Engine
+  # Java 21 / Spring Boot biomechanics API.
   backend:
     build:
       context: ./backend
@@ -50,17 +53,27 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/mia_fitness
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-mia_fitness}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
-      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2-vision
-      SPRING_AI_OLLAMA_EMBEDDING_MODEL: nomic-embed-text
-      JWT_SECRET_KEY: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      SPRING_AI_OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2-vision}
+      SPRING_AI_OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      # Replace with a random 32+ byte secret in any real deployment (see .env.example).
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      SEED_KNOWLEDGE_BASE: ${SEED_KNOWLEDGE_BASE:-true}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     networks:
       - mia_net
 
-  # React 19 + TypeScript + Vite + Nginx Frontend PWA
+  # React 19 + TypeScript + Vite built and served by Nginx.
+  # nginx.conf proxies /api/ and /swagger-ui/ to the backend container.
   frontend:
     build:
       context: ./frontend

@@ -3,6 +3,9 @@ package com.mia.fitness.infrastructure.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -17,11 +20,28 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtService.class);
+
     @Value("${security.jwt.secret-key}")
     private String secretKey;
 
     @Value("${security.jwt.expiration-time-ms:86400000}")
     private long jwtExpirationMs;
+
+    @PostConstruct
+    void validateSecret() {
+        if (secretKey == null || secretKey.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                    "security.jwt.secret-key must be at least 32 bytes (256 bits). Configure JWT_SECRET_KEY.");
+        }
+        if (secretKey.startsWith("dev-only")) {
+            log.warn("Using the development JWT secret. Set JWT_SECRET_KEY before deploying to production.");
+        }
+    }
+
+    public long getExpirationMs() {
+        return jwtExpirationMs;
+    }
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
