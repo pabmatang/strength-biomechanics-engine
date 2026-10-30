@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   X, Sparkles, Dumbbell, Clock, Calendar, Check, ArrowRight, ArrowLeft, 
   Sliders, ShieldCheck, Layers, Play, RefreshCw, Star, Info, ThumbsDown,
-  Activity, Award, Split, BarChart2, CheckCircle2, ChevronRight
+  Activity, Award, Split, BarChart2, CheckCircle2, ChevronRight, Zap
 } from 'lucide-react';
 import { Routine, WorkoutExercise, ExerciseTemplate, MuscleGroup } from '../types/workout';
 import { EXERCISE_DATABASE } from '../data/exercises';
@@ -24,7 +24,11 @@ type RoutineSplitType = 'ppl' | 'torso_pierna' | 'fullbody' | 'auto';
 /**
  * Broad muscle group classifier to strictly enforce:
  * 1) Max 3 exercises of any single muscle group per session (including sub-regions)
- * 2) Volume landmarks (12-16 sets priority, 6-10 secondary, 4 complementary reminder)
+ * 2) Volume landmarks:
+ *    - Principiante: 6 series/sem estándar (8 en prioridad)
+ *    - Intermedio: 8 series/sem estándar (10-12 en prioridad)
+ *    - Avanzado: 10 series/sem estándar (12-16 en prioridad)
+ *    - Complementarios (Abdomen / Aductor): 2-4 series recordatorio
  */
 const BROAD_GROUP_MAP: Record<string, string> = {
   lats: 'back',
@@ -53,11 +57,11 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 }) => {
   const [step, setStep] = useState<number>(1);
 
-  // Wizard answers
+  // Wizard answers (Clean default: Back and Chest as priorities, no forced biceps)
   const [daysPerWeek, setDaysPerWeek] = useState<SplitDays>(5);
-  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('avanzado');
+  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('intermedio');
   const [routineSplitType, setRoutineSplitType] = useState<RoutineSplitType>('ppl');
-  const [priorityMuscles, setPriorityMuscles] = useState<string[]>(['lats', 'chest', 'biceps']);
+  const [priorityMuscles, setPriorityMuscles] = useState<string[]>(['lats', 'chest']);
   const [backSpecialization, setBackSpecialization] = useState<boolean>(true);
   const [dislikedMuscles, setDislikedMuscles] = useState<string[]>([]);
   const [interleavedArmMuscle, setInterleavedArmMuscle] = useState<'biceps' | 'triceps' | 'both'>('biceps');
@@ -160,24 +164,25 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 
   /**
    * Main Generator Function:
-   * 1. Automatic Complementary Muscle assignment (Calves, Abs, Adductors) at the end of sessions (4 sets reminder).
-   * 2. Max 3 exercises of the same muscle group per session (strict biomechanical ceiling).
-   * 3. Frequency ceiling: Back appears exactly 2 times per week in a 5-day split (Pull A & Pull B).
-   * 4. Interleaving: On Pull days, Biceps is interleaved between Back Exercise 1 and Back Exercise 2.
-   * 5. Strict Session Duration Normalization (45m=4, 60m=5, 75m=6, 90m=7 exercises on ALL days).
-   * 6. Weekly Volume targets: Priority 12-16 sets, Secondary 6-10 sets, Complementary 4 sets reminder.
+   * 1. Interleaving on ALL days:
+   *    - Push days: Chest 1 -> Lateral Delts -> Chest 2 -> Triceps -> Delts/Core (Pecho intercalado).
+   *    - Pull days: Lats 1 -> Biceps -> Lats 2 -> Rear Delt -> Biceps/Core.
+   *    - Torso days: Lats -> Chest -> Shoulders -> Biceps -> Triceps (ambos brazos siempre presentes!).
+   *    - Leg days: Quads -> Hamstrings -> Quads -> Calves -> Adductors.
+   * 2. Pure anatomic assignment: Calves and Adductors ONLY on Leg days. Core on Torso/Push/Pull days.
+   * 3. Volume calibrated by experienceLevel:
+   *    - Principiante: exact 2 sets per exercise (all standard muscles = 6 sets/week, priority = 8).
+   *    - Intermedio: 2-3 sets per exercise (standard = 8 sets/week, priority = 10-12).
+   *    - Avanzado: 3-4 sets per exercise (standard = 10 sets/week, priority = 12-16).
+   *    - Complementary: exact 2 sets per exercise (total 2-4 sets/week).
+   * 4. Max 3 exercises per muscle group per session.
+   * 5. Strict session duration normalization (45m=4, 60m=5, 75m=6, 90m=7).
    */
   const generateRoutines = () => {
     const routines: Routine[] = [];
 
     // Exact normalization: each duration has an exact fixed number of exercises across ALL days
     const exactExercisesCount = durationMinutes === 45 ? 4 : durationMinutes === 60 ? 5 : durationMinutes === 75 ? 6 : 7;
-
-    // Available complementary muscles for rotation (never asked directly, auto-distributed)
-    const complementaryPool = ['calves', 'abdominals', 'adductors'].filter(
-      m => !dislikedMuscles.includes(m)
-    );
-    if (complementaryPool.length === 0) complementaryPool.push('abdominals');
 
     interface DayQueueItem {
       muscle: string;
@@ -202,104 +207,105 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       if (daysPerWeek === 3) {
         dayTemplates = [
           {
-            name: 'Día 1: Push (Pectoral & Deltoides)',
+            name: 'Día 1: Push (Pectoral & Deltoides Intercalados)',
             focusCategory: 'push',
             musclesQueue: [
-              { muscle: 'chest', note: 'Pectoral plano/convergente' },
-              { muscle: 'chest', note: 'Pectoral superior/inclinado' },
-              { muscle: 'shoulders', note: 'Deltoides lateral' },
-              { muscle: 'triceps', note: 'Extensión de tríceps' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-              { muscle: 'shoulders', note: 'Deltoides anterior' },
-              { muscle: 'triceps', note: 'Tríceps katana' }
+              { muscle: 'chest', note: 'Pectoral 1: Press convergente de discos o mancuernas' },
+              { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones laterales en polea (Intercalado para descanso de pecho)' },
+              { muscle: 'chest', note: 'Pectoral 2: Press inclinado o aperturas' },
+              { muscle: 'triceps', note: 'Tríceps: Extensión en polea con cuerda' },
+              { muscle: 'abdominals', note: 'Core: Abdominales en polea (Finisher)', isComplementary: true },
+              { muscle: 'shoulders', note: 'Deltoides: Press militar' },
+              { muscle: 'triceps', note: 'Tríceps: Extensión katana' }
             ]
           },
           {
-            name: 'Día 2: Pull (Espalda Especializada & Bíceps Intercalado)',
+            name: 'Día 2: Pull (Espalda & Bíceps Intercalados)',
             focusCategory: 'pull',
             musclesQueue: [
-              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 1: Jalón o remo guiado al ilíaco' },
-              { muscle: 'biceps', note: 'Bíceps 1: Curl en banco Scott (Intercalado para recuperación de espalda)' },
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 1: Jalón unilateral o remo al ilíaco' },
+              { muscle: 'biceps', note: 'Bíceps 1: Curl en banco Scott (Intercalado para descanso dorsal)' },
               { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con codos a 45-60°' },
-              { muscle: 'shoulders', note: 'Deltoides posterior / Facepull' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-              { muscle: 'biceps', note: 'Bíceps 2: Curl martillo o polea' },
-              { muscle: 'upper_back', bias: 'trapezius', note: 'Trapecios / Encogimientos' }
+              { muscle: 'shoulders', note: 'Deltoides Posterior: Pájaros en máquina o polea' },
+              { muscle: 'biceps', note: 'Bíceps 2: Curl martillo en polea' },
+              { muscle: 'abdominals', note: 'Core: Elevaciones de piernas', isComplementary: true },
+              { muscle: 'upper_back', bias: 'trapezius', note: 'Trapecios: Encogimientos' }
             ]
           },
           {
             name: 'Día 3: Legs (Pierna Completa & Aductor)',
             focusCategory: 'legs',
             musclesQueue: [
-              { muscle: 'quadriceps', note: 'Cuádriceps: Prensa o Hack Squat' },
-              { muscle: 'hamstrings', note: 'Isquios: Curl femoral sentado' },
-              { muscle: 'quadriceps', note: 'Cuádriceps: Extensiones en máquina' },
-              { muscle: 'glutes', note: 'Glúteos: Hip thrust guiado' },
-              { muscle: complementaryPool[2 % complementaryPool.length] || 'calves', note: 'Complementario: Gemelos o Aductor', isComplementary: true },
-              { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")' },
-              { muscle: 'calves', note: 'Gemelo en prensa' }
+              { muscle: 'quadriceps', note: 'Cuádriceps 1: Prensa inclinada o Hack Squat' },
+              { muscle: 'hamstrings', note: 'Isquios: Curl femoral sentado (Intercalado antagonista)' },
+              { muscle: 'quadriceps', note: 'Cuádriceps 2: Extensiones en máquina' },
+              { muscle: 'calves', note: 'Gemelos: Elevaciones de talones en prensa' },
+              { muscle: 'adductors', note: 'Aductores: Máquina de "cerrar piernas" (Recordatorio)', isComplementary: true },
+              { muscle: 'glutes', note: 'Glúteos: Hip thrust' },
+              { muscle: 'hamstrings', note: 'Isquios: Curl femoral tumbado' }
             ]
           }
         ];
       } else if (daysPerWeek === 4) {
         dayTemplates = [
           {
-            name: 'Día 1: Torso A (Foco Dorsal Ancho & Bíceps Intercalado)',
+            name: 'Día 1: Torso A (Tracción & Empuje Intercalados)',
             focusCategory: 'upper',
             musclesQueue: [
-              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 1: Jalón o remo al ilíaco' },
-              { muscle: 'biceps', note: 'Bíceps: Curl Scott (Intercalado)' },
-              { muscle: 'chest', note: 'Pectoral plano convergente' },
-              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo soporte de pecho' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-              { muscle: 'shoulders', note: 'Deltoides lateral polea' },
-              { muscle: 'triceps', note: 'Tríceps en polea' }
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 1: Jalón unilateral o remo al ilíaco' },
+              { muscle: 'chest', note: 'Pectoral: Press convergente de pecho (Intercalado antagonista)' },
+              { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones en polea' },
+              { muscle: 'biceps', note: 'Bíceps: Curl en banco Scott' },
+              { muscle: 'triceps', note: 'Tríceps: Extensión en polea con cuerda' },
+              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con soporte de pecho' },
+              { muscle: 'abdominals', note: 'Core: Abdominales en polea', isComplementary: true }
             ]
           },
           {
             name: 'Día 2: Pierna A (Cuádriceps & Aductores)',
             focusCategory: 'lower',
             musclesQueue: [
-              { muscle: 'quadriceps', note: 'Hack squat o Prensa 45°' },
-              { muscle: 'hamstrings', note: 'Curl femoral sentado' },
-              { muscle: 'quadriceps', note: 'Extensiones de cuádriceps' },
-              { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-              { muscle: 'glutes', note: 'Hip thrust' },
-              { muscle: 'calves', note: 'Gemelo de pie' }
+              { muscle: 'quadriceps', note: 'Cuádriceps 1: Hack squat o Prensa 45°' },
+              { muscle: 'hamstrings', note: 'Isquios: Curl femoral sentado (Intercalado antagonista)' },
+              { muscle: 'quadriceps', note: 'Cuádriceps 2: Extensiones en máquina' },
+              { muscle: 'calves', note: 'Gemelos: Elevaciones de talones de pie' },
+              { muscle: 'adductors', note: 'Aductores: Máquina de "cerrar piernas" (Recordatorio)', isComplementary: true },
+              { muscle: 'glutes', note: 'Glúteos: Hip thrust guiado' },
+              { muscle: 'hamstrings', note: 'Isquios: Curl femoral tumbado' }
             ]
           },
           {
-            name: 'Día 3: Torso B (Foco Espalda Alta, Pectoral & Brazos)',
+            name: 'Día 3: Torso B (Foco Pectoral & Espalda Alta)',
             focusCategory: 'upper',
             musclesQueue: [
-              { muscle: 'chest', note: 'Pectoral superior / inclinado' },
-              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con codos a 45-60°' },
-              { muscle: 'biceps', note: 'Bíceps: Curl bayesiano polea' },
-              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 2: Pullover en polea' },
-              { muscle: complementaryPool[2 % complementaryPool.length] || 'abdominals', note: 'Complementario recordatorio', isComplementary: true },
-              { muscle: 'shoulders', note: 'Deltoides posterior / pájaros' },
-              { muscle: 'triceps', note: 'Extensión tras nuca' }
+              { muscle: 'chest', note: 'Pectoral Superior: Press inclinado' },
+              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con codos a 45-60° (Intercalado)' },
+              { muscle: 'shoulders', note: 'Deltoides Posterior: Facepull o pájaros' },
+              { muscle: 'triceps', note: 'Tríceps: Extensión katana tras nuca' },
+              { muscle: 'biceps', note: 'Bíceps: Curl bayesiano en polea' },
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho: Pullover en polea' },
+              { muscle: 'abdominals', note: 'Core: Crunch en máquina', isComplementary: true }
             ]
           },
           {
             name: 'Día 4: Pierna B (Isquiosurales & Cadena Posterior)',
             focusCategory: 'lower',
             musclesQueue: [
-              { muscle: 'hamstrings', note: 'Peso muerto rumano / Femoral tumbado' },
-              { muscle: 'quadriceps', note: 'Prensa horizontal' },
-              { muscle: 'glutes', note: 'Patada de glúteo en polea o abductor' },
-              { muscle: 'calves', note: 'Gemelo en máquina de discos' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-              { muscle: 'adductors', note: 'Aductor guiado' },
-              { muscle: 'abdominals', note: 'Elevación de piernas' }
+              { muscle: 'hamstrings', note: 'Isquios 1: Peso muerto rumano (RDL)' },
+              { muscle: 'quadriceps', note: 'Cuádriceps: Prensa horizontal (Intercalado)' },
+              { muscle: 'hamstrings', note: 'Isquios 2: Curl femoral tumbado' },
+              { muscle: 'calves', note: 'Gemelos: Elevaciones sentado (sóleo)' },
+              { muscle: 'adductors', note: 'Aductores: Máquina guiada (Recordatorio)', isComplementary: true },
+              { muscle: 'glutes', note: 'Glúteos: Patada en polea o abductor' },
+              { muscle: 'quadriceps', note: 'Zancadas guiadas' }
             ]
           }
         ];
       } else if (daysPerWeek === 5) {
         // EXACT 5-DAY SPLIT:
-        // Back appears ONLY in Día 1 (Pull A) and Día 4 (Pull B) -> Exactly 2 days per week!
-        // No Back on Día 2, Día 3 or Día 5!
+        // Push A & B: Chest interleaved with delts/triceps (NO consecutive chest!).
+        // Pull A & B: Back interleaved with biceps (Back strictly on Day 1 & Day 4 = Frequency 2).
+        // Legs: Quads interleaved with hamstrings; Calves and Adductor strictly on Leg day.
         dayTemplates = [
           {
             name: 'Día 1: Pull A (Foco Dorsal Ancho & Bíceps Intercalado)',
@@ -309,22 +315,22 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               { muscle: 'biceps', note: 'Bíceps: Curl en banco Scott (Intercalado para permitir descanso dorsal)' },
               { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 2: Remo con apoyo de pecho agarre neutro' },
               { muscle: 'shoulders', note: 'Deltoides Posterior: Pájaros en máquina o polea' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Finisher Complementario: Gemelo/Core (Recordatorio 4 series)', isComplementary: true },
               { muscle: 'biceps', note: 'Bíceps 2: Curl martillo para braquial' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Finisher Complementario: Aductor/Pierna', isComplementary: true }
+              { muscle: 'abdominals', note: 'Core: Abdomen en polea (Recordatorio)', isComplementary: true },
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 3: Pullover en polea' }
             ]
           },
           {
-            name: 'Día 2: Push A (Foco Pectoral & Tríceps)',
+            name: 'Día 2: Push A (Pectoral & Deltoides Intercalados)',
             focusCategory: 'push',
             musclesQueue: [
               { muscle: 'chest', note: 'Pectoral 1: Press convergente de discos o mancuernas' },
-              { muscle: 'chest', note: 'Pectoral 2: Cruces en polea baja o press declinado' },
-              { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones laterales en polea' },
+              { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones laterales en polea (Intercalado para descanso pectoral)' },
+              { muscle: 'chest', note: 'Pectoral 2: Press inclinado o cruces en polea' },
               { muscle: 'triceps', note: 'Tríceps: Extensión en polea con cuerda' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Finisher Complementario: Abdominales en polea', isComplementary: true },
               { muscle: 'shoulders', note: 'Deltoides Anterior: Press de hombros' },
-              { muscle: 'triceps', note: 'Tríceps: Extensión katana tras nuca' }
+              { muscle: 'triceps', note: 'Tríceps: Extensión katana tras nuca' },
+              { muscle: 'abdominals', note: 'Core: Crunch en máquina', isComplementary: true }
             ]
           },
           {
@@ -332,67 +338,67 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
             focusCategory: 'legs',
             musclesQueue: [
               { muscle: 'quadriceps', note: 'Cuádriceps 1: Hack squat o Prensa 45°' },
-              { muscle: 'hamstrings', note: 'Femoral: Curl sentado en máquina' },
+              { muscle: 'hamstrings', note: 'Isquios: Curl sentado en máquina (Intercalado antagonista)' },
               { muscle: 'quadriceps', note: 'Cuádriceps 2: Extensiones en máquina' },
+              { muscle: 'calves', note: 'Gemelos: Elevaciones de talones en prensa' },
+              { muscle: 'adductors', note: 'Aductores: Máquina de "cerrar piernas" (Recordatorio)', isComplementary: true },
               { muscle: 'glutes', note: 'Glúteos: Hip thrust o Prensa unilateral' },
-              { muscle: complementaryPool[2 % complementaryPool.length] || 'adductors', note: 'Finisher Complementario: Aductor máquina ("cerrar piernas")', isComplementary: true },
-              { muscle: 'calves', note: 'Gemelo en prensa' },
-              { muscle: 'hamstrings', note: 'Curl femoral tumbado' }
+              { muscle: 'hamstrings', note: 'Isquios: Curl femoral tumbado' }
             ]
           },
           {
-            name: 'Día 4: Pull B (Foco Espalda Alta, Trapecios & Bíceps Intercalado)',
+            name: 'Día 4: Pull B (Espalda Alta, Trapecios & Bíceps Intercalados)',
             focusCategory: 'pull',
             musclesQueue: [
               { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta 1: Remo con codos a 45-60° con apoyo de pecho' },
               { muscle: 'biceps', note: 'Bíceps: Curl bayesiano en polea unilateral (Intercalado)' },
               { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho: Pullover en polea alta' },
               { muscle: 'upper_back', bias: 'trapezius', note: 'Trapecios: Encogimientos o Remo alto' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Finisher Complementario: Gemelo/Core (Recordatorio)', isComplementary: true },
-              { muscle: 'shoulders', note: 'Deltoides posterior: Facepull en polea' },
-              { muscle: 'biceps', note: 'Bíceps: Curl concentrado' }
+              { muscle: 'shoulders', note: 'Deltoides Posterior: Facepull en polea' },
+              { muscle: 'biceps', note: 'Bíceps: Curl concentrado' },
+              { muscle: 'abdominals', note: 'Core: Elevación de piernas', isComplementary: true }
             ]
           },
           {
-            name: 'Día 5: Push B (Foco Pectoral Superior & Hombro Lateral)',
+            name: 'Día 5: Push B (Pectoral Superior & Tríceps Intercalados)',
             focusCategory: 'push',
             musclesQueue: [
               { muscle: 'chest', note: 'Pectoral Superior: Press inclinado con mancuernas o máquina' },
+              { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones laterales unilaterales (Intercalado)' },
               { muscle: 'chest', note: 'Pectoral: Aperturas inclinadas en polea' },
-              { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones laterales unilaterales' },
-              { muscle: 'triceps', note: 'Tríceps: Fondos en paralelas asistidos' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Finisher Complementario: Abdominales en máquina', isComplementary: true },
-              { muscle: 'shoulders', note: 'Deltoides posterior / trapecio' },
-              { muscle: 'triceps', note: 'Tríceps en cuerda' }
+              { muscle: 'triceps', note: 'Tríceps: Fondos en paralelas asistidos o polea' },
+              { muscle: 'triceps', note: 'Tríceps: Extensión tras nuca con cuerda' },
+              { muscle: 'shoulders', note: 'Deltoides: Elevaciones frontales o militar' },
+              { muscle: 'abdominals', note: 'Core: Abdominales en polea', isComplementary: true }
             ]
           }
         ];
       } else if (daysPerWeek === 6) {
         dayTemplates = [
           {
-            name: 'Día 1: Push A (Pectoral Pesado)',
+            name: 'Día 1: Push A (Pectoral & Deltoides Intercalados)',
             focusCategory: 'push',
             musclesQueue: [
               { muscle: 'chest', note: 'Press convergente' },
+              { muscle: 'shoulders', note: 'Elevaciones laterales (Intercalado)' },
               { muscle: 'chest', note: 'Press declinado' },
-              { muscle: 'shoulders', note: 'Elevaciones laterales' },
               { muscle: 'triceps', note: 'Extensión polea' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
               { muscle: 'shoulders', note: 'Press hombro' },
-              { muscle: 'triceps', note: 'Tríceps tras nuca' }
+              { muscle: 'triceps', note: 'Tríceps tras nuca' },
+              { muscle: 'abdominals', note: 'Core', isComplementary: true }
             ]
           },
           {
-            name: 'Día 2: Pull A (Dorsal & Bíceps Intercalado)',
+            name: 'Día 2: Pull A (Dorsal & Bíceps Intercalados)',
             focusCategory: 'pull',
             musclesQueue: [
               { muscle: 'lats', bias: 'lats', note: 'Jalón unilateral' },
               { muscle: 'biceps', note: 'Curl banco Scott (Intercalado)' },
               { muscle: 'lats', bias: 'lats', note: 'Remo dorsal agarre cerrado' },
               { muscle: 'shoulders', note: 'Pájaros máquina' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
               { muscle: 'biceps', note: 'Curl martillo' },
-              { muscle: 'upper_back', bias: 'trapezius', note: 'Trapecio' }
+              { muscle: 'upper_back', bias: 'trapezius', note: 'Trapecio' },
+              { muscle: 'abdominals', note: 'Core', isComplementary: true }
             ]
           },
           {
@@ -400,38 +406,38 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
             focusCategory: 'legs',
             musclesQueue: [
               { muscle: 'quadriceps', note: 'Hack squat' },
-              { muscle: 'hamstrings', note: 'Curl sentado' },
+              { muscle: 'hamstrings', note: 'Curl sentado (Intercalado)' },
               { muscle: 'quadriceps', note: 'Extensiones' },
-              { muscle: 'adductors', note: 'Aductor máquina' },
-              { muscle: complementaryPool[2 % complementaryPool.length] || 'calves', note: 'Complementario recordatorio', isComplementary: true },
+              { muscle: 'calves', note: 'Gemelo en prensa' },
+              { muscle: 'adductors', note: 'Aductor máquina ("cerrar piernas")', isComplementary: true },
               { muscle: 'glutes', note: 'Hip thrust' },
-              { muscle: 'calves', note: 'Gemelo en prensa' }
+              { muscle: 'hamstrings', note: 'Femoral tumbado' }
             ]
           },
           {
-            name: 'Día 4: Push B (Pectoral Superior & Tríceps)',
+            name: 'Día 4: Push B (Pectoral Superior & Tríceps Intercalados)',
             focusCategory: 'push',
             musclesQueue: [
               { muscle: 'chest', note: 'Press inclinado' },
+              { muscle: 'shoulders', note: 'Elevaciones polea (Intercalado)' },
               { muscle: 'chest', note: 'Cruces polea' },
-              { muscle: 'shoulders', note: 'Elevaciones polea' },
               { muscle: 'triceps', note: 'Extensión katana' },
-              { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
+              { muscle: 'triceps', note: 'Tríceps fondos' },
               { muscle: 'shoulders', note: 'Deltoides posterior' },
-              { muscle: 'triceps', note: 'Tríceps fondos' }
+              { muscle: 'abdominals', note: 'Core', isComplementary: true }
             ]
           },
           {
-            name: 'Día 5: Pull B (Espalda Alta & Bíceps Intercalado)',
+            name: 'Día 5: Pull B (Espalda Alta & Bíceps Intercalados)',
             focusCategory: 'pull',
             musclesQueue: [
               { muscle: 'upper_back', bias: 'upper_back', note: 'Remo con soporte pecho' },
               { muscle: 'biceps', note: 'Curl bayesiano (Intercalado)' },
               { muscle: 'lats', bias: 'lats', note: 'Pullover polea' },
-              { muscle: 'upper_back', bias: 'trapezius', note: 'Encogimientos' },
-              { muscle: complementaryPool[1 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
               { muscle: 'shoulders', note: 'Facepull' },
-              { muscle: 'biceps', note: 'Curl invertido' }
+              { muscle: 'biceps', note: 'Curl invertido' },
+              { muscle: 'upper_back', bias: 'trapezius', note: 'Encogimientos' },
+              { muscle: 'abdominals', note: 'Core', isComplementary: true }
             ]
           },
           {
@@ -439,68 +445,71 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
             focusCategory: 'legs',
             musclesQueue: [
               { muscle: 'hamstrings', note: 'Peso muerto rumano' },
-              { muscle: 'quadriceps', note: 'Prensa' },
-              { muscle: 'glutes', note: 'Abductor en máquina' },
+              { muscle: 'quadriceps', note: 'Prensa (Intercalado)' },
               { muscle: 'hamstrings', note: 'Curl tumbado' },
-              { muscle: complementaryPool[2 % complementaryPool.length] || 'calves', note: 'Complementario recordatorio', isComplementary: true },
               { muscle: 'calves', note: 'Gemelo sentado' },
-              { muscle: 'abdominals', note: 'Abdominales en polea' }
+              { muscle: 'adductors', note: 'Aductor en máquina', isComplementary: true },
+              { muscle: 'glutes', note: 'Abductor en máquina' },
+              { muscle: 'glutes', note: 'Hip thrust' }
             ]
           }
         ];
       }
     } else if (effectiveSplit === 'torso_pierna') {
+      // 4-day Torso/Pierna:
+      // In Torso days: BOTH Biceps and Triceps are guaranteed within the 5 exercises!
+      // In Leg days: Calves and Adductors are present, NOT on Torso days!
       dayTemplates = [
         {
-          name: 'Día 1: Torso A (Foco Dorsal & Bíceps Intercalado)',
+          name: 'Día 1: Torso A (Tracción, Empuje & Brazos Intercalados)',
           focusCategory: 'upper',
           musclesQueue: [
-            { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho 1: Jalón o remo al ilíaco' },
-            { muscle: 'biceps', note: 'Bíceps: Curl Scott (Intercalado)' },
-            { muscle: 'chest', note: 'Pectoral medio convergente' },
+            { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho: Jalón unilateral o remo al ilíaco' },
+            { muscle: 'chest', note: 'Pectoral: Press convergente de pecho (Intercalado antagonista)' },
+            { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones en polea' },
+            { muscle: 'biceps', note: 'Bíceps: Curl en banco Scott' },
+            { muscle: 'triceps', note: 'Tríceps: Extensión en polea con cuerda' },
             { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo codos 45°' },
-            { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-            { muscle: 'shoulders', note: 'Deltoides lateral polea' },
-            { muscle: 'triceps', note: 'Tríceps en polea' }
+            { muscle: 'abdominals', note: 'Core: Abdominales en polea', isComplementary: true }
           ]
         },
         {
-          name: 'Día 2: Pierna A (Cuádriceps & Aductor)',
+          name: 'Día 2: Pierna A (Cuádriceps, Femoral & Aductor)',
           focusCategory: 'lower',
           musclesQueue: [
             { muscle: 'quadriceps', note: 'Prensa o sentadilla guiada' },
-            { muscle: 'hamstrings', note: 'Curl femoral sentado' },
+            { muscle: 'hamstrings', note: 'Curl femoral sentado (Intercalado antagonista)' },
             { muscle: 'quadriceps', note: 'Extensiones de cuádriceps' },
-            { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")' },
-            { muscle: complementaryPool[1 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
+            { muscle: 'calves', note: 'Gemelo de pie o prensa' },
+            { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")', isComplementary: true },
             { muscle: 'glutes', note: 'Hip thrust' },
-            { muscle: 'calves', note: 'Gemelo de pie' }
+            { muscle: 'hamstrings', note: 'Curl femoral tumbado' }
           ]
         },
         {
-          name: 'Día 3: Torso B (Foco Pectoral & Espalda Alta)',
+          name: 'Día 3: Torso B (Foco Pectoral, Espalda Alta & Brazos)',
           focusCategory: 'upper',
           musclesQueue: [
-            { muscle: 'chest', note: 'Pectoral superior convergente' },
-            { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con soporte de pecho' },
+            { muscle: 'chest', note: 'Pectoral Superior: Press inclinado' },
+            { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con soporte de pecho (Intercalado)' },
+            { muscle: 'shoulders', note: 'Deltoides Posterior: Facepull o pájaros' },
+            { muscle: 'triceps', note: 'Tríceps: Extensión katana tras nuca' },
             { muscle: 'biceps', note: 'Bíceps: Curl bayesiano' },
             { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho: Pullover polea' },
-            { muscle: complementaryPool[2 % complementaryPool.length] || 'abdominals', note: 'Complementario recordatorio', isComplementary: true },
-            { muscle: 'shoulders', note: 'Deltoides posterior / Pájaros' },
-            { muscle: 'triceps', note: 'Tríceps katana' }
+            { muscle: 'abdominals', note: 'Core: Crunch en máquina', isComplementary: true }
           ]
         },
         {
-          name: 'Día 4: Pierna B (Isquios & Cadena Posterior)',
+          name: 'Día 4: Pierna B (Isquios, Cadena Posterior & Gemelo)',
           focusCategory: 'lower',
           musclesQueue: [
-            { muscle: 'hamstrings', note: 'Peso muerto rumano' },
-            { muscle: 'quadriceps', note: 'Hack squat' },
+            { muscle: 'hamstrings', note: 'Peso muerto rumano (RDL)' },
+            { muscle: 'quadriceps', note: 'Hack squat o Prensa horizontal (Intercalado)' },
+            { muscle: 'hamstrings', note: 'Curl femoral tumbado' },
+            { muscle: 'calves', note: 'Gemelo en máquina de discos' },
+            { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")', isComplementary: true },
             { muscle: 'glutes', note: 'Patada de glúteo o abductor' },
-            { muscle: 'calves', note: 'Gemelo en máquina' },
-            { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-            { muscle: 'adductors', note: 'Aductor máquina ("cerrar piernas")' },
-            { muscle: 'abdominals', note: 'Elevación de piernas en suspensión' }
+            { muscle: 'quadriceps', note: 'Zancadas guiadas' }
           ]
         }
       ];
@@ -508,33 +517,36 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       // Full body (2 days)
       dayTemplates = [
         {
-          name: 'Día 1: Full Body A (Dorsal & Pectoral Pesado)',
+          name: 'Día 1: Full Body A (Dorsal, Pecho & Pierna Intercalados)',
           focusCategory: 'fullbody',
           musclesQueue: [
             { muscle: 'lats', bias: 'lats', note: 'Dorsal Ancho: Jalón o remo al ilíaco' },
-            { muscle: 'biceps', note: 'Bíceps: Curl en banco Scott (Intercalado)' },
-            { muscle: 'chest', note: 'Pectoral medio/convergente' },
+            { muscle: 'chest', note: 'Pectoral medio/convergente (Intercalado)' },
             { muscle: 'quadriceps', note: 'Cuádriceps: Prensa o Hack squat' },
-            { muscle: complementaryPool[0 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
+            { muscle: 'biceps', note: 'Bíceps: Curl en banco Scott' },
+            { muscle: 'triceps', note: 'Tríceps: Extensión en polea' },
             { muscle: 'shoulders', note: 'Deltoides lateral polea' },
             { muscle: 'calves', note: 'Gemelos en máquina' }
           ]
         },
         {
-          name: 'Día 2: Full Body B (Espalda Alta & Cadena Posterior)',
+          name: 'Día 2: Full Body B (Espalda Alta, Cadena Posterior & Brazos)',
           focusCategory: 'fullbody',
           musclesQueue: [
             { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda Alta: Remo con codos a 45-60°' },
-            { muscle: 'chest', note: 'Pectoral inclinado' },
+            { muscle: 'chest', note: 'Pectoral inclinado (Intercalado)' },
             { muscle: 'hamstrings', note: 'Isquios: Curl femoral sentado' },
-            { muscle: 'triceps', note: 'Tríceps: Extensión en polea' },
-            { muscle: complementaryPool[1 % complementaryPool.length], note: 'Complementario recordatorio', isComplementary: true },
-            { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")' },
+            { muscle: 'triceps', note: 'Tríceps: Extensión katana' },
+            { muscle: 'biceps', note: 'Bíceps: Curl bayesiano' },
+            { muscle: 'adductors', note: 'Aductor en máquina ("cerrar piernas")', isComplementary: true },
             { muscle: 'abdominals', note: 'Abdomen en polea' }
           ]
         }
       ];
     }
+
+    // Track global weekly exercise counts per broad muscle group to strictly hit volume targets
+    const weeklyGroupExerciseCount: Record<string, number> = {};
 
     // Build each routine and enforce strict biomechanical limits
     dayTemplates.forEach((day, dayIdx) => {
@@ -556,66 +568,80 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
         const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
         const currentCount = broadCategoryCounts[broad] || 0;
 
-        // RULE: No more than 3 exercises of the same muscle group per day (e.g. back <= 3, chest <= 3, shoulders <= 3)
+        // RULE 1: No more than 3 exercises of the same muscle group per day
         if (currentCount >= 3) {
-          // Skip or replace with complementary finisher if available
+          continue;
+        }
+
+        const isPriority = priorityMuscles.includes(item.muscle) || (BROAD_GROUP_MAP[item.muscle] && priorityMuscles.includes(BROAD_GROUP_MAP[item.muscle]));
+        const isComp = item.isComplementary || ['abdominals', 'adductors', 'abductors'].includes(item.muscle);
+
+        // RULE 2: Weekly volume cap enforcement based on experience level
+        // Principiante: standard max 3 exercises (3x2 = 6 sets), priority max 4 exercises (4x2 = 8 sets)
+        // Intermedio: standard max 4 exercises (8 sets), priority max 4 exercises (10-12 sets)
+        // Avanzado: standard max 4 exercises (10 sets), priority max 4 exercises (12-16 sets)
+        const weeklyCap = isComp ? 2 : (isPriority ? 4 : (experienceLevel === 'principiante' ? 3 : 4));
+        const currentWeeklyCount = weeklyGroupExerciseCount[broad] || 0;
+        if (currentWeeklyCount >= weeklyCap) {
           continue;
         }
 
         broadCategoryCounts[broad] = currentCount + 1;
+        weeklyGroupExerciseCount[broad] = currentWeeklyCount + 1;
         chosenQueue.push(item);
       }
 
-      // If there are fewer than exactExercisesCount, backfill with complementary muscles or safe accessory
-      let compIdx = 0;
-      while (chosenQueue.length < exactExercisesCount) {
-        const nextComp = complementaryPool[compIdx % complementaryPool.length] || 'abdominals';
-        compIdx++;
-        const broad = BROAD_GROUP_MAP[nextComp] || nextComp;
-        const count = broadCategoryCounts[broad] || 0;
-        if (count < 2) {
-          broadCategoryCounts[broad] = count + 1;
-          chosenQueue.push({
-            muscle: nextComp,
-            note: 'Finisher Complementario de compensación (Recordatorio 4 series)',
-            isComplementary: true
-          });
-        } else {
-          // Add safe arms or accessory
-          chosenQueue.push({
-            muscle: 'biceps',
-            note: 'Accesorio de compensación de volumen'
-          });
-        }
+      // If fewer than exactExercisesCount, fill with appropriate category that has not exceeded weekly cap
+      let fallbackLoop = 0;
+      while (chosenQueue.length < exactExercisesCount && fallbackLoop < 10) {
+        fallbackLoop++;
+        const candidate = (day.focusCategory === 'legs' || day.focusCategory === 'lower')
+          ? { muscle: 'adductors', note: 'Finisher Complementario de pierna', isComplementary: true }
+          : { muscle: 'abdominals', note: 'Finisher Complementario de core', isComplementary: true };
+
+        chosenQueue.push(candidate);
       }
 
       const exercises: WorkoutExercise[] = chosenQueue.map((item, exIdx) => {
         const template = pickBestExercise(item.muscle, equipmentPref, usedIds, item.bias);
         usedIds.add(template.id);
 
-        const isPriority = priorityMuscles.includes(item.muscle);
-        const isComp = item.isComplementary || ['calves', 'abdominals', 'adductors', 'abductors'].includes(item.muscle);
+        const isPriority = priorityMuscles.includes(item.muscle) || (BROAD_GROUP_MAP[item.muscle] && priorityMuscles.includes(BROAD_GROUP_MAP[item.muscle]));
+        const isComp = item.isComplementary || ['abdominals', 'adductors', 'abductors'].includes(item.muscle);
 
-        // Sets calculation by biomechanical landmark:
-        // Priority muscles: 4 sets (minimum 4 series to reach 12-16 weekly volume)
-        // Secondary major muscles: 3 sets (to reach 6-10 weekly volume)
-        // Complementary muscles: 4 sets (weekly reminder)
-        let setCount = 3;
-        if (isPriority) {
-          setCount = 4;
-        } else if (isComp) {
-          setCount = 4; // Reminder of 4 sets
+        // Sets calculation strictly adhering to experience level & intensity:
+        // - Principiante: EXACT 2 sets per exercise (standard reaches exactly 6 sets/week, priority reaches 8).
+        // - Intermedio: 2-3 sets per exercise (standard reaches 8 sets/week, priority reaches 10-12).
+        // - Avanzado: 3-4 sets per exercise (standard reaches 10 sets/week, priority reaches 12-16).
+        // - Complementary (Abdomen / Aductor): EXACT 2 sets per session (~2-4 sets/week reminder).
+        let setCount = 2;
+        if (isComp) {
+          setCount = 2;
+        } else if (experienceLevel === 'principiante') {
+          setCount = 2;
+        } else if (experienceLevel === 'intermedio') {
+          setCount = isPriority ? 3 : 2;
         } else {
-          setCount = experienceLevel === 'principiante' ? 2 : 3;
+          // Avanzado
+          setCount = isPriority ? 4 : 3;
         }
+
+        // Rep range and target RPE based on user experience level
+        const targetReps = isComp 
+          ? '12-15' 
+          : (experienceLevel === 'principiante' ? '10-12' : (isPriority ? '6-8' : '8-10'));
+
+        const targetRpe = experienceLevel === 'principiante' 
+          ? (isComp ? 7.0 : 7.5) 
+          : (experienceLevel === 'intermedio' ? (isPriority ? 8.5 : 8.0) : (isPriority ? 9.0 : 8.5));
 
         const sets = Array.from({ length: setCount }, (_, sIdx) => ({
           id: `sw_${Date.now()}_${dayIdx}_${exIdx}_${sIdx}`,
           index: sIdx + 1,
           type: 'normal' as any,
           weight_kg: 20,
-          reps: isPriority ? 8 : (isComp ? 12 : 10),
-          rpe: isPriority ? 8.5 : (isComp ? 7.5 : 8.0),
+          reps: isComp ? 12 : (experienceLevel === 'principiante' ? 10 : (isPriority ? 8 : 10)),
+          rpe: targetRpe,
           is_completed: false
         }));
 
@@ -627,9 +653,9 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
           muscle_group: template.muscle_group,
           equipment_category: template.equipment_category,
           image_url: template.image_url,
-          target_rep_range: isPriority ? '6-8' : (isComp ? '12-15' : '8-12'),
+          target_rep_range: targetReps,
           notes: item.note
-            ? `★ ${item.note} · Tempo controlado 3-0-1. RPE ${isPriority ? 8.5 : 8.0}.`
+            ? `★ ${item.note} · Tempo controlado 3-0-1. RPE ${targetRpe}.`
             : `Descanso de 90-120s entre series. Técnica estricta.`,
           sets
         };
@@ -639,7 +665,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
         id: `smart_routine_${Date.now()}_${dayIdx}`,
         title: day.name,
         folder_name: `Plan ${effectiveSplit.toUpperCase()} (${durationMinutes} min/día)`,
-        description: `Sesión normalizada de ${exercises.length} ejercicios (${exercises.reduce((acc, e) => acc + e.sets.length, 0)} series). Prioridad: ${priorityMuscles.map(m => formatMuscleName(m)).join(', ')}. Máx 3 ej/grupo.`,
+        description: `Sesión normalizada de ${exercises.length} ejercicios (${exercises.reduce((acc, e) => acc + e.sets.length, 0)} series). Nivel: ${experienceLevel.toUpperCase()}. Máx 3 ej/grupo.`,
         exercises,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -664,7 +690,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
             sets: 0,
             exercisesCount: 0,
             isPriority: priorityMuscles.includes(broad) || priorityMuscles.includes(ex.muscle_group),
-            isComplementary: ['calves', 'abdominals', 'adductors'].includes(broad)
+            isComplementary: ['abdominals', 'adductors', 'abductors'].includes(broad)
           };
         }
         volume[broad].sets += ex.sets.length;
@@ -711,7 +737,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Periodización estricta: 12-16 series prioridad, máx 3 ej/grupo y bíceps intercalado
+                Periodización fisiológica: {experienceLevel === 'principiante' ? '6 series (Principiante)' : experienceLevel === 'intermedio' ? '8 series (Intermedio)' : '10-16 series (Avanzado)'} · Intercalado agonista/antagonista
               </p>
             </div>
           </div>
@@ -743,8 +769,8 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   { days: 2, label: '2 días / semana', sub: 'Full Body A/B optimizado' },
-                  { days: 3, label: '3 días / semana', sub: 'Push / Pull / Legs o Torso/Pierna' },
-                  { days: 4, label: '4 días / semana', sub: 'Torso / Pierna A/B (Frecuencia 2)' },
+                  { days: 3, label: '3 días / semana', sub: 'Push / Pull / Legs intercalado' },
+                  { days: 4, label: '4 días / semana', sub: 'Torso / Pierna A/B (Brazos y piernas equilibrados)' },
                   { days: 5, label: '5 días / semana', sub: 'PPL + Especialización (Espalda Frecuencia 2 exacta)' },
                   { days: 6, label: '6 días / semana', sub: 'Push / Pull / Legs x2 avanzado' }
                 ].map(opt => (
@@ -775,31 +801,55 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Award className="w-4 h-4 text-emerald-400" />
-                  <span>Nivel de experiencia y división preferida</span>
+                  <span>Nivel de experiencia e intensidad real</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Modularemos el volumen por serie (4 series para prioridad, 3 estándar, 4 complementarios).
+                  El nivel no depende solo del tiempo entrenando, sino sobre todo de la <b>capacidad de aplicar verdadera intensidad neuromuscular (RIR y cercanía al fallo)</b> en cada serie.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
-                  { key: 'principiante', label: 'Principiante', desc: 'Series moderadas · RPE 7-8' },
-                  { key: 'intermedio', label: 'Intermedio', desc: '3-4 series · RPE 8-8.5' },
-                  { key: 'avanzado', label: 'Avanzado', desc: '4 series prioridad · RPE 8.5-9' }
+                  { 
+                    key: 'principiante', 
+                    label: 'Principiante', 
+                    time: '< 1 año entrenando',
+                    intensity: 'RIR 2-3 (Intensidad moderada)',
+                    volume: '6 series/semana · 2 series/ejercicio',
+                    desc: 'Prioriza aprender el patrón motor y técnica sin saturar el sistema nervioso.' 
+                  },
+                  { 
+                    key: 'intermedio', 
+                    label: 'Intermedio', 
+                    time: '1 a 3 años entrenando',
+                    intensity: 'RIR 1-2 (Cercano al fallo)',
+                    volume: '8 series/semana · 2-3 series/ejercicio',
+                    desc: 'Buena capacidad de reclutamiento motor y sobrecarga progresiva.' 
+                  },
+                  { 
+                    key: 'avanzado', 
+                    label: 'Avanzado', 
+                    time: '> 3 años entrenando',
+                    intensity: 'RIR 0-1 (Fallo real / Máxima tensión)',
+                    volume: '10 series/sem (12-16 en prioridad) · 3-4 series/ej',
+                    desc: 'Capaz de exprimir cada repetición con máxima tensión mecánica.' 
+                  }
                 ].map(item => (
                   <button
                     key={item.key}
                     type="button"
                     onClick={() => setExperienceLevel(item.key as ExperienceLevel)}
-                    className={`p-3 rounded-2xl border text-center transition ${
+                    className={`p-3 rounded-2xl border text-left transition ${
                       experienceLevel === item.key
                         ? 'border-emerald-500 bg-emerald-600/15 ring-1 ring-emerald-500/40 text-white'
                         : 'border-slate-800 bg-[#181a28] text-slate-400'
                     }`}
                   >
                     <div className="font-bold text-xs text-white">{item.label}</div>
-                    <div className="text-[10px] text-slate-400 mt-1">{item.desc}</div>
+                    <div className="text-[10px] text-emerald-400 font-semibold mt-0.5">{item.time}</div>
+                    <div className="text-[10px] text-amber-300 font-medium mt-0.5">{item.intensity}</div>
+                    <div className="text-[10px] text-blue-300 font-mono mt-1">{item.volume}</div>
+                    <div className="text-[10px] text-slate-400 mt-1 leading-tight">{item.desc}</div>
                   </button>
                 ))}
               </div>
@@ -822,7 +872,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                       onClick={() => setRoutineSplitType(split.key as RoutineSplitType)}
                       className={`p-2.5 rounded-xl border text-xs font-semibold text-left transition ${
                         routineSplitType === split.key
-                          ? 'border-blue-500 bg-blue-600/20 text-white'
+                          ? 'border-blue-500 bg-blue-600/20 text-white font-bold'
                           : 'border-slate-800 bg-[#181a28] text-slate-400'
                       }`}
                     >
@@ -840,10 +890,10 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Star className="w-4 h-4 text-amber-400" />
-                  <span>Músculos prioritarios (Meta: 12-16 series semanales)</span>
+                  <span>Músculos prioritarios (Frecuencia 2 y volumen maximizado)</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Selecciona hasta 3 grupos. Tendrán <b>frecuencia 2 y mínimo 4 series por ejercicio</b>.
+                  Selecciona los grupos que deseas priorizar. Los músculos no prioritarios recibirán {experienceLevel === 'principiante' ? '6 series' : experienceLevel === 'intermedio' ? '8 series' : '10 series'}.
                 </p>
               </div>
 
@@ -881,45 +931,19 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               <div className="p-3 rounded-2xl bg-slate-900 border border-blue-500/30 space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-blue-300">
                   <Layers className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Técnica de Intercalado de Brazos y Techo Biomecánico:</span>
+                  <span>Técnica de Intercalado Agonista/Antagonista:</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  • <b>Pull A:</b> Dorsal Ancho 1 → <b>Bíceps (Intercalado)</b> → Dorsal Ancho 2 → Deltoides Posterior → Finisher (Gemelo o Aductor).<br/>
-                  • <b>Pull B:</b> Espalda Alta 1 → <b>Bíceps (Intercalado)</b> → Pullover Dorsal → Trapecios → Finisher.<br/>
-                  • <b>Máximo 3 ejercicios por grupo:</b> Ningún día excederá 3 ejercicios de espalda o pectoral.
+                  • <b>Pecho intercalado con deltoides/tríceps:</b> Press 1 → Deltoides Lateral → Press 2 → Tríceps (el pecho descansa 4-5 min entre presses sin fatiga local acumulada).<br/>
+                  • <b>Espalda intercalada con bíceps:</b> Dorsal 1 → Bíceps → Espalda Alta → Deltoides Posterior → Bíceps/Core.<br/>
+                  • <b>Pierna intercalada:</b> Cuádriceps (Prensa) → Isquios (Femoral sentado) → Cuádriceps (Extensiones) → Gemelos → Aductor.<br/>
+                  • <b>Máximo 3 ejercicios por grupo:</b> Ningún día excederá 3 ejercicios del mismo grupo.
                 </p>
-              </div>
-
-              {/* Interleaved arms choice */}
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">
-                  Brazo preferido para intercalar en los descansos de espalda:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { key: 'biceps', name: 'Bíceps (Recomendado)' },
-                    { key: 'triceps', name: 'Tríceps' },
-                    { key: 'both', name: 'Brazos Completos' }
-                  ].map(item => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => setInterleavedArmMuscle(item.key as any)}
-                      className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
-                        interleavedArmMuscle === item.key
-                          ? 'border-blue-500 bg-blue-600/20 text-white'
-                          : 'border-slate-800 bg-[#181a28] text-slate-400'
-                      }`}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
           )}
 
-          {/* STEP 4: Músculos que NO gustan / menos prioritarios (SIN pregunta de complementarios) */}
+          {/* STEP 4: Músculos que NO gustan / menos prioritarios */}
           {step === 4 && (
             <div className="space-y-4">
               <div className="space-y-1">
@@ -928,7 +952,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                   <span>¿Qué músculos NO te gusta entrenar o tienen baja prioridad?</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Los excluiremos del plan. Los músculos complementarios (gemelos, abdomen y aductor para "cerrar piernas") <b>se distribuirán automáticamente al final de cada sesión como recordatorio de 4 series</b>.
+                  Los excluiremos del plan. Los complementarios (abdomen y máquina de aductor "cerrar piernas") <b>recibirán un recordatorio de solo 2 a 4 series semanales</b> sin saturar el volumen.
                 </p>
               </div>
 
@@ -963,7 +987,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
               <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                 <span>
-                  Los complementarios no seleccionados (gemelo, abdomen, máquina de aductor) se añaden como recordatorio final de sesión (~4 series semanales) sin saturar el entrenamiento.
+                  Volumen controlado: Aductor y Abdomen reciben solo 2 series por sesión (2-4 semanales). Gemelos se entrena únicamente en días de pierna.
                 </span>
               </div>
             </div>
@@ -984,10 +1008,10 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { mins: 45, label: '45 minutos', sub: 'Exactamente 4 ejercicios · 14-16 series' },
-                  { mins: 60, label: '60 minutos', sub: 'Exactamente 5 ejercicios · 18-20 series' },
-                  { mins: 75, label: '75 minutos', sub: 'Exactamente 6 ejercicios · 22-24 series' },
-                  { mins: 90, label: '90 minutos', sub: 'Exactamente 7 ejercicios · 26-28 series' }
+                  { mins: 45, label: '45 minutos', sub: `Exactamente 4 ejercicios · ${experienceLevel === 'principiante' ? '8 series' : '12-14 series'}` },
+                  { mins: 60, label: '60 minutos', sub: `Exactamente 5 ejercicios · ${experienceLevel === 'principiante' ? '10 series' : '15-18 series'}` },
+                  { mins: 75, label: '75 minutos', sub: `Exactamente 6 ejercicios · ${experienceLevel === 'principiante' ? '12 series' : '18-22 series'}` },
+                  { mins: 90, label: '90 minutos', sub: `Exactamente 7 ejercicios · ${experienceLevel === 'principiante' ? '14 series' : '22-26 series'}` }
                 ].map(opt => (
                   <button
                     key={opt.mins}
@@ -1062,7 +1086,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                     Rutina Biomecánica Optimizada
                   </h4>
                   <p className="text-xs text-slate-400">
-                    {generatedRoutines.length} sesiones de {durationMinutes} min (exactamente {generatedRoutines[0]?.exercises.length} ejercicios/día)
+                    {generatedRoutines.length} sesiones de {durationMinutes} min ({generatedRoutines[0]?.exercises.length} ejercicios/día) · Nivel {experienceLevel.toUpperCase()}
                   </p>
                 </div>
 
@@ -1088,23 +1112,23 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 <div className="flex items-center justify-between text-xs font-bold text-slate-200">
                   <span className="flex items-center gap-1.5">
                     <BarChart2 className="w-3.5 h-3.5 text-blue-400" />
-                    Volumen Semanal por Grupo (Series Totales):
+                    Volumen Semanal (Series Totales según Nivel {experienceLevel.toUpperCase()}):
                   </span>
                   <span className="text-[10px] text-emerald-400 font-semibold">
-                    ✓ Máx 3 ej/día respetado
+                    ✓ Intercalado & Máx 3 ej/día
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
                   {Object.entries(weeklyVolume).map(([grp, data]) => {
                     let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
-                    let targetLabel = '6-10 series';
+                    let targetLabel = experienceLevel === 'principiante' ? '6s objetivo' : experienceLevel === 'intermedio' ? '8s objetivo' : '10s objetivo';
                     if (data.isPriority) {
                       badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold';
-                      targetLabel = '12-16 series ★';
+                      targetLabel = experienceLevel === 'principiante' ? '8s ★ Prioridad' : '12-16s ★ Prioridad';
                     } else if (data.isComplementary) {
                       badgeColor = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40';
-                      targetLabel = '~4 series (Recordatorio)';
+                      targetLabel = '2-4s (Recordatorio)';
                     }
                     return (
                       <div
@@ -1112,7 +1136,10 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                         className={`p-1.5 rounded-lg border flex items-center justify-between ${badgeColor}`}
                       >
                         <span className="capitalize truncate">{formatMuscleName(grp)}:</span>
-                        <span className="font-mono font-bold ml-1">{data.sets}s</span>
+                        <div className="flex items-center gap-1 ml-1">
+                          <span className="text-[9px] opacity-70">({targetLabel})</span>
+                          <span className="font-mono font-bold">{data.sets}s</span>
+                        </div>
                       </div>
                     );
                   })}
