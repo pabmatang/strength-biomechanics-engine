@@ -175,3 +175,54 @@ export function findSubstitutes(input: SubstitutionRequest): Promise<Biomechanic
     body: JSON.stringify(input)
   }, 60_000);
 }
+
+export interface VideoTelemetryPayload {
+  userId?: string;
+  exerciseId: string;
+  exerciseName: string;
+  videoDurationSeconds: number;
+  hardwareModel?: string;
+  metrics: {
+    totalRepsCounted: number;
+    validRepsCount: number;
+    failedRepsCount: number;
+    averageRepCadenceSeconds: number;
+    romConsistencyScore: number;
+  };
+  repsDetail: Array<{
+    repIndex: number;
+    isValid: boolean;
+    eccentricTimeSeconds: number;
+    concentricTimeSeconds: number;
+    minKneeAngle?: number;
+    minHipAngle?: number;
+    minElbowAngle?: number;
+    feedbackAlerts: Array<{
+      ruleId: string;
+      joint: string;
+      measuredValue: number;
+      expectedThreshold: number;
+      message: string;
+    }>;
+  }>;
+}
+
+export interface TelemetryAnalysisResponse {
+  analysisId: string;
+  status: 'EXCELLENT' | 'MODERATE_FATIGUE' | 'CRITICAL_ADJUSTMENT';
+  totalReps: number;
+  validReps: number;
+  efficiencyPercentage: number;
+  averageRangeOfMotionDegrees: number;
+  biomechanicalPrescription: string;
+  keyActionPoints: string[];
+}
+
+/** Sends client-side video pose estimation metrics to the Spring Boot backend */
+export function sendVideoTelemetry(payload: VideoTelemetryPayload): Promise<TelemetryAnalysisResponse> {
+  return request<TelemetryAnalysisResponse>('/biomechanics/video-telemetry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }, 30_000);
+}

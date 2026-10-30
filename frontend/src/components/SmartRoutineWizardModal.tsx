@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { 
   X, Sparkles, Dumbbell, Clock, Calendar, Check, ArrowRight, ArrowLeft, 
-  Sliders, ShieldCheck, Layers, Play, RefreshCw, Star, Info
+  Sliders, ShieldCheck, Layers, Play, RefreshCw, Star, Info, ThumbsDown,
+  Activity, Award, Split
 } from 'lucide-react';
 import { Routine, WorkoutExercise, ExerciseTemplate, MuscleGroup } from '../types/workout';
 import { EXERCISE_DATABASE } from '../data/exercises';
 import { formatMuscleName } from '../utils/muscleLabels';
-import { getSafeMachineImageUrl } from '../utils/machineImages';
 
 interface SmartRoutineWizardModalProps {
   isOpen: boolean;
@@ -19,6 +19,7 @@ type SplitDays = 2 | 3 | 4 | 5 | 6;
 type SessionDuration = 45 | 60 | 75 | 90;
 type EquipmentPref = 'technogym' | 'hammer' | 'cables_selectorized' | 'free_weights' | 'hybrid';
 type ExperienceLevel = 'principiante' | 'intermedio' | 'avanzado';
+type RoutineSplitType = 'ppl' | 'torso_pierna' | 'fullbody' | 'auto';
 
 export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = ({
   isOpen,
@@ -26,14 +27,19 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
   onSaveRoutine,
   onSaveAllRoutines
 }) => {
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+  const [step, setStep] = useState<number>(1);
 
   // Wizard answers
   const [daysPerWeek, setDaysPerWeek] = useState<SplitDays>(3);
-  const [priorityMuscles, setPriorityMuscles] = useState<string[]>(['chest', 'lats']);
+  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('intermedio');
+  const [routineSplitType, setRoutineSplitType] = useState<RoutineSplitType>('ppl');
+  const [priorityMuscles, setPriorityMuscles] = useState<string[]>(['lats', 'chest']);
+  const [backSpecialization, setBackSpecialization] = useState<boolean>(true);
+  const [dislikedMuscles, setDislikedMuscles] = useState<string[]>([]);
+  const [interleavedArmMuscle, setInterleavedArmMuscle] = useState<'biceps' | 'triceps' | 'both'>('biceps');
+  const [complementaryMuscle, setComplementaryMuscle] = useState<string>('abdominals');
   const [durationMinutes, setDurationMinutes] = useState<SessionDuration>(60);
   const [equipmentPref, setEquipmentPref] = useState<EquipmentPref>('technogym');
-  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('principiante');
 
   // Generated routines result
   const [generatedRoutines, setGeneratedRoutines] = useState<Routine[] | null>(null);
@@ -48,9 +54,19 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
         return prev.filter(m => m !== muscle);
       } else {
         if (prev.length >= 3) {
-          // Keep max 3 prioritized muscles for biological specialization
           return [...prev.slice(1), muscle];
         }
+        return [...prev, muscle];
+      }
+    });
+  };
+
+  // Toggle disliked muscle
+  const toggleDislikedMuscle = (muscle: string) => {
+    setDislikedMuscles(prev => {
+      if (prev.includes(muscle)) {
+        return prev.filter(m => m !== muscle);
+      } else {
         return [...prev, muscle];
       }
     });
@@ -60,20 +76,36 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
   const pickBestExercise = (
     muscle: string,
     pref: EquipmentPref,
-    usedIds: Set<string>
+    usedIds: Set<string>,
+    variantBias?: 'lats' | 'upper_back' | 'trapezius'
   ): ExerciseTemplate => {
-    // 1. Candidate pool for this muscle
-    const candidates = EXERCISE_DATABASE.filter(
+    let candidates = EXERCISE_DATABASE.filter(
       t => (t.muscle_group === muscle || (t.other_muscles && (t.other_muscles as string[]).includes(muscle))) && !usedIds.has(t.id)
     );
 
+    // Apply sub-specialization bias if requested
+    if (variantBias && candidates.length > 1) {
+      const biased = candidates.filter(t => {
+        const title = t.title.toLowerCase();
+        if (variantBias === 'lats') {
+          return title.includes('jalón') || title.includes('dorsal') || title.includes('lat') || title.includes('pulldown');
+        } else if (variantBias === 'upper_back') {
+          return title.includes('remo') || title.includes('row') || title.includes('pájaros') || title.includes('facepull');
+        } else if (variantBias === 'trapezius') {
+          return title.includes('encogimiento') || title.includes('shrug') || title.includes('trapecio');
+        }
+        return true;
+      });
+      if (biased.length > 0) {
+        candidates = biased;
+      }
+    }
+
     if (candidates.length === 0) {
-      // Fallback if all used
       const fallback = EXERCISE_DATABASE.find(t => t.muscle_group === (muscle as MuscleGroup)) || EXERCISE_DATABASE[0];
       return fallback;
     }
 
-    // 2. Filter by equipment preference
     if (pref === 'technogym') {
       const tg = candidates.find(t => t.brand?.toLowerCase().includes('technogym'));
       if (tg) return tg;
@@ -92,93 +124,274 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       if (free) return free;
     }
 
-    // Default to the first candidate with valid image
     return candidates[0];
   };
 
-  // Main Generator Function
+  // Main Generator Function with Strict Session Time Normalization
   const generateRoutines = () => {
     const routines: Routine[] = [];
-    const maxExercisesPerSession = durationMinutes === 45 ? 4 : durationMinutes === 60 ? 5 : durationMinutes === 75 ? 6 : 7;
-    const setsForPriority = experienceLevel === 'principiante' ? 3 : 4;
-    const setsForStandard = experienceLevel === 'principiante' ? 2 : 3;
 
-    // Define splits based on daysPerWeek
-    interface DayPlan {
+    // Exact normalization: each duration has an exact fixed number of exercises across ALL days
+    const exactExercisesCount = durationMinutes === 45 ? 4 : durationMinutes === 60 ? 5 : durationMinutes === 75 ? 6 : 7;
+    const setsPerPriority = experienceLevel === 'principiante' ? 3 : experienceLevel === 'intermedio' ? 4 : 4;
+    const setsPerStandard = experienceLevel === 'principiante' ? 2 : experienceLevel === 'intermedio' ? 3 : 3;
+
+    interface DayTemplate {
       name: string;
-      focusMuscles: string[];
+      focusCategory: 'push' | 'pull' | 'legs' | 'upper' | 'lower' | 'fullbody';
+      musclesQueue: Array<{ muscle: string; bias?: 'lats' | 'upper_back' | 'trapezius'; note?: string }>;
     }
 
-    let splitPlan: DayPlan[] = [];
+    let dayTemplates: DayTemplate[] = [];
 
-    if (daysPerWeek === 2) {
-      splitPlan = [
-        { name: 'Día 1: Full Body A (Énfasis Prioritario)', focusMuscles: [...priorityMuscles, 'quadriceps', 'shoulders', 'biceps'] },
-        { name: 'Día 2: Full Body B (Balance & Cadena Posterior)', focusMuscles: ['hamstrings', ...priorityMuscles, 'glutes', 'triceps'] }
-      ];
-    } else if (daysPerWeek === 3) {
-      // If priority is chest or shoulders or triceps -> Push first
-      splitPlan = [
-        { name: 'Día 1: Push (Empuje & Pectoral)', focusMuscles: ['chest', 'shoulders', 'triceps'] },
-        { name: 'Día 2: Pull (Tracción & Dorsal)', focusMuscles: ['lats', 'upper_back', 'biceps'] },
-        { name: 'Día 3: Legs & Core (Pierna & Glúteos)', focusMuscles: ['quadriceps', 'hamstrings', 'glutes', 'calves'] }
-      ];
-    } else if (daysPerWeek === 4) {
-      splitPlan = [
-        { name: 'Día 1: Torso A (Foco Prioritario)', focusMuscles: ['chest', 'lats', 'shoulders', 'triceps'] },
-        { name: 'Día 2: Pierna A (Cuádriceps & Gemelos)', focusMuscles: ['quadriceps', 'calves', 'abdominals'] },
-        { name: 'Día 3: Torso B (Espalda & Deltoides)', focusMuscles: ['upper_back', 'chest', 'biceps', 'shoulders'] },
-        { name: 'Día 4: Pierna B (Isquios & Glúteos)', focusMuscles: ['hamstrings', 'glutes', 'calves'] }
-      ];
-    } else if (daysPerWeek === 5) {
-      splitPlan = [
-        { name: 'Día 1: Push (Empuje Pesado)', focusMuscles: ['chest', 'shoulders', 'triceps'] },
-        { name: 'Día 2: Pull (Tracción Pesada)', focusMuscles: ['lats', 'upper_back', 'biceps'] },
-        { name: 'Día 3: Legs (Pierna Completa)', focusMuscles: ['quadriceps', 'hamstrings', 'glutes'] },
-        { name: 'Día 4: Torso (Especialización Prioritaria)', focusMuscles: [...priorityMuscles, 'shoulders'] },
-        { name: 'Día 5: Brazos & Puntos Débiles', focusMuscles: ['biceps', 'triceps', 'shoulders', 'abdominals'] }
+    const effectiveSplit = routineSplitType === 'auto'
+      ? (daysPerWeek === 2 ? 'fullbody' : daysPerWeek === 4 ? 'torso_pierna' : 'ppl')
+      : routineSplitType;
+
+    if (effectiveSplit === 'ppl') {
+      if (daysPerWeek === 3) {
+        dayTemplates = [
+          {
+            name: 'Día 1: Push (Empuje Pectoral & Deltoides)',
+            focusCategory: 'push',
+            musclesQueue: [
+              { muscle: 'chest', note: 'Pectoral principal' },
+              { muscle: 'chest', note: 'Pectoral secundario' },
+              { muscle: 'shoulders', note: 'Deltoides anterior/lateral' },
+              { muscle: 'triceps', note: 'Tríceps' },
+              { muscle: complementaryMuscle, note: 'Complementario final' },
+              { muscle: 'shoulders' }
+            ]
+          },
+          {
+            name: 'Día 2: Pull (Tracción & Espalda Especializada)',
+            focusCategory: 'pull',
+            musclesQueue: [
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal ancho (Jalón/Remo al ilíaco)' },
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal amplitud' },
+              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda alta y deltoides posterior' },
+              { muscle: interleavedArmMuscle === 'triceps' ? 'triceps' : 'biceps', note: 'Brazos intercalados' },
+              { muscle: complementaryMuscle, note: 'Complementario final' },
+              { muscle: 'upper_back' }
+            ]
+          },
+          {
+            name: 'Día 3: Legs (Pierna Completa & Cadena Posterior)',
+            focusCategory: 'legs',
+            musclesQueue: [
+              { muscle: 'quadriceps', note: 'Cuádriceps empuje' },
+              { muscle: 'hamstrings', note: 'Femoral flexión' },
+              { muscle: 'quadriceps', note: 'Cuádriceps aislamiento' },
+              { muscle: 'glutes', note: 'Glúteos' },
+              { muscle: 'calves', note: 'Gemelos' },
+              { muscle: complementaryMuscle }
+            ]
+          }
+        ];
+      } else if (daysPerWeek === 4 || daysPerWeek === 5 || daysPerWeek === 6) {
+        // Multi-frequency with alternated back specialization
+        dayTemplates = [
+          {
+            name: 'Día 1: Pull A (Foco Dorsal Ancho Frecuencia 2)',
+            focusCategory: 'pull',
+            musclesQueue: [
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal 1: Jalón o remo guiado al ilíaco' },
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal 2: Remo unilateral de tracción' },
+              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda alta / trapecio' },
+              { muscle: interleavedArmMuscle === 'triceps' ? 'triceps' : 'biceps', note: 'Brazo intercalado' },
+              { muscle: complementaryMuscle, note: 'Complementario final' },
+              { muscle: 'upper_back' }
+            ]
+          },
+          {
+            name: 'Día 2: Push A (Empuje Pectoral & Tríceps)',
+            focusCategory: 'push',
+            musclesQueue: [
+              { muscle: 'chest', note: 'Press convergente o plano' },
+              { muscle: 'chest', note: 'Press inclinado' },
+              { muscle: 'shoulders', note: 'Elevaciones laterales' },
+              { muscle: 'triceps', note: 'Extensión de tríceps' },
+              { muscle: complementaryMuscle },
+              { muscle: 'shoulders' }
+            ]
+          },
+          {
+            name: 'Día 3: Legs (Tren Inferior & Sentadilla)',
+            focusCategory: 'legs',
+            musclesQueue: [
+              { muscle: 'quadriceps', note: 'Hack squat / Prensa' },
+              { muscle: 'hamstrings', note: 'Curl femoral sentado' },
+              { muscle: 'glutes', note: 'Hip thrust / Zancadas' },
+              { muscle: 'calves', note: 'Gemelo en máquina' },
+              { muscle: complementaryMuscle },
+              { muscle: 'quadriceps' }
+            ]
+          },
+          {
+            name: 'Día 4: Pull B (Foco Espalda Alta & Trapecios Frecuencia 2)',
+            focusCategory: 'pull',
+            musclesQueue: [
+              { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda alta 1: Remo con codos a 45-60°' },
+              { muscle: 'upper_back', bias: 'trapezius', note: 'Espalda alta 2: Encogimientos o remo en T' },
+              { muscle: 'lats', bias: 'lats', note: 'Dorsal mantenimiento: Pullover o jalón neutro' },
+              { muscle: interleavedArmMuscle === 'triceps' ? 'triceps' : 'biceps', note: 'Brazo intercalado' },
+              { muscle: complementaryMuscle, note: 'Complementario final' },
+              { muscle: 'lats' }
+            ]
+          }
+        ];
+
+        if (daysPerWeek >= 5) {
+          dayTemplates.push({
+            name: 'Día 5: Push B (Deltoides & Énfasis Pectoral Superior)',
+            focusCategory: 'push',
+            musclesQueue: [
+              { muscle: 'shoulders', note: 'Press militar o hombro máquina' },
+              { muscle: 'chest', note: 'Aperturas o cruces de poleas' },
+              { muscle: 'shoulders', note: 'Elevaciones laterales en polea' },
+              { muscle: 'triceps', note: 'Tríceps tras nuca' },
+              { muscle: complementaryMuscle }
+            ]
+          });
+        }
+        if (daysPerWeek === 6) {
+          dayTemplates.push({
+            name: 'Día 6: Legs B (Cadena Posterior & Isquios)',
+            focusCategory: 'legs',
+            musclesQueue: [
+              { muscle: 'hamstrings', note: 'Peso muerto rumano / Femoral tumbado' },
+              { muscle: 'quadriceps', note: 'Prensa inclinada' },
+              { muscle: 'glutes', note: 'Patada de glúteo en polea' },
+              { muscle: 'calves', note: 'Elevación de talones sóleo' },
+              { muscle: complementaryMuscle }
+            ]
+          });
+        }
+      }
+    } else if (effectiveSplit === 'torso_pierna') {
+      dayTemplates = [
+        {
+          name: 'Día 1: Torso A (Foco Tracción & Dorsal Ancho)',
+          focusCategory: 'upper',
+          musclesQueue: [
+            { muscle: 'lats', bias: 'lats', note: 'Dorsal ancho principal' },
+            { muscle: 'chest', note: 'Pectoral plano/inclinado' },
+            { muscle: 'upper_back', bias: 'upper_back', note: 'Remo codos abiertos' },
+            { muscle: 'shoulders', note: 'Deltoides lateral' },
+            { muscle: 'biceps', note: 'Bíceps en banco Scott' },
+            { muscle: complementaryMuscle }
+          ]
+        },
+        {
+          name: 'Día 2: Pierna A (Cuádriceps & Gemelos)',
+          focusCategory: 'lower',
+          musclesQueue: [
+            { muscle: 'quadriceps', note: 'Prensa o sentadilla guiada' },
+            { muscle: 'hamstrings', note: 'Curl femoral sentado' },
+            { muscle: 'quadriceps', note: 'Extensiones de cuádriceps' },
+            { muscle: 'glutes', note: 'Hip thrust' },
+            { muscle: 'calves', note: 'Gemelo de pie' },
+            { muscle: complementaryMuscle }
+          ]
+        },
+        {
+          name: 'Día 3: Torso B (Foco Pectoral & Espalda Alta)',
+          focusCategory: 'upper',
+          musclesQueue: [
+            { muscle: 'chest', note: 'Press convergente de pecho' },
+            { muscle: 'upper_back', bias: 'trapezius', note: 'Remo en T o trapecio' },
+            { muscle: 'lats', bias: 'lats', note: 'Jalón en polea' },
+            { muscle: 'shoulders', note: 'Press militar' },
+            { muscle: 'triceps', note: 'Extensión de tríceps en polea' },
+            { muscle: complementaryMuscle }
+          ]
+        },
+        {
+          name: 'Día 4: Pierna B (Isquiosurales & Glúteos)',
+          focusCategory: 'lower',
+          musclesQueue: [
+            { muscle: 'hamstrings', note: 'Peso muerto rumano' },
+            { muscle: 'quadriceps', note: 'Hack squat' },
+            { muscle: 'glutes', note: 'Abductores en máquina' },
+            { muscle: 'hamstrings', note: 'Curl femoral tumbado' },
+            { muscle: 'calves', note: 'Gemelo en prensa' },
+            { muscle: complementaryMuscle }
+          ]
+        }
       ];
     } else {
-      // 6 days PPL x2
-      splitPlan = [
-        { name: 'Día 1: Push A', focusMuscles: ['chest', 'shoulders', 'triceps'] },
-        { name: 'Día 2: Pull A', focusMuscles: ['lats', 'upper_back', 'biceps'] },
-        { name: 'Día 3: Legs A', focusMuscles: ['quadriceps', 'calves'] },
-        { name: 'Día 4: Push B', focusMuscles: ['shoulders', 'chest', 'triceps'] },
-        { name: 'Día 5: Pull B', focusMuscles: ['upper_back', 'lats', 'biceps'] },
-        { name: 'Día 6: Legs B', focusMuscles: ['hamstrings', 'glutes'] }
+      // Full body
+      dayTemplates = [
+        {
+          name: 'Día 1: Full Body A (Dorsal & Pectoral Pesado)',
+          focusCategory: 'fullbody',
+          musclesQueue: [
+            { muscle: 'lats', bias: 'lats', note: 'Dorsal ancho' },
+            { muscle: 'chest', note: 'Pectoral medio' },
+            { muscle: 'quadriceps', note: 'Cuádriceps' },
+            { muscle: 'shoulders', note: 'Deltoides' },
+            { muscle: 'biceps', note: 'Bíceps' },
+            { muscle: complementaryMuscle }
+          ]
+        },
+        {
+          name: 'Día 2: Full Body B (Espalda Alta & Cadena Posterior)',
+          focusCategory: 'fullbody',
+          musclesQueue: [
+            { muscle: 'upper_back', bias: 'upper_back', note: 'Espalda alta y romboides' },
+            { muscle: 'hamstrings', note: 'Femoral' },
+            { muscle: 'chest', note: 'Pectoral inclinado' },
+            { muscle: 'triceps', note: 'Tríceps' },
+            { muscle: 'glutes', note: 'Glúteos' },
+            { muscle: complementaryMuscle }
+          ]
+        }
       ];
     }
 
-    // Build each routine
-    splitPlan.forEach((day, dayIdx) => {
+    // Build each routine and ensure identical exercise count
+    dayTemplates.forEach((day, dayIdx) => {
       const usedIds = new Set<string>();
 
-      // Sort muscles so that user's priority muscles come FIRST!
-      const sortedMuscles = [...day.focusMuscles].sort((a, b) => {
-        const aPri = priorityMuscles.includes(a);
-        const bPri = priorityMuscles.includes(b);
+      // Filter out muscles that the user dislikes
+      const filteredQueue = day.musclesQueue.filter(
+        item => !dislikedMuscles.includes(item.muscle)
+      );
+
+      // Reorder so that priority muscles appear FIRST
+      const sortedQueue = [...filteredQueue].sort((a, b) => {
+        const aPri = priorityMuscles.includes(a.muscle);
+        const bPri = priorityMuscles.includes(b.muscle);
         if (aPri && !bPri) return -1;
         if (!aPri && bPri) return 1;
         return 0;
       });
 
-      // Select up to maxExercisesPerSession
-      const chosenMuscles = sortedMuscles.slice(0, maxExercisesPerSession);
+      // Strict Normalization: Take exactly exactExercisesCount
+      const chosenQueue = sortedQueue.slice(0, exactExercisesCount);
 
-      const exercises: WorkoutExercise[] = chosenMuscles.map((muscle, exIdx) => {
-        const template = pickBestExercise(muscle, equipmentPref, usedIds);
+      // If there are fewer than exactExercisesCount (e.g. user filtered out many disliked muscles),
+      // backfill with safe compound exercises
+      while (chosenQueue.length < exactExercisesCount) {
+        chosenQueue.push({
+          muscle: priorityMuscles[0] || 'chest',
+          note: 'Ranura de compensación de volumen'
+        });
+      }
+
+      const exercises: WorkoutExercise[] = chosenQueue.map((item, exIdx) => {
+        const template = pickBestExercise(item.muscle, equipmentPref, usedIds, item.bias);
         usedIds.add(template.id);
 
-        const isPriority = priorityMuscles.includes(muscle);
-        const setCount = isPriority ? setsForPriority : setsForStandard;
+        const isPriority = priorityMuscles.includes(item.muscle);
+        const setCount = isPriority ? setsPerPriority : setsPerStandard;
 
         const sets = Array.from({ length: setCount }, (_, sIdx) => ({
           id: `sw_${Date.now()}_${dayIdx}_${exIdx}_${sIdx}`,
           index: sIdx + 1,
-          type: (sIdx === 0 && isPriority ? 'normal' : 'normal') as any,
+          type: 'normal' as any,
           weight_kg: 20,
-          reps: 10,
+          reps: isPriority ? 8 : 10,
           rpe: isPriority ? 8.5 : 8.0,
           is_completed: false
         }));
@@ -191,9 +404,9 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
           muscle_group: template.muscle_group,
           equipment_category: template.equipment_category,
           image_url: template.image_url,
-          target_rep_range: isPriority ? '6-10' : '8-12',
-          notes: isPriority 
-            ? `★ Músculo Prioritario: Realizar al inicio de la sesión con RPE 8.5.`
+          target_rep_range: isPriority ? '6-8' : '8-12',
+          notes: item.note
+            ? `★ ${item.note} · Tempo controlado 3-0-1. RPE ${isPriority ? 8.5 : 8.0}.`
             : `Descanso de 90-120s entre series. Técnica estricta.`,
           sets
         };
@@ -202,8 +415,8 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       routines.push({
         id: `smart_routine_${Date.now()}_${dayIdx}`,
         title: day.name,
-        folder_name: `Plan automático (${daysPerWeek} días • ${durationMinutes} min)`,
-        description: `Rutina optimizada con ${exercises.length} ejercicios. Enfoque en: ${priorityMuscles.map(m => formatMuscleName(m)).join(', ')}.`,
+        folder_name: `Plan ${effectiveSplit.toUpperCase()} (${durationMinutes} min/día)`,
+        description: `Sesión normalizada de ${exercises.length} ejercicios (${exercises.reduce((acc, e) => acc + e.sets.length, 0)} series). Prioridad: ${priorityMuscles.map(m => formatMuscleName(m)).join(', ')}.`,
         exercises,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -212,7 +425,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 
     setGeneratedRoutines(routines);
     setSelectedDayIndex(0);
-    setStep(6); // Go to Preview
+    setStep(7); // Jump to preview
   };
 
   const handleSaveSelected = () => {
@@ -232,24 +445,24 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-[max(1rem,calc(env(safe-area-inset-top)+0.5rem))] pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] bg-black/85 backdrop-blur-md overflow-hidden">
-      <div className="w-full max-w-xl bg-[#12141e] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-5 max-h-full flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-hidden">
+      <div className="w-full max-w-xl bg-[#12141e] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-4 max-h-full flex flex-col">
         
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3.5">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white">Asistente Inteligente de Rutinas</h3>
+                <h3 className="text-base sm:text-lg font-black text-white">Generador Inteligente de Rutinas</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Paso {step} de 6
+                  Paso {step} de 7
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Programa tu rutina según días, músculos prioritarios y tiempo
+                Algoritmo determinista con normalización estricta de tiempo y periodización
               </p>
             </div>
           </div>
@@ -262,37 +475,37 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
           </button>
         </div>
 
-        {/* Wizard Steps Content */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-4 pr-1">
 
           {/* STEP 1: Días por semana */}
           {step === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-blue-400" />
                   <span>¿Cuántos días a la semana vas a entrenar?</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Diseñaremos la distribución óptima (Full Body, Torso/Pierna o Push/Pull/Legs).
+                  Selecciona la frecuencia semanal disponible.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { days: 2, label: '2 días / semana', sub: 'Full Body A/B · Eficiencia total' },
-                  { days: 3, label: '3 días / semana', sub: 'Push / Pull / Legs clásico' },
-                  { days: 4, label: '4 días / semana', sub: 'Torso / Pierna A/B (Recomendado)' },
-                  { days: 5, label: '5 días / semana', sub: 'PPL + Especialización' },
-                  { days: 6, label: '6 días / semana', sub: 'Push / Pull / Legs x2' }
+                  { days: 2, label: '2 días / semana', sub: 'Full Body A/B optimizado' },
+                  { days: 3, label: '3 días / semana', sub: 'Push / Pull / Legs o Torso/Pierna' },
+                  { days: 4, label: '4 días / semana', sub: 'Torso / Pierna A/B (Alta Frecuencia)' },
+                  { days: 5, label: '5 días / semana', sub: 'PPL + Especialización de puntos débiles' },
+                  { days: 6, label: '6 días / semana', sub: 'Push / Pull / Legs x2 avanzado' }
                 ].map(opt => (
                   <button
                     key={opt.days}
                     type="button"
                     onClick={() => setDaysPerWeek(opt.days as SplitDays)}
-                    className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between ${
+                    className={`p-3 rounded-2xl border text-left transition flex items-center justify-between ${
                       daysPerWeek === opt.days
-                        ? 'border-blue-500 bg-blue-600/15 shadow-md ring-1 ring-blue-500/40 text-white'
+                        ? 'border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40 text-white'
                         : 'border-slate-800 bg-[#181a28] hover:border-slate-700 text-slate-300'
                     }`}
                   >
@@ -300,33 +513,96 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                       <div className="font-bold text-sm text-white">{opt.label}</div>
                       <div className="text-[11px] text-slate-400 mt-0.5">{opt.sub}</div>
                     </div>
-                    {daysPerWeek === opt.days && (
-                      <Check className="w-4 h-4 text-blue-400" />
-                    )}
+                    {daysPerWeek === opt.days && <Check className="w-4 h-4 text-blue-400" />}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* STEP 2: Músculos prioritarios */}
+          {/* STEP 2: Nivel & Esquema Preferido */}
           {step === 2 && (
             <div className="space-y-4">
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Star className="w-4 h-4 text-amber-400" />
-                  <span>¿Qué músculos quieres priorizar? (Elige 1 a 3)</span>
+                  <Award className="w-4 h-4 text-emerald-400" />
+                  <span>Nivel de experiencia y esquema de entrenamiento</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Los colocaremos al <b>principio de la sesión</b> y con <b>más series efectivas</b>.
+                  Modularemos el volumen por serie (RPE, número de series y tempo).
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {[
-                  { key: 'chest', label: 'Pectoral (Pecho)' },
+                  { key: 'principiante', label: 'Principiante', desc: '2-3 series · RPE 7-8' },
+                  { key: 'intermedio', label: 'Intermedio', desc: '3-4 series · RPE 8-8.5' },
+                  { key: 'avanzado', label: 'Avanzado', desc: '4 series · RPE 8.5-9' }
+                ].map(item => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setExperienceLevel(item.key as ExperienceLevel)}
+                    className={`p-3 rounded-2xl border text-center transition ${
+                      experienceLevel === item.key
+                        ? 'border-emerald-500 bg-emerald-600/15 ring-1 ring-emerald-500/40 text-white'
+                        : 'border-slate-800 bg-[#181a28] text-slate-400'
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-white">{item.label}</div>
+                    <div className="text-[10px] text-slate-400 mt-1">{item.desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1 pt-2">
+                <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <Split className="w-3.5 h-3.5 text-blue-400" />
+                  División preferida:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: 'ppl', name: 'Empuje / Tirón / Pierna (PPL)' },
+                    { key: 'torso_pierna', name: 'Torso / Pierna' },
+                    { key: 'fullbody', name: 'Full Body' },
+                    { key: 'auto', name: 'Automático / Algorítmico' }
+                  ].map(split => (
+                    <button
+                      key={split.key}
+                      type="button"
+                      onClick={() => setRoutineSplitType(split.key as RoutineSplitType)}
+                      className={`p-2.5 rounded-xl border text-xs font-semibold text-left transition ${
+                        routineSplitType === split.key
+                          ? 'border-blue-500 bg-blue-600/20 text-white'
+                          : 'border-slate-800 bg-[#181a28] text-slate-400'
+                      }`}
+                    >
+                      {split.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: Músculos Prioritarios y Especialización de Espalda */}
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Star className="w-4 h-4 text-amber-400" />
+                  <span>Músculos prioritarios (Frecuencia 2 a 3)</span>
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Irán en el <b>primer orden de cada sesión</b> y con volumen maximizado.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {[
                   { key: 'lats', label: 'Dorsal Ancho (Espalda)' },
-                  { key: 'upper_back', label: 'Espalda Alta / Densidad' },
+                  { key: 'upper_back', label: 'Espalda Alta / Trapecios' },
+                  { key: 'chest', label: 'Pectoral (Pecho)' },
                   { key: 'shoulders', label: 'Deltoides (Hombros)' },
                   { key: 'quadriceps', label: 'Cuádriceps' },
                   { key: 'hamstrings', label: 'Isquiosurales' },
@@ -334,289 +610,290 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                   { key: 'biceps', label: 'Bíceps' },
                   { key: 'triceps', label: 'Tríceps' }
                 ].map(m => {
-                  const isSelected = priorityMuscles.includes(m.key);
-                  const order = priorityMuscles.indexOf(m.key) + 1;
+                  const isSel = priorityMuscles.includes(m.key);
                   return (
                     <button
                       key={m.key}
                       type="button"
                       onClick={() => togglePriorityMuscle(m.key)}
-                      className={`p-3 rounded-2xl border text-left transition flex items-center justify-between ${
-                        isSelected
-                          ? 'border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/40 text-white'
-                          : 'border-slate-800 bg-[#181a28] hover:border-slate-700 text-slate-300'
+                      className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition flex items-center justify-between ${
+                        isSel
+                          ? 'border-amber-500 bg-amber-500/20 text-white font-bold'
+                          : 'border-slate-800 bg-[#181a28] text-slate-400'
                       }`}
                     >
-                      <span className="text-xs font-bold truncate">{m.label}</span>
-                      {isSelected && (
-                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-black">
-                          #{order}
-                        </span>
-                      )}
+                      <span className="truncate">{m.label}</span>
+                      {isSel && <Check className="w-3.5 h-3.5 text-amber-400" />}
                     </button>
                   );
                 })}
               </div>
 
-              <div className="text-[11px] text-slate-400 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2">
-                <Info className="w-4 h-4 text-blue-400 shrink-0" />
-                <span>
-                  Prioridad actual: <b>{priorityMuscles.map(m => formatMuscleName(m)).join(', ') || 'Ninguna'}</b>
-                </span>
+              {/* Special back alternation toggle */}
+              {(priorityMuscles.includes('lats') || priorityMuscles.includes('upper_back')) && (
+                <div className="p-3 rounded-2xl bg-slate-900 border border-blue-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                      Especialización conmutada de Espalda (Dorsal vs Trapecios)
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={backSpecialization}
+                      onChange={e => setBackSpecialization(e.target.checked)}
+                      className="rounded accent-blue-600"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Día 1: 2 ejercicios de dorsal ancho + 1 de trapecio. Día 2: 2 de trapecio/espalda alta + 1 de dorsal. Intercalados con brazos.
+                  </p>
+                </div>
+              )}
+
+              {/* Interleaved arms choice */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">
+                  ¿Con qué músculo intercalar las series de espalda/torso?
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: 'biceps', name: 'Bíceps' },
+                    { key: 'triceps', name: 'Tríceps' },
+                    { key: 'both', name: 'Ambos (Brazos)' }
+                  ].map(item => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setInterleavedArmMuscle(item.key as any)}
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
+                        interleavedArmMuscle === item.key
+                          ? 'border-blue-500 bg-blue-600/20 text-white'
+                          : 'border-slate-800 bg-[#181a28] text-slate-400'
+                      }`}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
-          {/* STEP 3: Tiempo por sesión */}
-          {step === 3 && (
+          {/* STEP 4: Músculos que NO gustan / menos prioritarios */}
+          {step === 4 && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <ThumbsDown className="w-4 h-4 text-rose-400" />
+                  <span>¿Qué músculos NO te gusta entrenar o tienen baja prioridad?</span>
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Los excluiremos o reduciremos al volumen mínimo de mantenimiento (MEV).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { key: 'calves', label: 'Gemelos' },
+                  { key: 'abdominals', label: 'Abdomen / Core' },
+                  { key: 'forearms', label: 'Antebrazos' },
+                  { key: 'trapezius_shrug', label: 'Trapecios' },
+                  { key: 'glutes', label: 'Glúteos' },
+                  { key: 'hamstrings', label: 'Isquiosurales' }
+                ].map(m => {
+                  const isDisliked = dislikedMuscles.includes(m.key);
+                  return (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => toggleDislikedMuscle(m.key)}
+                      className={`p-2.5 rounded-xl border text-xs font-semibold text-left transition flex items-center justify-between ${
+                        isDisliked
+                          ? 'border-rose-500 bg-rose-500/20 text-rose-200'
+                          : 'border-slate-800 bg-[#181a28] text-slate-400'
+                      }`}
+                    >
+                      <span className="truncate">{m.label}</span>
+                      {isDisliked && <X className="w-3.5 h-3.5 text-rose-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Complementary finishing muscle */}
+              <div className="space-y-1 pt-2">
+                <label className="text-xs font-semibold text-slate-300">
+                  Músculo complementario final de sesión:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: 'abdominals', label: 'Abdominales' },
+                    { key: 'calves', label: 'Gemelos' },
+                    { key: 'forearms', label: 'Antebrazo' }
+                  ].map(c => (
+                    <button
+                      key={c.key}
+                      type="button"
+                      onClick={() => setComplementaryMuscle(c.key)}
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
+                        complementaryMuscle === c.key
+                          ? 'border-cyan-500 bg-cyan-600/20 text-white'
+                          : 'border-slate-800 bg-[#181a28] text-slate-400'
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 5: Tiempo de Sesión (Con normalización estricta) */}
+          {step === 5 && (
             <div className="space-y-4">
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Clock className="w-4 h-4 text-cyan-400" />
-                  <span>¿Cuánto tiempo tienes para entrenar por sesión?</span>
+                  <span>Tiempo exacto por sesión (Normalización Estricta)</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Ajustaremos la cantidad exacta de ejercicios para que no te falte ni te sobre tiempo.
+                  Todos los días tendrán <b>exactamente la misma cantidad de ejercicios y series</b>.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { mins: 45, label: '45 minutos', desc: '4 ejercicios · Mínimo tiempo, alta intensidad' },
-                  { mins: 60, label: '60 minutos', desc: '5 ejercicios · Estándar ideal de hipertrofia' },
-                  { mins: 75, label: '75 minutos', desc: '6 ejercicios · Volumen completo' },
-                  { mins: 90, label: '90 minutos', desc: '7-8 ejercicios · Atleta avanzado / accesorios' }
+                  { mins: 45, label: '45 minutos', sub: 'Exactamente 4 ejercicios · 12-14 series' },
+                  { mins: 60, label: '60 minutos', sub: 'Exactamente 5 ejercicios · 18-20 series' },
+                  { mins: 75, label: '75 minutos', sub: 'Exactamente 6 ejercicios · 24 series' },
+                  { mins: 90, label: '90 minutos', sub: 'Exactamente 7 ejercicios · 28 series' }
                 ].map(opt => (
                   <button
                     key={opt.mins}
                     type="button"
                     onClick={() => setDurationMinutes(opt.mins as SessionDuration)}
-                    className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between ${
+                    className={`p-3 rounded-2xl border text-left transition flex items-center justify-between ${
                       durationMinutes === opt.mins
-                        ? 'border-cyan-500 bg-cyan-600/15 shadow-md ring-1 ring-cyan-500/40 text-white'
+                        ? 'border-cyan-500 bg-cyan-600/20 ring-1 ring-cyan-500/40 text-white'
                         : 'border-slate-800 bg-[#181a28] hover:border-slate-700 text-slate-300'
                     }`}
                   >
                     <div>
                       <div className="font-bold text-sm text-white">{opt.label}</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">{opt.desc}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">{opt.sub}</div>
                     </div>
-                    {durationMinutes === opt.mins && (
-                      <Check className="w-4 h-4 text-cyan-400" />
-                    )}
+                    {durationMinutes === opt.mins && <Check className="w-4 h-4 text-cyan-400" />}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* STEP 4: Preferencia de Maquinaria */}
-          {step === 4 && (
-            <div className="space-y-4">
+          {/* STEP 6: Maquinaria */}
+          {step === 6 && (
+            <div className="space-y-3">
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-purple-400" />
-                  <span>¿Qué maquinaria prefieres en tu gimnasio?</span>
+                  <span>Preferencia de maquinaria</span>
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Priorizaremos máquinas con esa biomecánica real y peso libre en su defecto.
+                  Selecciona la línea con la que prefieres entrenar.
                 </p>
               </div>
 
               <div className="space-y-2">
                 {[
-                  {
-                    key: 'technogym',
-                    name: 'Technogym Pure Strength',
-                    desc: 'Palancas de discos independientes con perfiles convergentes y pedales de precarga.'
-                  },
-                  {
-                    key: 'hammer',
-                    name: 'Hammer Strength Iso-Lateral',
-                    desc: 'Máquinas olímpicas divergentes de alta resistencia biomecánica.'
-                  },
-                  {
-                    key: 'cables_selectorized',
-                    name: 'Poleas & Máquinas de placas guiadas',
-                    desc: 'Torres ajustables, poleas con tensión continua y estaciones dobles.'
-                  },
-                  {
-                    key: 'hybrid',
-                    name: 'Híbrido Inteligente (Recomendado)',
-                    desc: 'Combina lo mejor de máquinas de discos Technogym/Hammer con mancuernas y barras.'
-                  },
-                  {
-                    key: 'free_weights',
-                    name: 'Peso Libre (Mancuernas y Barra)',
-                    desc: 'Bancos y pesas libres tradicionales si no dispones de máquinas avanzadas.'
-                  }
-                ].map(opt => (
+                  { key: 'technogym', name: 'Technogym Pure Strength', desc: 'Palancas de discos independientes con perfiles convergentes' },
+                  { key: 'hammer', name: 'Hammer Strength Iso-Lateral', desc: 'Máquinas olímpicas divergentes' },
+                  { key: 'cables_selectorized', name: 'Poleas & Torres guiadas', desc: 'Tensión constante durante todo el rango articular' },
+                  { key: 'hybrid', name: 'Híbrido Inteligente', desc: 'Combina máquinas de discos con peso libre' },
+                  { key: 'free_weights', name: 'Peso Libre', desc: 'Barras y mancuernas' }
+                ].map(item => (
                   <button
-                    key={opt.key}
+                    key={item.key}
                     type="button"
-                    onClick={() => setEquipmentPref(opt.key as EquipmentPref)}
-                    className={`w-full p-3.5 rounded-2xl border text-left transition flex items-center justify-between ${
-                      equipmentPref === opt.key
-                        ? 'border-purple-500 bg-purple-600/15 shadow-md ring-1 ring-purple-500/40 text-white'
-                        : 'border-slate-800 bg-[#181a28] hover:border-slate-700 text-slate-300'
+                    onClick={() => setEquipmentPref(item.key as EquipmentPref)}
+                    className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
+                      equipmentPref === item.key
+                        ? 'border-purple-500 bg-purple-600/20 text-white'
+                        : 'border-slate-800 bg-[#181a28] text-slate-400'
                     }`}
                   >
                     <div>
-                      <div className="font-bold text-sm text-white">{opt.name}</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">{opt.desc}</div>
+                      <div className="text-xs font-bold text-white">{item.name}</div>
+                      <div className="text-[10px] text-slate-400">{item.desc}</div>
                     </div>
-                    {equipmentPref === opt.key && (
-                      <Check className="w-4 h-4 text-purple-400 shrink-0 ml-2" />
-                    )}
+                    {equipmentPref === item.key && <Check className="w-4 h-4 text-purple-400" />}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* STEP 5: Nivel de Experiencia */}
-          {step === 5 && (
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>¿Cuál es tu nivel o experiencia actual?</span>
-                </h4>
-                <p className="text-xs text-slate-400">
-                  Calibraremos la cercanía al fallo (RPE / RIR) y el volumen de series por ejercicio.
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                {[
-                  {
-                    key: 'principiante',
-                    name: 'Principiante',
-                    desc: '2 a 3 series efectivas por ejercicio. RIR 2-3 para aprender técnica segura y evitar fatiga excesiva.'
-                  },
-                  {
-                    key: 'intermedio',
-                    name: 'Intermedio',
-                    desc: '3 a 4 series efectivas. RIR 1-2 con buena intensidad y volumen adaptado a la recuperación.'
-                  },
-                  {
-                    key: 'avanzado',
-                    name: 'Avanzado',
-                    desc: '4 series efectivas. RIR 0-1 (fallo muscular en últimas series), máxima tensión mecánica.'
-                  }
-                ].map(opt => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => setExperienceLevel(opt.key as ExperienceLevel)}
-                    className={`w-full p-3.5 rounded-2xl border text-left transition flex items-center justify-between ${
-                      experienceLevel === opt.key
-                        ? 'border-emerald-500 bg-emerald-600/15 shadow-md ring-1 ring-emerald-500/40 text-white'
-                        : 'border-slate-800 bg-[#181a28] hover:border-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-bold text-sm text-white">{opt.name}</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">{opt.desc}</div>
-                    </div>
-                    {experienceLevel === opt.key && (
-                      <Check className="w-4 h-4 text-emerald-400 shrink-0 ml-2" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 6: PREVIEW DE RUTINAS GENERADAS */}
-          {step === 6 && generatedRoutines && (
+          {/* STEP 7: Previsualización de Rutinas */}
+          {step === 7 && generatedRoutines && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Rutinas generadas ({generatedRoutines.length} sesiones)</span>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    Rutina Generada con Éxito
                   </h4>
                   <p className="text-xs text-slate-400">
-                    Músculos prioritarios ubicados al inicio con mayor volumen.
+                    {generatedRoutines.length} sesiones generadas de {durationMinutes} min cada una
                   </p>
+                </div>
+
+                <div className="flex gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                  {generatedRoutines.map((r, idx) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setSelectedDayIndex(idx)}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                        selectedDayIndex === idx
+                          ? 'bg-blue-600 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Día {idx + 1}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Day Tabs */}
-              <div className="flex gap-1.5 p-1 bg-[#181a28] rounded-xl border border-slate-800 overflow-x-auto no-scrollbar">
-                {generatedRoutines.map((routine, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setSelectedDayIndex(idx)}
-                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition ${
-                      selectedDayIndex === idx
-                        ? 'bg-blue-600 text-white shadow'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Día {idx + 1}
-                  </button>
-                ))}
-              </div>
-
-              {/* Routine Card Details */}
+              {/* Day Details */}
               {generatedRoutines[selectedDayIndex] && (
-                <div className="p-4 bg-[#181a28] border border-slate-800 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-black text-white">
-                        {generatedRoutines[selectedDayIndex].title}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        {generatedRoutines[selectedDayIndex].exercises.length} ejercicios · ~{durationMinutes} min
-                      </div>
+                <div className="space-y-2 bg-[#181a28] p-3 rounded-2xl border border-slate-800">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="font-bold text-xs text-blue-300">
+                      {generatedRoutines[selectedDayIndex].title}
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                      {equipmentPref === 'technogym' ? 'Technogym' : equipmentPref === 'hammer' ? 'Hammer' : 'Híbrido'}
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                      {generatedRoutines[selectedDayIndex].exercises.length} ejercicios
                     </span>
                   </div>
 
-                  <div className="space-y-2 pt-1">
-                    {generatedRoutines[selectedDayIndex].exercises.map((ex, exIdx) => {
-                      const isPriority = priorityMuscles.includes(ex.muscle_group);
-                      return (
-                        <div
-                          key={ex.id}
-                          className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
-                            isPriority
-                              ? 'bg-amber-500/10 border-amber-500/30 text-white'
-                              : 'bg-[#121215] border-white/[0.04] text-zinc-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <img
-                              src={getSafeMachineImageUrl(ex.exercise_template_id, ex.image_url)}
-                              alt={ex.title}
-                              className="w-9 h-9 object-cover rounded-lg border border-slate-700 shrink-0"
-                            />
-                            <div className="min-w-0">
-                              <div className="font-bold truncate text-white flex items-center gap-1.5">
-                                <span>{ex.title}</span>
-                                {isPriority && (
-                                  <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-500/30 text-amber-300 border border-amber-500/40">
-                                    Prioridad
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-zinc-400">
-                                {formatMuscleName(ex.muscle_group)} · {ex.sets.length} series de {ex.target_rep_range} reps
-                              </div>
-                            </div>
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                    {generatedRoutines[selectedDayIndex].exercises.map((ex, i) => (
+                      <div
+                        key={ex.id}
+                        className="p-2 rounded-xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-semibold text-slate-200">
+                            {i + 1}. {ex.title}
                           </div>
-
-                          <div className="tabular-nums font-bold text-xs text-right shrink-0 pl-2">
-                            {ex.sets.length} sets
+                          <div className="text-[10px] text-slate-400">
+                            {ex.sets.length} series × {ex.target_rep_range} reps · {ex.notes}
                           </div>
                         </div>
-                      );
-                    })}
+                        <span className="text-[10px] font-bold uppercase text-slate-400 px-1.5 py-0.5 rounded bg-slate-800">
+                          {ex.muscle_group}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -625,64 +902,59 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 
         </div>
 
-        {/* Modal Footer Controls */}
+        {/* Footer Navigation */}
         <div className="flex items-center justify-between border-t border-slate-800 pt-3">
-          {step > 1 && step < 6 ? (
+          {step > 1 && step < 7 && (
             <button
-              type="button"
-              onClick={() => setStep((step - 1) as any)}
-              className="px-3.5 py-2 text-xs font-bold text-slate-400 hover:text-white transition flex items-center gap-1"
+              onClick={() => setStep(s => s - 1)}
+              className="py-2 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Atrás</span>
+              Atrás
             </button>
-          ) : step === 6 ? (
-            <button
-              type="button"
-              onClick={() => setStep(5)}
-              className="px-3.5 py-2 text-xs font-bold text-slate-400 hover:text-white transition flex items-center gap-1"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reconfigurar</span>
-            </button>
-          ) : (
-            <div />
           )}
 
-          {step < 5 ? (
+          {step < 6 && (
             <button
-              type="button"
-              onClick={() => setStep((step + 1) as any)}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center gap-1.5"
+              onClick={() => setStep(s => s + 1)}
+              className="ml-auto py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-blue-600/30 transition"
             >
-              <span>Siguiente</span>
+              Siguiente
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
-          ) : step === 5 ? (
+          )}
+
+          {step === 6 && (
             <button
-              type="button"
               onClick={generateRoutines}
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center gap-1.5"
+              className="ml-auto py-2.5 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-blue-600/30 transition"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Generar rutina automática</span>
+              <Sparkles className="w-4 h-4" />
+              Generar Rutina Personalizada
             </button>
-          ) : (
-            <div className="flex items-center gap-2">
+          )}
+
+          {step === 7 && (
+            <div className="flex gap-2 w-full justify-end">
               <button
-                type="button"
+                onClick={() => setStep(1)}
+                className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Modificar Respuestas
+              </button>
+              <button
                 onClick={handleSaveSelected}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition"
+                className="py-2 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold"
               >
                 Guardar Día {selectedDayIndex + 1}
               </button>
               <button
-                type="button"
                 onClick={handleSaveAll}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition flex items-center gap-1.5"
+                className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black flex items-center gap-1.5 shadow-lg shadow-blue-600/30"
               >
-                <Check className="w-4 h-4" />
-                <span>Guardar Todas ({generatedRoutines?.length})</span>
+                <Check className="w-3.5 h-3.5" />
+                Guardar Plan Completo
               </button>
             </div>
           )}

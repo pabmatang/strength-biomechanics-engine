@@ -14,8 +14,10 @@ import {
   ChevronUp,
   AlertTriangle,
   Upload,
-  Info
+  Info,
+  Video
 } from 'lucide-react';
+import { VideoPoseAnalysisModal } from './VideoPoseAnalysisModal';
 import { ExerciseTemplate, GymBrand, MuscleGroup, EquipmentCategory } from '../types/workout';
 import { EXERCISE_DATABASE } from '../data/exercises';
 import {
@@ -236,8 +238,9 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
   onClose,
   onAddExercise
 }) => {
-  const [activeTab, setActiveTab] = useState<'scan' | 'rag'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'rag' | 'video_pose'>('scan');
   const [showDevMode, setShowDevMode] = useState(false);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 
   // Scanner state
   const [selectedSamplePhoto, setSelectedSamplePhoto] = useState<string>(MACHINE_SAMPLES[0].id);
@@ -430,26 +433,38 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
         <div className="flex gap-2 p-1 bg-[#181a28] rounded-xl border border-slate-800">
           <button
             onClick={() => setActiveTab('scan')}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
               activeTab === 'scan'
                 ? 'bg-blue-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Camera className="w-4 h-4" />
-            <span>Escaneo Visual de Máquinas</span>
+            <Camera className="w-3.5 h-3.5" />
+            <span>Escaneo Visual</span>
           </button>
 
           <button
             onClick={() => setActiveTab('rag')}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
               activeTab === 'rag'
                 ? 'bg-blue-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Activity className="w-4 h-4" />
-            <span>Sustitución Biomecánica por Dolor</span>
+            <Activity className="w-3.5 h-3.5" />
+            <span>Sustitución pgvector</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('video_pose')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+              activeTab === 'video_pose'
+                ? 'bg-cyan-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>Vídeo Pose & Ángulos</span>
           </button>
         </div>
 
@@ -792,6 +807,46 @@ export const AiBiomechanicsModal: React.FC<AiBiomechanicsModalProps> = ({
             )}
           </div>
         )}
+
+        {/* Tab 3: Video Pose Estimation & Trigonometric Tracking */}
+        {activeTab === 'video_pose' && (
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            <div className="p-4 bg-gradient-to-br from-cyan-950/40 to-slate-900 border border-cyan-500/30 rounded-2xl space-y-3">
+              <div className="flex items-center gap-2 text-cyan-400 font-bold text-sm">
+                <Video className="w-4 h-4" />
+                <span>Tracking Biomecánico por Vídeo (Edge Computing)</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Detecta las articulaciones clave de tu cuerpo (hombros, codos, muñecas, caderas, rodillas, tobillos) en tiempo real mediante trigonometría vectorial en tu propio dispositivo sin subir pesados vídeos a la nube.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">
+                <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <div className="font-bold text-cyan-400 mb-0.5">Trigonometría Vectorial</div>
+                  <span>Cálculo de ángulos articulares internos (atan2) con visualización de esqueleto en Canvas/SVG a 60 FPS.</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <div className="font-bold text-blue-400 mb-0.5">Telemetría a Spring Boot</div>
+                  <span>Envía métricas agregadas ligeras (ROM, repeticiones válidas, alertas) al backend para diagnóstico automático.</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsVideoModalOpen(true)}
+                className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-black shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-2 transition"
+              >
+                <Video className="w-4 h-4" />
+                <span>Abrir Escáner de Vídeo & Pose Estimation</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Embedded Pose Analysis Modal */}
+        <VideoPoseAnalysisModal
+          isOpen={isVideoModalOpen}
+          onClose={() => setIsVideoModalOpen(false)}
+        />
 
       </div>
     </div>
