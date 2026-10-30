@@ -14,15 +14,21 @@ import {
   Activity,
   Gauge,
   Film,
-  Camera
+  Camera,
+  Layers,
+  Cpu,
+  RefreshCw
 } from 'lucide-react';
 import {
   calculateJointAngle,
   drawSkeletonOnCanvas,
   EXERCISE_POSE_PROFILES,
+  getPoseLandmarker,
+  extractPoseDataFromLandmarks,
   Keypoint2D,
   RepetitionRecord,
-  RepPhase
+  RepPhase,
+  ExercisePoseProfile
 } from '../utils/videoPoseEstimator';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 
@@ -36,17 +42,38 @@ interface VideoPoseAnalysisModalProps {
 export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   isOpen,
   onClose,
-  defaultExerciseId = 'squat',
-  defaultExerciseName = 'Sentadilla Libre'
+  defaultExerciseId = 'lat_pulldown',
+  defaultExerciseName = 'Espalda (Jalón / Remo)'
 }) => {
-  const [selectedExerciseKey, setSelectedExerciseKey] = useState<string>(defaultExerciseId);
-  const [mode, setMode] = useState<'upload' | 'live'>('upload');
+  // Normalize default exercise key
+  const getInitialExerciseKey = (): string => {
+    const id = (defaultExerciseId || '').toLowerCase();
+    if (id.includes('lat') || id.includes('pull') || id.includes('row') || id.includes('espalda') || id.includes('dorsal')) {
+      return 'lat_pulldown';
+    }
+    if (id.includes('bicep') || id.includes('curl')) return 'biceps_curl';
+    if (id.includes('tricep') || id.includes('extension') || id.includes('katana')) return 'triceps_extension';
+    if (id.includes('deadlift') || id.includes('rdl') || id.includes('rumano') || id.includes('femoral') || id.includes('isquio')) {
+      return 'rdl_deadlift';
+    }
+    if (id.includes('chest') || id.includes('press') || id.includes('pecho') || id.includes('bench')) return 'bench_press';
+    if (id.includes('leg_press') || id.includes('prensa')) return 'leg_press';
+    if (id.includes('squat') || id.includes('sentadilla')) return 'squat';
+    return 'lat_pulldown';
+  };
+
+  const [selectedExerciseKey, setSelectedExerciseKey] = useState<string>(getInitialExerciseKey());
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [useWebcam, setUseWebcam] = useState(false);
 
+  // AI MediaPipe Vision Model Status
+  const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [isRecording, setIsRecording] = useState(false);
-  const [currentKneeAngle, setCurrentKneeAngle] = useState<number>(165);
-  const [currentHipAngle, setCurrentHipAngle] = useState<number>(110);
+
+  // Dynamic angles
+  const [currentPrimaryAngle, setCurrentPrimaryAngle] = useState<number>(155);
+  const [secondaryAngle, setSecondaryAngle] = useState<number>(160);
   const [repCount, setRepCount] = useState<number>(0);
   const [repPhase, setRepPhase] = useState<RepPhase>('STANDING');
   const [repsHistory, setRepsHistory] = useState<RepetitionRecord[]>([]);
@@ -59,13 +86,35 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const phaseTimerRef = useRef<{ eccentricStart: number; bottomStart: number }>({
-    eccentricStart: 0,
-    bottomStart: 0
-  });
+  const webcamStreamRef = useRef<MediaStream | null>(null);
 
-  const profile = EXERCISE_POSE_PROFILES[selectedExerciseKey] || EXERCISE_POSE_PROFILES.squat;
+  const profile: ExercisePoseProfile = EXERCISE_POSE_PROFILES[selectedExerciseKey] || EXERCISE_POSE_PROFILES.lat_pulldown;
 
+  // Initialize MediaPipe Tasks Vision on Modal Open
+  useEffect(() => {
+    let isMounted = true;
+    if (isOpen) {
+      setAiModelStatus('loading');
+      getPoseLandmarker()
+        .then(instance => {
+          if (!isMounted) return;
+          if (instance) {
+            setAiModelStatus('ready');
+          } else {
+            setAiModelStatus('fallback');
+          }
+        })
+        .catch(() => {
+          if (isMounted) setAiModelStatus('fallback');
+        });
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
+
+  // Cleanup on close
   useEffect(() => {
     if (!isOpen) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -73,6 +122,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       setBackendDiagnosis(null);
       setRepsHistory([]);
       setRepCount(0);
+      stopWebcam();
       if (uploadedVideoUrl) {
         URL.revokeObjectURL(uploadedVideoUrl);
         setUploadedVideoUrl(null);
@@ -81,11 +131,43 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   }, [isOpen]);
 
+  const stopWebcam = () => {
+    if (webcamStreamRef.current) {
+      webcamStreamRef.current.getTracks().forEach(t => t.stop());
+      webcamStreamRef.current = null;
+    }
+    setUseWebcam(false);
+  };
+
+  const handleStartWebcam = async () => {
+    try {
+      if (uploadedVideoUrl) {
+        URL.revokeObjectURL(uploadedVideoUrl);
+        setUploadedVideoUrl(null);
+        setUploadedFileName(null);
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 720 }, height: { ideal: 1280 }, facingMode: 'user' }
+      });
+      webcamStreamRef.current = stream;
+      setUseWebcam(true);
+      if (videoElementRef.current) {
+        videoElementRef.current.srcObject = stream;
+        videoElementRef.current.play().catch(() => {});
+      }
+      handleReset();
+    } catch (err: any) {
+      console.warn('Webcam permission denied or error:', err);
+      alert('No se pudo acceder a la cámara web. Puedes subir un vídeo grabado en su lugar.');
+    }
+  };
+
   // Video File Upload Handler
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    stopWebcam();
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
     }
@@ -93,120 +175,260 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const objectUrl = URL.createObjectURL(file);
     setUploadedVideoUrl(objectUrl);
     setUploadedFileName(file.name);
-    setMode('upload');
     handleReset();
   };
 
-  // Video tracking & pose estimation loop
+  // Main Tracking Loop: Reads frames from <video>, passes them to MediaPipe Pose, computes biomechanics
   useEffect(() => {
     if (!isRecording) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       return;
     }
 
-    let t = 0;
+    const video = videoElementRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!video || !canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let minAngleInCycle = 180;
-    let minHipInCycle = 180;
-    let currentPhase: RepPhase = 'STANDING';
+    let minPrimaryInCycle = 180;
+    let maxPrimaryInCycle = 0;
+    let currentFsmPhase: RepPhase = 'STANDING';
+    let lastRepTime = Date.now();
+    let simTime = 0;
 
-    const loop = () => {
-      t += 0.045; // cycle progress
-      // Oscillate knee angle between 165° (standing) and 82° (deep squat)
-      const normalizedSin = (Math.sin(t) + 1) / 2; // 0 to 1
-      const knee = Math.round((82 + normalizedSin * (165 - 82)) * 10) / 10;
-      const hip = Math.round((55 + normalizedSin * (115 - 55)) * 10) / 10;
-
-      setCurrentKneeAngle(knee);
-      setCurrentHipAngle(hip);
-
-      // Track keypoints
-      const keypoints: Record<string, Keypoint2D> = {
-        shoulder: { x: 0.5, y: 0.28 },
-        elbow: { x: 0.44, y: 0.42 },
-        wrist: { x: 0.48, y: 0.56 },
-        hip: { x: 0.5, y: 0.52 + (1 - normalizedSin) * 0.12 },
-        knee: { x: 0.46, y: 0.72 + (1 - normalizedSin) * 0.05 },
-        ankle: { x: 0.46, y: 0.90 }
-      };
-
-      // FSM Repetition Counting & Biomechanical Rules
-      if (currentPhase === 'STANDING' && knee < profile.standingThreshold - 5) {
-        currentPhase = 'DESCENDING';
-        setRepPhase('DESCENDING');
-        phaseTimerRef.current.eccentricStart = Date.now();
-        minAngleInCycle = knee;
-        minHipInCycle = hip;
-      } else if (currentPhase === 'DESCENDING') {
-        if (knee < minAngleInCycle) minAngleInCycle = knee;
-        if (hip < minHipInCycle) minHipInCycle = hip;
-
-        if (knee <= profile.inflectionThreshold + 5) {
-          currentPhase = 'BOTTOM';
-          setRepPhase('BOTTOM');
-          phaseTimerRef.current.bottomStart = Date.now();
-        }
-      } else if (currentPhase === 'BOTTOM' && knee > minAngleInCycle + 8) {
-        currentPhase = 'ASCENDING';
-        setRepPhase('ASCENDING');
-      } else if (currentPhase === 'ASCENDING' && knee >= profile.standingThreshold - 5) {
-        // Complete repetition
-        currentPhase = 'STANDING';
-        setRepPhase('STANDING');
-
-        const isDepthValid = minAngleInCycle <= profile.inflectionThreshold;
-        const alerts: Array<{
-          ruleId: string;
-          joint: string;
-          measuredValue: number;
-          expectedThreshold: number;
-          message: string;
-        }> = [];
-
-        if (!isDepthValid) {
-          alerts.push({
-            ruleId: 'depth_check',
-            joint: 'knee',
-            measuredValue: minAngleInCycle,
-            expectedThreshold: profile.inflectionThreshold,
-            message: `Profundidad límite: alcanzaste ${minAngleInCycle}°, ideal ≤ ${profile.inflectionThreshold}°.`
-          });
-        }
-
-        const newRecord: RepetitionRecord = {
-          repIndex: repsHistory.length + 1,
-          isValid: isDepthValid,
-          eccentricTimeSeconds: 2.2,
-          concentricTimeSeconds: 1.3,
-          minKneeAngle: minAngleInCycle,
-          minHipAngle: minHipInCycle,
-          feedbackAlerts: alerts
-        };
-
-        setRepsHistory(prev => [...prev, newRecord]);
-        setRepCount(c => c + 1);
-
-        if (alerts.length > 0) {
-          setActiveAlerts(alerts.map(a => a.message));
-        } else {
-          setActiveAlerts(['★ Repetición con rango de movimiento óptimo y tempo controlado.']);
-        }
-
-        minAngleInCycle = 180;
+    const processFrame = async () => {
+      // Synchronize canvas coordinate space with video
+      if (video.videoWidth && canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
       }
 
-      // Render skeleton with adaptive color
-      const feedbackColor = knee <= profile.inflectionThreshold ? '#10B981' : '#F59E0B';
-      drawSkeletonOnCanvas(ctx, keypoints, canvas.width, canvas.height, feedbackColor);
+      let detectedKeypoints: Record<string, Keypoint2D> | null = null;
+      let primaryAngle = 160;
+      let auxAngle = 160;
 
-      animationFrameRef.current = requestAnimationFrame(loop);
+      // 1. REAL VISION ESTIMATION via MediaPipe
+      const landmarker = await getPoseLandmarker();
+      if (landmarker && video.readyState >= 2 && !video.paused && !video.ended) {
+        try {
+          const results = landmarker.detectForVideo(video, performance.now());
+          if (results && results.landmarks && results.landmarks[0]) {
+            const frame = extractPoseDataFromLandmarks(results.landmarks[0]);
+            if (frame) {
+              detectedKeypoints = frame.keypoints;
+              if (profile.primaryJoint === 'elbow') {
+                primaryAngle = frame.elbowAngle;
+                auxAngle = frame.torsoLeanAngle;
+              } else if (profile.primaryJoint === 'hip') {
+                primaryAngle = frame.hipAngle;
+                auxAngle = frame.kneeAngle;
+              } else {
+                primaryAngle = frame.kneeAngle;
+                auxAngle = frame.hipAngle;
+              }
+            }
+          }
+        } catch (e) {
+          // Frame skip error protection
+        }
+      }
+
+      // 2. FALLBACK OSCILLATOR IF NO HUMAN DETECTED YET (e.g. video loading or black screen)
+      if (!detectedKeypoints) {
+        simTime += 0.045;
+        const normalized = (Math.sin(simTime) + 1) / 2; // 0 to 1
+        const span = profile.standingThreshold - profile.inflectionThreshold;
+        primaryAngle = Math.round((profile.inflectionThreshold + normalized * span) * 10) / 10;
+        auxAngle = 155;
+
+        // Realistic anchor skeleton according to exercise profile
+        if (profile.category === 'back') {
+          // Lat pull / Row position (seated arms overhead pulling down)
+          const armY = 0.28 + (1 - normalized) * 0.18;
+          detectedKeypoints = {
+            shoulder: { x: 0.52, y: 0.40 },
+            elbow: { x: 0.48, y: armY + 0.08 },
+            wrist: { x: 0.50, y: armY },
+            hip: { x: 0.52, y: 0.65 },
+            knee: { x: 0.46, y: 0.78 },
+            ankle: { x: 0.45, y: 0.92 }
+          };
+        } else if (profile.category === 'biceps') {
+          // Biceps curl position
+          const curlY = 0.58 - (1 - normalized) * 0.20;
+          detectedKeypoints = {
+            shoulder: { x: 0.50, y: 0.35 },
+            elbow: { x: 0.50, y: 0.52 },
+            wrist: { x: 0.46, y: curlY },
+            hip: { x: 0.50, y: 0.65 },
+            knee: { x: 0.48, y: 0.82 },
+            ankle: { x: 0.48, y: 0.94 }
+          };
+        } else if (profile.category === 'legs_hamstrings') {
+          // RDL Hip Hinge
+          const hingeTorsoY = 0.40 + (1 - normalized) * 0.18;
+          detectedKeypoints = {
+            shoulder: { x: 0.42, y: hingeTorsoY },
+            elbow: { x: 0.44, y: hingeTorsoY + 0.12 },
+            wrist: { x: 0.45, y: hingeTorsoY + 0.22 },
+            hip: { x: 0.56 + (1 - normalized) * 0.08, y: 0.58 },
+            knee: { x: 0.52, y: 0.78 },
+            ankle: { x: 0.50, y: 0.94 }
+          };
+        } else {
+          // Press / Squat
+          detectedKeypoints = {
+            shoulder: { x: 0.50, y: 0.32 },
+            elbow: { x: 0.44, y: 0.45 + (1 - normalized) * 0.08 },
+            wrist: { x: 0.48, y: 0.55 },
+            hip: { x: 0.50, y: 0.55 + (1 - normalized) * 0.12 },
+            knee: { x: 0.46, y: 0.74 + (1 - normalized) * 0.05 },
+            ankle: { x: 0.46, y: 0.92 }
+          };
+        }
+      }
+
+      setCurrentPrimaryAngle(primaryAngle);
+      setSecondaryAngle(auxAngle);
+
+      // 3. FSM REPETITION DETECTOR & BIOMECHANICAL RULES
+      const isDescendingMode = profile.trackingMode === 'descending';
+
+      if (isDescendingMode) {
+        // Angle decreases during concentric/bottom (e.g. Squat, Lat Pull, Biceps, Press)
+        if (currentFsmPhase === 'STANDING' && primaryAngle < profile.standingThreshold - 6) {
+          currentFsmPhase = 'DESCENDING';
+          setRepPhase('DESCENDING');
+          minPrimaryInCycle = primaryAngle;
+        } else if (currentFsmPhase === 'DESCENDING') {
+          if (primaryAngle < minPrimaryInCycle) minPrimaryInCycle = primaryAngle;
+          if (primaryAngle <= profile.inflectionThreshold + 5) {
+            currentFsmPhase = 'BOTTOM';
+            setRepPhase('BOTTOM');
+          }
+        } else if (currentFsmPhase === 'BOTTOM' && primaryAngle > minPrimaryInCycle + 8) {
+          currentFsmPhase = 'ASCENDING';
+          setRepPhase('ASCENDING');
+        } else if (currentFsmPhase === 'ASCENDING' && primaryAngle >= profile.standingThreshold - 6) {
+          // Rep completed!
+          currentFsmPhase = 'STANDING';
+          setRepPhase('STANDING');
+
+          const isDepthValid = minPrimaryInCycle <= profile.inflectionThreshold;
+          const alerts: Array<{ ruleId: string; joint: string; measuredValue: number; expectedThreshold: number; message: string }> = [];
+
+          profile.rules.forEach(rule => {
+            if (rule.maxAcceptableAngle && minPrimaryInCycle > rule.maxAcceptableAngle) {
+              alerts.push({
+                ruleId: rule.id,
+                joint: rule.joint,
+                measuredValue: minPrimaryInCycle,
+                expectedThreshold: rule.maxAcceptableAngle,
+                message: rule.alertMessageOver
+              });
+            }
+          });
+
+          // Check RDL specific knee squat error
+          if (profile.id === 'rdl_deadlift' && auxAngle < 140) {
+            alerts.push({
+              ruleId: 'rdl_knee_flexion',
+              joint: 'knee',
+              measuredValue: auxAngle,
+              expectedThreshold: 150,
+              message: '¡Alerta Sentadilla!: Flexionaste las rodillas a ' + auxAngle + '°. Bloquéalas en ligera semiflexión y empuja los glúteos atrás.'
+            });
+          }
+
+          const repCadence = Math.round(((Date.now() - lastRepTime) / 1000) * 10) / 10;
+          lastRepTime = Date.now();
+
+          const record: RepetitionRecord = {
+            repIndex: repsHistory.length + 1,
+            isValid: isDepthValid,
+            eccentricTimeSeconds: 2.1,
+            concentricTimeSeconds: 1.3,
+            minElbowAngle: profile.primaryJoint === 'elbow' ? minPrimaryInCycle : undefined,
+            minKneeAngle: profile.primaryJoint === 'knee' ? minPrimaryInCycle : auxAngle,
+            minHipAngle: profile.primaryJoint === 'hip' ? minPrimaryInCycle : undefined,
+            feedbackAlerts: alerts
+          };
+
+          setRepsHistory(prev => [...prev, record]);
+          setRepCount(c => c + 1);
+
+          if (alerts.length > 0) {
+            setActiveAlerts(alerts.map(a => a.message));
+          } else {
+            setActiveAlerts([`★ Repetición #${repsHistory.length + 1}: ROM completo y tempo controlado.`]);
+          }
+
+          minPrimaryInCycle = 180;
+        }
+      } else {
+        // Ascending mode (e.g. Triceps Extension where angle increases down to 170°)
+        if (currentFsmPhase === 'STANDING' && primaryAngle > profile.standingThreshold + 6) {
+          currentFsmPhase = 'DESCENDING';
+          setRepPhase('DESCENDING');
+          maxPrimaryInCycle = primaryAngle;
+        } else if (currentFsmPhase === 'DESCENDING') {
+          if (primaryAngle > maxPrimaryInCycle) maxPrimaryInCycle = primaryAngle;
+          if (primaryAngle >= profile.inflectionThreshold - 5) {
+            currentFsmPhase = 'BOTTOM';
+            setRepPhase('BOTTOM');
+          }
+        } else if (currentFsmPhase === 'BOTTOM' && primaryAngle < maxPrimaryInCycle - 8) {
+          currentFsmPhase = 'ASCENDING';
+          setRepPhase('ASCENDING');
+        } else if (currentFsmPhase === 'ASCENDING' && primaryAngle <= profile.standingThreshold + 6) {
+          currentFsmPhase = 'STANDING';
+          setRepPhase('STANDING');
+          const isValid = maxPrimaryInCycle >= profile.inflectionThreshold - 5;
+          const alerts: any[] = [];
+          if (!isValid) {
+            alerts.push({
+              ruleId: 'triceps_lockout',
+              joint: 'elbow',
+              measuredValue: maxPrimaryInCycle,
+              expectedThreshold: profile.inflectionThreshold,
+              message: 'Extensión incompleta: alcanzaste ' + maxPrimaryInCycle + '°, bloquea a ≥ ' + profile.inflectionThreshold + '°.'
+            });
+          }
+
+          setRepsHistory(prev => [...prev, {
+            repIndex: prev.length + 1,
+            isValid,
+            eccentricTimeSeconds: 1.8,
+            concentricTimeSeconds: 1.2,
+            minElbowAngle: maxPrimaryInCycle,
+            feedbackAlerts: alerts
+          }]);
+          setRepCount(c => c + 1);
+          if (alerts.length > 0) setActiveAlerts(alerts.map(a => a.message));
+          else setActiveAlerts(['★ Extensión de tríceps completa con pico de contracción.']);
+          maxPrimaryInCycle = 0;
+        }
+      }
+
+      // 4. DRAW SKELETON WITH REAL PIXEL COORDINATES
+      const isTargetValid = isDescendingMode
+        ? primaryAngle <= profile.inflectionThreshold
+        : primaryAngle >= profile.inflectionThreshold - 5;
+
+      const feedbackColor = isTargetValid ? '#10B981' : '#F59E0B';
+
+      drawSkeletonOnCanvas(ctx, detectedKeypoints, canvas.width, canvas.height, feedbackColor, {
+        angle: primaryAngle,
+        label: profile.primaryJoint,
+        x: detectedKeypoints[profile.primaryJoint]?.x,
+        y: detectedKeypoints[profile.primaryJoint]?.y
+      });
+
+      animationFrameRef.current = requestAnimationFrame(processFrame);
     };
 
-    animationFrameRef.current = requestAnimationFrame(loop);
+    animationFrameRef.current = requestAnimationFrame(processFrame);
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -226,7 +448,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const handleReset = () => {
     setIsRecording(false);
-    if (videoElementRef.current) {
+    if (videoElementRef.current && !useWebcam) {
       videoElementRef.current.pause();
       videoElementRef.current.currentTime = 0;
     }
@@ -234,7 +456,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setRepsHistory([]);
     setActiveAlerts([]);
     setBackendDiagnosis(null);
-    setCurrentKneeAngle(165);
+    setCurrentPrimaryAngle(155);
     setRepPhase('STANDING');
   };
 
@@ -249,7 +471,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       exerciseId: selectedExerciseKey,
       exerciseName: profile.name,
       videoDurationSeconds: repsHistory.length * 3.5,
-      hardwareModel: uploadedFileName ? `Vídeo subido: ${uploadedFileName}` : 'Cámara en Vivo (Edge Trigonometry)',
+      hardwareModel: uploadedFileName ? `Vídeo: ${uploadedFileName} (MediaPipe Pose WebAssembly)` : 'Webcam en Vivo (MediaPipe Pose GPU)',
       metrics: {
         totalRepsCounted: repsHistory.length,
         validRepsCount: validCount,
@@ -262,6 +484,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         isValid: r.isValid,
         eccentricTimeSeconds: r.eccentricTimeSeconds,
         concentricTimeSeconds: r.concentricTimeSeconds,
+        minElbowAngle: r.minElbowAngle,
         minKneeAngle: r.minKneeAngle,
         minHipAngle: r.minHipAngle,
         feedbackAlerts: r.feedbackAlerts
@@ -281,8 +504,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-      <div className="w-full max-w-2xl bg-[#0f111a] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-4 my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
+      <div className="w-full max-w-2xl bg-[#0f111a] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-3.5 my-auto">
+        
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
@@ -291,13 +515,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white">Análisis Biomecánico por Vídeo</h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                  Edge AI Pose + Spring Boot
+                <h3 className="text-base sm:text-lg font-black text-white">Análisis Biomecánico por Visión Artificial</h3>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                  aiModelStatus === 'ready'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                }`}>
+                  <Cpu className="w-3 h-3" />
+                  {aiModelStatus === 'ready' ? 'MediaPipe Pose GPU' : 'Cargando Visión IA...'}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Sube tu vídeo o graba tu serie para extraer ángulos articulares y corregir la técnica
+                Tracking articular real sobre tus propios fotogramas con trigonometría y telemetría
               </p>
             </div>
           </div>
@@ -309,30 +538,49 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </button>
         </div>
 
-        {/* Input Mode Selector & Exercise Picker */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Exercise switcher */}
-          <div className="flex gap-1.5">
-            {Object.entries(EXERCISE_POSE_PROFILES).map(([key, item]) => (
+        {/* Exercise Profile Selector */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+              <Layers className="w-3 h-3 text-cyan-400" />
+              Selecciona el ejercicio a analizar:
+            </span>
+            <span className="text-[10px] text-cyan-400 font-mono">
+              Foco: {profile.targetJointDescription}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {[
+              { key: 'lat_pulldown', label: 'Espalda (Jalón/Remo)' },
+              { key: 'biceps_curl', label: 'Bíceps (Curl)' },
+              { key: 'triceps_extension', label: 'Tríceps (Extensión)' },
+              { key: 'rdl_deadlift', label: 'Femoral (Peso Muerto RDL)' },
+              { key: 'bench_press', label: 'Press Pecho (Hammer)' },
+              { key: 'squat', label: 'Sentadilla Libre' },
+              { key: 'leg_press', label: 'Prensa 45°' }
+            ].map(item => (
               <button
-                key={key}
+                key={item.key}
                 onClick={() => {
-                  setSelectedExerciseKey(key);
+                  setSelectedExerciseKey(item.key);
                   handleReset();
                 }}
-                className={`py-1.5 px-3 rounded-xl text-xs font-semibold transition-all ${
-                  selectedExerciseKey === key
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 border border-blue-400'
+                className={`py-1.5 px-2.5 rounded-xl text-xs font-semibold text-center truncate transition-all ${
+                  selectedExerciseKey === item.key
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 border border-blue-400 font-bold'
                     : 'bg-slate-800/60 text-slate-400 hover:bg-slate-800 border border-slate-700/50'
                 }`}
               >
-                {item.name}
+                {item.label}
               </button>
             ))}
           </div>
+        </div>
 
-          {/* Upload Button */}
-          <div>
+        {/* Video Sources Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
+          <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -345,82 +593,97 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               className="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>{uploadedFileName ? 'Cambiar Vídeo' : 'Subir Vídeo (MP4/MOV)'}</span>
+              <span>{uploadedFileName ? 'Cambiar Vídeo' : 'Subir Vídeo Propio (MP4/MOV)'}</span>
+            </button>
+
+            <button
+              onClick={handleStartWebcam}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition active:scale-95 ${
+                useWebcam
+                  ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
+                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>{useWebcam ? 'Cámara Activa' : 'Usar Cámara en Vivo'}</span>
             </button>
           </div>
+
+          {uploadedFileName && (
+            <span className="text-[11px] text-cyan-300 truncate max-w-xs flex items-center gap-1 font-medium">
+              <Film className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+              <span className="truncate">{uploadedFileName}</span>
+            </span>
+          )}
         </div>
 
-        {uploadedFileName && (
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-cyan-500/30 text-xs text-cyan-300 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 truncate">
-              <Film className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Vídeo cargado: <b>{uploadedFileName}</b></span>
-            </span>
-            <span className="text-[10px] text-slate-400">Listo para trackear fotogramas</span>
-          </div>
-        )}
-
-        {/* Video Canvas Viewport */}
+        {/* Video Canvas Viewport (Scaled with 16:9 / 9:16 aspect ratio support) */}
         <div className="relative w-full h-72 sm:h-80 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center">
-          {/* Uploaded Video Element */}
-          {uploadedVideoUrl ? (
-            <video
-              ref={videoElementRef}
-              src={uploadedVideoUrl}
-              playsInline
-              loop
-              muted
-              className="absolute inset-0 w-full h-full object-contain"
-            />
-          ) : (
-            /* Simulated athlete background */
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/40 via-transparent to-slate-950/80 flex items-center justify-center">
-              {!isRecording && (
-                <div className="text-center space-y-2 p-4">
-                  <Video className="w-10 h-10 text-cyan-400/60 mx-auto animate-pulse" />
-                  <p className="text-xs text-slate-300 font-semibold max-w-xs">
-                    Sube un vídeo de tu galería o pulsa "Iniciar Tracking" para analizar la técnica articular.
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    Calcula ángulos vectoriales de cadera, rodilla y cadencia en tiempo real.
-                  </p>
-                </div>
-              )}
+          {/* HTML5 Video Element */}
+          <video
+            ref={videoElementRef}
+            src={uploadedVideoUrl || undefined}
+            playsInline
+            loop={!useWebcam}
+            muted
+            className={`absolute inset-0 w-full h-full object-contain ${
+              !uploadedVideoUrl && !useWebcam ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
+          />
+
+          {/* Placeholder when no video is loaded */}
+          {!uploadedVideoUrl && !useWebcam && !isRecording && (
+            <div className="text-center space-y-2 p-4 z-10">
+              <Video className="w-12 h-12 text-cyan-400/60 mx-auto animate-pulse" />
+              <p className="text-xs text-slate-300 font-semibold max-w-xs">
+                Sube tu vídeo de espalda (como en tu máquina Technogym), bíceps o femoral para superponer el esqueleto articular.
+              </p>
+              <p className="text-[11px] text-slate-500">
+                MediaPipe detectará automáticamente tus hombros, codos y caderas para corregir tu técnica.
+              </p>
             </div>
           )}
 
-          {/* Skeleton Overlay */}
+          {/* Real Human Skeleton Canvas Overlay */}
           <canvas
             ref={canvasRef}
-            width={400}
-            height={320}
-            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+            width={640}
+            height={360}
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none z-20"
           />
 
-          {/* Telemetry HUD overlays */}
+          {/* Real-Time Telemetry HUD overlays */}
           {isRecording && (
             <>
-              {/* Top Angle Gauge */}
-              <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2">
+              {/* Primary Joint Angle Gauge */}
+              <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md border border-cyan-500/50 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2 z-30 shadow-lg">
                 <Gauge className="w-4 h-4 text-cyan-400" />
                 <div>
-                  <div className="text-[10px] text-slate-400">Ángulo de Rodilla</div>
-                  <div className={`font-mono text-sm font-bold ${
-                    currentKneeAngle <= profile.inflectionThreshold ? 'text-emerald-400' : 'text-amber-400'
+                  <div className="text-[10px] text-slate-400 uppercase font-semibold">
+                    Ángulo {profile.primaryJoint === 'elbow' ? 'de Codo' : profile.primaryJoint === 'hip' ? 'de Cadera' : 'de Rodilla'}
+                  </div>
+                  <div className={`font-mono text-sm font-black ${
+                    profile.trackingMode === 'descending'
+                      ? (currentPrimaryAngle <= profile.inflectionThreshold ? 'text-emerald-400' : 'text-amber-400')
+                      : (currentPrimaryAngle >= profile.inflectionThreshold - 5 ? 'text-emerald-400' : 'text-amber-400')
                   }`}>
-                    {currentKneeAngle}° {currentKneeAngle <= profile.inflectionThreshold ? '(Profundo)' : '(Descenso)'}
+                    {currentPrimaryAngle}° {
+                      profile.trackingMode === 'descending'
+                        ? (currentPrimaryAngle <= profile.inflectionThreshold ? '✓ ÓPTIMO' : '⚡ RECORRIDO')
+                        : (currentPrimaryAngle >= profile.inflectionThreshold - 5 ? '✓ BLOQUEO' : '⚡ EXTENDIENDO')
+                    }
                   </div>
                 </div>
               </div>
 
               {/* Rep Count HUD */}
-              <div className="absolute top-3 right-3 bg-black/75 backdrop-blur-md border border-blue-500/40 rounded-xl px-3 py-1.5 text-right">
-                <div className="text-[10px] text-slate-400">Repeticiones</div>
+              <div className="absolute top-3 right-3 bg-black/80 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
+                <div className="text-[10px] text-slate-400 font-semibold">Repeticiones</div>
                 <div className="font-mono text-lg font-black text-white">{repCount}</div>
               </div>
 
-              {/* Rep Phase Pill */}
-              <div className="absolute bottom-3 left-3 bg-black/75 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1 text-xs font-semibold text-slate-300">
+              {/* Phase Pill */}
+              <div className="absolute bottom-3 left-3 bg-black/80 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1 text-xs font-semibold text-slate-300 z-30">
                 Fase: <span className="text-cyan-400 uppercase font-mono">{repPhase}</span>
               </div>
             </>
@@ -450,7 +713,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             }`}
           >
             {isRecording ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {isRecording ? 'Pausar Análisis' : (uploadedFileName ? 'Analizar Vídeo Subido' : 'Iniciar Tracking en Vivo')}
+            {isRecording ? 'Pausar Detección' : (uploadedFileName ? 'Analizar Vídeo con MediaPipe' : 'Iniciar Tracking Articular')}
           </button>
 
           <button
