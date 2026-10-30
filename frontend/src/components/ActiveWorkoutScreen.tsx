@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Dumbbell, Timer, Flame, Weight, Check } from 'lucide-react';
+import { Plus, Dumbbell, Timer, Flame, Weight, Check, Video } from 'lucide-react';
 import { Workout, WorkoutExercise, ExerciseTemplate } from '../types/workout';
 import { WorkoutExerciseCard } from './WorkoutExerciseCard';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { RestTimer } from './RestTimer';
 import { WorkoutSummaryModal } from './WorkoutSummaryModal';
 import { ExerciseDetailModal } from './ExerciseDetailModal';
+import { VideoPoseAnalysisModal } from './VideoPoseAnalysisModal';
 import { ErrorBoundary } from './ErrorBoundary';
 import { calculateWorkoutVolume, countCompletedSets, detectPersonalRecords, formatDuration } from '../utils/fitness';
 
@@ -32,6 +33,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
   const [restTimerSeconds] = useState(90);
   const [finishedWorkout, setFinishedWorkout] = useState<Workout | null>(null);
   const [detailExercise, setDetailExercise] = useState<WorkoutExercise | null>(null);
+  const [videoExercise, setVideoExercise] = useState<WorkoutExercise | null>(null);
 
   // Live timer tick
   useEffect(() => {
@@ -244,27 +246,36 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
                 setIsRestTimerOpen(true);
               }}
               onOpenDetail={() => setDetailExercise(exercise)}
+              onOpenVideoAnalysis={() => setVideoExercise(exercise)}
             />
           ))
         )}
 
-        {/* Action Buttons: Add Exercise & Add Cardio */}
+        {/* Action Buttons: Add Exercise, Add Cardio & Video Technique Analysis */}
         {workout.exercises.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             <button
               onClick={() => setIsExerciseModalOpen(true)}
-              className="py-3.5 px-4 bg-[#12141e] hover:bg-slate-800/80 active:scale-[0.99] border-2 border-dashed border-slate-700/80 hover:border-blue-500/50 rounded-2xl text-xs font-bold text-blue-400 flex items-center justify-center gap-2 transition shadow-xl"
+              className="py-3 px-3.5 bg-[#12141e] hover:bg-slate-800/80 active:scale-[0.99] border-2 border-dashed border-slate-700/80 hover:border-blue-500/50 rounded-2xl text-xs font-bold text-blue-400 flex items-center justify-center gap-2 transition shadow-xl"
             >
               <Plus className="w-4 h-4" />
-              <span>Añadir Máquina o Ejercicio</span>
+              <span>Añadir Ejercicio</span>
             </button>
 
             <button
               onClick={handleAddQuickCardio}
-              className="py-3.5 px-4 bg-[#12141e] hover:bg-slate-800/80 active:scale-[0.99] border-2 border-dashed border-rose-900/50 hover:border-rose-500/60 rounded-2xl text-xs font-bold text-rose-400 flex items-center justify-center gap-2 transition shadow-xl"
+              className="py-3 px-3.5 bg-[#12141e] hover:bg-slate-800/80 active:scale-[0.99] border-2 border-dashed border-rose-900/50 hover:border-rose-500/60 rounded-2xl text-xs font-bold text-rose-400 flex items-center justify-center gap-2 transition shadow-xl"
             >
               <Flame className="w-4 h-4 text-rose-400" />
-              <span>+ Añadir Cardio (Cinta Inclinada / Bici)</span>
+              <span>+ Cardio</span>
+            </button>
+
+            <button
+              onClick={() => setVideoExercise(workout.exercises[0] || null)}
+              className="py-3 px-3.5 bg-gradient-to-r from-cyan-950/60 to-blue-950/60 hover:from-cyan-900/60 hover:to-blue-900/60 active:scale-[0.99] border border-cyan-500/40 rounded-2xl text-xs font-bold text-cyan-300 flex items-center justify-center gap-2 transition shadow-xl"
+            >
+              <Video className="w-4 h-4 text-cyan-400" />
+              <span>📹 Corregir Técnica (Vídeo)</span>
             </button>
           </div>
         )}
@@ -294,6 +305,16 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
             workoutHistory={workoutHistory}
           />
         </ErrorBoundary>
+      )}
+
+      {/* Video Pose Analysis Modal */}
+      {videoExercise && (
+        <VideoPoseAnalysisModal
+          isOpen={true}
+          onClose={() => setVideoExercise(null)}
+          defaultExerciseId={videoExercise.exercise_template_id}
+          defaultExerciseName={videoExercise.title}
+        />
       )}
 
       {/* Finish Summary Modal */}

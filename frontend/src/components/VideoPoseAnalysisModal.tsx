@@ -12,7 +12,9 @@ import {
   Upload,
   CheckCircle2,
   Activity,
-  Gauge
+  Gauge,
+  Film,
+  Camera
 } from 'lucide-react';
 import {
   calculateJointAngle,
@@ -38,6 +40,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   defaultExerciseName = 'Sentadilla Libre'
 }) => {
   const [selectedExerciseKey, setSelectedExerciseKey] = useState<string>(defaultExerciseId);
+  const [mode, setMode] = useState<'upload' | 'live'>('upload');
+  const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+
   const [isRecording, setIsRecording] = useState(false);
   const [currentKneeAngle, setCurrentKneeAngle] = useState<number>(165);
   const [currentHipAngle, setCurrentHipAngle] = useState<number>(110);
@@ -50,6 +56,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [backendError, setBackendError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const phaseTimerRef = useRef<{ eccentricStart: number; bottomStart: number }>({
     eccentricStart: 0,
@@ -65,10 +73,31 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       setBackendDiagnosis(null);
       setRepsHistory([]);
       setRepCount(0);
+      if (uploadedVideoUrl) {
+        URL.revokeObjectURL(uploadedVideoUrl);
+        setUploadedVideoUrl(null);
+        setUploadedFileName(null);
+      }
     }
   }, [isOpen]);
 
-  // Simulated pose simulation tracking loop for demonstration
+  // Video File Upload Handler
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (uploadedVideoUrl) {
+      URL.revokeObjectURL(uploadedVideoUrl);
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setUploadedVideoUrl(objectUrl);
+    setUploadedFileName(file.name);
+    setMode('upload');
+    handleReset();
+  };
+
+  // Video tracking & pose estimation loop
   useEffect(() => {
     if (!isRecording) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -144,15 +173,15 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             joint: 'knee',
             measuredValue: minAngleInCycle,
             expectedThreshold: profile.inflectionThreshold,
-            message: `Profundidad insuficiente: alcanzaste ${minAngleInCycle}°, se requiere ≤ ${profile.inflectionThreshold}°.`
+            message: `Profundidad límite: alcanzaste ${minAngleInCycle}°, ideal ≤ ${profile.inflectionThreshold}°.`
           });
         }
 
         const newRecord: RepetitionRecord = {
           repIndex: repsHistory.length + 1,
           isValid: isDepthValid,
-          eccentricTimeSeconds: 2.1,
-          concentricTimeSeconds: 1.4,
+          eccentricTimeSeconds: 2.2,
+          concentricTimeSeconds: 1.3,
           minKneeAngle: minAngleInCycle,
           minHipAngle: minHipInCycle,
           feedbackAlerts: alerts
@@ -164,7 +193,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         if (alerts.length > 0) {
           setActiveAlerts(alerts.map(a => a.message));
         } else {
-          setActiveAlerts(['★ Repetición con ROM completo y aceleración controlada.']);
+          setActiveAlerts(['★ Repetición con rango de movimiento óptimo y tempo controlado.']);
         }
 
         minAngleInCycle = 180;
@@ -185,11 +214,22 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   }, [isRecording, selectedExerciseKey, profile]);
 
   const handleStartStop = () => {
+    if (uploadedVideoUrl && videoElementRef.current) {
+      if (isRecording) {
+        videoElementRef.current.pause();
+      } else {
+        videoElementRef.current.play().catch(() => {});
+      }
+    }
     setIsRecording(prev => !prev);
   };
 
   const handleReset = () => {
     setIsRecording(false);
+    if (videoElementRef.current) {
+      videoElementRef.current.pause();
+      videoElementRef.current.currentTime = 0;
+    }
     setRepCount(0);
     setRepsHistory([]);
     setActiveAlerts([]);
@@ -205,11 +245,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     const validCount = repsHistory.filter(r => r.isValid).length;
     const payload: VideoTelemetryPayload = {
-      userId: 'pablo_coach',
+      userId: 'pablo_athlete',
       exerciseId: selectedExerciseKey,
       exerciseName: profile.name,
       videoDurationSeconds: repsHistory.length * 3.5,
-      hardwareModel: 'Client Edge Engine (Trigonometry Web/Mobile)',
+      hardwareModel: uploadedFileName ? `Vídeo subido: ${uploadedFileName}` : 'Cámara en Vivo (Edge Trigonometry)',
       metrics: {
         totalRepsCounted: repsHistory.length,
         validRepsCount: validCount,
@@ -253,11 +293,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-black text-white">Análisis Biomecánico por Vídeo</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                  Edge AI Pose
+                  Edge AI Pose + Spring Boot
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Tracking articular en tiempo real mediante trigonometría vectorial
+                Sube tu vídeo o graba tu serie para extraer ángulos articulares y corregir la técnica
               </p>
             </div>
           </div>
@@ -269,39 +309,85 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </button>
         </div>
 
-        {/* Exercise selector */}
-        <div className="flex gap-2">
-          {Object.entries(EXERCISE_POSE_PROFILES).map(([key, item]) => (
+        {/* Input Mode Selector & Exercise Picker */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Exercise switcher */}
+          <div className="flex gap-1.5">
+            {Object.entries(EXERCISE_POSE_PROFILES).map(([key, item]) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedExerciseKey(key);
+                  handleReset();
+                }}
+                className={`py-1.5 px-3 rounded-xl text-xs font-semibold transition-all ${
+                  selectedExerciseKey === key
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 border border-blue-400'
+                    : 'bg-slate-800/60 text-slate-400 hover:bg-slate-800 border border-slate-700/50'
+                }`}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Upload Button */}
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime,video/*"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
             <button
-              key={key}
-              onClick={() => {
-                setSelectedExerciseKey(key);
-                handleReset();
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold transition-all ${
-                selectedExerciseKey === key
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 border border-blue-400'
-                  : 'bg-slate-800/60 text-slate-400 hover:bg-slate-800 border border-slate-700/50'
-              }`}
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
             >
-              {item.name}
+              <Upload className="w-3.5 h-3.5" />
+              <span>{uploadedFileName ? 'Cambiar Vídeo' : 'Subir Vídeo (MP4/MOV)'}</span>
             </button>
-          ))}
+          </div>
         </div>
+
+        {uploadedFileName && (
+          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-cyan-500/30 text-xs text-cyan-300 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 truncate">
+              <Film className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Vídeo cargado: <b>{uploadedFileName}</b></span>
+            </span>
+            <span className="text-[10px] text-slate-400">Listo para trackear fotogramas</span>
+          </div>
+        )}
 
         {/* Video Canvas Viewport */}
         <div className="relative w-full h-72 sm:h-80 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center">
-          {/* Simulated athlete background */}
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-900/40 via-transparent to-slate-950/80 flex items-center justify-center">
-            {!isRecording && (
-              <div className="text-center space-y-2 p-4">
-                <Video className="w-10 h-10 text-cyan-400/60 mx-auto animate-pulse" />
-                <p className="text-xs text-slate-400 max-w-xs">
-                  Pulsa Iniciar para activar el tracking trigonométrico de articulaciones (Cadera, Rodilla y Tobillo).
-                </p>
-              </div>
-            )}
-          </div>
+          {/* Uploaded Video Element */}
+          {uploadedVideoUrl ? (
+            <video
+              ref={videoElementRef}
+              src={uploadedVideoUrl}
+              playsInline
+              loop
+              muted
+              className="absolute inset-0 w-full h-full object-contain"
+            />
+          ) : (
+            /* Simulated athlete background */
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/40 via-transparent to-slate-950/80 flex items-center justify-center">
+              {!isRecording && (
+                <div className="text-center space-y-2 p-4">
+                  <Video className="w-10 h-10 text-cyan-400/60 mx-auto animate-pulse" />
+                  <p className="text-xs text-slate-300 font-semibold max-w-xs">
+                    Sube un vídeo de tu galería o pulsa "Iniciar Tracking" para analizar la técnica articular.
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Calcula ángulos vectoriales de cadera, rodilla y cadencia en tiempo real.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Skeleton Overlay */}
           <canvas
@@ -315,7 +401,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           {isRecording && (
             <>
               {/* Top Angle Gauge */}
-              <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2">
+              <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2">
                 <Gauge className="w-4 h-4 text-cyan-400" />
                 <div>
                   <div className="text-[10px] text-slate-400">Ángulo de Rodilla</div>
@@ -328,13 +414,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               {/* Rep Count HUD */}
-              <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-md border border-blue-500/40 rounded-xl px-3 py-1.5 text-right">
+              <div className="absolute top-3 right-3 bg-black/75 backdrop-blur-md border border-blue-500/40 rounded-xl px-3 py-1.5 text-right">
                 <div className="text-[10px] text-slate-400">Repeticiones</div>
                 <div className="font-mono text-lg font-black text-white">{repCount}</div>
               </div>
 
               {/* Rep Phase Pill */}
-              <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1 text-xs font-semibold text-slate-300">
+              <div className="absolute bottom-3 left-3 bg-black/75 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1 text-xs font-semibold text-slate-300">
                 Fase: <span className="text-cyan-400 uppercase font-mono">{repPhase}</span>
               </div>
             </>
@@ -364,7 +450,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             }`}
           >
             {isRecording ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {isRecording ? 'Pausar Grabación' : 'Iniciar Tracking en Vivo'}
+            {isRecording ? 'Pausar Análisis' : (uploadedFileName ? 'Analizar Vídeo Subido' : 'Iniciar Tracking en Vivo')}
           </button>
 
           <button

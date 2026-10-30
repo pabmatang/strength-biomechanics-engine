@@ -3,12 +3,13 @@ import {
   X, Trophy, History, Save, Dumbbell, Sparkles, 
   ThumbsUp, Send, Lock, Globe, ZoomIn, Activity, Target, CheckCircle2, 
   Zap, Info, Sliders, Wrench, ShieldCheck, Camera, AlertCircle,
-  ChevronDown, ChevronUp, Layers, Ruler, TrendingUp, Plus, AlertTriangle
+  ChevronDown, ChevronUp, Layers, Ruler, TrendingUp, Plus, AlertTriangle, Video
 } from 'lucide-react';
 import { WorkoutExercise, Workout, ExerciseComment, CommunityTip } from '../types/workout';
 import { calculate1RM } from '../utils/fitness';
 import { EXERCISE_DATABASE } from '../data/exercises';
 import { ImageLightboxModal } from './ImageLightboxModal';
+import { VideoPoseAnalysisModal } from './VideoPoseAnalysisModal';
 import { getSafeMachineImageUrl } from '../utils/machineImages';
 import { formatMuscleName } from '../utils/muscleLabels';
 import { getMachineBiomechanics } from '../utils/machineBiomechanics';
@@ -133,6 +134,7 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
   const [pinPickerOpen, setPinPickerOpen] = useState<'seat' | 'pad' | null>(null);
   const [activeHotspot, setActiveHotspot] = useState<number | null>(null);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 
   // Quick Machine Pins (persisted in localStorage)
   const templateId = exercise?.exercise_template_id || exercise?.id || '';
@@ -629,12 +631,23 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
             )}
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-white rounded-xl hover:bg-white/[0.06] transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsVideoModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600/20 to-blue-600/20 hover:from-cyan-600/30 hover:to-blue-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+              title="Analizar técnica biomecánica por vídeo"
+            >
+              <Video className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Vídeo Técnica</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-zinc-400 hover:text-white rounded-xl hover:bg-white/[0.06] transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* 3 TOP PRIMARY TABS (Anti-Infinite Scroll Architecture) */}
@@ -1977,6 +1990,16 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
             title={exercise.title}
             brand={exercise.brand}
             muscleGroup={exercise.muscle_group}
+          />
+        )}
+
+        {/* Video Pose Analysis Modal */}
+        {isVideoModalOpen && (
+          <VideoPoseAnalysisModal
+            isOpen={true}
+            onClose={() => setIsVideoModalOpen(false)}
+            defaultExerciseId={exercise.exercise_template_id || exercise.id}
+            defaultExerciseName={exercise.title}
           />
         )}
 

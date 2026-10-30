@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dumbbell, Calendar, BarChart3, Plus, Play, Ruler, Scale, BrainCircuit, Users, Footprints, Flame, Settings, Heart, Utensils } from 'lucide-react';
+import { Dumbbell, Calendar, BarChart3, Plus, Play, Ruler, Scale, BrainCircuit, Users, Footprints, Flame, Settings, Heart, Utensils, Video } from 'lucide-react';
 import { Routine, Workout, BodyWeightEntry, BodyTapeMeasurement, ExerciseTemplate, WorkoutExercise, SocialPost, DailyStepEntry, AppSettings, CardioSession, DailyCalorieEntry } from './types/workout';
 import { INITIAL_ROUTINES } from './data/exercises';
 import { RoutinesScreen } from './components/RoutinesScreen';
@@ -8,6 +8,7 @@ import { AnalyticsScreen } from './components/AnalyticsScreen';
 import { ActiveWorkoutScreen } from './components/ActiveWorkoutScreen';
 import { BodyTrackingScreen } from './components/BodyTrackingScreen';
 import { AiBiomechanicsModal } from './components/AiBiomechanicsModal';
+import { VideoPoseAnalysisModal } from './components/VideoPoseAnalysisModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DailyStepsScreen } from './components/DailyStepsScreen';
 import { EnergyBalanceScreen } from './components/EnergyBalanceScreen';
@@ -338,6 +339,7 @@ export function App() {
   );
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Persist navigation tabs
@@ -664,6 +666,16 @@ export function App() {
 
           {/* Right Action Section: Compact, zero horizontal overflow */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Video Technique Analysis Button */}
+            <button
+              onClick={() => setIsVideoModalOpen(true)}
+              className="flex px-2.5 sm:px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-600/30 items-center gap-1.5 transition active:scale-95 border border-cyan-400/30"
+              title="Corregir técnica por vídeo con IA"
+            >
+              <Video className="w-3.5 h-3.5 text-cyan-200" />
+              <span className="hidden xs:inline">Vídeo Técnica</span>
+            </button>
+
             {/* AI Scanner Button (Tablet & Desktop) */}
             <button
               onClick={() => setIsAiModalOpen(true)}
@@ -927,6 +939,12 @@ export function App() {
 
         </div>
       </nav>
+
+      {/* Video Pose Analysis Modal */}
+      <VideoPoseAnalysisModal
+        isOpen={isVideoModalOpen}
+        onClose={() => setIsVideoModalOpen(false)}
+      />
 
       {/* AI Machine Scanner & Biomechanical RAG Modal */}
       <AiBiomechanicsModal

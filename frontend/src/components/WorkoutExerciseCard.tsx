@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Check, ArrowUp, ArrowDown, Info, Dumbbell, RefreshCw, Target, MapPin } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, ArrowUp, ArrowDown, Info, Dumbbell, RefreshCw, Target, MapPin, Video } from 'lucide-react';
 import { WorkoutExercise, WorkoutSet, ExerciseTemplate } from '../types/workout';
 import { SetRow } from './SetRow';
 import { MachineSubstitutionModal } from './MachineSubstitutionModal';
@@ -17,6 +17,7 @@ interface WorkoutExerciseCardProps {
   onMoveDown?: () => void;
   onSetCompleted: () => void;
   onOpenDetail: () => void;
+  onOpenVideoAnalysis?: () => void;
 }
 
 export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
@@ -29,7 +30,8 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
   onMoveUp,
   onMoveDown,
   onSetCompleted,
-  onOpenDetail
+  onOpenDetail,
+  onOpenVideoAnalysis
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(exercise.title);
@@ -219,6 +221,21 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
                 <RefreshCw className="w-3 h-3" />
                 <span>Cambiar máquina</span>
               </button>
+
+              {onOpenVideoAnalysis && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <button
+                    type="button"
+                    onClick={onOpenVideoAnalysis}
+                    className="text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 cursor-pointer bg-cyan-950/50 hover:bg-cyan-900/60 px-2 py-0.5 rounded-lg border border-cyan-500/30 text-[11px] transition"
+                    title="Subir vídeo o grabar serie para corrección biomecánica"
+                  >
+                    <Video className="w-3 h-3 text-cyan-400" />
+                    <span>Corregir técnica</span>
+                  </button>
+                </>
+              )}
 
               <span className="text-slate-600">·</span>
 
