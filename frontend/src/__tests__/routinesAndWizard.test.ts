@@ -21,6 +21,24 @@ const BROAD_GROUP_MAP: Record<string, string> = {
   abductors: 'adductors'
 };
 
+const isMusclePrioritized = (muscle: string, priorities: string[]): boolean => {
+  if (!priorities || priorities.length === 0) return false;
+  if (priorities.includes(muscle)) return true;
+  const broad = BROAD_GROUP_MAP[muscle] || muscle;
+  if (priorities.includes(broad)) return true;
+  if (broad === 'back' && (priorities.includes('lats') || priorities.includes('upper_back') || priorities.includes('back'))) return true;
+  if (broad === 'chest' && (priorities.includes('chest') || priorities.includes('pectoral'))) return true;
+  return false;
+};
+
+const isMuscleDisliked = (muscle: string, disliked: string[]): boolean => {
+  if (!disliked || disliked.length === 0) return false;
+  if (disliked.includes(muscle)) return true;
+  const broad = BROAD_GROUP_MAP[muscle] || muscle;
+  if (disliked.includes(broad)) return true;
+  return false;
+};
+
 // Helper simulation of the Smart Routine Wizard Generator logic
 function generateWizardRoutines(params: {
   daysPerWeek: 2 | 3 | 4 | 5 | 6;
@@ -29,8 +47,9 @@ function generateWizardRoutines(params: {
   equipmentPref: 'technogym' | 'hammer' | 'cables_selectorized' | 'free_weights' | 'hybrid';
   experienceLevel: 'principiante' | 'intermedio' | 'avanzado';
   dislikedMuscles?: string[];
+  routineSplitType?: 'ppl' | 'torso_pierna' | 'fullbody' | 'auto';
 }): Routine[] {
-  const { daysPerWeek, priorityMuscles, durationMinutes, equipmentPref, experienceLevel, dislikedMuscles = [] } = params;
+  const { daysPerWeek, priorityMuscles, durationMinutes, equipmentPref, experienceLevel, dislikedMuscles = [], routineSplitType = 'auto' } = params;
   const exactExercisesCount = durationMinutes === 45 ? 4 : durationMinutes === 60 ? 5 : durationMinutes === 75 ? 6 : 7;
 
   interface DayQueueItem {
@@ -48,7 +67,137 @@ function generateWizardRoutines(params: {
 
   let splitPlan: DayPlan[] = [];
 
-  if (daysPerWeek === 2) {
+  const effectiveSplit = routineSplitType === 'auto'
+    ? (daysPerWeek === 2 ? 'fullbody' : daysPerWeek === 4 ? 'torso_pierna' : 'ppl')
+    : routineSplitType;
+
+  if (effectiveSplit === 'torso_pierna') {
+    if (daysPerWeek === 5) {
+      splitPlan = [
+        {
+          name: 'Día 1: Torso A (Tracción, Empuje & Brazos)',
+          focusCategory: 'upper',
+          focusMuscles: [
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'chest' },
+            { muscle: 'shoulders' },
+            { muscle: 'biceps' },
+            { muscle: 'triceps' },
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 2: Pierna A (Cuádriceps, Femoral & Gemelo)',
+          focusCategory: 'lower',
+          focusMuscles: [
+            { muscle: 'quadriceps' },
+            { muscle: 'hamstrings' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true },
+            { muscle: 'glutes' },
+            { muscle: 'quadriceps' },
+            { muscle: 'hamstrings' }
+          ]
+        },
+        {
+          name: 'Día 3: Torso B (Foco Pectoral & Espalda Alta)',
+          focusCategory: 'upper',
+          focusMuscles: [
+            { muscle: 'chest' },
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'shoulders' },
+            { muscle: 'triceps' },
+            { muscle: 'biceps' },
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 4: Pierna B (Isquios & Cadena Posterior)',
+          focusCategory: 'lower',
+          focusMuscles: [
+            { muscle: 'hamstrings' },
+            { muscle: 'quadriceps' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true },
+            { muscle: 'glutes' },
+            { muscle: 'hamstrings' },
+            { muscle: 'quadriceps' }
+          ]
+        },
+        {
+          name: 'Día 5: Torso C (Especialización Prioridad: Pecho, Espalda & Brazos)',
+          focusCategory: 'upper',
+          focusMuscles: [
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'chest' },
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'shoulders' },
+            { muscle: 'biceps' },
+            { muscle: 'triceps' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        }
+      ];
+    } else {
+      // 4-day Torso/Pierna
+      splitPlan = [
+        {
+          name: 'Día 1: Torso A (Tracción, Empuje & Brazos Intercalados)',
+          focusCategory: 'upper',
+          focusMuscles: [
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'chest' },
+            { muscle: 'shoulders' },
+            { muscle: 'biceps' },
+            { muscle: 'triceps' },
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 2: Pierna A (Cuádriceps, Femoral & Accesorios)',
+          focusCategory: 'lower',
+          focusMuscles: [
+            { muscle: 'quadriceps' },
+            { muscle: 'hamstrings' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true },
+            { muscle: 'glutes' },
+            { muscle: 'quadriceps' },
+            { muscle: 'hamstrings' }
+          ]
+        },
+        {
+          name: 'Día 3: Torso B (Foco Pectoral, Espalda Alta & Brazos)',
+          focusCategory: 'upper',
+          focusMuscles: [
+            { muscle: 'chest' },
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'shoulders' },
+            { muscle: 'triceps' },
+            { muscle: 'biceps' },
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 4: Pierna B (Isquiosurales, Cadena Posterior & Gemelo)',
+          focusCategory: 'lower',
+          focusMuscles: [
+            { muscle: 'hamstrings' },
+            { muscle: 'quadriceps' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true },
+            { muscle: 'glutes' },
+            { muscle: 'hamstrings' },
+            { muscle: 'quadriceps' }
+          ]
+        }
+      ];
+    }
+  } else if (daysPerWeek === 2) {
     splitPlan = [
       {
         name: 'Día 1: Full Body A',
@@ -338,24 +487,30 @@ function generateWizardRoutines(params: {
     return candidates[0];
   };
 
-  // Track global weekly exercise counts per broad muscle group to strictly hit volume targets
+  // Pass 1: Select chosen exercises for each day
+  const selectedDayQueues: DayQueueItem[][] = [];
   const weeklyGroupExerciseCount: Record<string, number> = {};
 
-  return splitPlan.map((day, dayIdx) => {
-    const used = new Set<string>();
+  splitPlan.forEach((day) => {
     const broadCategoryCounts: Record<string, number> = {};
+    const filteredQueue = day.focusMuscles.filter(
+      item => !isMuscleDisliked(item.muscle, dislikedMuscles)
+    );
     const chosenQueue: DayQueueItem[] = [];
 
-    for (const item of day.focusMuscles) {
+    for (const item of filteredQueue) {
       if (chosenQueue.length >= exactExercisesCount) break;
       const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
       const count = broadCategoryCounts[broad] || 0;
       if (count >= 3) continue; // Max 3 per muscle group per session!
 
-      const isPriority = priorityMuscles.includes(item.muscle) || (BROAD_GROUP_MAP[item.muscle] && priorityMuscles.includes(BROAD_GROUP_MAP[item.muscle]));
+      const isPriority = isMusclePrioritized(item.muscle, priorityMuscles);
       const isComp = item.isComplementary || ['abdominals', 'adductors', 'abductors'].includes(item.muscle);
 
-      const weeklyCap = isComp ? 2 : (isPriority ? 4 : (experienceLevel === 'principiante' ? 3 : 4));
+      const weeklyCap = isComp 
+        ? 2 
+        : (isPriority ? (daysPerWeek >= 5 ? 5 : 4) : (daysPerWeek >= 5 ? 3 : 2));
+
       const currentWeeklyCount = weeklyGroupExerciseCount[broad] || 0;
       if (currentWeeklyCount >= weeklyCap) {
         continue;
@@ -382,22 +537,50 @@ function generateWizardRoutines(params: {
       }
     }
 
+    selectedDayQueues.push(chosenQueue);
+  });
+
+  // Count total weekly appearances
+  const totalGroupAppearances: Record<string, number> = {};
+  selectedDayQueues.forEach(queue => {
+    queue.forEach(item => {
+      const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
+      totalGroupAppearances[broad] = (totalGroupAppearances[broad] || 0) + 1;
+    });
+  });
+
+  // Pass 2: Allocate sets
+  return splitPlan.map((day, dayIdx) => {
+    const used = new Set<string>();
+    const chosenQueue = selectedDayQueues[dayIdx];
+
     const exercises: WorkoutExercise[] = chosenQueue.map((item, exIdx) => {
       const tmpl = pickExercise(item.muscle, equipmentPref, used);
       used.add(tmpl.id);
-      const isPriority = priorityMuscles.includes(item.muscle) || (BROAD_GROUP_MAP[item.muscle] && priorityMuscles.includes(BROAD_GROUP_MAP[item.muscle]));
+      const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
+      const isPriority = isMusclePrioritized(item.muscle, priorityMuscles);
       const isComp = item.isComplementary || ['abdominals', 'adductors', 'abductors'].includes(item.muscle);
+      const appearances = totalGroupAppearances[broad] || 1;
 
       let setCount = 2;
-      if (isComp) {
+      if (experienceLevel === 'principiante') {
         setCount = 2;
-      } else if (experienceLevel === 'principiante') {
-        setCount = 2; // Exact 2 sets for beginner
-      } else if (experienceLevel === 'intermedio') {
-        setCount = isPriority ? 3 : 2;
+      } else if (isComp) {
+        setCount = (appearances <= 1) ? 3 : 2;
+      } else if (isPriority) {
+        if (appearances <= 2) {
+          setCount = (experienceLevel === 'avanzado' || durationMinutes >= 75) ? 5 : 4;
+        } else if (appearances === 3) {
+          setCount = (experienceLevel === 'avanzado' || durationMinutes >= 75) ? 4 : 3;
+        } else {
+          setCount = (experienceLevel === 'avanzado' || durationMinutes >= 75) ? 4 : 3;
+        }
       } else {
-        // Avanzado
-        setCount = isPriority ? 4 : 3;
+        if (appearances <= 1) {
+          setCount = 3;
+        } else {
+          setCount = 2;
+        }
       }
 
       return {
@@ -580,5 +763,68 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
 
     const r90 = generateWizardRoutines({ daysPerWeek: 5, priorityMuscles: ['chest'], durationMinutes: 90, equipmentPref: 'technogym', experienceLevel: 'principiante' });
     r90.forEach(d => expect(d.exercises.length).toBe(7));
+  });
+
+  it('generates exact 5 days when 5 days and torso_pierna split are requested', () => {
+    const routines5DaysTorso = generateWizardRoutines({
+      daysPerWeek: 5,
+      routineSplitType: 'torso_pierna',
+      priorityMuscles: ['lats', 'chest'],
+      durationMinutes: 60,
+      equipmentPref: 'technogym',
+      experienceLevel: 'intermedio'
+    });
+
+    expect(routines5DaysTorso.length).toBe(5);
+    expect(routines5DaysTorso[0].title).toContain('Día 1: Torso A');
+    expect(routines5DaysTorso[1].title).toContain('Día 2: Pierna A');
+    expect(routines5DaysTorso[2].title).toContain('Día 3: Torso B');
+    expect(routines5DaysTorso[3].title).toContain('Día 4: Pierna B');
+    expect(routines5DaysTorso[4].title).toContain('Día 5: Torso C');
+  });
+
+  it('calibrates priority muscles to 8-10 series and secondary muscles to 3-4 series in 4-day torso/pierna with minimum 3-set floor', () => {
+    const routines = generateWizardRoutines({
+      daysPerWeek: 4,
+      routineSplitType: 'torso_pierna',
+      priorityMuscles: ['lats', 'chest'],
+      durationMinutes: 60, // 5 exercises/session
+      equipmentPref: 'technogym',
+      experienceLevel: 'intermedio'
+    });
+
+    expect(routines.length).toBe(4);
+
+    // Compute weekly volume per broad group
+    const volume: Record<string, number> = {};
+    routines.forEach(r => {
+      r.exercises.forEach(e => {
+        const broad = BROAD_GROUP_MAP[e.muscle_group] || e.muscle_group;
+        volume[broad] = (volume[broad] || 0) + e.sets.length;
+      });
+    });
+
+    // Priority muscles (Back & Chest) must receive 8 to 10 sets
+    expect(volume['back']).toBeGreaterThanOrEqual(8);
+    expect(volume['back']).toBeLessThanOrEqual(10);
+    expect(volume['chest']).toBeGreaterThanOrEqual(8);
+    expect(volume['chest']).toBeLessThanOrEqual(10);
+
+    // Secondary muscle groups (shoulders, biceps, triceps, calves, adductors) must receive 3 to 4 sets
+    expect(volume['shoulders']).toBeGreaterThanOrEqual(3);
+    expect(volume['shoulders']).toBeLessThanOrEqual(4);
+    expect(volume['biceps']).toBeGreaterThanOrEqual(3);
+    expect(volume['biceps']).toBeLessThanOrEqual(4);
+    expect(volume['triceps']).toBeGreaterThanOrEqual(3);
+    expect(volume['triceps']).toBeLessThanOrEqual(4);
+    expect(volume['calves']).toBeGreaterThanOrEqual(3);
+    expect(volume['calves']).toBeLessThanOrEqual(4);
+    expect(volume['adductors']).toBeGreaterThanOrEqual(3);
+    expect(volume['adductors']).toBeLessThanOrEqual(4);
+
+    // Strict minimum floor: NO active muscle group has fewer than 3 sets
+    Object.entries(volume).forEach(([grp, sets]) => {
+      expect(sets, `Group ${grp} must have at least 3 sets`).toBeGreaterThanOrEqual(3);
+    });
   });
 });
