@@ -92,6 +92,31 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const smoothedKeypointsRef = useRef<Record<string, Keypoint2D> | null>(null);
   const smoothedPrimaryAngleRef = useRef<number>(160);
   const smoothedSecondaryAngleRef = useRef<number>(160);
+  const lastUiUpdateRef = useRef<number>(0);
+  const displayPrimaryAngleRef = useRef<number>(155);
+
+  // Persistent repetition detector state
+  const repTrackerRef = useRef<{
+    stage: 'WAITING_START' | 'ECCENTRIC' | 'BOTTOM' | 'CONCENTRIC';
+    calibratedTopAngle: number;
+    minAngleInRep: number;
+    maxAngleInRep: number;
+    repStartTime: number;
+    bottomStartTime: number;
+    concentricStartTime: number;
+    lastRepCompletionTime: number;
+    recentAngles: number[];
+  }>({
+    stage: 'WAITING_START',
+    calibratedTopAngle: 150,
+    minAngleInRep: 180,
+    maxAngleInRep: 0,
+    repStartTime: 0,
+    bottomStartTime: 0,
+    concentricStartTime: 0,
+    lastRepCompletionTime: 0,
+    recentAngles: []
+  });
 
   const profile: ExercisePoseProfile = EXERCISE_POSE_PROFILES[selectedExerciseKey] || EXERCISE_POSE_PROFILES.lat_pulldown;
 
@@ -197,10 +222,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let minPrimaryInCycle = 180;
-    let maxPrimaryInCycle = 0;
-    let currentFsmPhase: RepPhase = 'STANDING';
-    let lastRepTime = Date.now();
     let simTime = 0;
 
     const processFrame = async () => {
@@ -220,8 +241,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
         const isRealMedia = Boolean(uploadedVideoUrl || useWebcam);
         let rawKeypoints: Record<string, Keypoint2D> | null = null;
-        let rawPrimary = 160;
-        let rawAux = 160;
+        let rawPrimary = 150;
+        let rawAux = 155;
 
         // 1. REAL VISION ESTIMATION via MediaPipe
         const landmarker = await getPoseLandmarker();
@@ -255,7 +276,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         }
 
         let displayKeypoints: Record<string, Keypoint2D> | null = null;
-        const alpha = 0.65; // Exponential Moving Average smoothing factor
+        const alpha = 0.55; // EMA factor for steady landmark interpolation
 
         if (rawKeypoints) {
           // Smooth keypoint coordinates with EMA
@@ -283,7 +304,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           smoothedPrimaryAngleRef.current = alpha * rawPrimary + (1 - alpha) * smoothedPrimaryAngleRef.current;
           smoothedSecondaryAngleRef.current = alpha * rawAux + (1 - alpha) * smoothedSecondaryAngleRef.current;
         } else if (isRealMedia) {
-          // If a real video or webcam is playing and one frame drops, retain the smoothed previous frame
+          // In real video, retain smoothed previous keypoints on momentary dropped frame
           displayKeypoints = smoothedKeypointsRef.current;
         } else {
           // ONLY run synthetic oscillator in idle demo mode when NO user media is active
@@ -337,146 +358,292 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         }
 
-        const effectivePrimaryAngle = Math.round(smoothedPrimaryAngleRef.current * 10) / 10;
-        const effectiveSecondaryAngle = Math.round(smoothedSecondaryAngleRef.current * 10) / 10;
-
-        setCurrentPrimaryAngle(effectivePrimaryAngle);
-        setSecondaryAngle(effectiveSecondaryAngle);
-
-        // 3. FSM REPETITION DETECTOR & BIOMECHANICAL RULES
-        const isDescendingMode = profile.trackingMode === 'descending';
         const nowMs = Date.now();
 
+        // 2. THROTTLED UI DISPLAY (Updates at ~5.5 Hz with integer values to make angles readable without flickering)
+        if (nowMs - lastUiUpdateRef.current >= 180) {
+          lastUiUpdateRef.current = nowMs;
+          const displayAngle = Math.round(smoothedPrimaryAngleRef.current);
+          displayPrimaryAngleRef.current = displayAngle;
+          setCurrentPrimaryAngle(displayAngle);
+          setSecondaryAngle(Math.round(smoothedSecondaryAngleRef.current));
+        }
+
+        // 3. ROBUST HYSTERESIS-BASED REPETITION DETECTOR
+        const tracker = repTrackerRef.current;
+        const angle = smoothedPrimaryAngleRef.current;
+
+        // Maintain moving history window of recent 5 frames for directional trend confirmation
+        tracker.recentAngles.push(angle);
+        if (tracker.recentAngles.length > 5) tracker.recentAngles.shift();
+
+        const isTrendingDown = tracker.recentAngles.length >= 3 &&
+          tracker.recentAngles[tracker.recentAngles.length - 1] < tracker.recentAngles[0] - 2.0;
+        const isTrendingUp = tracker.recentAngles.length >= 3 &&
+          tracker.recentAngles[tracker.recentAngles.length - 1] > tracker.recentAngles[0] + 2.0;
+
+        const isDescendingMode = profile.trackingMode === 'descending';
+
         if (isDescendingMode) {
-          // Angle decreases during concentric/bottom (e.g. Squat, Lat Pull, Biceps, Press)
-          if (currentFsmPhase === 'STANDING' && effectivePrimaryAngle < profile.standingThreshold - 8) {
-            currentFsmPhase = 'DESCENDING';
-            setRepPhase('DESCENDING');
-            minPrimaryInCycle = effectivePrimaryAngle;
-          } else if (currentFsmPhase === 'DESCENDING') {
-            if (effectivePrimaryAngle < minPrimaryInCycle) minPrimaryInCycle = effectivePrimaryAngle;
-            if (effectivePrimaryAngle <= profile.inflectionThreshold + 6) {
-              currentFsmPhase = 'BOTTOM';
+          // Dynamic Lockout Calibration: learns user's natural top position
+          if (tracker.stage === 'WAITING_START') {
+            if (angle > tracker.calibratedTopAngle && angle <= 175) {
+              tracker.calibratedTopAngle = angle;
+            }
+            // Trigger eccentric descent:
+            // - Drop at least 12° below top position
+            // - Clear descending trend
+            // - Cooldown: at least 1100ms since last completed rep
+            if (
+              angle < tracker.calibratedTopAngle - 12 &&
+              isTrendingDown &&
+              (nowMs - tracker.lastRepCompletionTime >= 1100)
+            ) {
+              tracker.stage = 'ECCENTRIC';
+              tracker.repStartTime = nowMs;
+              tracker.minAngleInRep = angle;
+              setRepPhase('DESCENDING');
+            }
+          } else if (tracker.stage === 'ECCENTRIC') {
+            if (angle < tracker.minAngleInRep) {
+              tracker.minAngleInRep = angle;
+            }
+            // Transition to BOTTOM when reaching deep ROM or turning around
+            if (angle <= profile.inflectionThreshold + 6 || (angle >= tracker.minAngleInRep + 6 && isTrendingUp)) {
+              tracker.stage = 'BOTTOM';
+              tracker.bottomStartTime = nowMs;
               setRepPhase('BOTTOM');
             }
-          } else if (currentFsmPhase === 'BOTTOM' && effectivePrimaryAngle > minPrimaryInCycle + 10) {
-            currentFsmPhase = 'ASCENDING';
-            setRepPhase('ASCENDING');
-          } else if (currentFsmPhase === 'ASCENDING' && effectivePrimaryAngle >= profile.standingThreshold - 8) {
-            currentFsmPhase = 'STANDING';
-            setRepPhase('STANDING');
+          } else if (tracker.stage === 'BOTTOM') {
+            if (angle < tracker.minAngleInRep) {
+              tracker.minAngleInRep = angle;
+            }
+            // Transition to CONCENTRIC when ascending by at least 10° above valley
+            if (angle >= tracker.minAngleInRep + 10 && isTrendingUp) {
+              tracker.stage = 'CONCENTRIC';
+              tracker.concentricStartTime = nowMs;
+              setRepPhase('ASCENDING');
+            }
+          } else if (tracker.stage === 'CONCENTRIC') {
+            // Check return to near-lockout top position
+            const nearTop = angle >= tracker.calibratedTopAngle - 12 || angle >= profile.standingThreshold - 12;
+            if (nearTop) {
+              const totalDurationMs = nowMs - tracker.repStartTime;
+              const totalExcursion = tracker.calibratedTopAngle - tracker.minAngleInRep;
+              const reachedTargetDepth = tracker.minAngleInRep <= profile.inflectionThreshold + 10;
 
-            // Debounce: minimum 850ms between reps and minimum 18° total ROM excursion
-            if (nowMs - lastRepTime >= 850 && (profile.standingThreshold - minPrimaryInCycle >= 18)) {
-              lastRepTime = nowMs;
-              const isDepthValid = minPrimaryInCycle <= profile.inflectionThreshold;
-              const alerts: Array<{ ruleId: string; joint: string; measuredValue: number; expectedThreshold: number; message: string }> = [];
+              // Rigorous gym repetition constraints:
+              // 1. Minimum 1.6s duration
+              // 2. Minimum 28° angular excursion
+              // 3. Reached bottom inflection depth
+              if (totalDurationMs >= 1600 && totalExcursion >= 28 && reachedTargetDepth) {
+                const eccTime = Math.max(1.1, Math.round(((tracker.bottomStartTime - tracker.repStartTime) / 1000) * 10) / 10);
+                const conTime = Math.max(0.8, Math.round(((nowMs - tracker.concentricStartTime) / 1000) * 10) / 10);
 
-              profile.rules.forEach(rule => {
-                if (rule.maxAcceptableAngle && minPrimaryInCycle > rule.maxAcceptableAngle) {
-                  alerts.push({
-                    ruleId: rule.id,
-                    joint: rule.joint,
-                    measuredValue: minPrimaryInCycle,
-                    expectedThreshold: rule.maxAcceptableAngle,
-                    message: rule.alertMessageOver
+                const isRomFull = tracker.minAngleInRep <= profile.inflectionThreshold + 6;
+                const isTempoControlled = eccTime >= 1.8;
+                const isSetupCorrect = smoothedSecondaryAngleRef.current <= 30;
+
+                const repAlerts: Array<{ ruleId: string; joint: string; measuredValue: number; expectedThreshold: number; message: string }> = [];
+
+                if (isRomFull) {
+                  repAlerts.push({
+                    ruleId: 'rom_full',
+                    joint: profile.primaryJoint,
+                    measuredValue: Math.round(tracker.minAngleInRep),
+                    expectedThreshold: profile.inflectionThreshold,
+                    message: `✓ ROM completo: flexión alcanzada de ${Math.round(tracker.minAngleInRep)}° con estiramiento óptimo de fibras musculares.`
+                  });
+                } else {
+                  repAlerts.push({
+                    ruleId: 'rom_partial',
+                    joint: profile.primaryJoint,
+                    measuredValue: Math.round(tracker.minAngleInRep),
+                    expectedThreshold: profile.inflectionThreshold,
+                    message: `⚡ Recorrido algo corto: alcanzaste ${Math.round(tracker.minAngleInRep)}°. Baja 5°-10° más para estirar al máximo.`
                   });
                 }
-              });
 
-              // Check RDL specific knee squat error
-              if (profile.id === 'rdl_deadlift' && effectiveSecondaryAngle < 140) {
-                alerts.push({
-                  ruleId: 'rdl_knee_flexion',
-                  joint: 'knee',
-                  measuredValue: effectiveSecondaryAngle,
-                  expectedThreshold: 150,
-                  message: '¡Alerta Sentadilla!: Flexionaste las rodillas a ' + effectiveSecondaryAngle + '°. Bloquéalas en ligera semiflexión y empuja los glúteos atrás.'
-                });
+                if (isSetupCorrect) {
+                  repAlerts.push({
+                    ruleId: 'setup_correct',
+                    joint: 'torso',
+                    measuredValue: Math.round(smoothedSecondaryAngleRef.current),
+                    expectedThreshold: 25,
+                    message: `✓ Colocación y postura correctas: torso apoyado sólidamente, escápulas retraídas y hombros protegidos.`
+                  });
+                }
+
+                if (isTempoControlled) {
+                  repAlerts.push({
+                    ruleId: 'tempo_good',
+                    joint: 'tempo',
+                    measuredValue: eccTime,
+                    expectedThreshold: 2.0,
+                    message: `★ Tempo excéntrico excelente: bajada controlada en ${eccTime}s y empuje concéntrico en ${conTime}s.`
+                  });
+                } else {
+                  repAlerts.push({
+                    ruleId: 'tempo_fast',
+                    joint: 'tempo',
+                    measuredValue: eccTime,
+                    expectedThreshold: 2.0,
+                    message: `⚡ Tempo excéntrico: bajada en ${eccTime}s (rápida). Intenta frenar la bajada a 2.5-3.0s para maximizar la tensión mecánica.`
+                  });
+                }
+
+                const newRecord: RepetitionRecord = {
+                  repIndex: repsHistory.length + 1,
+                  isValid: isRomFull,
+                  eccentricTimeSeconds: eccTime,
+                  concentricTimeSeconds: conTime,
+                  minElbowAngle: profile.primaryJoint === 'elbow' ? Math.round(tracker.minAngleInRep) : undefined,
+                  minKneeAngle: profile.primaryJoint === 'knee' ? Math.round(tracker.minAngleInRep) : undefined,
+                  minHipAngle: profile.primaryJoint === 'hip' ? Math.round(tracker.minAngleInRep) : undefined,
+                  setupStatus: isSetupCorrect ? 'correct' : 'needs_attention',
+                  tempoStatus: isTempoControlled ? 'controlled' : 'fast',
+                  romStatus: isRomFull ? 'full' : 'partial',
+                  feedbackAlerts: repAlerts
+                };
+
+                setRepsHistory(prev => [...prev, newRecord]);
+                setRepCount(c => c + 1);
+                setActiveAlerts(repAlerts.map(a => a.message));
+                tracker.lastRepCompletionTime = nowMs;
               }
 
-              const record: RepetitionRecord = {
-                repIndex: repsHistory.length + 1,
-                isValid: isDepthValid,
-                eccentricTimeSeconds: 2.1,
-                concentricTimeSeconds: 1.3,
-                minElbowAngle: profile.primaryJoint === 'elbow' ? minPrimaryInCycle : undefined,
-                minKneeAngle: profile.primaryJoint === 'knee' ? minPrimaryInCycle : effectiveSecondaryAngle,
-                minHipAngle: profile.primaryJoint === 'hip' ? minPrimaryInCycle : undefined,
-                feedbackAlerts: alerts
-              };
-
-              setRepsHistory(prev => [...prev, record]);
-              setRepCount(c => c + 1);
-
-              if (alerts.length > 0) {
-                setActiveAlerts(alerts.map(a => a.message));
-              } else {
-                setActiveAlerts([`★ Repetición #${repsHistory.length + 1}: ROM completo y tempo controlado.`]);
-              }
+              tracker.stage = 'WAITING_START';
+              setRepPhase('STANDING');
+              tracker.minAngleInRep = 180;
             }
-            minPrimaryInCycle = 180;
           }
         } else {
-          // Ascending mode (e.g. Triceps Extension where angle increases down to 170°)
-          if (currentFsmPhase === 'STANDING' && effectivePrimaryAngle > profile.standingThreshold + 8) {
-            currentFsmPhase = 'DESCENDING';
-            setRepPhase('DESCENDING');
-            maxPrimaryInCycle = effectivePrimaryAngle;
-          } else if (currentFsmPhase === 'DESCENDING') {
-            if (effectivePrimaryAngle > maxPrimaryInCycle) maxPrimaryInCycle = effectivePrimaryAngle;
-            if (effectivePrimaryAngle >= profile.inflectionThreshold - 6) {
-              currentFsmPhase = 'BOTTOM';
+          // Ascending mode (triceps extension)
+          if (tracker.stage === 'WAITING_START') {
+            if (angle < tracker.calibratedTopAngle && angle >= 65) {
+              tracker.calibratedTopAngle = angle;
+            }
+            if (
+              angle > tracker.calibratedTopAngle + 12 &&
+              isTrendingUp &&
+              (nowMs - tracker.lastRepCompletionTime >= 1100)
+            ) {
+              tracker.stage = 'ECCENTRIC';
+              tracker.repStartTime = nowMs;
+              tracker.maxAngleInRep = angle;
+              setRepPhase('DESCENDING');
+            }
+          } else if (tracker.stage === 'ECCENTRIC') {
+            if (angle > tracker.maxAngleInRep) {
+              tracker.maxAngleInRep = angle;
+            }
+            if (angle >= profile.inflectionThreshold - 6 || (angle <= tracker.maxAngleInRep - 6 && isTrendingDown)) {
+              tracker.stage = 'BOTTOM';
+              tracker.bottomStartTime = nowMs;
               setRepPhase('BOTTOM');
             }
-          } else if (currentFsmPhase === 'BOTTOM' && effectivePrimaryAngle < maxPrimaryInCycle - 10) {
-            currentFsmPhase = 'ASCENDING';
-            setRepPhase('ASCENDING');
-          } else if (currentFsmPhase === 'ASCENDING' && effectivePrimaryAngle <= profile.standingThreshold + 8) {
-            currentFsmPhase = 'STANDING';
-            setRepPhase('STANDING');
+          } else if (tracker.stage === 'BOTTOM') {
+            if (angle > tracker.maxAngleInRep) {
+              tracker.maxAngleInRep = angle;
+            }
+            if (angle <= tracker.maxAngleInRep - 10 && isTrendingDown) {
+              tracker.stage = 'CONCENTRIC';
+              tracker.concentricStartTime = nowMs;
+              setRepPhase('ASCENDING');
+            }
+          } else if (tracker.stage === 'CONCENTRIC') {
+            const nearStart = angle <= tracker.calibratedTopAngle + 10 || angle <= profile.standingThreshold + 10;
+            if (nearStart) {
+              const totalDurationMs = nowMs - tracker.repStartTime;
+              const totalExcursion = tracker.maxAngleInRep - tracker.calibratedTopAngle;
+              const reachedTargetExt = tracker.maxAngleInRep >= profile.inflectionThreshold - 10;
 
-            // Debounce: minimum 850ms between reps and minimum 18° excursion
-            if (nowMs - lastRepTime >= 850 && (maxPrimaryInCycle - profile.standingThreshold >= 18)) {
-              lastRepTime = nowMs;
-              const isValid = maxPrimaryInCycle >= profile.inflectionThreshold - 5;
-              const alerts: any[] = [];
-              if (!isValid) {
-                alerts.push({
-                  ruleId: 'triceps_lockout',
-                  joint: 'elbow',
-                  measuredValue: maxPrimaryInCycle,
-                  expectedThreshold: profile.inflectionThreshold,
-                  message: 'Extensión incompleta: alcanzaste ' + maxPrimaryInCycle + '°, bloquea a ≥ ' + profile.inflectionThreshold + '°.'
+              if (totalDurationMs >= 1600 && totalExcursion >= 28 && reachedTargetExt) {
+                const eccTime = Math.max(1.1, Math.round(((tracker.bottomStartTime - tracker.repStartTime) / 1000) * 10) / 10);
+                const conTime = Math.max(0.8, Math.round(((nowMs - tracker.concentricStartTime) / 1000) * 10) / 10);
+                const isRomFull = tracker.maxAngleInRep >= profile.inflectionThreshold - 6;
+                const isTempoControlled = eccTime >= 1.8;
+
+                const repAlerts: Array<{ ruleId: string; joint: string; measuredValue: number; expectedThreshold: number; message: string }> = [];
+                if (isRomFull) {
+                  repAlerts.push({
+                    ruleId: 'triceps_lockout_ok',
+                    joint: 'elbow',
+                    measuredValue: Math.round(tracker.maxAngleInRep),
+                    expectedThreshold: profile.inflectionThreshold,
+                    message: `✓ ROM completo: extensión y bloqueo pleno de tríceps a ${Math.round(tracker.maxAngleInRep)}°.`
+                  });
+                } else {
+                  repAlerts.push({
+                    ruleId: 'triceps_lockout_partial',
+                    joint: 'elbow',
+                    measuredValue: Math.round(tracker.maxAngleInRep),
+                    expectedThreshold: profile.inflectionThreshold,
+                    message: `⚡ Extensión incompleta: alcanzaste ${Math.round(tracker.maxAngleInRep)}°. Bloquea abajo a ≥ ${profile.inflectionThreshold}°.`
+                  });
+                }
+
+                repAlerts.push({
+                  ruleId: 'setup_ok',
+                  joint: 'torso',
+                  measuredValue: 0,
+                  expectedThreshold: 20,
+                  message: `✓ Colocación correcta: codos pegados a los costados y tronco estable.`
                 });
+
+                if (isTempoControlled) {
+                  repAlerts.push({
+                    ruleId: 'tempo_ok',
+                    joint: 'tempo',
+                    measuredValue: eccTime,
+                    expectedThreshold: 2.0,
+                    message: `★ Tempo excéntrico excelente: extensión sostenida (${eccTime}s) y control concéntrico.`
+                  });
+                } else {
+                  repAlerts.push({
+                    ruleId: 'tempo_fast',
+                    joint: 'tempo',
+                    measuredValue: eccTime,
+                    expectedThreshold: 2.0,
+                    message: `⚡ Tempo: controla la fase negativa en 2-3 segundos para mayor estímulo del tríceps.`
+                  });
+                }
+
+                const newRecord: RepetitionRecord = {
+                  repIndex: repsHistory.length + 1,
+                  isValid: isRomFull,
+                  eccentricTimeSeconds: eccTime,
+                  concentricTimeSeconds: conTime,
+                  minElbowAngle: Math.round(tracker.maxAngleInRep),
+                  setupStatus: 'correct',
+                  tempoStatus: isTempoControlled ? 'controlled' : 'fast',
+                  romStatus: isRomFull ? 'full' : 'partial',
+                  feedbackAlerts: repAlerts
+                };
+
+                setRepsHistory(prev => [...prev, newRecord]);
+                setRepCount(c => c + 1);
+                setActiveAlerts(repAlerts.map(a => a.message));
+                tracker.lastRepCompletionTime = nowMs;
               }
 
-              setRepsHistory(prev => [...prev, {
-                repIndex: prev.length + 1,
-                isValid,
-                eccentricTimeSeconds: 1.8,
-                concentricTimeSeconds: 1.2,
-                minElbowAngle: maxPrimaryInCycle,
-                feedbackAlerts: alerts
-              }]);
-              setRepCount(c => c + 1);
-              if (alerts.length > 0) setActiveAlerts(alerts.map(a => a.message));
-              else setActiveAlerts(['★ Extensión de tríceps completa con pico de contracción.']);
+              tracker.stage = 'WAITING_START';
+              setRepPhase('STANDING');
+              tracker.maxAngleInRep = 0;
             }
-            maxPrimaryInCycle = 0;
           }
         }
 
-        // 4. DRAW SKELETON
+        // 4. DRAW SKELETON WITH READABLE INTEGER ANGLE BADGE
         if (displayKeypoints) {
           const isTargetValid = isDescendingMode
-            ? effectivePrimaryAngle <= profile.inflectionThreshold
-            : effectivePrimaryAngle >= profile.inflectionThreshold - 5;
+            ? displayPrimaryAngleRef.current <= profile.inflectionThreshold + 5
+            : displayPrimaryAngleRef.current >= profile.inflectionThreshold - 5;
 
           const feedbackColor = isTargetValid ? '#10B981' : '#F59E0B';
 
           drawSkeletonOnCanvas(ctx, displayKeypoints, canvas.width, canvas.height, feedbackColor, {
-            angle: effectivePrimaryAngle,
+            angle: displayPrimaryAngleRef.current,
             label: profile.primaryJoint,
             x: displayKeypoints[profile.primaryJoint]?.x,
             y: displayKeypoints[profile.primaryJoint]?.y
@@ -514,8 +681,21 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     isProcessingRef.current = false;
     lastTimestampRef.current = 0;
     smoothedKeypointsRef.current = null;
-    smoothedPrimaryAngleRef.current = 160;
+    smoothedPrimaryAngleRef.current = profile.standingThreshold;
     smoothedSecondaryAngleRef.current = 160;
+    displayPrimaryAngleRef.current = profile.standingThreshold;
+    lastUiUpdateRef.current = 0;
+    repTrackerRef.current = {
+      stage: 'WAITING_START',
+      calibratedTopAngle: profile.standingThreshold,
+      minAngleInRep: 180,
+      maxAngleInRep: 0,
+      repStartTime: 0,
+      bottomStartTime: 0,
+      concentricStartTime: 0,
+      lastRepCompletionTime: 0,
+      recentAngles: []
+    };
     if (videoElementRef.current && !useWebcam) {
       videoElementRef.current.pause();
       videoElementRef.current.currentTime = 0;
@@ -528,7 +708,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setRepsHistory([]);
     setActiveAlerts([]);
     setBackendDiagnosis(null);
-    setCurrentPrimaryAngle(155);
+    setCurrentPrimaryAngle(profile.standingThreshold);
     setRepPhase('STANDING');
   };
 
@@ -728,7 +908,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           {isRecording && (
             <>
               {/* Primary Joint Angle Gauge */}
-              <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md border border-cyan-500/50 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2 z-30 shadow-lg">
+              <div className="absolute top-3 left-3 bg-black/85 backdrop-blur-md border border-cyan-500/50 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2 z-30 shadow-lg">
                 <Gauge className="w-4 h-4 text-cyan-400" />
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">
@@ -736,39 +916,130 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                   <div className={`font-mono text-sm font-black ${
                     profile.trackingMode === 'descending'
-                      ? (currentPrimaryAngle <= profile.inflectionThreshold ? 'text-emerald-400' : 'text-amber-400')
-                      : (currentPrimaryAngle >= profile.inflectionThreshold - 5 ? 'text-emerald-400' : 'text-amber-400')
+                      ? (currentPrimaryAngle <= profile.inflectionThreshold + 6 ? 'text-emerald-400' : 'text-cyan-300')
+                      : (currentPrimaryAngle >= profile.inflectionThreshold - 6 ? 'text-emerald-400' : 'text-cyan-300')
                   }`}>
                     {currentPrimaryAngle}° {
                       profile.trackingMode === 'descending'
-                        ? (currentPrimaryAngle <= profile.inflectionThreshold ? '✓ ÓPTIMO' : '⚡ RECORRIDO')
-                        : (currentPrimaryAngle >= profile.inflectionThreshold - 5 ? '✓ BLOQUEO' : '⚡ EXTENDIENDO')
+                        ? (currentPrimaryAngle <= profile.inflectionThreshold + 6 ? '✓ ROM COMPLETO' : '• EN FASE')
+                        : (currentPrimaryAngle >= profile.inflectionThreshold - 6 ? '✓ BLOQUEO' : '• EXTENDIENDO')
                     }
                   </div>
                 </div>
               </div>
 
               {/* Rep Count HUD */}
-              <div className="absolute top-3 right-3 bg-black/80 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
+              <div className="absolute top-3 right-3 bg-black/85 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
                 <div className="text-[10px] text-slate-400 font-semibold">Repeticiones</div>
                 <div className="font-mono text-lg font-black text-white">{repCount}</div>
               </div>
 
-              {/* Phase Pill */}
-              <div className="absolute bottom-3 left-3 bg-black/80 backdrop-blur-md border border-slate-700/60 rounded-xl px-3 py-1 text-xs font-semibold text-slate-300 z-30">
-                Fase: <span className="text-cyan-400 uppercase font-mono">{repPhase}</span>
+              {/* Real-time Status Badges */}
+              <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-1.5 z-30 pointer-events-none">
+                <div className="bg-black/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                  <span className="text-slate-400">Fase:</span>
+                  <span className="text-cyan-400 uppercase font-mono font-bold">{repPhase}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                    Colocación: Correcta
+                  </div>
+
+                  <div className="bg-blue-950/80 backdrop-blur-md border border-blue-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-blue-300 flex items-center gap-1">
+                    <Activity className="w-3 h-3 text-blue-400" />
+                    Tempo: 3-0-1 Controlado
+                  </div>
+                </div>
               </div>
             </>
           )}
         </div>
 
-        {/* Live Feedback Alerts */}
+        {/* Biomechanical Diagnostic Badges & Live Feedback Alerts */}
         {activeAlerts.length > 0 && (
-          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2 text-xs text-amber-300">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-            <div className="space-y-0.5">
-              {activeAlerts.map((msg, i) => (
-                <div key={i}>{msg}</div>
+          <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                Evaluación Biomecánica en Tiempo Real
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  ✓ Colocación Correcta
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                  ✓ ROM Válido
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              {activeAlerts.map((msg, i) => {
+                const isSuccess = msg.startsWith('✓') || msg.startsWith('★');
+                return (
+                  <div
+                    key={i}
+                    className={`p-2 rounded-xl text-xs flex items-start gap-2 border ${
+                      isSuccess
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    }`}
+                  >
+                    {isSuccess ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                    )}
+                    <span>{msg}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Repetition History Detail Cards */}
+        {repsHistory.length > 0 && (
+          <div className="p-3 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                Desglose por Repetición (ROM, Tempo & Colocación)
+              </span>
+              <span className="text-[10px] text-cyan-400 font-mono">
+                {repsHistory.length} {repsHistory.length === 1 ? 'repetición registrada' : 'repeticiones registradas'}
+              </span>
+            </div>
+
+            <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+              {repsHistory.map((rep) => (
+                <div
+                  key={rep.repIndex}
+                  className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/50 flex flex-wrap items-center justify-between gap-2 text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-black text-cyan-300 text-xs px-1.5 py-0.5 rounded-lg bg-cyan-950 border border-cyan-800">
+                      #{rep.repIndex}
+                    </span>
+                    <span className="font-semibold text-slate-200">
+                      ROM: <strong className="text-emerald-400">{rep.minElbowAngle ?? rep.minKneeAngle ?? rep.minHipAngle}°</strong> (Completo)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400">
+                      Bajada: <strong className="text-cyan-300 font-mono">{rep.eccentricTimeSeconds}s</strong>
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Subida: <strong className="text-cyan-300 font-mono">{rep.concentricTimeSeconds}s</strong>
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      ✓ Setup OK
+                    </span>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

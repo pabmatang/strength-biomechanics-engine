@@ -96,7 +96,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     category: 'back',
     primaryJoint: 'elbow',
     standingThreshold: 155, // Brazos extendidos arriba
-    inflectionThreshold: 80, // Codos flexionados cerca del dorsal
+    inflectionThreshold: 88, // Codos flexionados cerca del dorsal
     trackingMode: 'descending',
     targetJointDescription: 'Flexión de codo y trayectoria hacia el ilíaco',
     rules: [
@@ -104,9 +104,9 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         id: 'lat_rom_depth',
         joint: 'elbow',
         phase: 'bottom',
-        maxAcceptableAngle: 85,
-        alertMessageOver: 'Tirón incompleto: baja los codos hacia las caderas/ilíaco para activar el dorsal ancho.',
-        alertMessageUnder: 'Rango de recorrido óptimo en dorsal ancho.'
+        maxAcceptableAngle: 95,
+        alertMessageOver: 'Tirón algo corto: baja los codos hacia las caderas para activar el dorsal ancho.',
+        alertMessageUnder: '✓ ROM completo en dorsal: contracción profunda hacia el ilíaco.'
       },
       {
         id: 'torso_swing',
@@ -114,7 +114,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         phase: 'concentric',
         maxAcceptableAngle: 25,
         alertMessageOver: 'Inclinación excesiva hacia atrás: evita balancear el torso con la zona lumbar.',
-        alertMessageUnder: 'Torso estable y alineación torácica estricta.'
+        alertMessageUnder: '✓ Colocación correcta: torso estable y alineación torácica firme.'
       }
     ]
   },
@@ -123,18 +123,18 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     name: 'Bíceps (Curl con Mancuernas / Polea)',
     category: 'biceps',
     primaryJoint: 'elbow',
-    standingThreshold: 155, // Brazo estirado abajo
-    inflectionThreshold: 55, // Brazo flexionado arriba
+    standingThreshold: 150, // Brazo estirado abajo
+    inflectionThreshold: 65, // Brazo flexionado arriba
     trackingMode: 'descending',
-    targetJointDescription: 'Ángulo de flexión del codo [50° - 160°]',
+    targetJointDescription: 'Ángulo de flexión del codo [55° - 150°]',
     rules: [
       {
         id: 'biceps_contraction',
         joint: 'elbow',
         phase: 'bottom',
-        maxAcceptableAngle: 65,
+        maxAcceptableAngle: 75,
         alertMessageOver: 'Contracción incompleta: flexiona el codo hasta sentir el pico del bíceps.',
-        alertMessageUnder: 'Pico de contracción máximo alcanzado.'
+        alertMessageUnder: '✓ ROM completo: pico de contracción máximo de bíceps.'
       },
       {
         id: 'elbow_drift',
@@ -142,7 +142,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         phase: 'concentric',
         maxAcceptableAngle: 30,
         alertMessageOver: 'Codos adelantados: no balancees los hombros para subir el peso.',
-        alertMessageUnder: 'Codos firmes bloqueados a los costados.'
+        alertMessageUnder: '✓ Colocación correcta: codos fijos a los costados y tronco vertical.'
       }
     ]
   },
@@ -151,18 +151,18 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     name: 'Tríceps (Extensión en Polea / Tras Nuca)',
     category: 'triceps',
     primaryJoint: 'elbow',
-    standingThreshold: 85, // Codo flexionado a 90°
-    inflectionThreshold: 165, // Codo bloqueado extendido a ~170°
+    standingThreshold: 85, // Codo flexionado a ~90°
+    inflectionThreshold: 160, // Codo bloqueado extendido a ~165°
     trackingMode: 'ascending',
-    targetJointDescription: 'Extensión completa del codo hacia abajo [90° - 170°]',
+    targetJointDescription: 'Extensión completa del codo hacia abajo [90° - 165°]',
     rules: [
       {
         id: 'triceps_lockout',
         joint: 'elbow',
         phase: 'bottom',
-        minAcceptableAngle: 160,
+        minAcceptableAngle: 155,
         alertMessageUnder: 'Extensión incompleta: bloquea los codos abajo para apretar la cabeza lateral.',
-        alertMessageOver: 'Bloqueo concéntrico perfecto de tríceps.'
+        alertMessageOver: '✓ ROM completo: bloqueo concéntrico perfecto de tríceps.'
       },
       {
         id: 'elbow_flare',
@@ -170,7 +170,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         phase: 'concentric',
         maxAcceptableAngle: 35,
         alertMessageOver: 'Codos abiertos: mantenlos paralelos pegados al cuerpo.',
-        alertMessageUnder: 'Alineación de codos correcta.'
+        alertMessageUnder: '✓ Colocación correcta: codos alineados y muñecas estables.'
       }
     ]
   },
@@ -180,7 +180,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     category: 'legs_hamstrings',
     primaryJoint: 'hip',
     standingThreshold: 165, // De pie erecto
-    inflectionThreshold: 85, // Bisagra de cadera máxima
+    inflectionThreshold: 90, // Bisagra de cadera máxima
     trackingMode: 'descending',
     targetJointDescription: 'Bisagra de cadera (Hip Hinge) con rodillas fijas',
     rules: [
@@ -188,9 +188,9 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         id: 'hip_hinge_depth',
         joint: 'hip',
         phase: 'bottom',
-        maxAcceptableAngle: 90,
+        maxAcceptableAngle: 98,
         alertMessageOver: 'Bisagra insuficiente: empuja la cadera hacia la pared trasera para estirar el isquiosural.',
-        alertMessageUnder: 'Estiramiento máximo de cadena posterior alcanzado.'
+        alertMessageUnder: '✓ ROM completo: estiramiento máximo de cadena posterior alcanzado.'
       },
       {
         id: 'knee_squat_trap',
@@ -198,7 +198,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         phase: 'bottom',
         minAcceptableAngle: 145,
         alertMessageUnder: '¡Alerta Sentadilla!: Estás doblando las rodillas en exceso. Fíjalas en ligera semiflexión (~155°).',
-        alertMessageOver: 'Semiflexión de rodilla biomecánicamente óptima.'
+        alertMessageOver: '✓ Colocación correcta: semiflexión de rodilla biomecánicamente óptima.'
       }
     ]
   },
@@ -207,8 +207,8 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     name: 'Press de Pecho / Banca (Hammer & Convergente)',
     category: 'chest',
     primaryJoint: 'elbow',
-    standingThreshold: 160, // Brazos extendidos
-    inflectionThreshold: 85, // Barra/manerales en el pecho
+    standingThreshold: 150, // Brazos extendidos
+    inflectionThreshold: 92, // Barra/manerales en el pecho (85°-95° es ROM completo seguro)
     trackingMode: 'descending',
     targetJointDescription: 'Descenso de manerales al pecho y empuje convergente',
     rules: [
@@ -216,9 +216,9 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         id: 'elbow_flare',
         joint: 'elbow',
         phase: 'bottom',
-        maxAcceptableAngle: 90,
-        alertMessageOver: 'Baja más los manerales hasta sentir el estiramiento en el pectoral medio/inferior.',
-        alertMessageUnder: 'Estiramiento profundo en el pectoral.'
+        maxAcceptableAngle: 98,
+        alertMessageOver: 'Recorrido algo corto: desciende los manerales hasta flexionar codos a ~90° para máximo estiramiento.',
+        alertMessageUnder: '✓ ROM completo: flexión de codo a ~90° con estiramiento óptimo de pectoral.'
       },
       {
         id: 'shoulder_retraction',
@@ -226,7 +226,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         phase: 'concentric',
         maxAcceptableAngle: 75,
         alertMessageOver: 'Codos a 90°: cierra a 45°-60° respecto al torso para proteger el manguito rotador.',
-        alertMessageUnder: 'Ángulo articular codo-torso seguro.'
+        alertMessageUnder: '✓ Colocación correcta: escápulas retraídas y torso firme en el respaldo.'
       }
     ]
   },
@@ -236,7 +236,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     category: 'legs_quads',
     primaryJoint: 'knee',
     standingThreshold: 160,
-    inflectionThreshold: 90,
+    inflectionThreshold: 92,
     trackingMode: 'descending',
     targetJointDescription: 'Flexión profunda de rodilla y bisagra de cadera',
     rules: [
@@ -244,9 +244,9 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         id: 'depth_check',
         joint: 'knee',
         phase: 'bottom',
-        maxAcceptableAngle: 90,
+        maxAcceptableAngle: 96,
         alertMessageOver: 'Profundidad insuficiente: la cadera debe descender hasta el paralelo (≤ 90°).',
-        alertMessageUnder: 'Profundidad completa válida (paralelo superado).'
+        alertMessageUnder: '✓ ROM completo: profundidad válida al paralelo superada con control.'
       },
       {
         id: 'torso_lean',
@@ -254,7 +254,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         phase: 'bottom',
         minAcceptableAngle: 45,
         alertMessageUnder: 'Torso excesivamente inclinado hacia adelante: riesgo de sobrecarga lumbar.',
-        alertMessageOver: 'Torso verticalizado y columna neutra.'
+        alertMessageOver: '✓ Colocación correcta: torso erguido y columna neutra.'
       }
     ]
   },
@@ -264,7 +264,7 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
     category: 'legs_quads',
     primaryJoint: 'knee',
     standingThreshold: 160,
-    inflectionThreshold: 90,
+    inflectionThreshold: 92,
     trackingMode: 'descending',
     targetJointDescription: 'Flexión de rodilla en plataforma inclinada',
     rules: [
@@ -272,9 +272,9 @@ export const EXERCISE_POSE_PROFILES: Record<string, ExercisePoseProfile> = {
         id: 'knee_flexion',
         joint: 'knee',
         phase: 'bottom',
-        maxAcceptableAngle: 90,
+        maxAcceptableAngle: 96,
         alertMessageOver: 'Baja más la plataforma para lograr flexión profunda de cuádriceps.',
-        alertMessageUnder: 'Rango de movimiento completo sin retroversión pélvica.'
+        alertMessageUnder: '✓ ROM completo: flexión profunda sin retroversión pélvica.'
       }
     ]
   }
@@ -290,6 +290,9 @@ export interface RepetitionRecord {
   minKneeAngle?: number;
   minHipAngle?: number;
   minElbowAngle?: number;
+  setupStatus?: 'correct' | 'needs_attention';
+  tempoStatus?: 'controlled' | 'fast';
+  romStatus?: 'full' | 'partial';
   feedbackAlerts: Array<{
     ruleId: string;
     joint: string;
