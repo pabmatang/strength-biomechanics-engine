@@ -67,6 +67,56 @@ export const isMuscleDisliked = (muscle: string, disliked: string[]): boolean =>
   return false;
 };
 
+export interface DayQueueItem {
+  muscle: string;
+  bias?: 'lats' | 'upper_back' | 'trapezius';
+  note?: string;
+  isComplementary?: boolean;
+}
+
+export function orderDayExercises(queue: DayQueueItem[], priorities: string[]): DayQueueItem[] {
+  if (!priorities || priorities.length === 0) return queue;
+
+  const priorityItems = queue.filter(item => isMusclePrioritized(item.muscle, priorities));
+  const secondaryItems = queue.filter(item => !isMusclePrioritized(item.muscle, priorities));
+
+  if (priorityItems.length === 0) return queue;
+
+  const result: DayQueueItem[] = [];
+  const prioPool = [...priorityItems];
+  const secPool = [...secondaryItems];
+
+  while (prioPool.length > 0 || secPool.length > 0) {
+    if (prioPool.length > 0) {
+      const lastBroad = result.length > 0
+        ? (BROAD_GROUP_MAP[result[result.length - 1].muscle] || result[result.length - 1].muscle)
+        : null;
+
+      const candidateIdx = prioPool.findIndex(item => {
+        const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
+        return broad !== lastBroad;
+      });
+
+      if (candidateIdx !== -1) {
+        result.push(prioPool.splice(candidateIdx, 1)[0]);
+        continue;
+      } else if (secPool.length > 0) {
+        result.push(secPool.shift()!);
+        continue;
+      } else {
+        result.push(prioPool.shift()!);
+        continue;
+      }
+    }
+
+    if (secPool.length > 0) {
+      result.push(secPool.shift()!);
+    }
+  }
+
+  return result;
+}
+
 export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = ({
   isOpen,
   onClose,
@@ -757,7 +807,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       ];
     }
 
-    // Pass 1: Select chosen exercises for each day respecting caps and interleaving
+    // Pass 1: Select chosen exercises for each day respecting caps and priority ordering
     const selectedDayQueues: DayQueueItem[][] = [];
     const weeklyGroupExerciseCount: Record<string, number> = {};
 
@@ -766,6 +816,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       const filteredQueue = day.musclesQueue.filter(
         item => !isMuscleDisliked(item.muscle, dislikedMuscles)
       );
+
       const chosenQueue: DayQueueItem[] = [];
 
       for (const item of filteredQueue) {
@@ -808,7 +859,11 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
         chosenQueue.push(candidate);
       }
 
-      selectedDayQueues.push(chosenQueue);
+      // Apply Biomechanical Priority Reordering:
+      // Puts all priority muscles at the very start of the session,
+      // while maintaining interleaving if a muscle has multiple exercises.
+      const orderedQueue = orderDayExercises(chosenQueue, priorityMuscles);
+      selectedDayQueues.push(orderedQueue);
     });
 
     // Count total weekly appearances of each broad muscle group
@@ -1354,20 +1409,19 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 <div className="flex items-center justify-between text-xs font-bold text-slate-200">
                   <span className="flex items-center gap-1.5">
                     <BarChart2 className="w-3.5 h-3.5 text-blue-400" />
-                    Volumen Semanal (Series Totales según Nivel {experienceLevel.toUpperCase()}):
+                    Volumen Semanal (Series Totales) · Mínimo 3-4 series por grupo activo
                   </span>
                   <span className="text-[10px] text-emerald-400 font-semibold">
-                    ✓ Intercalado & Máx 3 ej/día
+                    ✓ Prioridad al inicio
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
                   {Object.entries(weeklyVolume).map(([grp, data]) => {
                     const isPriorityMuscle = isMusclePrioritized(grp, priorityMuscles);
-                    const isCompMuscle = ['abdominals', 'adductors', 'abductors'].includes(grp);
 
                     let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
-                    let targetLabel = (daysPerWeek >= 5 && durationMinutes >= 75) ? '4-6s (Base)' : '3-4s (Mínimo)';
+                    let targetLabel: string | null = null;
 
                     if (isPriorityMuscle) {
                       badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold';
@@ -1378,10 +1432,8 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                       } else {
                         targetLabel = (durationMinutes >= 75 || experienceLevel === 'avanzado') ? '12-16s ★ Prioridad' : '10-14s ★ Prioridad';
                       }
-                    } else if (isCompMuscle) {
-                      badgeColor = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40';
-                      targetLabel = '3-4s (Recordatorio)';
                     }
+
                     return (
                       <div
                         key={grp}
@@ -1389,7 +1441,9 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                       >
                         <span className="capitalize truncate">{formatMuscleName(grp)}:</span>
                         <div className="flex items-center gap-1 ml-1">
-                          <span className="text-[9px] opacity-70">({targetLabel})</span>
+                          {targetLabel && (
+                            <span className="text-[9px] opacity-70">({targetLabel})</span>
+                          )}
                           <span className="font-mono font-bold">{data.sets}s</span>
                         </div>
                       </div>

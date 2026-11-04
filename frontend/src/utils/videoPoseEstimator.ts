@@ -406,6 +406,7 @@ export function extractPoseDataFromLandmarks(
   const ankle = dominantSide === 'right' ? ra : la;
 
   const keypoints: Record<string, Keypoint2D> = {
+    nose: landmarks[0] ? { x: landmarks[0].x, y: landmarks[0].y, visibility: landmarks[0].visibility, name: 'nose' } : undefined as any,
     shoulder: { x: shoulder.x, y: shoulder.y, visibility: shoulder.visibility, name: 'shoulder' },
     elbow: { x: elbow.x, y: elbow.y, visibility: elbow.visibility, name: 'elbow' },
     wrist: { x: wrist.x, y: wrist.y, visibility: wrist.visibility, name: 'wrist' },
@@ -413,18 +414,18 @@ export function extractPoseDataFromLandmarks(
     knee: { x: knee.x, y: knee.y, visibility: knee.visibility, name: 'knee' },
     ankle: { x: ankle.x, y: ankle.y, visibility: ankle.visibility, name: 'ankle' },
     // Both sides for full skeleton rendering
-    left_shoulder: { x: ls.x, y: ls.y },
-    right_shoulder: { x: rs.x, y: rs.y },
-    left_elbow: { x: le.x, y: le.y },
-    right_elbow: { x: re.x, y: re.y },
-    left_wrist: { x: lw.x, y: lw.y },
-    right_wrist: { x: rw.x, y: rw.y },
-    left_hip: { x: lh.x, y: lh.y },
-    right_hip: { x: rh.x, y: rh.y },
-    left_knee: { x: lk.x, y: lk.y },
-    right_knee: { x: rk.x, y: rk.y },
-    left_ankle: { x: la.x, y: la.y },
-    right_ankle: { x: ra.x, y: ra.y }
+    left_shoulder: { x: ls.x, y: ls.y, visibility: ls.visibility },
+    right_shoulder: { x: rs.x, y: rs.y, visibility: rs.visibility },
+    left_elbow: { x: le.x, y: le.y, visibility: le.visibility },
+    right_elbow: { x: re.x, y: re.y, visibility: re.visibility },
+    left_wrist: { x: lw.x, y: lw.y, visibility: lw.visibility },
+    right_wrist: { x: rw.x, y: rw.y, visibility: rw.visibility },
+    left_hip: { x: lh.x, y: lh.y, visibility: lh.visibility },
+    right_hip: { x: rh.x, y: rh.y, visibility: rh.visibility },
+    left_knee: { x: lk.x, y: lk.y, visibility: lk.visibility },
+    right_knee: { x: rk.x, y: rk.y, visibility: rk.visibility },
+    left_ankle: { x: la.x, y: la.y, visibility: la.visibility },
+    right_ankle: { x: ra.x, y: ra.y, visibility: ra.visibility }
   };
 
   // Compute angles
@@ -464,21 +465,27 @@ export function drawSkeletonOnCanvas(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
+  const isVisible = (p?: Keypoint2D) => {
+    if (!p) return false;
+    if (p.visibility !== undefined && p.visibility < 0.25) return false;
+    return true;
+  };
+
   const drawSegment = (p1?: Keypoint2D, p2?: Keypoint2D, color = 'rgba(255, 255, 255, 0.75)') => {
-    if (!p1 || !p2) return;
+    if (!isVisible(p1) || !isVisible(p2)) return;
     ctx.strokeStyle = color;
     ctx.beginPath();
-    ctx.moveTo(p1.x * width, p1.y * height);
-    ctx.lineTo(p2.x * width, p2.y * height);
+    ctx.moveTo(p1!.x * width, p1!.y * height);
+    ctx.lineTo(p2!.x * width, p2!.y * height);
     ctx.stroke();
   };
 
   const drawJoint = (p?: Keypoint2D, radius = 5, color = '#3B82F6') => {
-    if (!p) return;
+    if (!isVisible(p)) return;
     ctx.save();
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(p.x * width, p.y * height, radius, 0, 2 * Math.PI);
+    ctx.arc(p!.x * width, p!.y * height, radius, 0, 2 * Math.PI);
     ctx.fill();
     ctx.restore();
   };
@@ -488,10 +495,27 @@ export function drawSkeletonOnCanvas(
   const rs = keypoints['right_shoulder'] || keypoints['shoulder'];
   const lh = keypoints['left_hip'] || keypoints['hip'];
   const rh = keypoints['right_hip'] || keypoints['hip'];
+  const nose = keypoints['nose'];
+
+  // Head and Neck
+  if (isVisible(nose)) {
+    drawJoint(nose, 7, '#38BDF8');
+    if (isVisible(ls) && isVisible(rs)) {
+      const midShoulder: Keypoint2D = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
+      drawSegment(nose, midShoulder, 'rgba(56, 189, 248, 0.7)');
+    }
+  }
+
+  // Spine line
+  if (isVisible(ls) && isVisible(rs) && isVisible(lh) && isVisible(rh)) {
+    const midShoulder: Keypoint2D = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
+    const midHip: Keypoint2D = { x: (lh.x + rh.x) / 2, y: (lh.y + rh.y) / 2 };
+    drawSegment(midShoulder, midHip, 'rgba(255, 255, 255, 0.85)');
+  }
 
   drawSegment(ls, rs, 'rgba(56, 189, 248, 0.85)'); // Shoulder girdle
-  drawSegment(ls, lh, 'rgba(255, 255, 255, 0.6)');
-  drawSegment(rs, rh, 'rgba(255, 255, 255, 0.6)');
+  drawSegment(ls, lh, 'rgba(255, 255, 255, 0.5)');
+  drawSegment(rs, rh, 'rgba(255, 255, 255, 0.5)');
   drawSegment(lh, rh, 'rgba(56, 189, 248, 0.85)'); // Pelvis
 
   // Left Arm
@@ -521,26 +545,26 @@ export function drawSkeletonOnCanvas(
   ];
 
   joints.forEach(j => {
-    if (j) drawJoint(j, 5, '#60A5FA');
+    if (j) drawJoint(j, 4.5, '#60A5FA');
   });
 
   // Highlight dominant/tracked primary joint
   const trackedJoint = keypoints['elbow'] || keypoints['knee'] || keypoints['hip'];
-  if (trackedJoint) {
-    drawJoint(trackedJoint, 8, feedbackColor);
+  if (trackedJoint && isVisible(trackedJoint)) {
+    drawJoint(trackedJoint, 7.5, feedbackColor);
   }
 
   // Draw Floating Angle Badge on the primary tracked joint
-  if (activeAngleBadge && trackedJoint) {
+  if (activeAngleBadge && trackedJoint && isVisible(trackedJoint)) {
     const badgeX = (activeAngleBadge.x ?? trackedJoint.x) * width;
     const badgeY = ((activeAngleBadge.y ?? trackedJoint.y) * height) - 22;
 
     ctx.save();
     ctx.font = 'bold 12px monospace';
-    const text = `${activeAngleBadge.angle}°`;
+    const text = `${Math.round(activeAngleBadge.angle)}°`;
     const textWidth = ctx.measureText(text).width;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
     ctx.strokeStyle = feedbackColor;
     ctx.lineWidth = 1.5;
 

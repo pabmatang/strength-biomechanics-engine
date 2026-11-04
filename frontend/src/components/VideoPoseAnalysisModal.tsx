@@ -87,6 +87,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
+  const isProcessingRef = useRef<boolean>(false);
+  const lastTimestampRef = useRef<number>(0);
+  const smoothedKeypointsRef = useRef<Record<string, Keypoint2D> | null>(null);
+  const smoothedPrimaryAngleRef = useRef<number>(160);
+  const smoothedSecondaryAngleRef = useRef<number>(160);
 
   const profile: ExercisePoseProfile = EXERCISE_POSE_PROFILES[selectedExerciseKey] || EXERCISE_POSE_PROFILES.lat_pulldown;
 
@@ -182,6 +187,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   useEffect(() => {
     if (!isRecording) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      isProcessingRef.current = false;
       return;
     }
 
@@ -198,242 +204,299 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     let simTime = 0;
 
     const processFrame = async () => {
-      // Synchronize canvas coordinate space with video
-      if (video.videoWidth && canvas.width !== video.videoWidth) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+      // Reentrancy lock to prevent WASM concurrency collisions
+      if (isProcessingRef.current) {
+        animationFrameRef.current = requestAnimationFrame(processFrame);
+        return;
       }
+      isProcessingRef.current = true;
 
-      let detectedKeypoints: Record<string, Keypoint2D> | null = null;
-      let primaryAngle = 160;
-      let auxAngle = 160;
+      try {
+        // Synchronize canvas coordinate space with video
+        if (video.videoWidth && canvas.width !== video.videoWidth) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
 
-      // 1. REAL VISION ESTIMATION via MediaPipe
-      const landmarker = await getPoseLandmarker();
-      if (landmarker && video.readyState >= 2 && !video.paused && !video.ended) {
-        try {
-          const results = landmarker.detectForVideo(video, performance.now());
-          if (results && results.landmarks && results.landmarks[0]) {
-            const frame = extractPoseDataFromLandmarks(results.landmarks[0]);
-            if (frame) {
-              detectedKeypoints = frame.keypoints;
-              if (profile.primaryJoint === 'elbow') {
-                primaryAngle = frame.elbowAngle;
-                auxAngle = frame.torsoLeanAngle;
-              } else if (profile.primaryJoint === 'hip') {
-                primaryAngle = frame.hipAngle;
-                auxAngle = frame.kneeAngle;
-              } else {
-                primaryAngle = frame.kneeAngle;
-                auxAngle = frame.hipAngle;
+        const isRealMedia = Boolean(uploadedVideoUrl || useWebcam);
+        let rawKeypoints: Record<string, Keypoint2D> | null = null;
+        let rawPrimary = 160;
+        let rawAux = 160;
+
+        // 1. REAL VISION ESTIMATION via MediaPipe
+        const landmarker = await getPoseLandmarker();
+        if (landmarker && video.readyState >= 2 && !video.paused && !video.ended) {
+          try {
+            // Strictly enforce monotonic timestamps
+            const now = performance.now();
+            const monotonicTime = Math.max(now, lastTimestampRef.current + 1);
+            lastTimestampRef.current = monotonicTime;
+
+            const results = landmarker.detectForVideo(video, monotonicTime);
+            if (results && results.landmarks && results.landmarks[0] && results.landmarks[0].length >= 33) {
+              const frame = extractPoseDataFromLandmarks(results.landmarks[0]);
+              if (frame) {
+                rawKeypoints = frame.keypoints;
+                if (profile.primaryJoint === 'elbow') {
+                  rawPrimary = frame.elbowAngle;
+                  rawAux = frame.torsoLeanAngle;
+                } else if (profile.primaryJoint === 'hip') {
+                  rawPrimary = frame.hipAngle;
+                  rawAux = frame.kneeAngle;
+                } else {
+                  rawPrimary = frame.kneeAngle;
+                  rawAux = frame.hipAngle;
+                }
               }
             }
+          } catch (e) {
+            // Frame skip error protection
           }
-        } catch (e) {
-          // Frame skip error protection
         }
-      }
 
-      // 2. FALLBACK OSCILLATOR IF NO HUMAN DETECTED YET (e.g. video loading or black screen)
-      if (!detectedKeypoints) {
-        simTime += 0.045;
-        const normalized = (Math.sin(simTime) + 1) / 2; // 0 to 1
-        const span = profile.standingThreshold - profile.inflectionThreshold;
-        primaryAngle = Math.round((profile.inflectionThreshold + normalized * span) * 10) / 10;
-        auxAngle = 155;
+        let displayKeypoints: Record<string, Keypoint2D> | null = null;
+        const alpha = 0.65; // Exponential Moving Average smoothing factor
 
-        // Realistic anchor skeleton according to exercise profile
-        if (profile.category === 'back') {
-          // Lat pull / Row position (seated arms overhead pulling down)
-          const armY = 0.28 + (1 - normalized) * 0.18;
-          detectedKeypoints = {
-            shoulder: { x: 0.52, y: 0.40 },
-            elbow: { x: 0.48, y: armY + 0.08 },
-            wrist: { x: 0.50, y: armY },
-            hip: { x: 0.52, y: 0.65 },
-            knee: { x: 0.46, y: 0.78 },
-            ankle: { x: 0.45, y: 0.92 }
-          };
-        } else if (profile.category === 'biceps') {
-          // Biceps curl position
-          const curlY = 0.58 - (1 - normalized) * 0.20;
-          detectedKeypoints = {
-            shoulder: { x: 0.50, y: 0.35 },
-            elbow: { x: 0.50, y: 0.52 },
-            wrist: { x: 0.46, y: curlY },
-            hip: { x: 0.50, y: 0.65 },
-            knee: { x: 0.48, y: 0.82 },
-            ankle: { x: 0.48, y: 0.94 }
-          };
-        } else if (profile.category === 'legs_hamstrings') {
-          // RDL Hip Hinge
-          const hingeTorsoY = 0.40 + (1 - normalized) * 0.18;
-          detectedKeypoints = {
-            shoulder: { x: 0.42, y: hingeTorsoY },
-            elbow: { x: 0.44, y: hingeTorsoY + 0.12 },
-            wrist: { x: 0.45, y: hingeTorsoY + 0.22 },
-            hip: { x: 0.56 + (1 - normalized) * 0.08, y: 0.58 },
-            knee: { x: 0.52, y: 0.78 },
-            ankle: { x: 0.50, y: 0.94 }
-          };
-        } else {
-          // Press / Squat
-          detectedKeypoints = {
-            shoulder: { x: 0.50, y: 0.32 },
-            elbow: { x: 0.44, y: 0.45 + (1 - normalized) * 0.08 },
-            wrist: { x: 0.48, y: 0.55 },
-            hip: { x: 0.50, y: 0.55 + (1 - normalized) * 0.12 },
-            knee: { x: 0.46, y: 0.74 + (1 - normalized) * 0.05 },
-            ankle: { x: 0.46, y: 0.92 }
-          };
-        }
-      }
+        if (rawKeypoints) {
+          // Smooth keypoint coordinates with EMA
+          const prevKeypoints = smoothedKeypointsRef.current;
+          const smoothed: Record<string, Keypoint2D> = {};
 
-      setCurrentPrimaryAngle(primaryAngle);
-      setSecondaryAngle(auxAngle);
-
-      // 3. FSM REPETITION DETECTOR & BIOMECHANICAL RULES
-      const isDescendingMode = profile.trackingMode === 'descending';
-
-      if (isDescendingMode) {
-        // Angle decreases during concentric/bottom (e.g. Squat, Lat Pull, Biceps, Press)
-        if (currentFsmPhase === 'STANDING' && primaryAngle < profile.standingThreshold - 6) {
-          currentFsmPhase = 'DESCENDING';
-          setRepPhase('DESCENDING');
-          minPrimaryInCycle = primaryAngle;
-        } else if (currentFsmPhase === 'DESCENDING') {
-          if (primaryAngle < minPrimaryInCycle) minPrimaryInCycle = primaryAngle;
-          if (primaryAngle <= profile.inflectionThreshold + 5) {
-            currentFsmPhase = 'BOTTOM';
-            setRepPhase('BOTTOM');
-          }
-        } else if (currentFsmPhase === 'BOTTOM' && primaryAngle > minPrimaryInCycle + 8) {
-          currentFsmPhase = 'ASCENDING';
-          setRepPhase('ASCENDING');
-        } else if (currentFsmPhase === 'ASCENDING' && primaryAngle >= profile.standingThreshold - 6) {
-          // Rep completed!
-          currentFsmPhase = 'STANDING';
-          setRepPhase('STANDING');
-
-          const isDepthValid = minPrimaryInCycle <= profile.inflectionThreshold;
-          const alerts: Array<{ ruleId: string; joint: string; measuredValue: number; expectedThreshold: number; message: string }> = [];
-
-          profile.rules.forEach(rule => {
-            if (rule.maxAcceptableAngle && minPrimaryInCycle > rule.maxAcceptableAngle) {
-              alerts.push({
-                ruleId: rule.id,
-                joint: rule.joint,
-                measuredValue: minPrimaryInCycle,
-                expectedThreshold: rule.maxAcceptableAngle,
-                message: rule.alertMessageOver
-              });
+          for (const [jointName, pt] of Object.entries(rawKeypoints)) {
+            if (!pt) continue;
+            const prev = prevKeypoints?.[jointName];
+            if (prev) {
+              smoothed[jointName] = {
+                ...pt,
+                x: alpha * pt.x + (1 - alpha) * prev.x,
+                y: alpha * pt.y + (1 - alpha) * prev.y
+              };
+            } else {
+              smoothed[jointName] = { ...pt };
             }
-          });
-
-          // Check RDL specific knee squat error
-          if (profile.id === 'rdl_deadlift' && auxAngle < 140) {
-            alerts.push({
-              ruleId: 'rdl_knee_flexion',
-              joint: 'knee',
-              measuredValue: auxAngle,
-              expectedThreshold: 150,
-              message: '¡Alerta Sentadilla!: Flexionaste las rodillas a ' + auxAngle + '°. Bloquéalas en ligera semiflexión y empuja los glúteos atrás.'
-            });
           }
 
-          const repCadence = Math.round(((Date.now() - lastRepTime) / 1000) * 10) / 10;
-          lastRepTime = Date.now();
+          smoothedKeypointsRef.current = smoothed;
+          displayKeypoints = smoothed;
 
-          const record: RepetitionRecord = {
-            repIndex: repsHistory.length + 1,
-            isValid: isDepthValid,
-            eccentricTimeSeconds: 2.1,
-            concentricTimeSeconds: 1.3,
-            minElbowAngle: profile.primaryJoint === 'elbow' ? minPrimaryInCycle : undefined,
-            minKneeAngle: profile.primaryJoint === 'knee' ? minPrimaryInCycle : auxAngle,
-            minHipAngle: profile.primaryJoint === 'hip' ? minPrimaryInCycle : undefined,
-            feedbackAlerts: alerts
-          };
+          // Smooth angles with EMA
+          smoothedPrimaryAngleRef.current = alpha * rawPrimary + (1 - alpha) * smoothedPrimaryAngleRef.current;
+          smoothedSecondaryAngleRef.current = alpha * rawAux + (1 - alpha) * smoothedSecondaryAngleRef.current;
+        } else if (isRealMedia) {
+          // If a real video or webcam is playing and one frame drops, retain the smoothed previous frame
+          displayKeypoints = smoothedKeypointsRef.current;
+        } else {
+          // ONLY run synthetic oscillator in idle demo mode when NO user media is active
+          simTime += 0.045;
+          const normalized = (Math.sin(simTime) + 1) / 2; // 0 to 1
+          const span = profile.standingThreshold - profile.inflectionThreshold;
+          rawPrimary = Math.round((profile.inflectionThreshold + normalized * span) * 10) / 10;
+          rawAux = 155;
+          smoothedPrimaryAngleRef.current = rawPrimary;
+          smoothedSecondaryAngleRef.current = rawAux;
 
-          setRepsHistory(prev => [...prev, record]);
-          setRepCount(c => c + 1);
-
-          if (alerts.length > 0) {
-            setActiveAlerts(alerts.map(a => a.message));
+          if (profile.category === 'back') {
+            const armY = 0.28 + (1 - normalized) * 0.18;
+            displayKeypoints = {
+              shoulder: { x: 0.52, y: 0.40 },
+              elbow: { x: 0.48, y: armY + 0.08 },
+              wrist: { x: 0.50, y: armY },
+              hip: { x: 0.52, y: 0.65 },
+              knee: { x: 0.46, y: 0.78 },
+              ankle: { x: 0.45, y: 0.92 }
+            };
+          } else if (profile.category === 'biceps') {
+            const curlY = 0.58 - (1 - normalized) * 0.20;
+            displayKeypoints = {
+              shoulder: { x: 0.50, y: 0.35 },
+              elbow: { x: 0.50, y: 0.52 },
+              wrist: { x: 0.46, y: curlY },
+              hip: { x: 0.50, y: 0.65 },
+              knee: { x: 0.48, y: 0.82 },
+              ankle: { x: 0.48, y: 0.94 }
+            };
+          } else if (profile.category === 'legs_hamstrings') {
+            const hingeTorsoY = 0.40 + (1 - normalized) * 0.18;
+            displayKeypoints = {
+              shoulder: { x: 0.42, y: hingeTorsoY },
+              elbow: { x: 0.44, y: hingeTorsoY + 0.12 },
+              wrist: { x: 0.45, y: hingeTorsoY + 0.22 },
+              hip: { x: 0.56 + (1 - normalized) * 0.08, y: 0.58 },
+              knee: { x: 0.52, y: 0.78 },
+              ankle: { x: 0.50, y: 0.94 }
+            };
           } else {
-            setActiveAlerts([`★ Repetición #${repsHistory.length + 1}: ROM completo y tempo controlado.`]);
+            displayKeypoints = {
+              shoulder: { x: 0.50, y: 0.32 },
+              elbow: { x: 0.44, y: 0.45 + (1 - normalized) * 0.08 },
+              wrist: { x: 0.48, y: 0.55 },
+              hip: { x: 0.50, y: 0.55 + (1 - normalized) * 0.12 },
+              knee: { x: 0.46, y: 0.74 + (1 - normalized) * 0.05 },
+              ankle: { x: 0.46, y: 0.92 }
+            };
           }
-
-          minPrimaryInCycle = 180;
         }
-      } else {
-        // Ascending mode (e.g. Triceps Extension where angle increases down to 170°)
-        if (currentFsmPhase === 'STANDING' && primaryAngle > profile.standingThreshold + 6) {
-          currentFsmPhase = 'DESCENDING';
-          setRepPhase('DESCENDING');
-          maxPrimaryInCycle = primaryAngle;
-        } else if (currentFsmPhase === 'DESCENDING') {
-          if (primaryAngle > maxPrimaryInCycle) maxPrimaryInCycle = primaryAngle;
-          if (primaryAngle >= profile.inflectionThreshold - 5) {
-            currentFsmPhase = 'BOTTOM';
-            setRepPhase('BOTTOM');
-          }
-        } else if (currentFsmPhase === 'BOTTOM' && primaryAngle < maxPrimaryInCycle - 8) {
-          currentFsmPhase = 'ASCENDING';
-          setRepPhase('ASCENDING');
-        } else if (currentFsmPhase === 'ASCENDING' && primaryAngle <= profile.standingThreshold + 6) {
-          currentFsmPhase = 'STANDING';
-          setRepPhase('STANDING');
-          const isValid = maxPrimaryInCycle >= profile.inflectionThreshold - 5;
-          const alerts: any[] = [];
-          if (!isValid) {
-            alerts.push({
-              ruleId: 'triceps_lockout',
-              joint: 'elbow',
-              measuredValue: maxPrimaryInCycle,
-              expectedThreshold: profile.inflectionThreshold,
-              message: 'Extensión incompleta: alcanzaste ' + maxPrimaryInCycle + '°, bloquea a ≥ ' + profile.inflectionThreshold + '°.'
-            });
-          }
 
-          setRepsHistory(prev => [...prev, {
-            repIndex: prev.length + 1,
-            isValid,
-            eccentricTimeSeconds: 1.8,
-            concentricTimeSeconds: 1.2,
-            minElbowAngle: maxPrimaryInCycle,
-            feedbackAlerts: alerts
-          }]);
-          setRepCount(c => c + 1);
-          if (alerts.length > 0) setActiveAlerts(alerts.map(a => a.message));
-          else setActiveAlerts(['★ Extensión de tríceps completa con pico de contracción.']);
-          maxPrimaryInCycle = 0;
+        const effectivePrimaryAngle = Math.round(smoothedPrimaryAngleRef.current * 10) / 10;
+        const effectiveSecondaryAngle = Math.round(smoothedSecondaryAngleRef.current * 10) / 10;
+
+        setCurrentPrimaryAngle(effectivePrimaryAngle);
+        setSecondaryAngle(effectiveSecondaryAngle);
+
+        // 3. FSM REPETITION DETECTOR & BIOMECHANICAL RULES
+        const isDescendingMode = profile.trackingMode === 'descending';
+        const nowMs = Date.now();
+
+        if (isDescendingMode) {
+          // Angle decreases during concentric/bottom (e.g. Squat, Lat Pull, Biceps, Press)
+          if (currentFsmPhase === 'STANDING' && effectivePrimaryAngle < profile.standingThreshold - 8) {
+            currentFsmPhase = 'DESCENDING';
+            setRepPhase('DESCENDING');
+            minPrimaryInCycle = effectivePrimaryAngle;
+          } else if (currentFsmPhase === 'DESCENDING') {
+            if (effectivePrimaryAngle < minPrimaryInCycle) minPrimaryInCycle = effectivePrimaryAngle;
+            if (effectivePrimaryAngle <= profile.inflectionThreshold + 6) {
+              currentFsmPhase = 'BOTTOM';
+              setRepPhase('BOTTOM');
+            }
+          } else if (currentFsmPhase === 'BOTTOM' && effectivePrimaryAngle > minPrimaryInCycle + 10) {
+            currentFsmPhase = 'ASCENDING';
+            setRepPhase('ASCENDING');
+          } else if (currentFsmPhase === 'ASCENDING' && effectivePrimaryAngle >= profile.standingThreshold - 8) {
+            currentFsmPhase = 'STANDING';
+            setRepPhase('STANDING');
+
+            // Debounce: minimum 850ms between reps and minimum 18° total ROM excursion
+            if (nowMs - lastRepTime >= 850 && (profile.standingThreshold - minPrimaryInCycle >= 18)) {
+              lastRepTime = nowMs;
+              const isDepthValid = minPrimaryInCycle <= profile.inflectionThreshold;
+              const alerts: Array<{ ruleId: string; joint: string; measuredValue: number; expectedThreshold: number; message: string }> = [];
+
+              profile.rules.forEach(rule => {
+                if (rule.maxAcceptableAngle && minPrimaryInCycle > rule.maxAcceptableAngle) {
+                  alerts.push({
+                    ruleId: rule.id,
+                    joint: rule.joint,
+                    measuredValue: minPrimaryInCycle,
+                    expectedThreshold: rule.maxAcceptableAngle,
+                    message: rule.alertMessageOver
+                  });
+                }
+              });
+
+              // Check RDL specific knee squat error
+              if (profile.id === 'rdl_deadlift' && effectiveSecondaryAngle < 140) {
+                alerts.push({
+                  ruleId: 'rdl_knee_flexion',
+                  joint: 'knee',
+                  measuredValue: effectiveSecondaryAngle,
+                  expectedThreshold: 150,
+                  message: '¡Alerta Sentadilla!: Flexionaste las rodillas a ' + effectiveSecondaryAngle + '°. Bloquéalas en ligera semiflexión y empuja los glúteos atrás.'
+                });
+              }
+
+              const record: RepetitionRecord = {
+                repIndex: repsHistory.length + 1,
+                isValid: isDepthValid,
+                eccentricTimeSeconds: 2.1,
+                concentricTimeSeconds: 1.3,
+                minElbowAngle: profile.primaryJoint === 'elbow' ? minPrimaryInCycle : undefined,
+                minKneeAngle: profile.primaryJoint === 'knee' ? minPrimaryInCycle : effectiveSecondaryAngle,
+                minHipAngle: profile.primaryJoint === 'hip' ? minPrimaryInCycle : undefined,
+                feedbackAlerts: alerts
+              };
+
+              setRepsHistory(prev => [...prev, record]);
+              setRepCount(c => c + 1);
+
+              if (alerts.length > 0) {
+                setActiveAlerts(alerts.map(a => a.message));
+              } else {
+                setActiveAlerts([`★ Repetición #${repsHistory.length + 1}: ROM completo y tempo controlado.`]);
+              }
+            }
+            minPrimaryInCycle = 180;
+          }
+        } else {
+          // Ascending mode (e.g. Triceps Extension where angle increases down to 170°)
+          if (currentFsmPhase === 'STANDING' && effectivePrimaryAngle > profile.standingThreshold + 8) {
+            currentFsmPhase = 'DESCENDING';
+            setRepPhase('DESCENDING');
+            maxPrimaryInCycle = effectivePrimaryAngle;
+          } else if (currentFsmPhase === 'DESCENDING') {
+            if (effectivePrimaryAngle > maxPrimaryInCycle) maxPrimaryInCycle = effectivePrimaryAngle;
+            if (effectivePrimaryAngle >= profile.inflectionThreshold - 6) {
+              currentFsmPhase = 'BOTTOM';
+              setRepPhase('BOTTOM');
+            }
+          } else if (currentFsmPhase === 'BOTTOM' && effectivePrimaryAngle < maxPrimaryInCycle - 10) {
+            currentFsmPhase = 'ASCENDING';
+            setRepPhase('ASCENDING');
+          } else if (currentFsmPhase === 'ASCENDING' && effectivePrimaryAngle <= profile.standingThreshold + 8) {
+            currentFsmPhase = 'STANDING';
+            setRepPhase('STANDING');
+
+            // Debounce: minimum 850ms between reps and minimum 18° excursion
+            if (nowMs - lastRepTime >= 850 && (maxPrimaryInCycle - profile.standingThreshold >= 18)) {
+              lastRepTime = nowMs;
+              const isValid = maxPrimaryInCycle >= profile.inflectionThreshold - 5;
+              const alerts: any[] = [];
+              if (!isValid) {
+                alerts.push({
+                  ruleId: 'triceps_lockout',
+                  joint: 'elbow',
+                  measuredValue: maxPrimaryInCycle,
+                  expectedThreshold: profile.inflectionThreshold,
+                  message: 'Extensión incompleta: alcanzaste ' + maxPrimaryInCycle + '°, bloquea a ≥ ' + profile.inflectionThreshold + '°.'
+                });
+              }
+
+              setRepsHistory(prev => [...prev, {
+                repIndex: prev.length + 1,
+                isValid,
+                eccentricTimeSeconds: 1.8,
+                concentricTimeSeconds: 1.2,
+                minElbowAngle: maxPrimaryInCycle,
+                feedbackAlerts: alerts
+              }]);
+              setRepCount(c => c + 1);
+              if (alerts.length > 0) setActiveAlerts(alerts.map(a => a.message));
+              else setActiveAlerts(['★ Extensión de tríceps completa con pico de contracción.']);
+            }
+            maxPrimaryInCycle = 0;
+          }
         }
+
+        // 4. DRAW SKELETON
+        if (displayKeypoints) {
+          const isTargetValid = isDescendingMode
+            ? effectivePrimaryAngle <= profile.inflectionThreshold
+            : effectivePrimaryAngle >= profile.inflectionThreshold - 5;
+
+          const feedbackColor = isTargetValid ? '#10B981' : '#F59E0B';
+
+          drawSkeletonOnCanvas(ctx, displayKeypoints, canvas.width, canvas.height, feedbackColor, {
+            angle: effectivePrimaryAngle,
+            label: profile.primaryJoint,
+            x: displayKeypoints[profile.primaryJoint]?.x,
+            y: displayKeypoints[profile.primaryJoint]?.y
+          });
+        } else {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      } finally {
+        isProcessingRef.current = false;
+        animationFrameRef.current = requestAnimationFrame(processFrame);
       }
-
-      // 4. DRAW SKELETON WITH REAL PIXEL COORDINATES
-      const isTargetValid = isDescendingMode
-        ? primaryAngle <= profile.inflectionThreshold
-        : primaryAngle >= profile.inflectionThreshold - 5;
-
-      const feedbackColor = isTargetValid ? '#10B981' : '#F59E0B';
-
-      drawSkeletonOnCanvas(ctx, detectedKeypoints, canvas.width, canvas.height, feedbackColor, {
-        angle: primaryAngle,
-        label: profile.primaryJoint,
-        x: detectedKeypoints[profile.primaryJoint]?.x,
-        y: detectedKeypoints[profile.primaryJoint]?.y
-      });
-
-      animationFrameRef.current = requestAnimationFrame(processFrame);
     };
 
     animationFrameRef.current = requestAnimationFrame(processFrame);
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      isProcessingRef.current = false;
     };
-  }, [isRecording, selectedExerciseKey, profile]);
+  }, [isRecording, selectedExerciseKey, profile, uploadedVideoUrl, useWebcam]);
 
   const handleStartStop = () => {
     if (uploadedVideoUrl && videoElementRef.current) {
@@ -448,9 +511,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const handleReset = () => {
     setIsRecording(false);
+    isProcessingRef.current = false;
+    lastTimestampRef.current = 0;
+    smoothedKeypointsRef.current = null;
+    smoothedPrimaryAngleRef.current = 160;
+    smoothedSecondaryAngleRef.current = 160;
     if (videoElementRef.current && !useWebcam) {
       videoElementRef.current.pause();
       videoElementRef.current.currentTime = 0;
+    }
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
     setRepCount(0);
     setRepsHistory([]);

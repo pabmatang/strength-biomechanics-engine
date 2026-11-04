@@ -52,11 +52,54 @@ function generateWizardRoutines(params: {
   const { daysPerWeek, priorityMuscles, durationMinutes, equipmentPref, experienceLevel, dislikedMuscles = [], routineSplitType = 'auto' } = params;
   const exactExercisesCount = durationMinutes === 45 ? 4 : durationMinutes === 60 ? 5 : durationMinutes === 75 ? 6 : 7;
 
-  interface DayQueueItem {
+    interface DayQueueItem {
     muscle: string;
     bias?: 'lats' | 'upper_back' | 'trapezius';
     note?: string;
     isComplementary?: boolean;
+  }
+
+  function orderDayExercises(queue: DayQueueItem[], priorities: string[]): DayQueueItem[] {
+    if (!priorities || priorities.length === 0) return queue;
+
+    const priorityItems = queue.filter(item => isMusclePrioritized(item.muscle, priorities));
+    const secondaryItems = queue.filter(item => !isMusclePrioritized(item.muscle, priorities));
+
+    if (priorityItems.length === 0) return queue;
+
+    const result: DayQueueItem[] = [];
+    const prioPool = [...priorityItems];
+    const secPool = [...secondaryItems];
+
+    while (prioPool.length > 0 || secPool.length > 0) {
+      if (prioPool.length > 0) {
+        const lastBroad = result.length > 0
+          ? (BROAD_GROUP_MAP[result[result.length - 1].muscle] || result[result.length - 1].muscle)
+          : null;
+
+        const candidateIdx = prioPool.findIndex(item => {
+          const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
+          return broad !== lastBroad;
+        });
+
+        if (candidateIdx !== -1) {
+          result.push(prioPool.splice(candidateIdx, 1)[0]);
+          continue;
+        } else if (secPool.length > 0) {
+          result.push(secPool.shift()!);
+          continue;
+        } else {
+          result.push(prioPool.shift()!);
+          continue;
+        }
+      }
+
+      if (secPool.length > 0) {
+        result.push(secPool.shift()!);
+      }
+    }
+
+    return result;
   }
 
   interface DayPlan {
@@ -537,7 +580,11 @@ function generateWizardRoutines(params: {
       }
     }
 
-    selectedDayQueues.push(chosenQueue);
+    // Apply Biomechanical Priority Reordering:
+    // Puts all priority muscles at the very start of the session,
+    // while maintaining interleaving if a muscle has multiple exercises.
+    const orderedQueue = orderDayExercises(chosenQueue, priorityMuscles);
+    selectedDayQueues.push(orderedQueue);
   });
 
   // Count total weekly appearances
@@ -826,5 +873,59 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
     Object.entries(volume).forEach(([grp, sets]) => {
       expect(sets, `Group ${grp} must have at least 3 sets`).toBeGreaterThanOrEqual(3);
     });
+  });
+
+  it('guarantees priority muscles are placed at the very beginning of the session (1st/2nd exercise)', () => {
+    // Case 1: Priority is Chest only -> Chest must be 1st exercise in both Torso A and Torso B
+    const rChestOnly = generateWizardRoutines({
+      daysPerWeek: 4,
+      routineSplitType: 'torso_pierna',
+      priorityMuscles: ['chest'],
+      durationMinutes: 60,
+      equipmentPref: 'technogym',
+      experienceLevel: 'intermedio'
+    });
+
+    const torsoADay = rChestOnly[0]; // Torso A
+    const torsoBDay = rChestOnly[2]; // Torso B
+    expect(torsoADay.exercises[0].muscle_group).toBe('chest');
+    expect(torsoBDay.exercises[0].muscle_group).toBe('chest');
+
+    // Case 2: Priority is Chest & Biceps -> Both must be 1st and 2nd exercises
+    const rChestBiceps = generateWizardRoutines({
+      daysPerWeek: 4,
+      routineSplitType: 'torso_pierna',
+      priorityMuscles: ['chest', 'biceps'],
+      durationMinutes: 60,
+      equipmentPref: 'technogym',
+      experienceLevel: 'intermedio'
+    });
+
+    const torsoA_CB = rChestBiceps[0];
+    const firstTwoA = [torsoA_CB.exercises[0].muscle_group, torsoA_CB.exercises[1].muscle_group];
+    expect(firstTwoA).toContain('chest');
+    expect(firstTwoA).toContain('biceps');
+
+    const torsoB_CB = rChestBiceps[2];
+    const firstTwoB = [torsoB_CB.exercises[0].muscle_group, torsoB_CB.exercises[1].muscle_group];
+    expect(firstTwoB).toContain('chest');
+    expect(firstTwoB).toContain('biceps');
+
+    // Case 3: Priority is Quads & Glutes -> Glutes and Quads are 1st and 2nd on Leg days, NEVER last
+    const rLegPrio = generateWizardRoutines({
+      daysPerWeek: 4,
+      routineSplitType: 'torso_pierna',
+      priorityMuscles: ['quadriceps', 'glutes'],
+      durationMinutes: 60,
+      equipmentPref: 'technogym',
+      experienceLevel: 'intermedio'
+    });
+
+    const legA = rLegPrio[1]; // Pierna A
+    const legA_firstTwo = [legA.exercises[0].muscle_group, legA.exercises[1].muscle_group];
+    expect(legA_firstTwo).toContain('quadriceps');
+    expect(legA_firstTwo).toContain('glutes');
+    // Hip thrust / glutes must NOT be the last exercise
+    expect(legA.exercises[legA.exercises.length - 1].muscle_group).not.toBe('glutes');
   });
 });
