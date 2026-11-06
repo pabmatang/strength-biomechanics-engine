@@ -7,7 +7,10 @@ import {
   calculateTibialAngle,
   calculateSpineAlignment,
   evaluateBiomechanicalFrame,
-  auditCompletedRepetition
+  auditCompletedRepetition,
+  detectCameraPlane,
+  calculateSpinalCollinearity,
+  evaluateBiomechanicalVerdict
 } from '../utils/biomechanicsEngine';
 
 describe('1€ Filter (OneEuroFilter) - Anti-Jitter Signal Stabilization', () => {
@@ -282,5 +285,70 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(audit.techniqueVerdict.bounceDetected).toBe(false);
     expect(audit.biomechanicsVerdict.stretchHypertrophyOptimized).toBe(true);
     expect(audit.biomechanicsVerdict.scientificAssessment).toContain('recto femoral');
+  });
+
+  it('detects camera recording plane (sagittal vs frontal) to suppress valgus false positives', () => {
+    // Sagittal profile: both shoulders and hips have x-difference < 0.10
+    const sagittalPose = {
+      left_shoulder: { x: 0.48, y: 0.30 },
+      right_shoulder: { x: 0.51, y: 0.30 },
+      left_hip: { x: 0.49, y: 0.55 },
+      right_hip: { x: 0.52, y: 0.55 }
+    };
+    expect(detectCameraPlane(sagittalPose)).toBe('sagittal');
+
+    // Frontal view: broad shoulder separation
+    const frontalPose = {
+      left_shoulder: { x: 0.35, y: 0.30 },
+      right_shoulder: { x: 0.65, y: 0.30 },
+      left_hip: { x: 0.40, y: 0.55 },
+      right_hip: { x: 0.60, y: 0.55 }
+    };
+    expect(detectCameraPlane(frontalPose)).toBe('frontal');
+  });
+
+  it('separates anterior torso lean from true spinal curvature breakdown', () => {
+    // Bulgarian split squat: anterior torso lean of 55° with healthy neutral collinearity
+    // Ear at (0.62, 0.22), Shoulder at (0.58, 0.30), Hip at (0.42, 0.52)
+    // Both segments follow straight aligned line
+    const ear = { x: 0.65, y: 0.22 };
+    const shoulder = { x: 0.57, y: 0.33 };
+    const hip = { x: 0.41, y: 0.55 };
+
+    const spinalAnalysis = calculateSpinalCollinearity(ear, shoulder, hip);
+    expect(spinalAnalysis.torsoLeanDeg).toBeGreaterThan(35); // Healthy torso lean
+    expect(spinalAnalysis.deviationAngleDeg).toBeLessThanOrEqual(15);
+    expect(spinalAnalysis.isSpineNeutral).toBe(true); // Should NOT flag a technical fault!
+
+    // Severe spinal flexion / kyphotic collapse: deviation > 15°
+    const earBroken = { x: 0.70, y: 0.20 };
+    const shoulderBroken = { x: 0.55, y: 0.32 };
+    const hipBroken = { x: 0.35, y: 0.40 };
+
+    const brokenAnalysis = calculateSpinalCollinearity(earBroken, shoulderBroken, hipBroken);
+    expect(brokenAnalysis.deviationAngleDeg).toBeGreaterThan(15);
+    expect(brokenAnalysis.isSpineNeutral).toBe(false);
+  });
+
+  it('generates accurate applied biomechanical verdicts for glutes, quads and hamstrings', () => {
+    // 1. Glute verdict: ratio > 1.4 & vertical tibia (<= 18°) -> optimal
+    const gluteOptimal = evaluateBiomechanicalVerdict('glutes_max', 0.55, 0.25, 12);
+    expect(gluteOptimal.isOptimal).toBe(true);
+    expect(gluteOptimal.verdictTitle).toContain('Enfoque óptimo en Glúteo en estiramiento');
+
+    // Glute with excess knee travel -> warning
+    const gluteShifted = evaluateBiomechanicalVerdict('glutes_max', 0.30, 0.45, 26);
+    expect(gluteShifted.isOptimal).toBe(false);
+    expect(gluteShifted.verdictTitle).toContain('Dominancia desplazada hacia Cuádriceps');
+
+    // 2. Hamstrings verdict: pure hinge
+    const hamOptimal = evaluateBiomechanicalVerdict('hamstrings', 0.50, 0.20, 10, 50, 60);
+    expect(hamOptimal.isOptimal).toBe(true);
+    expect(hamOptimal.verdictTitle).toContain('Patrón de bisagra puro para Isquiosurales');
+
+    // 3. Quadriceps verdict: knee dominant with tibial forward travel
+    const quadOptimal = evaluateBiomechanicalVerdict('quadriceps', 0.20, 0.50, 25);
+    expect(quadOptimal.isOptimal).toBe(true);
+    expect(quadOptimal.verdictTitle).toContain('Sobrecarga óptima en Cuádriceps');
   });
 });

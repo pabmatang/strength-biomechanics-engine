@@ -586,6 +586,12 @@ export function drawSkeletonOnCanvas(
   }
 }
 
+export interface RenderOverlayOptions {
+  showLeverArms?: boolean;
+  zoom?: number;
+  panOffset?: { x: number; y: number };
+}
+
 /**
  * Draws Mode 2: Biomechanical Moment Arms & Force Vector Overlay
  */
@@ -594,116 +600,157 @@ export function drawBiomechanicsOverlayOnCanvas(
   frame: BiomechanicalTelemetryFrame,
   keypoints: Record<string, Keypoint2D>,
   width: number,
-  height: number
+  height: number,
+  options: RenderOverlayOptions = {}
 ) {
-  // First draw subtle skeleton as background guide
-  drawSkeletonOnCanvas(ctx, keypoints, width, height, '#38BDF8', {
+  const { showLeverArms = true, zoom = 1, panOffset = { x: 0, y: 0 } } = options;
+
+  ctx.save();
+  if (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) {
+    ctx.translate(panOffset.x, panOffset.y);
+    ctx.scale(zoom, zoom);
+  }
+
+  // Subtle skeleton guide in background
+  drawSkeletonOnCanvas(ctx, keypoints, width, height, 'rgba(56, 189, 248, 0.45)', {
     angle: frame.currentAngle,
     label: 'ROM'
   });
 
   const bio = frame.biomechanics;
-  if (!bio) return;
+  if (!bio) {
+    ctx.restore();
+    return;
+  }
 
-  ctx.save();
-
-  // 1. Draw Force Line of Action (LOA)
-  // Dashed golden/amber line extending through the vertical/vector
-  ctx.strokeStyle = '#F59E0B'; // Amber-500
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([8, 5]);
-
+  // 1. Force Line of Action (LOA): Red dashed line with directional arrow
   const p1 = bio.forceLineOfAction.start;
   const p2 = bio.forceLineOfAction.end;
+  const p1x = p1.x * width;
+  const p1y = p1.y * height;
+  const p2x = p2.x * width;
+  const p2y = p2.y * height;
 
+  ctx.strokeStyle = '#EF4444'; // Red-500
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([8, 5]);
   ctx.beginPath();
-  ctx.moveTo(p1.x * width, p1.y * height);
-  ctx.lineTo(p2.x * width, p2.y * height);
+  ctx.moveTo(p1x, p1y);
+  ctx.lineTo(p2x, p2y);
   ctx.stroke();
-  ctx.setLineDash([]); // Reset dash
+  ctx.setLineDash([]);
 
-  // Draw Load Center of Mass Circle
+  // Draw Load Position and Directional Red Arrow
   if (bio.loadPosition) {
-    ctx.fillStyle = '#F59E0B';
+    const lx = bio.loadPosition.x * width;
+    const ly = bio.loadPosition.y * height;
+
+    // Load Center of Mass circle
+    ctx.fillStyle = '#EF4444';
     ctx.beginPath();
-    ctx.arc(bio.loadPosition.x * width, bio.loadPosition.y * height, 7, 0, 2 * Math.PI);
+    ctx.arc(lx, ly, 6, 0, 2 * Math.PI);
     ctx.fill();
 
-    // Direction arrow downwards
-    ctx.strokeStyle = '#FDE68A';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(bio.loadPosition.x * width, bio.loadPosition.y * height);
-    ctx.lineTo(bio.loadPosition.x * width, (bio.loadPosition.y + 0.08) * height);
-    ctx.stroke();
-  }
+    // Directional Arrow along forceVector
+    const arrowLen = 35;
+    const ax = lx + bio.forceVector.x * arrowLen;
+    const ay = ly + bio.forceVector.y * arrowLen;
 
-  // Helper for drawing moment arm perpendicular segment
-  const drawMomentArm = (
-    seg?: { start: Point2D; end: Point2D },
-    color: string = '#06B6D4',
-    label: string = 'd'
-  ) => {
-    if (!seg || !seg.start || !seg.end) return;
-    const sx = seg.start.x * width;
-    const sy = seg.start.y * height;
-    const ex = seg.end.x * width;
-    const ey = seg.end.y * height;
-
-    // Solid moment arm line
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = '#FCA5A5';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(ex, ey);
+    ctx.moveTo(lx, ly);
+    ctx.lineTo(ax, ay);
     ctx.stroke();
 
-    // End ticks
-    ctx.fillStyle = color;
+    // Arrowhead
+    const angle = Math.atan2(bio.forceVector.y, bio.forceVector.x);
+    const headLen = 9;
+    ctx.fillStyle = '#EF4444';
     ctx.beginPath();
-    ctx.arc(sx, sy, 4, 0, 2 * Math.PI);
-    ctx.arc(ex, ey, 4, 0, 2 * Math.PI);
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(
+      ax - headLen * Math.cos(angle - Math.PI / 6),
+      ay - headLen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.lineTo(
+      ax - headLen * Math.cos(angle + Math.PI / 6),
+      ay - headLen * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.closePath();
     ctx.fill();
-
-    // Floating text label
-    const midX = (sx + ex) / 2;
-    const midY = (sy + ey) / 2 - 8;
-    ctx.font = 'bold 10px monospace';
-    const textWidth = ctx.measureText(label).width;
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(midX - textWidth / 2 - 4, midY - 10, textWidth + 8, 15, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, midX, midY - 2);
-  };
-
-  // 2. Draw Moment Arms: Hip (Amber/Gold), Knee (Cyan/Blue)
-  if (bio.momentArmProjections.hipProjection) {
-    const hipCm = Math.round(bio.momentArms.hip * 100);
-    drawMomentArm(bio.momentArmProjections.hipProjection, '#FBBF24', `d_hip: ${hipCm}`);
   }
 
-  if (bio.momentArmProjections.kneeProjection) {
-    const kneeCm = Math.round(bio.momentArms.knee * 100);
-    drawMomentArm(bio.momentArmProjections.kneeProjection, '#38BDF8', `d_knee: ${kneeCm}`);
-  }
+  // 2. Perpendicular Moment Arms (Brazos de Momento): Cadera (Azul) y Rodilla (Verde)
+  if (showLeverArms) {
+    const drawMomentArm = (
+      seg?: { start: Point2D; end: Point2D },
+      color: string = '#3B82F6',
+      label: string = 'd'
+    ) => {
+      if (!seg || !seg.start || !seg.end) return;
+      const sx = seg.start.x * width;
+      const sy = seg.start.y * height;
+      const ex = seg.end.x * width;
+      const ey = seg.end.y * height;
 
-  if (bio.momentArmProjections.shoulderProjection) {
-    const shCm = Math.round((bio.momentArms.shoulder ?? 0) * 100);
-    drawMomentArm(bio.momentArmProjections.shoulderProjection, '#A78BFA', `d_hombro: ${shCm}`);
-  }
+      // Solid moment arm perpendicular line
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
 
-  if (bio.momentArmProjections.elbowProjection) {
-    const elCm = Math.round((bio.momentArms.elbow ?? 0) * 100);
-    drawMomentArm(bio.momentArmProjections.elbowProjection, '#34D399', `d_codo: ${elCm}`);
+      // Joint and line endpoints
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4.5, 0, 2 * Math.PI);
+      ctx.arc(ex, ey, 4.5, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Floating text label
+      const midX = (sx + ex) / 2;
+      const midY = (sy + ey) / 2 - 8;
+      ctx.font = 'bold 11px monospace';
+      const textWidth = ctx.measureText(label).width;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(midX - textWidth / 2 - 5, midY - 11, textWidth + 10, 16, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, midX, midY - 3);
+    };
+
+    // Cadera: Azul (#3B82F6)
+    if (bio.momentArmProjections.hipProjection) {
+      const hipPx = Math.round(bio.momentArms.hip * width);
+      drawMomentArm(bio.momentArmProjections.hipProjection, '#3B82F6', `d_cadera: ${hipPx}px`);
+    }
+
+    // Rodilla: Verde (#10B981)
+    if (bio.momentArmProjections.kneeProjection) {
+      const kneePx = Math.round(bio.momentArms.knee * width);
+      drawMomentArm(bio.momentArmProjections.kneeProjection, '#10B981', `d_rodilla: ${kneePx}px`);
+    }
+
+    // Upper body moments when applicable
+    if (bio.momentArmProjections.shoulderProjection) {
+      const shPx = Math.round((bio.momentArms.shoulder ?? 0) * width);
+      drawMomentArm(bio.momentArmProjections.shoulderProjection, '#8B5CF6', `d_hombro: ${shPx}px`);
+    }
+
+    if (bio.momentArmProjections.elbowProjection) {
+      const elPx = Math.round((bio.momentArms.elbow ?? 0) * width);
+      drawMomentArm(bio.momentArmProjections.elbowProjection, '#EC4899', `d_codo: ${elPx}px`);
+    }
   }
 
   // 3. Draw Muscle Bias HUD Banner at top of canvas
@@ -714,7 +761,7 @@ export function drawBiomechanicsOverlayOnCanvas(
   const bannerY = 24;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-  ctx.strokeStyle = bio.muscleBias === 'hip_glute_bias' ? '#F59E0B' : '#06B6D4';
+  ctx.strokeStyle = bio.muscleBias === 'hip_glute_bias' ? '#3B82F6' : '#10B981';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.roundRect(bannerX - bannerWidth / 2, bannerY - 12, bannerWidth, 24, 8);
@@ -739,11 +786,19 @@ export function drawDualModeOverlay(
   keypoints: Record<string, Keypoint2D>,
   width: number,
   height: number,
-  primaryColor = '#10B981'
+  primaryColor = '#10B981',
+  options: RenderOverlayOptions = {}
 ) {
   if (mode === 'biomechanics') {
-    drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height);
+    drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, options);
   } else {
+    const { zoom = 1, panOffset = { x: 0, y: 0 } } = options;
+    ctx.save();
+    if (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) {
+      ctx.translate(panOffset.x, panOffset.y);
+      ctx.scale(zoom, zoom);
+    }
+
     // Mode 1: Technique
     drawSkeletonOnCanvas(ctx, keypoints, width, height, primaryColor, {
       angle: frame.currentAngle,
@@ -762,5 +817,6 @@ export function drawDualModeOverlay(
       ctx.stroke();
       ctx.restore();
     }
+    ctx.restore();
   }
 }

@@ -34,7 +34,8 @@ import {
   extractPoseDataFromLandmarks,
   Keypoint2D,
   ExercisePoseProfile,
-  drawDualModeOverlay
+  drawDualModeOverlay,
+  RenderOverlayOptions
 } from '../utils/videoPoseEstimator';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
@@ -43,7 +44,14 @@ import {
   auditCompletedRepetition,
   BiomechanicalTelemetryFrame,
   RepetitionBiomechanicalAudit,
-  ResistanceSourceType
+  ResistanceSourceType,
+  LoadType,
+  TargetMuscle,
+  CameraPlane,
+  EXERCISE_PATTERNS,
+  ExercisePatternSpec,
+  evaluateBiomechanicalVerdict,
+  detectCameraPlane
 } from '../utils/biomechanicsEngine';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 
@@ -60,34 +68,31 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   defaultExerciseId = 'lat_pulldown',
   defaultExerciseName = 'Espalda (Jalón / Remo)'
 }) => {
-  // Normalize default exercise key
-  const getInitialExerciseKey = (): string => {
-    const id = (defaultExerciseId || '').toLowerCase();
-    if (id.includes('lat') || id.includes('pull') || id.includes('row') || id.includes('espalda') || id.includes('dorsal')) {
-      return 'lat_pulldown';
-    }
-    if (id.includes('bicep') || id.includes('curl')) return 'biceps_curl';
-    if (id.includes('tricep') || id.includes('extension') || id.includes('katana')) return 'triceps_extension';
-    if (id.includes('deadlift') || id.includes('rdl') || id.includes('rumano') || id.includes('femoral') || id.includes('isquio')) {
-      return 'rdl_deadlift';
-    }
-    if (id.includes('chest') || id.includes('press') || id.includes('pecho') || id.includes('bench')) return 'bench_press';
-    if (id.includes('leg_press') || id.includes('prensa')) return 'leg_press';
-    if (id.includes('squat') || id.includes('sentadilla')) return 'squat';
-    return 'lat_pulldown';
-  };
+  // Cascading Selection State
+  const [loadType, setLoadType] = useState<LoadType>('gravity');
+  const [targetMuscle, setTargetMuscle] = useState<TargetMuscle>('glutes_max');
+  const [selectedPatternId, setSelectedPatternId] = useState<string>('bulgarian_split_squat_glute');
 
-  const [selectedExerciseKey, setSelectedExerciseKey] = useState<string>(getInitialExerciseKey());
+  // Available patterns filtered for selected target muscle
+  const availablePatterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === targetMuscle);
+  const selectedPattern: ExercisePatternSpec =
+    availablePatterns.find(p => p.id === selectedPatternId) ||
+    availablePatterns[0] ||
+    EXERCISE_PATTERNS[0];
+
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [useWebcam, setUseWebcam] = useState(false);
 
-  // Dual Analysis Modes
+  // Dual Analysis Modes: Mode 1 (Técnica) vs Mode 2 (Biomecánica)
   const [analysisMode, setAnalysisMode] = useState<'technique' | 'biomechanics'>('technique');
 
-  // Mode 2 Biomechanical Context
-  const [targetMuscleBias, setTargetMuscleBias] = useState<'quads' | 'glutes' | 'hamstrings' | 'lats'>('quads');
-  const [resistanceSource, setResistanceSource] = useState<ResistanceSourceType>('gravity');
+  // Zoom & Pan & Lever Overlays State
+  const [zoom, setZoom] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [showLeverArms, setShowLeverArms] = useState<boolean>(true);
 
   // AI MediaPipe Vision Model Status
   const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
@@ -126,14 +131,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   // Adaptive OneEuroFilter smoother for all landmarks (Anti-Jitter)
   const poseSmootherRef = useRef<PoseLandmarkSmoother>(new PoseLandmarkSmoother());
 
-  // Finite State Machine (FSM) with velocity and hysteresis
-  const profile: ExercisePoseProfile = EXERCISE_POSE_PROFILES[selectedExerciseKey] || EXERCISE_POSE_PROFILES.lat_pulldown;
-
+  // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
     new BiomechanicalFSM({
-      trackingMode: profile.trackingMode,
-      lockoutThreshold: profile.standingThreshold,
-      inflectionThreshold: profile.inflectionThreshold,
+      trackingMode: selectedPattern.trackingMode,
+      lockoutThreshold: selectedPattern.standingThreshold,
+      inflectionThreshold: selectedPattern.inflectionThreshold,
       hysteresisAngleBand: 8,
       velocityThresholdDegPerSec: 15,
       minPhaseDurationMs: 120,
@@ -165,19 +168,19 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   }, [isOpen]);
 
-  // Re-initialize FSM when exercise profile changes
+  // Re-initialize FSM when selectedPattern changes
   useEffect(() => {
     fsmRef.current = new BiomechanicalFSM({
-      trackingMode: profile.trackingMode,
-      lockoutThreshold: profile.standingThreshold,
-      inflectionThreshold: profile.inflectionThreshold,
+      trackingMode: selectedPattern.trackingMode,
+      lockoutThreshold: selectedPattern.standingThreshold,
+      inflectionThreshold: selectedPattern.inflectionThreshold,
       hysteresisAngleBand: 8,
       velocityThresholdDegPerSec: 15,
       minPhaseDurationMs: 120,
       bounceThresholdMs: 160
     });
     poseSmootherRef.current.reset();
-  }, [selectedExerciseKey, profile]);
+  }, [selectedPattern]);
 
   // Cleanup on close
   useEffect(() => {
@@ -290,17 +293,23 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
           // 2. Compute Angles strictly on smoothed coordinates
           let smoothedAngle = 160;
-          if (profile.primaryJoint === 'elbow') {
+          if (selectedPattern.primaryJoint === 'elbow') {
             smoothedAngle = calculateJointAngle(
               smoothedKeypoints['shoulder'],
               smoothedKeypoints['elbow'],
               smoothedKeypoints['wrist']
             );
-          } else if (profile.primaryJoint === 'hip') {
+          } else if (selectedPattern.primaryJoint === 'hip') {
             smoothedAngle = calculateJointAngle(
               smoothedKeypoints['shoulder'],
               smoothedKeypoints['hip'],
               smoothedKeypoints['knee']
+            );
+          } else if (selectedPattern.primaryJoint === 'shoulder') {
+            smoothedAngle = calculateJointAngle(
+              smoothedKeypoints['elbow'],
+              smoothedKeypoints['shoulder'],
+              smoothedKeypoints['hip']
             );
           } else {
             // knee
@@ -320,8 +329,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             const audit = auditCompletedRepetition(
               completedRep,
               fsmRef.current.getCompletedReps(),
-              profile.name,
-              targetMuscleBias
+              selectedPattern.name,
+              targetMuscle === 'glutes_max' ? 'glutes' : targetMuscle === 'quadriceps' ? 'quads' : targetMuscle === 'hamstrings' ? 'hamstrings' : 'lats'
             );
             setAuditedReps(prev => [...prev, audit]);
             setRepCount(c => c + 1);
@@ -329,14 +338,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           }
 
           // 4. Biomechanical Physics Evaluation (Moment Arms, Line of Action, Muscle Bias)
+          const resistanceParam: ResistanceSourceType = loadType === 'gravity' ? 'gravity' : loadType === 'cable' ? 'cable_mid' : 'gravity';
+          const targetBiasParam = targetMuscle === 'glutes_max' ? 'glutes' : targetMuscle === 'quadriceps' ? 'quads' : targetMuscle === 'hamstrings' ? 'hamstrings' : 'lats';
+
           const telemetry = evaluateBiomechanicalFrame(
             smoothedKeypoints,
-            selectedExerciseKey,
+            selectedPattern.id,
             currentFsmPhase,
             smoothedAngle,
             angVelocity,
-            resistanceSource,
-            targetMuscleBias,
+            resistanceParam,
+            targetBiasParam as any,
             monotonicTime
           );
 
@@ -344,7 +356,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           setCurrentTelemetry(telemetry);
           setCurrentPhase(currentFsmPhase);
 
-          // 5. Draw Dual Mode Canvas Overlay
+          // 5. Draw Dual Mode Canvas Overlay with Zoom, Pan & Levers
           drawDualModeOverlay(
             ctx,
             analysisMode,
@@ -352,7 +364,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             smoothedKeypoints,
             canvas.width,
             canvas.height,
-            analysisMode === 'biomechanics' ? '#F59E0B' : '#10B981'
+            analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
+            {
+              showLeverArms,
+              zoom,
+              panOffset
+            }
           );
         }
       }
@@ -389,7 +406,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       isProcessingRef.current = false;
     };
-  }, [isRecording, selectedExerciseKey, profile, analysisMode, targetMuscleBias, resistanceSource]);
+  }, [isRecording, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, zoom, panOffset]);
+
+  // Re-render single frame when zoom, pan, or lever toggles change while paused
+  useEffect(() => {
+    if (!isRecording && (uploadedVideoUrl || useWebcam)) {
+      processSingleFrame();
+    }
+  }, [zoom, panOffset, showLeverArms, analysisMode]);
 
   // Video transport & playback controls
   const handleTogglePlayPause = () => {
@@ -456,6 +480,49 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setIsRecording(prev => !prev);
   };
 
+  // Mouse / Touch Dragging for Pan Controls when Zoom > 1x
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom > 1) {
+      setIsDragging(true);
+      dragStartRef.current = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && zoom > 1) {
+      const newX = e.clientX - dragStartRef.current.x;
+      const newY = e.clientY - dragStartRef.current.y;
+      const maxPan = 180 * (zoom - 1);
+      setPanOffset({
+        x: Math.max(-maxPan, Math.min(maxPan, newX)),
+        y: Math.max(-maxPan, Math.min(maxPan, newY))
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (zoom > 1 && e.touches[0]) {
+      setIsDragging(true);
+      dragStartRef.current = { x: e.touches[0].clientX - panOffset.x, y: e.touches[0].clientY - panOffset.y };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isDragging && zoom > 1 && e.touches[0]) {
+      const newX = e.touches[0].clientX - dragStartRef.current.x;
+      const newY = e.touches[0].clientY - dragStartRef.current.y;
+      const maxPan = 180 * (zoom - 1);
+      setPanOffset({
+        x: Math.max(-maxPan, Math.min(maxPan, newX)),
+        y: Math.max(-maxPan, Math.min(maxPan, newY))
+      });
+    }
+  };
+
   const handleReset = () => {
     setIsRecording(false);
     isProcessingRef.current = false;
@@ -476,7 +543,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setActiveAlerts([]);
     setCurrentTelemetry(null);
     setBackendDiagnosis(null);
-    setCurrentPrimaryAngle(profile.standingThreshold);
+    setCurrentPrimaryAngle(selectedPattern.standingThreshold);
     setCurrentPhase('LOCKOUT');
     setVideoCurrentTime(0);
     setIsVideoPlaying(false);
@@ -490,8 +557,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const validCount = auditedReps.filter(r => r.isValid).length;
     const payload: VideoTelemetryPayload = {
       userId: 'pablo_athlete',
-      exerciseId: selectedExerciseKey,
-      exerciseName: profile.name,
+      exerciseId: selectedPattern.id,
+      exerciseName: selectedPattern.name,
       videoDurationSeconds: auditedReps.length * 3.5,
       hardwareModel: uploadedFileName
         ? `Vídeo: ${uploadedFileName} (OneEuroFilter + FSM + MediaPipe)`
@@ -508,14 +575,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         isValid: r.isValid,
         eccentricTimeSeconds: r.tempo.eccentricSeconds,
         concentricTimeSeconds: r.tempo.concentricSeconds,
-        minElbowAngle: profile.primaryJoint === 'elbow' ? r.techniqueVerdict.romReachedDegrees : undefined,
-        minKneeAngle: profile.primaryJoint === 'knee' ? r.techniqueVerdict.romReachedDegrees : undefined,
-        minHipAngle: profile.primaryJoint === 'hip' ? r.techniqueVerdict.romReachedDegrees : undefined,
+        minElbowAngle: selectedPattern.primaryJoint === 'elbow' ? r.techniqueVerdict.romReachedDegrees : undefined,
+        minKneeAngle: selectedPattern.primaryJoint === 'knee' ? r.techniqueVerdict.romReachedDegrees : undefined,
+        minHipAngle: selectedPattern.primaryJoint === 'hip' ? r.techniqueVerdict.romReachedDegrees : undefined,
         feedbackAlerts: r.techniqueVerdict.feedbackCues.map(c => ({
           ruleId: 'technique_audit',
-          joint: profile.primaryJoint,
+          joint: selectedPattern.primaryJoint,
           measuredValue: r.techniqueVerdict.romReachedDegrees,
-          expectedThreshold: profile.inflectionThreshold,
+          expectedThreshold: selectedPattern.inflectionThreshold,
           message: c
         }))
       }))
@@ -537,6 +604,29 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const scrubberProgress = videoDuration > 0
     ? Math.min(100, Math.max(0, (videoCurrentTime / videoDuration) * 100))
     : 0;
+
+  // Real-time camera plane & applied biomechanical verdict
+  const currentCameraPlane: CameraPlane = currentTelemetry
+    ? detectCameraPlane(poseSmootherRef.current.getLastSmoothed())
+    : 'sagittal';
+
+  const meanHipMoment = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
+  const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
+  const currentVerdict = evaluateBiomechanicalVerdict(
+    targetMuscle,
+    meanHipMoment,
+    meanKneeMoment,
+    currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
+    currentTelemetry?.technique.spinalAngleDegrees ?? 20,
+    75,
+    currentTelemetry?.technique.isSpineNeutral ?? true
+  );
+
+  const hipRaw = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
+  const kneeRaw = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
+  const totalMoment = hipRaw + kneeRaw + 1e-5;
+  const hipShare = Math.round((hipRaw / totalMoment) * 100);
+  const kneeShare = 100 - hipShare;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
@@ -602,107 +692,103 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </button>
         </div>
 
-        {/* Mode 2 Biomechanical Context Options (When in Biomechanics Mode) */}
-        {analysisMode === 'biomechanics' && (
-          <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-2.5 space-y-2 animate-fadeIn">
-            <div className="flex items-center justify-between text-[11px] font-bold text-amber-300">
+        {/* Cascading Filter Hierarchy (Tipo de Carga -> Músculo Objetivo -> Patrón/Ejercicio) */}
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-md">
+          {/* 1. Tipo de Carga (Segmented Button) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Scale className="w-3.5 h-3.5 text-cyan-400" />
+                1. Tipo de Carga
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {loadType === 'gravity' ? 'Gravedad [0, 1]' : loadType === 'cable' ? 'Vector Polea' : 'Brazo de Palanca'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+              {[
+                { key: 'gravity' as LoadType, label: 'Peso Libre (Gravedad)' },
+                { key: 'cable' as LoadType, label: 'Polea / Cable' },
+                { key: 'machine' as LoadType, label: 'Máquina / Palanca' }
+              ].map(item => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setLoadType(item.key)}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold text-center truncate transition-all ${
+                    loadType === item.key
+                      ? 'bg-blue-600 text-white shadow-md font-bold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 2. Músculo Objetivo (Individual chips, NUNCA agrupar Glúteo con Femoral) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
               <span className="flex items-center gap-1.5">
                 <Crosshair className="w-3.5 h-3.5 text-amber-400" />
-                Configuración del Contexto Físico (Brazos de Momento & Línea de Fuerza):
+                2. Músculo Objetivo
               </span>
-              <span className="text-[10px] text-amber-400/80 font-mono">Fórmula: d = |x_art - x_fuerza|</span>
+              <span className="text-[10px] text-amber-400 font-mono">Chips independientes</span>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              {/* Muscle Target Bias Selector */}
-              <div className="bg-slate-900/80 p-2 rounded-xl border border-slate-800 space-y-1">
-                <span className="text-[10px] text-slate-400 font-semibold block">Músculo Objetivo Prioritario:</span>
-                <div className="flex gap-1">
-                  {[
-                    { key: 'quads', label: 'Cuádriceps (Rodilla)' },
-                    { key: 'glutes', label: 'Glúteo / Isquios (Cadera)' },
-                    { key: 'lats', label: 'Dorsal Ancho' }
-                  ].map(b => (
-                    <button
-                      key={b.key}
-                      type="button"
-                      onClick={() => setTargetMuscleBias(b.key as any)}
-                      className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold truncate transition ${
-                        targetMuscleBias === b.key
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Resistance Source Selector */}
-              <div className="bg-slate-900/80 p-2 rounded-xl border border-slate-800 space-y-1">
-                <span className="text-[10px] text-slate-400 font-semibold block">Tipo de Resistencia Externa:</span>
-                <div className="flex gap-1">
-                  {[
-                    { key: 'gravity', label: 'Gravedad (Barra/Mancuerna)' },
-                    { key: 'cable_mid', label: 'Polea / Cable' }
-                  ].map(r => (
-                    <button
-                      key={r.key}
-                      type="button"
-                      onClick={() => setResistanceSource(r.key as any)}
-                      className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold truncate transition ${
-                        resistanceSource === r.key
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { key: 'quadriceps' as TargetMuscle, label: 'Cuádriceps' },
+                { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
+                { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
+                { key: 'lats' as TargetMuscle, label: 'Dorsal' },
+                { key: 'pectorals' as TargetMuscle, label: 'Pectoral' }
+              ].map(m => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => {
+                    setTargetMuscle(m.key);
+                    const patterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === m.key);
+                    if (patterns.length > 0) setSelectedPatternId(patterns[0].id);
+                  }}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
+                    targetMuscle === m.key
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/25'
+                      : 'bg-slate-800/80 text-slate-300 border-slate-700/60 hover:border-slate-500'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
             </div>
           </div>
-        )}
 
-        {/* Exercise Profile Selector */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
-              <Layers className="w-3 h-3 text-cyan-400" />
-              Selecciona el ejercicio:
-            </span>
-            <span className="text-[10px] text-cyan-400 font-mono">
-              Foco: {profile.targetJointDescription}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {[
-              { key: 'lat_pulldown', label: 'Espalda (Jalón/Remo)' },
-              { key: 'biceps_curl', label: 'Bíceps (Curl)' },
-              { key: 'triceps_extension', label: 'Tríceps (Extensión)' },
-              { key: 'rdl_deadlift', label: 'Femoral (Peso Muerto RDL)' },
-              { key: 'bench_press', label: 'Press Pecho (Hammer)' },
-              { key: 'squat', label: 'Sentadilla Libre' },
-              { key: 'leg_press', label: 'Prensa 45°' }
-            ].map(item => (
-              <button
-                key={item.key}
-                onClick={() => {
-                  setSelectedExerciseKey(item.key);
-                  handleReset();
-                }}
-                className={`py-1.5 px-2.5 rounded-xl text-xs font-semibold text-center truncate transition-all ${
-                  selectedExerciseKey === item.key
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 border border-blue-400 font-bold'
-                    : 'bg-slate-800/60 text-slate-400 hover:bg-slate-800 border border-slate-700/50'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+          {/* 3. Patrón / Ejercicio Dependiente */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                3. Patrón / Ejercicio
+              </span>
+              <span className="text-[10px] text-blue-300 font-mono">
+                {selectedPattern.targetRatioDescription}
+              </span>
+            </div>
+            <select
+              value={selectedPattern.id}
+              onChange={e => setSelectedPatternId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 transition"
+            >
+              {availablePatterns.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-slate-400 pl-1">
+              {selectedPattern.description}
+            </p>
           </div>
         </div>
 
@@ -746,7 +832,54 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         </div>
 
         {/* Video Canvas Viewport */}
-        <div className="relative w-full h-72 sm:h-80 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center">
+        <div
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleMouseUp}
+          className={`relative w-full h-72 sm:h-80 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none ${
+            zoom > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+          }`}
+        >
+          {/* Viewport Zoom & Levers Toolbar */}
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-40 bg-black/85 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg">
+            <div className="flex items-center gap-0.5 border-r border-slate-700/80 pr-1 mr-0.5">
+              {[1, 1.5, 2].map(z => (
+                <button
+                  key={z}
+                  type="button"
+                  onClick={() => {
+                    setZoom(z);
+                    if (z === 1) setPanOffset({ x: 0, y: 0 });
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition ${
+                    zoom === z ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={`Zoom ${z}x`}
+                >
+                  {z}x
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowLeverArms(prev => !prev)}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition ${
+                showLeverArms
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title={showLeverArms ? 'Ocultar líneas de palancas' : 'Mostrar líneas de palancas'}
+            >
+              <Sliders className="w-3 h-3" />
+              <span>{showLeverArms ? 'Palancas ON' : 'Palancas OFF'}</span>
+            </button>
+          </div>
+
           {/* HTML5 Video Element with Full Event Tracking */}
           <video
             ref={videoElementRef}
@@ -792,10 +925,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             <div className="text-center space-y-2 p-4 z-10">
               <Video className="w-12 h-12 text-cyan-400/60 mx-auto animate-pulse" />
               <p className="text-xs text-slate-300 font-semibold max-w-xs">
-                Sube tu vídeo de sentadilla, peso muerto, dorsal o banca para evaluar la técnica y los brazos de momento en tiempo real.
+                Sube tu vídeo de sentadilla búlgara, RDL, press o dominada para evaluar los brazos de palanca y sesgo muscular.
               </p>
               <p className="text-[11px] text-slate-500">
-                MediaPipe + OneEuroFilter estabilizan la señal y miden los brazos de palanca articulares.
+                MediaPipe + OneEuroFilter estabilizan la señal sin jitter y calculan d_cadera vs d_rodilla.
               </p>
             </div>
           )}
@@ -816,7 +949,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 <Gauge className="w-4 h-4 text-cyan-400" />
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">
-                    Ángulo {profile.primaryJoint === 'elbow' ? 'de Codo' : profile.primaryJoint === 'hip' ? 'de Cadera' : 'de Rodilla'}
+                    Ángulo {selectedPattern.primaryJoint === 'elbow' ? 'de Codo' : selectedPattern.primaryJoint === 'hip' ? 'de Cadera' : selectedPattern.primaryJoint === 'shoulder' ? 'de Hombro' : 'de Rodilla'}
                   </div>
                   <div className="font-mono text-sm font-black text-white">
                     {currentPrimaryAngle}° <span className="text-[10px] text-cyan-400 font-sans font-bold">({currentPhase})</span>
@@ -825,7 +958,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               {/* Rep Count HUD */}
-              <div className="absolute top-3 right-3 bg-black/85 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
+              <div className="absolute bottom-12 right-3 bg-black/85 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
                 <div className="text-[10px] text-slate-400 font-semibold">Repeticiones FSM</div>
                 <div className="font-mono text-lg font-black text-white">{repCount}</div>
               </div>
@@ -845,7 +978,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="flex items-center gap-1.5">
                     <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                      {currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Espinal'}
+                      {currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Curvatura'}
                     </div>
 
                     <div className="bg-blue-950/80 backdrop-blur-md border border-blue-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-blue-300 flex items-center gap-1">
@@ -1104,57 +1237,76 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         {/* ========================================================= */}
         {analysisMode === 'biomechanics' && currentTelemetry && (
           <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-amber-500/30 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                <Scale className="w-4 h-4 text-amber-400" />
-                Diagnóstico de Brazos de Momento & Sesgo Muscular
-              </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                {currentTelemetry.biomechanics.muscleBiasLabel}
+            {/* Direct Biomechanical Applied Verdict */}
+            <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${currentVerdict.isOptimal ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <h4 className="text-xs font-black text-white">{currentVerdict.verdictTitle}</h4>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                  {currentVerdict.verdictDescription}
+                </p>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0 ${
+                currentVerdict.isOptimal
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              }`}>
+                {currentVerdict.isOptimal ? 'ÓPTIMO' : 'AJUSTAR'}
               </span>
             </div>
 
-            {/* Moment Arms Numbers */}
+            {/* Muscle Dominance Comparison Bar (Cadera vs Rodilla) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                <span className="text-blue-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  Cadera (Glúteo): {hipShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)
+                </span>
+                <span className="text-emerald-400 flex items-center gap-1">
+                  Rodilla (Cuádriceps): {kneeShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.knee * 640)}px)
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                </span>
+              </div>
+              <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                <div className="bg-blue-500 transition-all duration-100" style={{ width: `${hipShare}%` }} />
+                <div className="bg-emerald-500 transition-all duration-100" style={{ width: `${kneeShare}%` }} />
+              </div>
+            </div>
+
+            {/* High-density Physical Telemetry Grid */}
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-amber-400 font-bold uppercase block">d_cadera (Hip)</span>
-                <span className="text-base font-black text-amber-300 font-mono">
-                  {Math.round(currentTelemetry.biomechanics.momentArms.hip * 100)} cm
+              <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 font-bold uppercase block">Inclinación Tibial</span>
+                <span className="text-xs font-black text-cyan-300 font-mono">
+                  {currentTelemetry.biomechanics.tibialAngleDegrees}°
                 </span>
-                <span className="text-[9px] text-slate-500 block">Brazo de momento</span>
+                <span className="text-[9px] text-slate-500 block">
+                  {currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)'}
+                </span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-cyan-400 font-bold uppercase block">d_rodilla (Knee)</span>
-                <span className="text-base font-black text-cyan-300 font-mono">
-                  {Math.round(currentTelemetry.biomechanics.momentArms.knee * 100)} cm
+              <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 font-bold uppercase block">Plano de Grabación</span>
+                <span className="text-xs font-black text-purple-300 font-mono">
+                  {currentCameraPlane === 'sagittal' ? 'Sagital (Perfil)' : currentCameraPlane === 'frontal' ? 'Frontal' : 'Oblicuo'}
                 </span>
-                <span className="text-[9px] text-slate-500 block">Brazo de momento</span>
+                <span className="text-[9px] text-slate-500 block">
+                  {currentCameraPlane === 'sagittal' ? 'Valgo no aplicable' : 'Valgo frontal'}
+                </span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-purple-400 font-bold uppercase block">Ratio Dominancia</span>
-                <span className="text-base font-black text-purple-300 font-mono">
-                  {currentTelemetry.biomechanics.momentArms.hipOverKneeRatio}
+              <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[9px] text-slate-400 font-bold uppercase block">Columna / Curvatura</span>
+                <span className={`text-xs font-black font-mono block ${
+                  currentTelemetry.technique.isSpineNeutral ? 'text-emerald-400' : 'text-rose-400'
+                }`}>
+                  {currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)'}
                 </span>
-                <span className="text-[9px] text-slate-500 block">d_cadera / d_rodilla</span>
-              </div>
-            </div>
-
-            {/* Scientific Biomechanical Assessment */}
-            <div className="p-2.5 rounded-xl bg-amber-950/20 border border-amber-500/25 text-xs text-amber-200 space-y-1">
-              <div className="font-bold text-amber-300 flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
-                Perfil de Resistencia vs Hipertrofia Mediada por Estiramiento:
-              </div>
-              <p className="text-[11px] leading-relaxed text-amber-100/90">
-                {currentTelemetry.biomechanics.momentArms.hipOverKneeRatio > 1.25
-                  ? 'Variante con dominancia de cadera: el mayor brazo de palanca horizontal en flexión profunda maximiza la tensión mecánica sobre el glúteo mayor e isquiosurales.'
-                  : 'Variante con dominancia de rodilla: el avance tibial y dorsiflexión desplazan el vector de carga hacia el tendón rotuliano, aislando el cuádriceps.'}
-              </p>
-              <div className="pt-1 flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>Inclinación tibial: <strong className="text-cyan-300">{currentTelemetry.biomechanics.tibialAngleDegrees}°</strong></span>
-                <span>Pico de torque: <strong className="text-emerald-300">{currentTelemetry.biomechanics.resistancePeakLocation}</strong></span>
+                <span className="text-[9px] text-slate-500 block">
+                  {currentTelemetry.technique.spinalAngleDegrees}° inclinación
+                </span>
               </div>
             </div>
           </div>

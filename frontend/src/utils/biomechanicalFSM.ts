@@ -1,15 +1,19 @@
 /**
- * Biomechanical Finite State Machine (FSM) with Hysteresis
+ * Biomechanical Finite State Machine (FSM) & Repetition Counter
  *
- * Implements a 4-phase state machine driven by angular position and sustained
- * angular velocity (dθ/dt) to eliminate false state transitions, micro-stutters,
- * and premature repetition counting.
+ * Implements a non-blocking 4-phase state machine driven by joint angle θ
+ * and smoothed angular velocity (dθ/dt).
  *
- * Phases:
- * - LOCKOUT / TOP: Starting joint angle or locked out finish.
- * - ECCENTRIC: Controlled yielding / lengthening under tension.
- * - BOTTOM / INFLECTION: Direction reversal / peak excursion / stretch pause.
- * - CONCENTRIC: Acceleration and propulsive phase back toward lockout.
+ * States:
+ * - LOCKOUT: Initial static or extended posture.
+ * - ECCENTRIC: Active lowering/yielding phase (dθ/dt < -V_thresh for >= 3 frames).
+ * - BOTTOM: Zero-velocity turnaround zone (inflection point). Captures maximum
+ *           excursion, peak moment arms, and dwell time.
+ * - CONCENTRIC: Ascending propulsion phase (dθ/dt > +V_thresh).
+ * - COMPLETION: Return near lockout OR turnaround after >= 35° excursion.
+ *
+ * Never freezes in CONCENTRIC: incorporates reversal escape hatches and minimum
+ * excursion hysteresis (>= 35°-40°) to avoid counting noise or premature stalls.
  */
 
 export type FsmPhase = 'LOCKOUT' | 'ECCENTRIC' | 'BOTTOM' | 'CONCENTRIC';
@@ -19,7 +23,7 @@ export interface RepTempoMetrics {
   bottomPauseDurationSeconds: number;
   concentricDurationSeconds: number;
   totalDurationSeconds: number;
-  tempoString: string; // e.g. "3-1-1"
+  tempoString: string; // e.g. "3.0s - 0.8s - 1.2s"
 }
 
 export interface CompletedRepetition {
@@ -38,14 +42,26 @@ export interface CompletedRepetition {
 }
 
 export interface FsmConfig {
-  trackingMode: 'descending' | 'ascending'; // descending = angle decreases during eccentric (e.g. Squat); ascending = angle increases during eccentric (e.g. Triceps ext)
-  lockoutThreshold: number;   // Nominal angle at full extension (e.g. 165°)
-  inflectionThreshold: number;// Target angle at bottom (e.g. 90°)
-  hysteresisAngleBand: number;// Minimum angle excursion to trigger phase exit (e.g. 8°)
-  velocityThresholdDegPerSec: number; // Angular velocity threshold (e.g. 15°/s)
-  minPhaseDurationMs: number; // Minimum duration in a phase before transition is eligible (e.g. 120ms)
-  bounceThresholdMs: number;  // Pause less than this is considered a bounce (e.g. 150ms)
+  trackingMode: 'descending' | 'ascending';
+  lockoutThreshold: number;       // Nominal angle at full extension (e.g. 165°)
+  inflectionThreshold: number;    // Target angle at bottom (e.g. 90°)
+  hysteresisAngleBand: number;    // Excursion required to start eccentric (e.g. 10°)
+  velocityThresholdDegPerSec: number; // e.g. 18°/s
+  minPhaseDurationMs: number;     // e.g. 120ms
+  bounceThresholdMs: number;      // Pause < 140ms is a bounce
+  minRepExcursionDeg: number;     // Minimum 35°-40° net excursion required to register a repetition
 }
+
+export const DEFAULT_FSM_CONFIG: FsmConfig = {
+  trackingMode: 'descending',
+  lockoutThreshold: 165,
+  inflectionThreshold: 90,
+  hysteresisAngleBand: 10,
+  velocityThresholdDegPerSec: 18,
+  minPhaseDurationMs: 120,
+  bounceThresholdMs: 140,
+  minRepExcursionDeg: 35
+};
 
 export class BiomechanicalFSM {
   private phase: FsmPhase = 'LOCKOUT';
@@ -57,7 +73,7 @@ export class BiomechanicalFSM {
 
   private minAngleInRep: number = 180;
   private maxAngleInRep: number = 0;
-  private startAngleInRep: number = 180;
+  private startAngleInRep: number = 165;
   private calibratedTopAngle: number = 165;
 
   private peakEccentricVelocity: number = 0;
@@ -66,18 +82,23 @@ export class BiomechanicalFSM {
   private completedReps: CompletedRepetition[] = [];
   private lastRepEndTime: number = -999999;
 
-  // Smoothing for angular velocity
+  // Angular velocity smoothing (EMA)
   private prevAngle: number = 165;
   private prevTimestamp: number = 0;
   private smoothedVelocity: number = 0;
 
   // Frame persistence counters for hysteresis
   private consecutiveVelFrames: number = 0;
+  private bottomDwellFrames: number = 0;
 
-  constructor(private config: FsmConfig) {
-    this.calibratedTopAngle = config.lockoutThreshold;
-    this.minAngleInRep = config.lockoutThreshold;
-    this.maxAngleInRep = config.lockoutThreshold;
+  private config: FsmConfig;
+
+  constructor(config: Partial<FsmConfig> = {}) {
+    this.config = { ...DEFAULT_FSM_CONFIG, ...config };
+    this.calibratedTopAngle = this.config.lockoutThreshold;
+    this.minAngleInRep = this.config.lockoutThreshold;
+    this.maxAngleInRep = this.config.lockoutThreshold;
+    this.startAngleInRep = this.config.lockoutThreshold;
   }
 
   public getPhase(): FsmPhase {
@@ -90,6 +111,10 @@ export class BiomechanicalFSM {
 
   public getCompletedReps(): CompletedRepetition[] {
     return this.completedReps;
+  }
+
+  public getMinAngleInCurrentRep(): number {
+    return this.minAngleInRep;
   }
 
   public reset(): void {
@@ -111,11 +136,12 @@ export class BiomechanicalFSM {
     this.prevTimestamp = 0;
     this.smoothedVelocity = 0;
     this.consecutiveVelFrames = 0;
+    this.bottomDwellFrames = 0;
   }
 
   /**
-   * Process a new stabilized joint angle frame with timestamp.
-   * Returns a newly completed rep if this frame finished a rep, or null.
+   * Evaluates incoming frame with current angle and monotonic timestamp.
+   * Returns newly completed repetition or null.
    */
   public update(currentAngle: number, timestampMs: number): CompletedRepetition | null {
     if (this.prevTimestamp === 0 || timestampMs <= this.prevTimestamp) {
@@ -125,9 +151,9 @@ export class BiomechanicalFSM {
     }
 
     const dtSec = Math.max((timestampMs - this.prevTimestamp) / 1000, 0.005);
-    const rawVelocity = (currentAngle - this.prevAngle) / dtSec; // deg/s (+ increasing, - decreasing)
+    const rawVelocity = (currentAngle - this.prevAngle) / dtSec; // deg/sec (+ increasing, - decreasing)
 
-    // EMA smoothing on angular velocity
+    // EMA smoothing on angular velocity: alpha = 0.65
     this.smoothedVelocity = 0.65 * rawVelocity + 0.35 * this.smoothedVelocity;
     this.prevAngle = currentAngle;
     this.prevTimestamp = timestampMs;
@@ -137,25 +163,20 @@ export class BiomechanicalFSM {
 
     let finishedRep: CompletedRepetition | null = null;
 
-    // Track extremes
+    // Track extremes in current repetition
     if (currentAngle < this.minAngleInRep) this.minAngleInRep = currentAngle;
     if (currentAngle > this.maxAngleInRep) this.maxAngleInRep = currentAngle;
 
-    // State Machine logic with hysteresis
     switch (this.phase) {
       case 'LOCKOUT': {
-        // Calibrate top angle when static near top
+        // Calibrate top starting posture when static
         if (isDescendingMode) {
           if (currentAngle > this.calibratedTopAngle && currentAngle <= 180) {
             this.calibratedTopAngle = currentAngle;
           }
-          // Condition to enter ECCENTRIC:
-          // 1. Angle has dropped past hysteresis band
-          // 2. Velocity is negative and sustained
-          // 3. Cooldown from previous rep (at least 800ms)
           const angleDropped = currentAngle <= this.calibratedTopAngle - this.config.hysteresisAngleBand;
           const velocityDown = this.smoothedVelocity <= -this.config.velocityThresholdDegPerSec;
-          const repCooldownOk = (timestampMs - this.lastRepEndTime) >= 700;
+          const cooldownOk = (timestampMs - this.lastRepEndTime) >= 500;
 
           if (velocityDown) {
             this.consecutiveVelFrames++;
@@ -163,7 +184,8 @@ export class BiomechanicalFSM {
             this.consecutiveVelFrames = 0;
           }
 
-          if (angleDropped && this.consecutiveVelFrames >= 2 && repCooldownOk) {
+          // Require >= 2-3 frames of sustained downward velocity
+          if (angleDropped && this.consecutiveVelFrames >= 2 && cooldownOk) {
             this.transitionTo('ECCENTRIC', timestampMs);
             this.repStartTime = timestampMs;
             this.eccentricStartTime = timestampMs;
@@ -172,15 +194,16 @@ export class BiomechanicalFSM {
             this.maxAngleInRep = this.calibratedTopAngle;
             this.peakEccentricVelocity = Math.abs(this.smoothedVelocity);
             this.peakConcentricVelocity = 0;
+            this.bottomDwellFrames = 0;
           }
         } else {
-          // Ascending mode (e.g. triceps flexion -> extension)
+          // Ascending mode
           if (currentAngle < this.calibratedTopAngle && currentAngle >= 60) {
             this.calibratedTopAngle = currentAngle;
           }
           const angleRaised = currentAngle >= this.calibratedTopAngle + this.config.hysteresisAngleBand;
           const velocityUp = this.smoothedVelocity >= this.config.velocityThresholdDegPerSec;
-          const repCooldownOk = (timestampMs - this.lastRepEndTime) >= 700;
+          const cooldownOk = (timestampMs - this.lastRepEndTime) >= 500;
 
           if (velocityUp) {
             this.consecutiveVelFrames++;
@@ -188,7 +211,7 @@ export class BiomechanicalFSM {
             this.consecutiveVelFrames = 0;
           }
 
-          if (angleRaised && this.consecutiveVelFrames >= 2 && repCooldownOk) {
+          if (angleRaised && this.consecutiveVelFrames >= 2 && cooldownOk) {
             this.transitionTo('ECCENTRIC', timestampMs);
             this.repStartTime = timestampMs;
             this.eccentricStartTime = timestampMs;
@@ -197,6 +220,7 @@ export class BiomechanicalFSM {
             this.maxAngleInRep = currentAngle;
             this.peakEccentricVelocity = Math.abs(this.smoothedVelocity);
             this.peakConcentricVelocity = 0;
+            this.bottomDwellFrames = 0;
           }
         }
         break;
@@ -209,31 +233,37 @@ export class BiomechanicalFSM {
         }
 
         if (isDescendingMode) {
-          // Transition to BOTTOM when:
-          // Angle approaches inflection OR velocity slows near zero/reverses
-          const reachedDepth = currentAngle <= this.config.inflectionThreshold + 8;
-          const velocityStalledOrReversed = this.smoothedVelocity >= -8;
+          // Bottom inflection is entered when:
+          // 1. Angle reaches deep inflection zone AND velocity stalls (|velocity| <= 15 deg/s or reverses)
+          // 2. OR velocity definitively reverses upward (smoothedVelocity > 0)
+          const nearDepth = currentAngle <= this.config.inflectionThreshold + 18;
+          const velocityStalled = this.smoothedVelocity >= -15;
+          const velocityReversed = this.smoothedVelocity > 5;
 
-          if (phaseElapsedMs >= this.config.minPhaseDurationMs && (reachedDepth || velocityStalledOrReversed)) {
+          if (phaseElapsedMs >= this.config.minPhaseDurationMs && ((nearDepth && velocityStalled) || velocityReversed)) {
             this.transitionTo('BOTTOM', timestampMs);
             this.bottomStartTime = timestampMs;
+            this.bottomDwellFrames = 0;
           }
         } else {
-          const reachedPeak = currentAngle >= this.config.inflectionThreshold - 8;
-          const velocityStalledOrReversed = this.smoothedVelocity <= 8;
+          const nearPeak = currentAngle >= this.config.inflectionThreshold - 18;
+          const velocityStalled = this.smoothedVelocity <= 15;
+          const velocityReversed = this.smoothedVelocity < -5;
 
-          if (phaseElapsedMs >= this.config.minPhaseDurationMs && (reachedPeak || velocityStalledOrReversed)) {
+          if (phaseElapsedMs >= this.config.minPhaseDurationMs && ((nearPeak && velocityStalled) || velocityReversed)) {
             this.transitionTo('BOTTOM', timestampMs);
             this.bottomStartTime = timestampMs;
+            this.bottomDwellFrames = 0;
           }
         }
         break;
       }
 
       case 'BOTTOM': {
-        // In BOTTOM phase, we measure dwell time (stretch pause)
+        this.bottomDwellFrames++;
+
         if (isDescendingMode) {
-          // Transition to CONCENTRIC when velocity becomes clearly positive
+          // Transition to CONCENTRIC when velocity becomes positive and sustained
           const velocityUp = this.smoothedVelocity >= this.config.velocityThresholdDegPerSec;
           const angleRebounded = currentAngle >= this.minAngleInRep + 6;
 
@@ -260,25 +290,44 @@ export class BiomechanicalFSM {
         }
 
         if (isDescendingMode) {
-          // Rep finishes when angle returns near lockout
-          const reachedTop = currentAngle >= this.calibratedTopAngle - this.config.hysteresisAngleBand ||
-            currentAngle >= this.config.lockoutThreshold - 10;
-          const totalExcursion = this.calibratedTopAngle - this.minAngleInRep;
+          const totalExcursion = this.startAngleInRep - this.minAngleInRep;
+          // Normal Lockout Completion:
+          // Returns within 15° of start or reaches lockout threshold
+          const reachedLockout = currentAngle >= this.calibratedTopAngle - 15 ||
+            currentAngle >= this.config.lockoutThreshold - 18;
 
-          if (phaseElapsedMs >= this.config.minPhaseDurationMs && reachedTop && totalExcursion >= 25) {
+          // REVERSAL ESCAPE HATCH (Anti-freeze):
+          // If athlete ascended significantly (>= 35° excursion from bottom) and starts descending again
+          // (smoothedVelocity <= -15), finalize previous rep immediately so counter NEVER gets stuck!
+          const ascendedFar = (currentAngle - this.minAngleInRep) >= this.config.minRepExcursionDeg;
+          const reDescending = this.smoothedVelocity <= -this.config.velocityThresholdDegPerSec;
+
+          if ((phaseElapsedMs >= this.config.minPhaseDurationMs && reachedLockout && totalExcursion >= this.config.minRepExcursionDeg) ||
+              (phaseElapsedMs >= 300 && ascendedFar && reDescending)) {
             finishedRep = this.finalizeRep(currentAngle, timestampMs);
-            this.transitionTo('LOCKOUT', timestampMs);
+            this.transitionTo(reDescending ? 'ECCENTRIC' : 'LOCKOUT', timestampMs);
             this.lastRepEndTime = timestampMs;
+            if (reDescending) {
+              this.startAngleInRep = currentAngle;
+              this.minAngleInRep = currentAngle;
+            }
           }
         } else {
-          const reachedTop = currentAngle <= this.calibratedTopAngle + this.config.hysteresisAngleBand ||
-            currentAngle <= this.config.lockoutThreshold + 10;
-          const totalExcursion = this.maxAngleInRep - this.calibratedTopAngle;
+          const totalExcursion = this.maxAngleInRep - this.startAngleInRep;
+          const reachedLockout = currentAngle <= this.calibratedTopAngle + 15 ||
+            currentAngle <= this.config.lockoutThreshold + 18;
+          const ascendedFar = (this.maxAngleInRep - currentAngle) >= this.config.minRepExcursionDeg;
+          const reDescending = this.smoothedVelocity >= this.config.velocityThresholdDegPerSec;
 
-          if (phaseElapsedMs >= this.config.minPhaseDurationMs && reachedTop && totalExcursion >= 25) {
+          if ((phaseElapsedMs >= this.config.minPhaseDurationMs && reachedLockout && totalExcursion >= this.config.minRepExcursionDeg) ||
+              (phaseElapsedMs >= 300 && ascendedFar && reDescending)) {
             finishedRep = this.finalizeRep(currentAngle, timestampMs);
-            this.transitionTo('LOCKOUT', timestampMs);
+            this.transitionTo(reDescending ? 'ECCENTRIC' : 'LOCKOUT', timestampMs);
             this.lastRepEndTime = timestampMs;
+            if (reDescending) {
+              this.startAngleInRep = currentAngle;
+              this.maxAngleInRep = currentAngle;
+            }
           }
         }
         break;
@@ -308,14 +357,14 @@ export class BiomechanicalFSM {
       : (this.maxAngleInRep - this.startAngleInRep);
 
     const isRomFull = isDescending
-      ? this.minAngleInRep <= this.config.inflectionThreshold + 6
-      : this.maxAngleInRep >= this.config.inflectionThreshold - 6;
+      ? this.minAngleInRep <= this.config.inflectionThreshold + 10
+      : this.maxAngleInRep >= this.config.inflectionThreshold - 10;
 
     const bottomBounceDetected = (this.concentricStartTime - this.bottomStartTime) < this.config.bounceThresholdMs;
 
     const repRecord: CompletedRepetition = {
       repIndex: this.completedReps.length + 1,
-      isValid: isRomFull && romExcursion >= 30,
+      isValid: isRomFull && romExcursion >= this.config.minRepExcursionDeg,
       tempo: {
         eccentricDurationSeconds: eccDuration,
         bottomPauseDurationSeconds: bottomPauseDuration,

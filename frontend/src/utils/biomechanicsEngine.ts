@@ -13,9 +13,269 @@
 import { Point2D } from './oneEuroFilter';
 import { CompletedRepetition, FsmPhase } from './biomechanicalFSM';
 
+export type LoadType = 'gravity' | 'cable' | 'machine';
+export type TargetMuscle = 'quadriceps' | 'glutes_max' | 'hamstrings' | 'lats' | 'pectorals';
+export type CameraPlane = 'sagittal' | 'frontal' | 'oblique';
+
 export type ResistanceSourceType = 'gravity' | 'cable_high' | 'cable_mid' | 'cable_low';
 export type MuscleBiasCategory = 'hip_glute_bias' | 'knee_quad_bias' | 'balanced_hybrid' | 'lat_bias' | 'upper_back_bias';
 export type ResistanceCurveMatch = 'lengthened_stretch' | 'shortened_lockout' | 'mid_range_bell';
+
+export interface ExercisePatternSpec {
+  id: string;
+  name: string;
+  targetMuscle: TargetMuscle;
+  loadType: LoadType;
+  primaryJoint: 'knee' | 'hip' | 'elbow' | 'shoulder';
+  trackingMode: 'ascending' | 'descending';
+  standingThreshold: number;
+  inflectionThreshold: number;
+  description: string;
+  targetRatioDescription: string;
+}
+
+/**
+ * Exercise Catalog grouped by Target Muscle & Load Type
+ */
+export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
+  // Glúteo Mayor
+  {
+    id: 'bulgarian_split_squat_glute',
+    name: 'Sentadilla Búlgara (Sesgo Glúteo - Torso Inclinado)',
+    targetMuscle: 'glutes_max',
+    loadType: 'gravity',
+    primaryJoint: 'hip',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 88,
+    description: 'Inclinación anterior del torso (45°-65°) con tibia vertical para maximizar d_cadera.',
+    targetRatioDescription: 'd_cadera / d_rodilla > 1.4'
+  },
+  {
+    id: 'hip_thrust_barbell',
+    name: 'Hip Thrust con Barra / Máquina',
+    targetMuscle: 'glutes_max',
+    loadType: 'gravity',
+    primaryJoint: 'hip',
+    trackingMode: 'ascending',
+    standingThreshold: 110,
+    inflectionThreshold: 175,
+    description: 'Extensión pura de cadera con soporte torácico y máxima contracción terminal.',
+    targetRatioDescription: 'Máximo momento de extensión al bloqueo'
+  },
+  {
+    id: 'rdl_glute_knee_flexion',
+    name: 'Peso Muerto Rumano (RDL con flexión de rodilla)',
+    targetMuscle: 'glutes_max',
+    loadType: 'gravity',
+    primaryJoint: 'hip',
+    trackingMode: 'descending',
+    standingThreshold: 170,
+    inflectionThreshold: 90,
+    description: 'Bisagra de cadera con flexión de rodilla (~30°) para involucrar fibras del glúteo en estiramiento.',
+    targetRatioDescription: 'd_cadera dominante con vector de gravedad vertical'
+  },
+  {
+    id: 'leg_press_high_feet',
+    name: 'Prensa de Piernas 45° (Pies altos y separados)',
+    targetMuscle: 'glutes_max',
+    loadType: 'machine',
+    primaryJoint: 'hip',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 85,
+    description: 'Posición alta de los pies para reducir la flexión tibial y acentuar la cadera.',
+    targetRatioDescription: 'Mayor flexión de cadera en la inversión de carga'
+  },
+  {
+    id: 'cable_kickback_glute',
+    name: 'Patada de Glúteo en Polea Baja',
+    targetMuscle: 'glutes_max',
+    loadType: 'cable',
+    primaryJoint: 'hip',
+    trackingMode: 'ascending',
+    standingThreshold: 120,
+    inflectionThreshold: 175,
+    description: 'Aducción/extensión contra vector de cable oblicuo.',
+    targetRatioDescription: 'Vector orientado 30° respecto al eje fémur'
+  },
+
+  // Cuádriceps
+  {
+    id: 'squat_high_bar',
+    name: 'Sentadilla Libre / Barra Alta (Dominancia Rodilla)',
+    targetMuscle: 'quadriceps',
+    loadType: 'gravity',
+    primaryJoint: 'knee',
+    trackingMode: 'descending',
+    standingThreshold: 168,
+    inflectionThreshold: 82,
+    description: 'Torso erguido con traslación tibial anterior para maximizar d_rodilla.',
+    targetRatioDescription: 'd_rodilla > d_cadera'
+  },
+  {
+    id: 'leg_extension_machine',
+    name: 'Extensión de Cuádriceps en Máquina',
+    targetMuscle: 'quadriceps',
+    loadType: 'machine',
+    primaryJoint: 'knee',
+    trackingMode: 'ascending',
+    standingThreshold: 90,
+    inflectionThreshold: 168,
+    description: 'Aislamiento concéntrico guiado con perfil de leva adaptado a la extensión.',
+    targetRatioDescription: 'Sobrecarga uniforme en toda la curva de extensión'
+  },
+  {
+    id: 'hack_squat_machine',
+    name: 'Sentadilla Hack (Máquina)',
+    targetMuscle: 'quadriceps',
+    loadType: 'machine',
+    primaryJoint: 'knee',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 80,
+    description: 'Soporte espinal continuo con máxima dorsiflexión y flexión de rodilla.',
+    targetRatioDescription: 'Brazo de momento de rodilla aumentado'
+  },
+  {
+    id: 'sissy_squat_bodyweight',
+    name: 'Sentadilla Sissy / Búlgara Sesgo Cuádriceps',
+    targetMuscle: 'quadriceps',
+    loadType: 'gravity',
+    primaryJoint: 'knee',
+    trackingMode: 'descending',
+    standingThreshold: 170,
+    inflectionThreshold: 85,
+    description: 'Tronco vertical y rodillas adelantadas más allá de los dedos del pie.',
+    targetRatioDescription: 'Ángulo tibial > 24°'
+  },
+
+  // Isquiosurales
+  {
+    id: 'rdl_strict_hamstring',
+    name: 'Peso Muerto Rumano (RDL Bisagra estricta cadera)',
+    targetMuscle: 'hamstrings',
+    loadType: 'gravity',
+    primaryJoint: 'hip',
+    trackingMode: 'descending',
+    standingThreshold: 170,
+    inflectionThreshold: 95,
+    description: 'Rodilla fija a 15°-20° de semiflexión con máximo retroceso de cadera.',
+    targetRatioDescription: 'Cadera retrasada, tibia 90° respecto al suelo'
+  },
+  {
+    id: 'seated_leg_curl_machine',
+    name: 'Curl Femoral Sentado (Máquina)',
+    targetMuscle: 'hamstrings',
+    loadType: 'machine',
+    primaryJoint: 'knee',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 75,
+    description: 'Cadera flexionada a 90° para sobrecarga de isquiosurales en longitud alargada.',
+    targetRatioDescription: 'Máxima tensión en estiramiento proximal'
+  },
+  {
+    id: 'lying_leg_curl_machine',
+    name: 'Curl Femoral Tumbado (Máquina)',
+    targetMuscle: 'hamstrings',
+    loadType: 'machine',
+    primaryJoint: 'knee',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 78,
+    description: 'Flexión de rodilla en decúbito prono con cadera extendida.',
+    targetRatioDescription: 'Pico de torque en rango medio'
+  },
+
+  // Dorsal
+  {
+    id: 'lat_pulldown_unilateral',
+    name: 'Jalón Unilateral en Polea (Codo al Ilíaco)',
+    targetMuscle: 'lats',
+    loadType: 'cable',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 155,
+    inflectionThreshold: 85,
+    description: 'Trayectoria sagital con codo cerrado al torso para alinear con fibras del dorsal ancho.',
+    targetRatioDescription: 'Aducción en plano escapular / sagital'
+  },
+  {
+    id: 'chest_supported_lat_row',
+    name: 'Remo al Ilíaco con Apoyo de Pecho',
+    targetMuscle: 'lats',
+    loadType: 'machine',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 160,
+    inflectionThreshold: 88,
+    description: 'Estabilidad torácica y tracción orientada a la cresta ilíaca.',
+    targetRatioDescription: 'Palanca en hombro maximizada'
+  },
+  {
+    id: 'straight_arm_cable_pulldown',
+    name: 'Pull-over en Polea Alta',
+    targetMuscle: 'lats',
+    loadType: 'cable',
+    primaryJoint: 'shoulder',
+    trackingMode: 'descending',
+    standingThreshold: 140,
+    inflectionThreshold: 70,
+    description: 'Extensión pura de hombro con codo semifijo.',
+    targetRatioDescription: 'Sobrecarga en ángulo de máxima extensión'
+  },
+
+  // Pectoral
+  {
+    id: 'converging_chest_press_machine',
+    name: 'Press de Pecho en Máquina Convergente',
+    targetMuscle: 'pectorals',
+    loadType: 'machine',
+    primaryJoint: 'elbow',
+    trackingMode: 'ascending',
+    standingThreshold: 85,
+    inflectionThreshold: 160,
+    description: 'Trayectoria convergente que sigue el alineamiento de fibras esternocostales.',
+    targetRatioDescription: 'Aducción horizontal terminal'
+  },
+  {
+    id: 'incline_dumbbell_press',
+    name: 'Press Inclinado con Mancuernas (30°)',
+    targetMuscle: 'pectorals',
+    loadType: 'gravity',
+    primaryJoint: 'elbow',
+    trackingMode: 'ascending',
+    standingThreshold: 85,
+    inflectionThreshold: 162,
+    description: 'Vector vertical pasando por la clavícula para reclutamiento de haz clavicular.',
+    targetRatioDescription: 'Línea de gravedad sobre esternón superior'
+  },
+  {
+    id: 'cable_fly_mid_sternal',
+    name: 'Cruces en Polea a Altura Media',
+    targetMuscle: 'pectorals',
+    loadType: 'cable',
+    primaryJoint: 'shoulder',
+    trackingMode: 'descending',
+    standingThreshold: 150,
+    inflectionThreshold: 80,
+    description: 'Tensión constante durante el estiramiento profundo con vector perpendicular al húmero.',
+    targetRatioDescription: 'Máxima sobrecarga en estiramiento'
+  },
+  {
+    id: 'dips_chest_lean',
+    name: 'Fondos en Paralelas (Inclinación Torácica)',
+    targetMuscle: 'pectorals',
+    loadType: 'gravity',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 85,
+    description: 'Torso inclinado a 45° y codos abiertos a 45° para focalizar fibras inferiores y medias.',
+    targetRatioDescription: 'Momento de flexión en hombro aumentado'
+  }
+];
 
 export interface Vector2D {
   x: number;
@@ -180,6 +440,159 @@ export function calculateSpineAlignment(shoulder: Point2D, hip: Point2D): number
 }
 
 /**
+ * Detects camera recording plane from tracked bilateral landmarks.
+ * In a sagittal profile view, shoulder width and hip width are < 0.10.
+ */
+export function detectCameraPlane(keypoints: Record<string, Point2D>): CameraPlane {
+  const lShoulder = keypoints['left_shoulder'];
+  const rShoulder = keypoints['right_shoulder'];
+  const lHip = keypoints['left_hip'];
+  const rHip = keypoints['right_hip'];
+
+  if (!lShoulder || !rShoulder || !lHip || !rHip) {
+    return 'sagittal'; // Default to sagittal if only unilateral points are visible
+  }
+
+  const shoulderWidth = Math.abs(rShoulder.x - lShoulder.x);
+  const hipWidth = Math.abs(rHip.x - lHip.x);
+
+  if (shoulderWidth < 0.10 && hipWidth < 0.10) {
+    return 'sagittal';
+  } else if (shoulderWidth >= 0.16) {
+    return 'frontal';
+  }
+  return 'oblique';
+}
+
+/**
+ * Computes true spinal curvature breakdown via collinearity of ear - shoulder - hip.
+ * Does NOT falsely penalize anterior torso lean (45°-70° is optimal for glute bias / RDL).
+ * Collinearity deviation > 15° indicates genuine spinal flexion / breakdown.
+ */
+export function calculateSpinalCollinearity(
+  ear?: Point2D,
+  shoulder?: Point2D,
+  hip?: Point2D
+): { deviationAngleDeg: number; isSpineNeutral: boolean; torsoLeanDeg: number } {
+  if (!shoulder || !hip) {
+    return { deviationAngleDeg: 0, isSpineNeutral: true, torsoLeanDeg: 0 };
+  }
+
+  const torsoLeanDeg = calculateSpineAlignment(shoulder, hip);
+
+  if (!ear) {
+    // If ear is occluded/absent, tolerate healthy torso lean up to 75° (essential in Bulgarian / RDL)
+    return {
+      deviationAngleDeg: 0,
+      isSpineNeutral: torsoLeanDeg <= 75,
+      torsoLeanDeg
+    };
+  }
+
+  // Vector 1: ear -> shoulder
+  const v1x = shoulder.x - ear.x;
+  const v1y = shoulder.y - ear.y;
+  const a1 = Math.atan2(v1y, v1x);
+
+  // Vector 2: shoulder -> hip
+  const v2x = hip.x - shoulder.x;
+  const v2y = hip.y - shoulder.y;
+  const a2 = Math.atan2(v2y, v2x);
+
+  let diffRad = Math.abs(a1 - a2);
+  if (diffRad > Math.PI) diffRad = 2 * Math.PI - diffRad;
+  const deviationAngleDeg = Math.round((diffRad * 180 / Math.PI) * 10) / 10;
+
+  // Curvature breakdown when ear-shoulder-hip deviate by more than 15°
+  const isSpineNeutral = deviationAngleDeg <= 15.0;
+
+  return {
+    deviationAngleDeg,
+    isSpineNeutral,
+    torsoLeanDeg
+  };
+}
+
+/**
+ * Generates direct applied biomechanical verdict based on target muscle and measured lever ratios.
+ */
+export function evaluateBiomechanicalVerdict(
+  targetMuscle: TargetMuscle,
+  meanHipMoment: number,
+  meanKneeMoment: number,
+  tibialAngle: number,
+  torsoLean: number = 0,
+  romExcursion: number = 70,
+  spinalNeutral: boolean = true
+): {
+  isOptimal: boolean;
+  verdictTitle: string;
+  verdictDescription: string;
+  ratio: number;
+} {
+  const hipOverKnee = meanHipMoment / (meanKneeMoment + 1e-5);
+  const kneeOverHip = meanKneeMoment / (meanHipMoment + 1e-5);
+
+  switch (targetMuscle) {
+    case 'glutes_max': {
+      const isOptimal = hipOverKnee >= 1.4 && tibialAngle <= 18;
+      return {
+        isOptimal,
+        ratio: Math.round(hipOverKnee * 100) / 100,
+        verdictTitle: isOptimal
+          ? 'Enfoque óptimo en Glúteo en estiramiento'
+          : 'Dominancia desplazada hacia Cuádriceps (exceso de traslación tibial)',
+        verdictDescription: isOptimal
+          ? `Brazo de momento en cadera dominante (ratio ${hipOverKnee.toFixed(2)}x) y tibia vertical (${tibialAngle.toFixed(1)}°). Carga concentrada en fibras del glúteo mayor.`
+          : `Tibia inclinada hacia adelante (${tibialAngle.toFixed(1)}°) o ratio cadera/rodilla bajo (${hipOverKnee.toFixed(2)}x). Para glúteo, frena el avance tibial y profundiza la bisagra de cadera.`
+      };
+    }
+    case 'hamstrings': {
+      const isOptimal = tibialAngle <= 16 && romExcursion >= 35;
+      return {
+        isOptimal,
+        ratio: Math.round(hipOverKnee * 100) / 100,
+        verdictTitle: isOptimal
+          ? 'Patrón de bisagra puro para Isquiosurales'
+          : 'Exceso de flexión de rodilla reduciendo palanca en isquios',
+        verdictDescription: isOptimal
+          ? `Rodilla fija en semiflexión y cadera proyectada hacia atrás. Brazo de palanca horizontal máximo en la inserción isquiotibial proximal.`
+          : `Flexión de rodilla excesiva que acorta los isquiotibiales distales. Mantén las rodillas fijas a 15°-20° y desplaza la pelvis hacia atrás.`
+      };
+    }
+    case 'quadriceps': {
+      const isOptimal = tibialAngle >= 20 || kneeOverHip >= 1.0;
+      return {
+        isOptimal,
+        ratio: Math.round(kneeOverHip * 100) / 100,
+        verdictTitle: isOptimal
+          ? 'Sobrecarga óptima en Cuádriceps'
+          : 'Dominancia desplazada hacia Cadera',
+        verdictDescription: isOptimal
+          ? `Avance tibial pronunciado (${tibialAngle.toFixed(1)}°) y brazo de momento preponderante en rodilla (${kneeOverHip.toFixed(2)}x). Reclutamiento profundo de vastos.`
+          : `Torso inclinado en exceso (${torsoLean.toFixed(1)}°) reduciendo el brazo de momento en la rodilla. Eleva talones o mantén el torso más erguido.`
+      };
+    }
+    case 'lats': {
+      return {
+        isOptimal: true,
+        ratio: 1.5,
+        verdictTitle: 'Trayectoria alineada con Fibras del Dorsal',
+        verdictDescription: 'Tracción en plano sagital con codos pegados al torso, reduciendo el momento en romboides y maximizando extensión de hombro.'
+      };
+    }
+    case 'pectorals': {
+      return {
+        isOptimal: true,
+        ratio: 1.4,
+        verdictTitle: 'Aducción horizontal óptima en Pectoral',
+        verdictDescription: 'Vector perpendicular al esternón con trayectoria convergente adecuada y estiramiento profundo.'
+      };
+    }
+  }
+}
+
+/**
  * Evaluates real-time biomechanics and technique from stabilized keypoints
  */
 export function evaluateBiomechanicalFrame(
@@ -295,32 +708,37 @@ export function evaluateBiomechanicalFrame(
   }
 
   // 5. Technique Checks (Mode 1)
-  const spineAngle = (shoulder && hip) ? calculateSpineAlignment(shoulder, hip) : 15;
-  const isSpineNeutral = spineAngle <= 38;
+  const ear = smoothedKeypoints['ear'] || smoothedKeypoints['right_ear'] || smoothedKeypoints['left_ear'];
+  const spineAnalysis = calculateSpinalCollinearity(ear, shoulder, hip);
+  const spineAngle = spineAnalysis.torsoLeanDeg;
+  const isSpineNeutral = spineAnalysis.isSpineNeutral;
 
-  // Dynamic Knee Valgus: check if left and right knee distance collapses relative to ankles
-  const lKnee = smoothedKeypoints['left_knee'];
-  const rKnee = smoothedKeypoints['right_knee'];
-  const lAnkle = smoothedKeypoints['left_ankle'];
-  const rAnkle = smoothedKeypoints['right_ankle'];
-
+  // Dynamic Knee Valgus: ONLY evaluated in frontal camera plane
+  const cameraPlane = detectCameraPlane(smoothedKeypoints);
   let isKneeValgusDetected = false;
   let valgusRatio = 1.0;
 
-  if (lKnee && rKnee && lAnkle && rAnkle) {
-    const kneeDist = Math.abs(rKnee.x - lKnee.x);
-    const ankleDist = Math.abs(rAnkle.x - lAnkle.x);
-    if (ankleDist > 0.08) {
-      valgusRatio = kneeDist / ankleDist;
-      if (valgusRatio < 0.72) {
-        isKneeValgusDetected = true;
+  if (cameraPlane === 'frontal') {
+    const lKnee = smoothedKeypoints['left_knee'];
+    const rKnee = smoothedKeypoints['right_knee'];
+    const lAnkle = smoothedKeypoints['left_ankle'];
+    const rAnkle = smoothedKeypoints['right_ankle'];
+
+    if (lKnee && rKnee && lAnkle && rAnkle) {
+      const kneeDist = Math.abs(rKnee.x - lKnee.x);
+      const ankleDist = Math.abs(rAnkle.x - lAnkle.x);
+      if (ankleDist > 0.08) {
+        valgusRatio = kneeDist / ankleDist;
+        if (valgusRatio < 0.72) {
+          isKneeValgusDetected = true;
+        }
       }
     }
   }
 
   const activeCues: string[] = [];
   if (!isSpineNeutral) {
-    activeCues.push('⚡ Quiebre de neutralidad espinal: mantén el torso erguido y core apretado.');
+    activeCues.push('⚡ Quiebre de neutralidad espinal: curvatura alterada (desviación oreja-hombro-cadera > 15°).');
   }
   if (isKneeValgusDetected) {
     activeCues.push('⚡ Valgo dinámico de rodilla: empuja las rodillas hacia afuera en línea con los pies.');

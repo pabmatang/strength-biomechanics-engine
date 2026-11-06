@@ -167,6 +167,7 @@ export class OneEuroFilter2D {
  */
 export class PoseLandmarkSmoother {
   private landmarkFilters: Map<string, OneEuroFilter2D> = new Map();
+  private lastSmoothed: Record<string, Point2D> = {};
 
   constructor(private params: OneEuroParams = DEFAULT_ONE_EURO_PARAMS) {}
 
@@ -188,11 +189,17 @@ export class PoseLandmarkSmoother {
       smoothed[name] = filter.filter(pt, timestampMs);
     }
 
+    this.lastSmoothed = smoothed;
     return smoothed as T;
+  }
+
+  public getLastSmoothed(): Record<string, Point2D> {
+    return this.lastSmoothed;
   }
 
   public reset(): void {
     this.landmarkFilters.forEach(f => f.reset());
     this.landmarkFilters.clear();
+    this.lastSmoothed = {};
   }
 }
