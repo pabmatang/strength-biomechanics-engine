@@ -7,6 +7,8 @@
  */
 
 import { FilesetResolver, PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision';
+import { BiomechanicalTelemetryFrame } from './biomechanicsEngine';
+import { Point2D } from './oneEuroFilter';
 
 export interface Keypoint2D {
   x: number;
@@ -581,5 +583,184 @@ export function drawSkeletonOnCanvas(
     ctx.textBaseline = 'middle';
     ctx.fillText(text, badgeX, badgeY - 3);
     ctx.restore();
+  }
+}
+
+/**
+ * Draws Mode 2: Biomechanical Moment Arms & Force Vector Overlay
+ */
+export function drawBiomechanicsOverlayOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  frame: BiomechanicalTelemetryFrame,
+  keypoints: Record<string, Keypoint2D>,
+  width: number,
+  height: number
+) {
+  // First draw subtle skeleton as background guide
+  drawSkeletonOnCanvas(ctx, keypoints, width, height, '#38BDF8', {
+    angle: frame.currentAngle,
+    label: 'ROM'
+  });
+
+  const bio = frame.biomechanics;
+  if (!bio) return;
+
+  ctx.save();
+
+  // 1. Draw Force Line of Action (LOA)
+  // Dashed golden/amber line extending through the vertical/vector
+  ctx.strokeStyle = '#F59E0B'; // Amber-500
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([8, 5]);
+
+  const p1 = bio.forceLineOfAction.start;
+  const p2 = bio.forceLineOfAction.end;
+
+  ctx.beginPath();
+  ctx.moveTo(p1.x * width, p1.y * height);
+  ctx.lineTo(p2.x * width, p2.y * height);
+  ctx.stroke();
+  ctx.setLineDash([]); // Reset dash
+
+  // Draw Load Center of Mass Circle
+  if (bio.loadPosition) {
+    ctx.fillStyle = '#F59E0B';
+    ctx.beginPath();
+    ctx.arc(bio.loadPosition.x * width, bio.loadPosition.y * height, 7, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Direction arrow downwards
+    ctx.strokeStyle = '#FDE68A';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(bio.loadPosition.x * width, bio.loadPosition.y * height);
+    ctx.lineTo(bio.loadPosition.x * width, (bio.loadPosition.y + 0.08) * height);
+    ctx.stroke();
+  }
+
+  // Helper for drawing moment arm perpendicular segment
+  const drawMomentArm = (
+    seg?: { start: Point2D; end: Point2D },
+    color: string = '#06B6D4',
+    label: string = 'd'
+  ) => {
+    if (!seg || !seg.start || !seg.end) return;
+    const sx = seg.start.x * width;
+    const sy = seg.start.y * height;
+    const ex = seg.end.x * width;
+    const ey = seg.end.y * height;
+
+    // Solid moment arm line
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    // End ticks
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 4, 0, 2 * Math.PI);
+    ctx.arc(ex, ey, 4, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Floating text label
+    const midX = (sx + ex) / 2;
+    const midY = (sy + ey) / 2 - 8;
+    ctx.font = 'bold 10px monospace';
+    const textWidth = ctx.measureText(label).width;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(midX - textWidth / 2 - 4, midY - 10, textWidth + 8, 15, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, midX, midY - 2);
+  };
+
+  // 2. Draw Moment Arms: Hip (Amber/Gold), Knee (Cyan/Blue)
+  if (bio.momentArmProjections.hipProjection) {
+    const hipCm = Math.round(bio.momentArms.hip * 100);
+    drawMomentArm(bio.momentArmProjections.hipProjection, '#FBBF24', `d_hip: ${hipCm}`);
+  }
+
+  if (bio.momentArmProjections.kneeProjection) {
+    const kneeCm = Math.round(bio.momentArms.knee * 100);
+    drawMomentArm(bio.momentArmProjections.kneeProjection, '#38BDF8', `d_knee: ${kneeCm}`);
+  }
+
+  if (bio.momentArmProjections.shoulderProjection) {
+    const shCm = Math.round((bio.momentArms.shoulder ?? 0) * 100);
+    drawMomentArm(bio.momentArmProjections.shoulderProjection, '#A78BFA', `d_hombro: ${shCm}`);
+  }
+
+  if (bio.momentArmProjections.elbowProjection) {
+    const elCm = Math.round((bio.momentArms.elbow ?? 0) * 100);
+    drawMomentArm(bio.momentArmProjections.elbowProjection, '#34D399', `d_codo: ${elCm}`);
+  }
+
+  // 3. Draw Muscle Bias HUD Banner at top of canvas
+  const biasText = `${bio.muscleBiasLabel.toUpperCase()} • RATIO: ${bio.momentArms.hipOverKneeRatio}`;
+  ctx.font = 'bold 11px monospace';
+  const bannerWidth = ctx.measureText(biasText).width + 24;
+  const bannerX = width / 2;
+  const bannerY = 24;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.strokeStyle = bio.muscleBias === 'hip_glute_bias' ? '#F59E0B' : '#06B6D4';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(bannerX - bannerWidth / 2, bannerY - 12, bannerWidth, 24, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(biasText, bannerX, bannerY);
+
+  ctx.restore();
+}
+
+/**
+ * Dual Mode Orchestrator for Canvas Rendering
+ */
+export function drawDualModeOverlay(
+  ctx: CanvasRenderingContext2D,
+  mode: 'technique' | 'biomechanics',
+  frame: BiomechanicalTelemetryFrame,
+  keypoints: Record<string, Keypoint2D>,
+  width: number,
+  height: number,
+  primaryColor = '#10B981'
+) {
+  if (mode === 'biomechanics') {
+    drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height);
+  } else {
+    // Mode 1: Technique
+    drawSkeletonOnCanvas(ctx, keypoints, width, height, primaryColor, {
+      angle: frame.currentAngle,
+      label: 'Ángulo'
+    });
+
+    // Draw spinal neutrality ray if spine is flexed
+    if (!frame.technique.isSpineNeutral && keypoints['shoulder'] && keypoints['hip']) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(keypoints['shoulder'].x * width, keypoints['shoulder'].y * height);
+      ctx.lineTo(keypoints['hip'].x * width, keypoints['hip'].y * height);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
