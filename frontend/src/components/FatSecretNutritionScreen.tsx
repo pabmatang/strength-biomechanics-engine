@@ -32,10 +32,41 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
   onUpdateDailyCalories
 }) => {
   const [selectedDate, setSelectedDate] = useState('2026-10-21');
-  const [targetCalories, setTargetCalories] = useState(2250);
-  const [targetProtein, setTargetProtein] = useState(Math.round(currentWeightKg * 2.2)); // 2.2g / kg
-  const [targetCarbs, setTargetCarbs] = useState(230);
-  const [targetFat, setTargetFat] = useState(65);
+  const [targetCalories, setTargetCalories] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('mia_fatsecret_target_macros');
+      if (raw) return JSON.parse(raw).calories || 2250;
+    } catch {}
+    return 2250;
+  });
+  const [targetProtein, setTargetProtein] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('mia_fatsecret_target_macros');
+      if (raw) return JSON.parse(raw).protein || Math.round(currentWeightKg * 2.2);
+    } catch {}
+    return Math.round(currentWeightKg * 2.2);
+  });
+  const [targetCarbs, setTargetCarbs] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('mia_fatsecret_target_macros');
+      if (raw) return JSON.parse(raw).carbs || 230;
+    } catch {}
+    return 230;
+  });
+  const [targetFat, setTargetFat] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('mia_fatsecret_target_macros');
+      if (raw) return JSON.parse(raw).fat || 65;
+    } catch {}
+    return 65;
+  });
+
+  // Macro Distribution Modal State
+  const [isMacroModalOpen, setIsMacroModalOpen] = useState(false);
+  const [editCalories, setEditCalories] = useState(targetCalories);
+  const [editProtein, setEditProtein] = useState(targetProtein);
+  const [editCarbs, setEditCarbs] = useState(targetCarbs);
+  const [editFat, setEditFat] = useState(targetFat);
 
   // Meal Diary State organized by Day
   const [mealPlans, setMealPlans] = useState<Record<string, DailyMealPlan>>(() => {
@@ -205,6 +236,81 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
     setCfProtein('');
     setCfCarbs('');
     setCfFat('');
+  };
+
+  const handleOpenMacroModal = () => {
+    setEditCalories(targetCalories);
+    setEditProtein(targetProtein);
+    setEditCarbs(targetCarbs);
+    setEditFat(targetFat);
+    setIsMacroModalOpen(true);
+  };
+
+  const applyMacroPreset = (preset: 'hypertrophy' | 'cutting' | 'recomp') => {
+    if (preset === 'hypertrophy') {
+      const kcal = Math.max(editCalories, 2400);
+      const prot = Math.round(currentWeightKg * 2.2);
+      const fat = Math.round((kcal * 0.25) / 9);
+      const carbs = Math.max(50, Math.round((kcal - (prot * 4 + fat * 9)) / 4));
+      setEditCalories(kcal);
+      setEditProtein(prot);
+      setEditFat(fat);
+      setEditCarbs(carbs);
+    } else if (preset === 'cutting') {
+      const kcal = Math.max(1600, targetCalories - 350);
+      const prot = Math.round(currentWeightKg * 2.4);
+      const fat = Math.round((kcal * 0.20) / 9);
+      const carbs = Math.max(40, Math.round((kcal - (prot * 4 + fat * 9)) / 4));
+      setEditCalories(kcal);
+      setEditProtein(prot);
+      setEditFat(fat);
+      setEditCarbs(carbs);
+    } else if (preset === 'recomp') {
+      const kcal = 2200;
+      const prot = Math.round(currentWeightKg * 2.0);
+      const fat = Math.round((kcal * 0.25) / 9);
+      const carbs = Math.max(50, Math.round((kcal - (prot * 4 + fat * 9)) / 4));
+      setEditCalories(kcal);
+      setEditProtein(prot);
+      setEditFat(fat);
+      setEditCarbs(carbs);
+    }
+  };
+
+  const handleAutoBalanceCarbs = () => {
+    const remainingKcal = editCalories - (editProtein * 4 + editFat * 9);
+    const calculatedCarbs = Math.max(0, Math.round(remainingKcal / 4));
+    setEditCarbs(calculatedCarbs);
+  };
+
+  const handleSaveMacroDistribution = () => {
+    setTargetCalories(editCalories);
+    setTargetProtein(editProtein);
+    setTargetCarbs(editCarbs);
+    setTargetFat(editFat);
+
+    const targets = {
+      calories: editCalories,
+      protein: editProtein,
+      carbs: editCarbs,
+      fat: editFat
+    };
+    try {
+      localStorage.setItem('mia_fatsecret_target_macros', JSON.stringify(targets));
+    } catch {}
+
+    setMealPlans(prev => ({
+      ...prev,
+      [selectedDate]: {
+        ...currentPlan,
+        target_calories: editCalories,
+        target_protein: editProtein,
+        target_carbs: editCarbs,
+        target_fat: editFat
+      }
+    }));
+
+    setIsMacroModalOpen(false);
   };
 
   // Helper to render meal SVG icon
@@ -601,9 +707,15 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
             <Flame className="w-5 h-5 text-amber-400" />
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Balance Calórico del Día</h3>
           </div>
-          <div className="text-xs text-zinc-400 tabular-nums">
-            Objetivo: <strong className="text-white">{targetCalories} kcal</strong>
-          </div>
+          <button
+            type="button"
+            onClick={handleOpenMacroModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 hover:text-white transition active:scale-95 text-xs font-bold"
+            title="Modificar objetivo calórico y reparto de proteínas, carbohidratos y grasas"
+          >
+            <span>Objetivo: <strong className="text-white">{targetCalories} kcal</strong></span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/30 text-blue-200">Ajustar Macros</span>
+          </button>
         </div>
 
         {/* 3 Main Numbers: Consumidas, Restantes, Progreso */}
@@ -637,8 +749,20 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
           </div>
         </div>
 
+        {/* Macronutrient Header & Quick Config */}
+        <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Reparto de Macronutrientes</span>
+          <button
+            type="button"
+            onClick={handleOpenMacroModal}
+            className="text-[11px] text-cyan-400 hover:text-cyan-300 font-bold transition flex items-center gap-1 active:scale-95"
+          >
+            Ajustar reparto de macros →
+          </button>
+        </div>
+
         {/* Macronutrient Progress Bars - Clean 3 Columns with No Collisions */}
-        <div className="grid grid-cols-3 gap-2.5 pt-1">
+        <div className="grid grid-cols-3 gap-2.5">
           {/* Protein */}
           <div className="space-y-1 bg-[#18181c] p-2.5 rounded-xl border border-white/[0.04]">
             <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wide truncate">
@@ -1339,6 +1463,214 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
         targetMeal={targetMealType}
         onAddFoods={handleAddFoodsFromPhoto}
       />
+
+      {/* ======================================================== */}
+      {/* MODAL 5: AJUSTAR REPARTO DE MACRONUTRIENTES Y CALORÍAS   */}
+      {/* ======================================================== */}
+      {isMacroModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="w-full max-w-md bg-[#13151f] border border-blue-500/30 rounded-3xl p-5 sm:p-6 shadow-2xl text-white space-y-4 my-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                  <Flame className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-white">Reparto de Macronutrientes</h3>
+                  <p className="text-[11px] text-slate-400">Objetivo calórico y macros diarios</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMacroModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                Plantillas Rápidas según Objetivo:
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => applyMacroPreset('hypertrophy')}
+                  className="py-2 px-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[10px] font-bold text-center transition"
+                >
+                  <div className="font-extrabold text-white text-[11px]">Hipertrofia</div>
+                  <div className="text-[9px] text-blue-300 opacity-90">2.2g/kg Prot</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => applyMacroPreset('cutting')}
+                  className="py-2 px-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-[10px] font-bold text-center transition"
+                >
+                  <div className="font-extrabold text-white text-[11px]">Definición</div>
+                  <div className="text-[9px] text-amber-300 opacity-90">2.4g/kg Prot</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => applyMacroPreset('recomp')}
+                  className="py-2 px-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold text-center transition"
+                >
+                  <div className="font-extrabold text-white text-[11px]">Recomp.</div>
+                  <div className="text-[9px] text-emerald-300 opacity-90">2.0g/kg Prot</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Target Calories Input */}
+            <div className="bg-[#181a26] p-3 rounded-2xl border border-slate-800 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300">Calorías Totales Objetivo</span>
+                <span className="text-sm font-black text-white tabular-nums font-mono">{editCalories} kcal</span>
+              </div>
+              <input
+                type="range"
+                min={1400}
+                max={4200}
+                step={25}
+                value={editCalories}
+                onChange={(e) => setEditCalories(parseInt(e.target.value, 10) || 2000)}
+                className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-400"
+              />
+              <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>1400 kcal</span>
+                <span>4200 kcal</span>
+              </div>
+            </div>
+
+            {/* Individual Macro Grams Inputs */}
+            <div className="space-y-2.5">
+              {/* Protein */}
+              <div className="bg-[#181a26] p-3 rounded-2xl border border-slate-800/80 space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-blue-400 flex items-center gap-1">
+                    <Beef className="w-3.5 h-3.5" /> Proteína (4 kcal/g)
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={40}
+                      max={350}
+                      value={editProtein}
+                      onChange={(e) => setEditProtein(parseInt(e.target.value, 10) || 0)}
+                      className="w-16 bg-slate-900 border border-blue-500/40 rounded-lg px-2 py-0.5 text-center text-xs font-bold text-white font-mono"
+                    />
+                    <span className="text-slate-400 text-xs">g</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span>{editProtein * 4} kcal ({Math.round(((editProtein * 4) / Math.max(1, editCalories)) * 100)}%)</span>
+                  <span>{currentWeightKg > 0 ? (editProtein / currentWeightKg).toFixed(1) : 2.2} g / kg peso</span>
+                </div>
+              </div>
+
+              {/* Carbs */}
+              <div className="bg-[#181a26] p-3 rounded-2xl border border-slate-800/80 space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-amber-400 flex items-center gap-1">
+                    <Wheat className="w-3.5 h-3.5" /> Carbohidratos (4 kcal/g)
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={20}
+                      max={600}
+                      value={editCarbs}
+                      onChange={(e) => setEditCarbs(parseInt(e.target.value, 10) || 0)}
+                      className="w-16 bg-slate-900 border border-amber-500/40 rounded-lg px-2 py-0.5 text-center text-xs font-bold text-white font-mono"
+                    />
+                    <span className="text-slate-400 text-xs">g</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span>{editCarbs * 4} kcal ({Math.round(((editCarbs * 4) / Math.max(1, editCalories)) * 100)}%)</span>
+                  <button
+                    type="button"
+                    onClick={handleAutoBalanceCarbs}
+                    className="text-[10px] text-amber-300 hover:text-white underline font-sans font-semibold"
+                  >
+                    Auto-cuadrar
+                  </button>
+                </div>
+              </div>
+
+              {/* Fat */}
+              <div className="bg-[#181a26] p-3 rounded-2xl border border-slate-800/80 space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-purple-400 flex items-center gap-1">
+                    <Droplets className="w-3.5 h-3.5" /> Grasas Saludables (9 kcal/g)
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={20}
+                      max={180}
+                      value={editFat}
+                      onChange={(e) => setEditFat(parseInt(e.target.value, 10) || 0)}
+                      className="w-16 bg-slate-900 border border-purple-500/40 rounded-lg px-2 py-0.5 text-center text-xs font-bold text-white font-mono"
+                    />
+                    <span className="text-slate-400 text-xs">g</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span>{editFat * 9} kcal ({Math.round(((editFat * 9) / Math.max(1, editCalories)) * 100)}%)</span>
+                  <span>{currentWeightKg > 0 ? (editFat / currentWeightKg).toFixed(1) : 0.8} g / kg peso</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sum verification */}
+            {(() => {
+              const sumKcal = editProtein * 4 + editCarbs * 4 + editFat * 9;
+              const diff = sumKcal - editCalories;
+              return (
+                <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between ${
+                  Math.abs(diff) <= 20
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                }`}>
+                  <span className="font-medium">Total de Macros:</span>
+                  <div className="font-mono font-bold flex items-center gap-2">
+                    <span>{sumKcal} kcal</span>
+                    {Math.abs(diff) > 20 && (
+                      <span className="text-[10px] opacity-80">
+                        ({diff > 0 ? `+${diff}` : diff} kcal)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Actions */}
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsMacroModalOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveMacroDistribution}
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition"
+              >
+                Guardar Reparto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

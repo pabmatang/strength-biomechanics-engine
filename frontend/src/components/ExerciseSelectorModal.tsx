@@ -15,6 +15,7 @@ interface ExerciseSelectorModalProps {
 const BRANDS: { key: string; label: string }[] = [
   { key: 'my_gym', label: 'Mi Gimnasio' },
   { key: 'all', label: 'Todos' },
+  { key: 'barbell', label: 'Barras Libres' },
   { key: 'cable', label: 'Poleas / Cables' },
   { key: 'dumbbell', label: 'Mancuernas' },
   { key: 'smith', label: 'Multipower / Smith' },
@@ -100,6 +101,8 @@ export const ExerciseSelectorModal: React.FC<ExerciseSelectorModalProps> = ({
         matchesBrand = true;
       } else if (selectedBrand === 'my_gym') {
         matchesBrand = userGymBrands.includes(ex.brand || '');
+      } else if (selectedBrand === 'barbell') {
+        matchesBrand = ex.equipment_category === 'barbell' || ex.title.toLowerCase().includes('barra');
       } else if (selectedBrand === 'cable') {
         matchesBrand = ex.equipment_category === 'cable';
       } else if (selectedBrand === 'dumbbell') {

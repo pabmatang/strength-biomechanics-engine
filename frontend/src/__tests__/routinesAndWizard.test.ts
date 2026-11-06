@@ -368,77 +368,144 @@ function generateWizardRoutines(params: {
       }
     ];
   } else if (daysPerWeek === 5) {
-    // 5-DAY SPLIT:
-    // Push A & B: Chest interleaved with delts/triceps (NO consecutive chest!).
-    // Pull A & B: Back interleaved with biceps (Back strictly on Day 1 & Day 4 = Frequency 2).
-    // Legs: Quads interleaved with hamstrings; Calves and Adductor strictly on Leg day.
-    splitPlan = [
-      {
-        name: 'Día 1: Pull A (Foco Dorsal Ancho & Bíceps Intercalado)',
-        focusCategory: 'pull',
-        focusMuscles: [
-          { muscle: 'lats', bias: 'lats' },
-          { muscle: 'biceps' }, // Interleaved
-          { muscle: 'lats', bias: 'lats' },
-          { muscle: 'shoulders' },
-          { muscle: 'biceps' },
-          { muscle: 'abdominals', isComplementary: true },
-          { muscle: 'lats', bias: 'lats' }
-        ]
-      },
-      {
-        name: 'Día 2: Push A (Pectoral & Deltoides Intercalados)',
-        focusCategory: 'push',
-        focusMuscles: [
-          { muscle: 'chest' },
-          { muscle: 'shoulders' }, // Interleaved: Chest -> Shoulders -> Chest!
-          { muscle: 'chest' },
-          { muscle: 'triceps' },
-          { muscle: 'shoulders' },
-          { muscle: 'triceps' },
-          { muscle: 'abdominals', isComplementary: true }
-        ]
-      },
-      {
-        name: 'Día 3: Legs (Cuádriceps, Femoral & Aductor)',
-        focusCategory: 'legs',
-        focusMuscles: [
-          { muscle: 'quadriceps' },
-          { muscle: 'hamstrings' },
-          { muscle: 'quadriceps' },
-          { muscle: 'calves' },
-          { muscle: 'adductors', isComplementary: true },
-          { muscle: 'glutes' },
-          { muscle: 'hamstrings' }
-        ]
-      },
-      {
-        name: 'Día 4: Pull B (Espalda Alta, Trapecios & Bíceps Intercalados)',
-        focusCategory: 'pull',
-        focusMuscles: [
-          { muscle: 'upper_back', bias: 'upper_back' },
-          { muscle: 'biceps' }, // Interleaved
-          { muscle: 'lats', bias: 'lats' },
-          { muscle: 'upper_back', bias: 'trapezius' },
-          { muscle: 'shoulders' },
-          { muscle: 'biceps' },
-          { muscle: 'abdominals', isComplementary: true }
-        ]
-      },
-      {
-        name: 'Día 5: Push B (Pectoral Superior & Tríceps Intercalados)',
-        focusCategory: 'push',
-        focusMuscles: [
-          { muscle: 'chest' },
-          { muscle: 'shoulders' }, // Interleaved: Chest -> Delts -> Chest
-          { muscle: 'chest' },
-          { muscle: 'triceps' },
-          { muscle: 'triceps' },
-          { muscle: 'shoulders' },
-          { muscle: 'abdominals', isComplementary: true }
-        ]
-      }
-    ];
+    const isLowerBodyPrioritized = priorityMuscles.some(m => ['quadriceps', 'hamstrings', 'glutes'].includes(m));
+
+    if (isLowerBodyPrioritized) {
+      splitPlan = [
+        {
+          name: 'Día 1: Pierna A (Foco Cuádriceps & Glúteos)',
+          focusCategory: 'legs',
+          focusMuscles: [
+            { muscle: 'glutes' },
+            { muscle: 'quadriceps' },
+            { muscle: 'glutes' },
+            { muscle: 'hamstrings' },
+            { muscle: 'quadriceps' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 2: Push',
+          focusCategory: 'push',
+          focusMuscles: [
+            { muscle: 'chest' },
+            { muscle: 'shoulders' },
+            { muscle: 'chest' },
+            { muscle: 'triceps' },
+            { muscle: 'triceps' },
+            { muscle: 'shoulders' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 3: Pierna B (Foco Isquios & Glúteos)',
+          focusCategory: 'legs',
+          focusMuscles: [
+            { muscle: 'hamstrings' },
+            { muscle: 'glutes' },
+            { muscle: 'hamstrings' },
+            { muscle: 'quadriceps' },
+            { muscle: 'glutes' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 4: Pull',
+          focusCategory: 'pull',
+          focusMuscles: [
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'biceps' },
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'shoulders' },
+            { muscle: 'biceps' },
+            { muscle: 'upper_back', bias: 'trapezius' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 5: Pierna C (Especialización Glúteos)',
+          focusCategory: 'legs',
+          focusMuscles: [
+            { muscle: 'glutes' },
+            { muscle: 'quadriceps' },
+            { muscle: 'hamstrings' },
+            { muscle: 'glutes' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true }
+          ]
+        }
+      ];
+    } else {
+      splitPlan = [
+        {
+          name: 'Día 1: Pull A (Foco Dorsal Ancho & Bíceps Intercalado)',
+          focusCategory: 'pull',
+          focusMuscles: [
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'biceps' }, // Interleaved
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'shoulders' },
+            { muscle: 'biceps' },
+            { muscle: 'abdominals', isComplementary: true },
+            { muscle: 'lats', bias: 'lats' }
+          ]
+        },
+        {
+          name: 'Día 2: Push A (Pectoral & Deltoides Intercalados)',
+          focusCategory: 'push',
+          focusMuscles: [
+            { muscle: 'chest' },
+            { muscle: 'shoulders' }, // Interleaved: Chest -> Shoulders -> Chest!
+            { muscle: 'chest' },
+            { muscle: 'triceps' },
+            { muscle: 'shoulders' },
+            { muscle: 'triceps' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 3: Legs (Cuádriceps, Femoral & Glúteo)',
+          focusCategory: 'legs',
+          focusMuscles: [
+            { muscle: 'quadriceps' },
+            { muscle: 'hamstrings' },
+            { muscle: 'glutes' },
+            { muscle: 'quadriceps' },
+            { muscle: 'calves' },
+            { muscle: 'adductors', isComplementary: true },
+            { muscle: 'hamstrings' }
+          ]
+        },
+        {
+          name: 'Día 4: Pull B (Espalda Alta, Trapecios & Bíceps Intercalados)',
+          focusCategory: 'pull',
+          focusMuscles: [
+            { muscle: 'upper_back', bias: 'upper_back' },
+            { muscle: 'biceps' }, // Interleaved
+            { muscle: 'lats', bias: 'lats' },
+            { muscle: 'upper_back', bias: 'trapezius' },
+            { muscle: 'shoulders' },
+            { muscle: 'biceps' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        },
+        {
+          name: 'Día 5: Push B (Pectoral Superior & Tríceps Intercalados)',
+          focusCategory: 'push',
+          focusMuscles: [
+            { muscle: 'chest' },
+            { muscle: 'shoulders' }, // Interleaved: Chest -> Delts -> Chest
+            { muscle: 'chest' },
+            { muscle: 'triceps' },
+            { muscle: 'triceps' },
+            { muscle: 'shoulders' },
+            { muscle: 'abdominals', isComplementary: true }
+          ]
+        }
+      ];
+    }
   } else {
     // 6-Day PPLx2
     splitPlan = [
@@ -539,9 +606,19 @@ function generateWizardRoutines(params: {
     const filteredQueue = day.focusMuscles.filter(
       item => !isMuscleDisliked(item.muscle, dislikedMuscles)
     );
+
+    // In Torso/Upper days, preserve the 1-per-group balance (Back, Chest, Delts, Biceps, Triceps)
+    // In Leg/Lower days, ensure priority leg muscles (Glutes, Quads, Hamstrings) are evaluated before accessory calves/adductors
+    let candidatePool = filteredQueue;
+    if (day.focusCategory === 'legs' || day.focusCategory === 'lower') {
+      const priorityCandidates = filteredQueue.filter(item => isMusclePrioritized(item.muscle, priorityMuscles));
+      const secondaryCandidates = filteredQueue.filter(item => !isMusclePrioritized(item.muscle, priorityMuscles));
+      candidatePool = [...priorityCandidates, ...secondaryCandidates];
+    }
+
     const chosenQueue: DayQueueItem[] = [];
 
-    for (const item of filteredQueue) {
+    for (const item of candidatePool) {
       if (chosenQueue.length >= exactExercisesCount) break;
       const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
       const count = broadCategoryCounts[broad] || 0;
@@ -567,17 +644,29 @@ function generateWizardRoutines(params: {
     let fallbackLoop = 0;
     while (chosenQueue.length < exactExercisesCount && fallbackLoop < 10) {
       fallbackLoop++;
+      let candidate: DayQueueItem;
       if (day.focusCategory === 'legs' || day.focusCategory === 'lower') {
-        chosenQueue.push({
-          muscle: 'adductors',
-          isComplementary: true
-        });
+        if (isMusclePrioritized('glutes', priorityMuscles) && (broadCategoryCounts['glutes'] || 0) < 2) {
+          candidate = { muscle: 'glutes', note: 'Glúteos: Hip thrust o extensión en polea' };
+        } else if ((broadCategoryCounts['calves'] || 0) < 1) {
+          candidate = { muscle: 'calves', note: 'Gemelos: Elevaciones de talones' };
+        } else {
+          candidate = { muscle: 'adductors', isComplementary: true, note: 'Aductor en máquina' };
+        }
       } else {
-        chosenQueue.push({
-          muscle: 'abdominals',
-          isComplementary: true
-        });
+        const coreWeekly = weeklyGroupExerciseCount['abdominals'] || 0;
+        if (coreWeekly < 1 && !dislikedMuscles.includes('abdominals')) {
+          candidate = { muscle: 'abdominals', isComplementary: true, note: 'Core: Abdomen en polea' };
+        } else if (day.focusCategory === 'pull') {
+          candidate = { muscle: 'biceps', note: 'Bíceps: Curl concentrado o martillo' };
+        } else {
+          candidate = { muscle: 'shoulders', note: 'Deltoides Lateral: Elevaciones en polea' };
+        }
       }
+      const broad = BROAD_GROUP_MAP[candidate.muscle] || candidate.muscle;
+      broadCategoryCounts[broad] = (broadCategoryCounts[broad] || 0) + 1;
+      weeklyGroupExerciseCount[broad] = (weeklyGroupExerciseCount[broad] || 0) + 1;
+      chosenQueue.push(candidate);
     }
 
     // Apply Biomechanical Priority Reordering:
@@ -927,5 +1016,38 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
     expect(legA_firstTwo).toContain('glutes');
     // Hip thrust / glutes must NOT be the last exercise
     expect(legA.exercises[legA.exercises.length - 1].muscle_group).not.toBe('glutes');
+  });
+
+  it('guarantees Glutes receive full priority volume and Abdomen is strictly capped when leg muscles are prioritized in 5 days', () => {
+    const rLower5Days = generateWizardRoutines({
+      daysPerWeek: 5,
+      priorityMuscles: ['hamstrings', 'quadriceps', 'glutes'],
+      durationMinutes: 60,
+      equipmentPref: 'technogym',
+      experienceLevel: 'intermedio'
+    });
+
+    expect(rLower5Days.length).toBe(5);
+
+    // Calculate weekly volume
+    const volume: Record<string, number> = {};
+    rLower5Days.forEach(day => {
+      day.exercises.forEach(ex => {
+        const broad = BROAD_GROUP_MAP[ex.muscle_group] || ex.muscle_group;
+        volume[broad] = (volume[broad] || 0) + ex.sets.length;
+      });
+    });
+
+    // Glutes MUST be present and receive priority volume (>= 8 sets)
+    expect(volume['glutes']).toBeDefined();
+    expect(volume['glutes']).toBeGreaterThanOrEqual(8);
+
+    // Quads and Hamstrings must also receive priority volume
+    expect(volume['quadriceps']).toBeGreaterThanOrEqual(8);
+    expect(volume['hamstrings']).toBeGreaterThanOrEqual(6);
+
+    // Abdomen must NOT be overloaded (maximum 4 sets weekly recordatorio)
+    const abdomenSets = volume['abdominals'] || 0;
+    expect(abdomenSets).toBeLessThanOrEqual(4);
   });
 });

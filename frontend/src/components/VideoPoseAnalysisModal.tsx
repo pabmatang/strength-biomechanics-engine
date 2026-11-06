@@ -17,7 +17,9 @@ import {
   Camera,
   Layers,
   Cpu,
-  RefreshCw
+  RefreshCw,
+  Rewind,
+  FastForward
 } from 'lucide-react';
 import {
   calculateJointAngle,
@@ -81,6 +83,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [backendDiagnosis, setBackendDiagnosis] = useState<TelemetryAnalysisResponse | null>(null);
   const [isSendingToBackend, setIsSendingToBackend] = useState(false);
   const [backendError, setBackendError] = useState<string | null>(null);
+
+  // Video playback controls state
+  const [videoCurrentTime, setVideoCurrentTime] = useState<number>(0);
+  const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [isVideoPlaying, setIsVideoPlaying] = useState<boolean>(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [videoCodecError, setVideoCodecError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
@@ -205,7 +214,60 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const objectUrl = URL.createObjectURL(file);
     setUploadedVideoUrl(objectUrl);
     setUploadedFileName(file.name);
+    setVideoCodecError(null);
+    setVideoCurrentTime(0);
+    setVideoDuration(0);
+    setIsVideoPlaying(false);
     handleReset();
+  };
+
+  const handleTogglePlayPause = () => {
+    const video = videoElementRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play().then(() => {
+        setIsVideoPlaying(true);
+      }).catch(err => {
+        console.warn('Video play error:', err);
+        setVideoCodecError('No se pudo reproducir el vídeo. Si es un archivo .MOV de iPhone grabado en ProRes o HEVC/H.265, el navegador no tiene el códec nativo.');
+      });
+    } else {
+      video.pause();
+      setIsVideoPlaying(false);
+    }
+  };
+
+  const handleSeekRelative = (seconds: number) => {
+    const video = videoElementRef.current;
+    if (!video) return;
+    const current = video.currentTime || 0;
+    const maxDur = video.duration || 100;
+    const newTime = Math.max(0, Math.min(maxDur, current + seconds));
+    video.currentTime = newTime;
+    setVideoCurrentTime(newTime);
+  };
+
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const video = videoElementRef.current;
+    if (!video) return;
+    const target = parseFloat(e.target.value);
+    video.currentTime = target;
+    setVideoCurrentTime(target);
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    const video = videoElementRef.current;
+    setPlaybackSpeed(speed);
+    if (video) {
+      video.playbackRate = speed;
+    }
+  };
+
+  const formatVideoTime = (timeInSec: number): string => {
+    if (isNaN(timeInSec) || timeInSec < 0) return '0:00';
+    const m = Math.floor(timeInSec / 60);
+    const s = Math.floor(timeInSec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   // Main Tracking Loop: Reads frames from <video>, passes them to MediaPipe Pose, computes biomechanics
@@ -710,6 +772,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setBackendDiagnosis(null);
     setCurrentPrimaryAngle(profile.standingThreshold);
     setRepPhase('STANDING');
+    setVideoCurrentTime(0);
+    setIsVideoPlaying(false);
   };
 
   const handleSendToBackend = async () => {
@@ -956,6 +1020,135 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             </>
           )}
         </div>
+
+        {/* Codec Warning Banner if browser cannot decode */}
+        {videoCodecError && (
+          <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1.5 flex-1">
+              <span className="font-bold text-amber-300">Aviso de Compatibilidad de Vídeo:</span>
+              <p className="text-[11px] leading-relaxed text-amber-200/90">{videoCodecError}</p>
+              <div className="pt-0.5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleStartWebcam}
+                  className="px-2.5 py-1 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-100 text-[10px] font-bold"
+                >
+                  Usar Cámara en Vivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium"
+                >
+                  Subir otro archivo (MP4)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Video Playback & Scrubber Controls Panel */}
+        {uploadedVideoUrl && (
+          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-3 space-y-2.5 shadow-lg">
+            {/* Scrubber Range Bar */}
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] font-mono text-cyan-400 font-bold min-w-[36px] text-right">
+                {formatVideoTime(videoCurrentTime)}
+              </span>
+              <div className="relative flex-1 flex items-center">
+                <input
+                  type="range"
+                  min={0}
+                  max={videoDuration > 0 ? videoDuration : 100}
+                  step={0.05}
+                  value={videoCurrentTime}
+                  onChange={handleScrubChange}
+                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 hover:accent-cyan-300 transition"
+                />
+              </div>
+              <span className="text-[11px] font-mono text-slate-400 font-medium min-w-[36px]">
+                {formatVideoTime(videoDuration)}
+              </span>
+            </div>
+
+            {/* Playback Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+              {/* Transport Buttons */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleSeekRelative(-0.1)}
+                  title="Retroceder 1 fotograma (-0.1s)"
+                  className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-mono transition"
+                >
+                  -0.1s
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSeekRelative(-5)}
+                  title="Retroceder 5 segundos"
+                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center gap-0.5 text-xs font-semibold"
+                >
+                  <Rewind className="w-3.5 h-3.5" />
+                  <span className="text-[10px]">-5s</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleTogglePlayPause}
+                  className={`p-2 rounded-xl text-white font-bold transition shadow-md flex items-center justify-center ${
+                    isVideoPlaying
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-cyan-600 hover:bg-cyan-500'
+                  }`}
+                  title={isVideoPlaying ? 'Pausar vídeo' : 'Reproducir vídeo'}
+                >
+                  {isVideoPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSeekRelative(5)}
+                  title="Adelantar 5 segundos"
+                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center gap-0.5 text-xs font-semibold"
+                >
+                  <FastForward className="w-3.5 h-3.5" />
+                  <span className="text-[10px]">+5s</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSeekRelative(0.1)}
+                  title="Avanzar 1 fotograma (+0.1s)"
+                  className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-mono transition"
+                >
+                  +0.1s
+                </button>
+              </div>
+
+              {/* Playback Speeds */}
+              <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-semibold px-1">Velocidad:</span>
+                {[0.25, 0.5, 0.75, 1.0].map(speed => (
+                  <button
+                    key={speed}
+                    type="button"
+                    onClick={() => handleSpeedChange(speed)}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold transition ${
+                      playbackSpeed === speed
+                        ? 'bg-cyan-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {speed}x
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Biomechanical Diagnostic Badges & Live Feedback Alerts */}
         {activeAlerts.length > 0 && (

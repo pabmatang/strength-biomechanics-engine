@@ -308,6 +308,206 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
     image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-glute-bridge-two-legs-on-bench-male.gif',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-glute-bridge-two-legs-on-bench-male.gif'
   },
+  {
+    id: 'barbell_incline_bench_press',
+    title: 'Press de Banca Inclinado con Barra Olímpica',
+    brand: 'Eleiko',
+    model_series: 'Incline Olympic Bench Press',
+    muscle_group: 'chest',
+    other_muscles: ['shoulders', 'triceps'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Empuje con barra en banco inclinado a 30°-45° para focalizar el haz clavicular (pectoral superior).',
+    setup_tips: [
+      'Banco regulado idealmente a 30° para no transferir excesivo trabajo al deltoides anterior',
+      'Baja la barra rozando suavemente la parte superior del pecho (línea infraclavicular)',
+      'Mantén los antebrazos estrictamente perpendiculares al suelo durante todo el recorrido'
+    ],
+    resistance_profile: {
+      curve: 'bell_shaped',
+      curve_label: 'Curva de Fuerza Ascendente en Empuje Inclinado',
+      rating: 9.3,
+      match_analysis: 'Alineación precisa con el ángulo de penación de las fibras claviculares del pectoral mayor.',
+      pro_hack: 'No despegues los glúteos del banco al empujar en el punto de estancamiento.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/barbell-incline-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/barbell-incline-bench-press.gif'
+  },
+  {
+    id: 'barbell_close_grip_bench_press',
+    title: 'Press de Banca Agarre Estrecho con Barra',
+    brand: 'Eleiko',
+    model_series: 'Olympic Close Grip Triceps Bench',
+    muscle_group: 'triceps',
+    other_muscles: ['chest', 'shoulders'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Variante de press con agarre al ancho de hombros que incrementa la flexo-extensión de codos y el estímulo en tríceps.',
+    setup_tips: [
+      'Agarre al ancho de hombros (aproximadamente 30-40 cm entre pulgares, no más cerrado para no dañar las muñecas)',
+      'Mantén los codos ceñidos a los costados a unos 30° respecto al torso durante la bajada',
+      'Desciende hasta tocar la base del esternón y bloquea con fuerza los codos arriba'
+    ],
+    resistance_profile: {
+      curve: 'bell_shaped',
+      curve_label: 'Curva de Extensión de Codo con Sobrecarga Máxima',
+      rating: 9.4,
+      match_analysis: 'Permite manejar cargas notablemente mayores que cualquier ejercicio de aislamiento para tríceps.',
+      pro_hack: 'Imagina que intentas doblar la barra hacia afuera para activar la cabeza lateral del tríceps.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/barbell-close-grip-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/barbell-close-grip-bench-press.gif'
+  },
+  {
+    id: 'barbell_romanian_deadlift',
+    title: 'Peso Muerto Rumano con Barra (RDL)',
+    brand: 'Eleiko',
+    model_series: 'Olympic RDL Hamstring Station',
+    muscle_group: 'hamstrings',
+    other_muscles: ['glutes', 'lower_back', 'forearms'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Bisagra de cadera fundamental con barra olímpica rozando las piernas para hipertrofia de isquiosurales mediada por estiramiento.',
+    setup_tips: [
+      'Pies al ancho de cadera, rodillas semiflexionadas (ángulo constante de 15°-20°)',
+      'Empuja la pelvis hacia atrás manteniendo la columna completamente neutra',
+      'Desciende la barra rozando los muslos hasta la parte media de las espinillas'
+    ],
+    resistance_profile: {
+      curve: 'lengthened',
+      curve_label: 'Curva en Estiramiento Extremo de Cadena Posterior',
+      rating: 9.6,
+      match_analysis: 'Tensión mecánica excéntrica insuperable en la cabeza larga del bíceps femoral y semitendinoso.',
+      pro_hack: 'Usa straps para aislar los isquiosurales sin que el antebrazo ceda antes de tiempo.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-romanian-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-romanian-deadlift.gif'
+  },
+  {
+    id: 'barbell_sumo_deadlift',
+    title: 'Peso Muerto Sumo con Barra Olímpica',
+    brand: 'Eleiko',
+    model_series: 'Competition Sumo Deadlift',
+    muscle_group: 'glutes',
+    other_muscles: ['adductors', 'quadriceps', 'hamstrings', 'lower_back'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Postura ancha con puntas de pies rotadas hacia afuera que incrementa el reclutamiento de aductores, glúteos y cuádriceps.',
+    setup_tips: [
+      'Pies muy separados con puntas hacia los discos a 45° de apertura',
+      'Brazos perpendiculares cayendo por dentro de las rodillas',
+      'Abre las caderas empujando el suelo con las piernas y mantén el torso lo más erguido posible'
+    ],
+    resistance_profile: {
+      curve: 'bell_shaped',
+      curve_label: 'Curva de Tracción con Brazo de Momento Lumbar Reducido',
+      rating: 9.2,
+      match_analysis: 'Menor demanda de corte lumbar y mayor torque sobre aductores magnos y glúteo.',
+      pro_hack: 'Extiende rodillas y caderas al unísono manteniendo la barra pegada a los tibiales.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-sumo-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-sumo-deadlift.gif'
+  },
+  {
+    id: 'barbell_front_squat',
+    title: 'Sentadilla Frontal con Barra Olímpica',
+    brand: 'Eleiko',
+    model_series: 'Olympic Front Squat',
+    muscle_group: 'quadriceps',
+    other_muscles: ['abdominals', 'glutes', 'upper_back'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Barra apoyada sobre la porción anterior de los deltoides obligando al torso a mantenerse vertical y focalizando los cuádriceps.',
+    setup_tips: [
+      'Apoyo de la barra sobre los hombros con codos altos en posición rack o brazos cruzados',
+      'Desciende con el tronco completamente erguido flexionando las rodillas hacia adelante',
+      'Profundidad completa rompiendo el paralelo para máximo estiramiento de cuádriceps'
+    ],
+    resistance_profile: {
+      curve: 'bell_shaped',
+      curve_label: 'Curva Dominante de Rodilla con Torque Cuadricipital',
+      rating: 9.4,
+      match_analysis: 'Máximo brazo de palanca sobre la articulación de la rodilla con mínima flexión de cadera.',
+      pro_hack: 'Mantén los codos apuntando al frente en todo momento para evitar que la barra ruede.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-front-squat.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-front-squat.gif'
+  },
+  {
+    id: 'barbell_biceps_curl',
+    title: 'Curl de Bíceps con Barra Olímpica o Barra Z',
+    brand: 'Eleiko',
+    model_series: 'Olympic / EZ Bar Biceps Station',
+    muscle_group: 'biceps',
+    other_muscles: ['forearms'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'El clásico básico de sobrecarga máxima para bíceps braquial en flexión estricta de pie.',
+    setup_tips: [
+      'Pies al ancho de caderas, espalda recta y escápulas fijas',
+      'Codos pegados a los laterales de las costillas sin adelantarlos',
+      'Sube la barra hasta la altura del pecho sin balancear el torso y baja controlando en 3 segundos'
+    ],
+    resistance_profile: {
+      curve: 'bell_shaped',
+      curve_label: 'Curva en Arco con Pico a 90° de Flexión',
+      rating: 9.3,
+      match_analysis: 'El torque de gravedad es máximo cuando el antebrazo forma 90° respecto al húmero.',
+      pro_hack: 'Usa una barra Z (EZ bar) para reducir la tensión de torsión en los tendones de la muñeca.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/barbell-biceps-curl.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/barbell-biceps-curl.gif'
+  },
+  {
+    id: 'barbell_skull_crusher',
+    title: 'Press Francés con Barra Z en Banco Plano',
+    brand: 'Eleiko',
+    model_series: 'EZ Bar Lying Skull Crusher',
+    muscle_group: 'triceps',
+    other_muscles: ['forearms'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Extensión de codos tumbado en banco plano para sobrecargar la cabeza larga y medial del tríceps.',
+    setup_tips: [
+      'Tumbado boca arriba en el banco, sujeta la barra Z con agarre prono a la altura de la frente o coronilla',
+      'Inclina los brazos ligeramente hacia atrás (70°-80° respecto al suelo) para mantener tensión en el tríceps',
+      'Flexiona los codos bajando la barra hacia la frente o justo detrás de la cabeza'
+    ],
+    resistance_profile: {
+      curve: 'lengthened',
+      curve_label: 'Curva de Sobrecarga en Estiramiento de Tríceps',
+      rating: 9.5,
+      match_analysis: 'La ligera inclinación humeral hacia atrás elimina el punto muerto articular arriba.',
+      pro_hack: 'Mantén los codos paralelos entre sí; no dejes que se abran en abanico hacia afuera.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/barbell-lying-triceps-extension-skull-crusher.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/barbell-lying-triceps-extension-skull-crusher.gif'
+  },
+  {
+    id: 'barbell_shrug',
+    title: 'Encogimientos de Trapecio con Barra Olímpica',
+    brand: 'Eleiko',
+    model_series: 'Olympic Barbell Shrug',
+    muscle_group: 'traps',
+    other_muscles: ['forearms', 'upper_back'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Elevación escapular pura con barra olímpica pesada para hipertrofia del trapecio superior.',
+    setup_tips: [
+      'Agarre al ancho de hombros con barra por delante de los muslos',
+      'Eleva los hombros directamente hacia las orejas sin rotarlos ni flexionarlos en círculo',
+      'Pausa isométrica de 1 a 2 segundos en la cima antes de descender lentamente'
+    ],
+    resistance_profile: {
+      curve: 'shortened',
+      curve_label: 'Curva en Acortamiento Escapular Superior',
+      rating: 9.1,
+      match_analysis: 'Reclutamiento puro en la línea de tracción de las fibras oblicuas del trapecio superior.',
+      pro_hack: 'Usa straps para que la fuerza de agarre no limite el volumen de sobrecarga.'
+    },
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/traps/barbell-shrug.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/traps/barbell-shrug.gif'
+  },
 
   // ==========================================
   // POLEAS (CABLES & CROSSOVERS)
