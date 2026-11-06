@@ -882,7 +882,11 @@ export function evaluateBiomechanicalFrame(
   const dElbow = elbow ? perpendicularDistanceToLine(elbow, lineP1, lineP2) : 0;
 
   const epsilon = 1e-4;
-  const hipOverKneeRatio = dHip / (dKnee + epsilon);
+  const rawRatio = dHip / (dKnee + epsilon);
+  const isUprightSetup = phase === 'LOCKOUT' && Math.abs(angularVelocity) < 10;
+  const hipOverKneeRatio = isUprightSetup && (dHip < 0.04 || dKnee < 0.04)
+    ? 1.0
+    : Math.max(0.1, Math.min(5.0, rawRatio));
 
   // Moment arm orthogonal projection segments for visual overlay directly onto athlete
   const hipProjection = hip
@@ -922,7 +926,10 @@ export function evaluateBiomechanicalFrame(
     }
   } else {
     // Lower body: Hip vs Knee
-    if (hipOverKneeRatio > 1.25 || tibialAngle < 12) {
+    if (isUprightSetup && dHip < 0.04 && dKnee < 0.04) {
+      muscleBias = 'balanced_hybrid';
+      muscleBiasLabel = 'Posición Inicial Neutra';
+    } else if (hipOverKneeRatio > 1.25 || tibialAngle < 12) {
       muscleBias = 'hip_glute_bias';
       muscleBiasLabel = 'Sesgo Dominante de Cadera (Glúteo & Isquios)';
     } else if (hipOverKneeRatio < 0.82 || tibialAngle > 22) {

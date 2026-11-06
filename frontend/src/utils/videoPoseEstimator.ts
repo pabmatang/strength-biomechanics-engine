@@ -7,7 +7,7 @@
  */
 
 import { FilesetResolver, PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision';
-import { BiomechanicalTelemetryFrame } from './biomechanicsEngine';
+import { BiomechanicalTelemetryFrame, PatternFamily, TargetMuscle } from './biomechanicsEngine';
 import { Point2D } from './oneEuroFilter';
 
 export interface Keypoint2D {
@@ -604,6 +604,9 @@ export interface RenderOverlayOptions {
   zoom?: number;
   panOffset?: { x: number; y: number };
   primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder';
+  patternFamily?: PatternFamily;
+  targetMuscle?: TargetMuscle;
+  useInternalCanvasTransform?: boolean;
 }
 
 /**
@@ -617,10 +620,18 @@ export function drawBiomechanicsOverlayOnCanvas(
   height: number,
   options: RenderOverlayOptions = {}
 ) {
-  const { showLeverArms = true, zoom = 1, panOffset = { x: 0, y: 0 }, primaryJointKey } = options;
+  const {
+    showLeverArms = true,
+    zoom = 1,
+    panOffset = { x: 0, y: 0 },
+    primaryJointKey,
+    patternFamily,
+    targetMuscle,
+    useInternalCanvasTransform = false
+  } = options;
 
   ctx.save();
-  if (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) {
+  if (useInternalCanvasTransform && (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0)) {
     ctx.translate(panOffset.x, panOffset.y);
     ctx.scale(zoom, zoom);
   }
@@ -703,7 +714,7 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.fill();
   }
 
-  // 2. Perpendicular Moment Arms (Brazos de Momento): Cadera (Azul Cian) y Rodilla (Verde Lima)
+  // 2. Perpendicular Moment Arms (Brazos de Momento)
   if (showLeverArms) {
     const drawMomentArm = (
       seg?: { start: Point2D; end: Point2D },
@@ -751,39 +762,51 @@ export function drawBiomechanicsOverlayOnCanvas(
       ctx.fillText(label, midX, midY - 3);
     };
 
-    // Cadera: Azul Cian (#06B6D4)
-    if (bio.momentArmProjections.hipProjection) {
-      const hipPx = Math.round(bio.momentArms.hip * width);
-      drawMomentArm(bio.momentArmProjections.hipProjection, '#06B6D4', `d_cadera: ${hipPx}px`);
-    }
+    const isUpperBody = patternFamily === 'push_press' ||
+      patternFamily === 'pull_row' ||
+      targetMuscle === 'pectorals' ||
+      targetMuscle === 'lats';
 
-    // Rodilla: Verde Lima (#10B981)
-    if (bio.momentArmProjections.kneeProjection) {
-      const kneePx = Math.round(bio.momentArms.knee * width);
-      drawMomentArm(bio.momentArmProjections.kneeProjection, '#10B981', `d_rodilla: ${kneePx}px`);
-    }
+    if (!isUpperBody) {
+      // Lower body compound patterns (Sentadilla Búlgara, Sentadilla, Prensa, Hip Thrust, RDL):
+      // Only Cadera and Rodilla moment arms are shown (no shoulder or elbow clutter)
+      if (bio.momentArmProjections.hipProjection) {
+        const hipPx = Math.round(bio.momentArms.hip * width);
+        drawMomentArm(bio.momentArmProjections.hipProjection, '#06B6D4', `d_cadera: ${hipPx}px`);
+      }
 
-    // Upper body moments when applicable
-    if (bio.momentArmProjections.shoulderProjection) {
-      const shPx = Math.round((bio.momentArms.shoulder ?? 0) * width);
-      drawMomentArm(bio.momentArmProjections.shoulderProjection, '#8B5CF6', `d_hombro: ${shPx}px`);
-    }
+      if (bio.momentArmProjections.kneeProjection) {
+        const kneePx = Math.round(bio.momentArms.knee * width);
+        drawMomentArm(bio.momentArmProjections.kneeProjection, '#10B981', `d_rodilla: ${kneePx}px`);
+      }
+    } else {
+      // Upper body patterns (Chest Press, Biceps Curl, Pulldown, Row):
+      // Show Hombro and Codo moment arms
+      if (bio.momentArmProjections.shoulderProjection) {
+        const shPx = Math.round((bio.momentArms.shoulder ?? 0) * width);
+        drawMomentArm(bio.momentArmProjections.shoulderProjection, '#8B5CF6', `d_hombro: ${shPx}px`);
+      }
 
-    if (bio.momentArmProjections.elbowProjection) {
-      const elPx = Math.round((bio.momentArms.elbow ?? 0) * width);
-      drawMomentArm(bio.momentArmProjections.elbowProjection, '#EC4899', `d_codo: ${elPx}px`);
+      if (bio.momentArmProjections.elbowProjection) {
+        const elPx = Math.round((bio.momentArms.elbow ?? 0) * width);
+        drawMomentArm(bio.momentArmProjections.elbowProjection, '#EC4899', `d_codo: ${elPx}px`);
+      }
     }
   }
 
   // 3. Draw Muscle Bias HUD Banner at top of canvas
-  const biasText = `${bio.muscleBiasLabel.toUpperCase()} • RATIO: ${bio.momentArms.hipOverKneeRatio}`;
+  const isSetupOrLockout = frame.phase === 'LOCKOUT' && Math.abs(frame.angularVelocityDegPerSec) < 8;
+  const biasText = isSetupOrLockout
+    ? 'POSICIÓN INICIAL • ESPERANDO DESCENSO'
+    : `${bio.muscleBiasLabel.toUpperCase()} • RATIO: ${bio.momentArms.hipOverKneeRatio}`;
+
   ctx.font = 'bold 11px monospace';
   const bannerWidth = ctx.measureText(biasText).width + 24;
   const bannerX = width / 2;
   const bannerY = 24;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-  ctx.strokeStyle = bio.muscleBias === 'hip_glute_bias' ? '#06B6D4' : '#10B981';
+  ctx.strokeStyle = isSetupOrLockout ? '#64748B' : (bio.muscleBias === 'hip_glute_bias' ? '#06B6D4' : '#10B981');
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.roundRect(bannerX - bannerWidth / 2, bannerY - 12, bannerWidth, 24, 8);
@@ -820,9 +843,9 @@ export function drawDualModeOverlay(
   if (mode === 'biomechanics') {
     drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, mergedOptions);
   } else {
-    const { zoom = 1, panOffset = { x: 0, y: 0 } } = mergedOptions;
+    const { zoom = 1, panOffset = { x: 0, y: 0 }, useInternalCanvasTransform = false } = mergedOptions;
     ctx.save();
-    if (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) {
+    if (useInternalCanvasTransform && (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0)) {
       ctx.translate(panOffset.x, panOffset.y);
       ctx.scale(zoom, zoom);
     }

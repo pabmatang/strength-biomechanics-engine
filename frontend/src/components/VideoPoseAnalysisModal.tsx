@@ -369,11 +369,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               showLeverArms,
               zoom,
               panOffset,
-              primaryJointKey: selectedPattern.primaryJoint
+              primaryJointKey: selectedPattern.primaryJoint,
+              patternFamily: selectedPattern.patternFamily,
+              targetMuscle: selectedPattern.targetMuscle,
+              useInternalCanvasTransform: false // Handled synchronously by parent DOM transform
             },
             selectedPattern.primaryJoint
           );
         }
+      } else {
+        // Clear canvas if no person/landmarks detected so old lines don't freeze
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     } catch (e) {
       // Frame skip error protection
@@ -382,13 +388,24 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // Continuous loop when recording or playing video
   useEffect(() => {
-    if (!isRecording) {
+    const shouldRunLoop = isRecording || isVideoPlaying;
+    if (!shouldRunLoop) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       isProcessingRef.current = false;
       return;
     }
 
     const processLoop = async () => {
+      const video = videoElementRef.current;
+      if (!isRecording && !isVideoPlaying) {
+        isProcessingRef.current = false;
+        return;
+      }
+      if (video && video.paused && !isRecording) {
+        isProcessingRef.current = false;
+        return;
+      }
+
       if (isProcessingRef.current) {
         animationFrameRef.current = requestAnimationFrame(processLoop);
         return;
@@ -408,14 +425,24 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       isProcessingRef.current = false;
     };
-  }, [isRecording, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, zoom, panOffset]);
+  }, [isRecording, isVideoPlaying, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, zoom, panOffset]);
 
   // Re-render single frame when zoom, pan, or lever toggles change while paused
   useEffect(() => {
-    if (!isRecording && (uploadedVideoUrl || useWebcam)) {
+    if (!isRecording && !isVideoPlaying && (uploadedVideoUrl || useWebcam)) {
       processSingleFrame();
     }
   }, [zoom, panOffset, showLeverArms, analysisMode]);
+
+  // When AI model is ready or video url changes, trigger initial frame detection
+  useEffect(() => {
+    if (aiModelStatus === 'ready' && (uploadedVideoUrl || useWebcam)) {
+      const timer = setTimeout(() => {
+        processSingleFrame();
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [aiModelStatus, uploadedVideoUrl]);
 
   // Video transport & playback controls
   const handleTogglePlayPause = () => {
@@ -471,15 +498,19 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const handleStartStop = () => {
     if (uploadedVideoUrl && videoElementRef.current) {
-      if (isRecording) {
+      if (isRecording || isVideoPlaying) {
         videoElementRef.current.pause();
         setIsVideoPlaying(false);
+        setIsRecording(false);
       } else {
-        videoElementRef.current.play().catch(() => {});
-        setIsVideoPlaying(true);
+        setIsRecording(true);
+        videoElementRef.current.play().then(() => {
+          setIsVideoPlaying(true);
+        }).catch(() => {});
       }
+    } else {
+      setIsRecording(prev => !prev);
     }
-    setIsRecording(prev => !prev);
   };
 
   // Mouse / Touch Dragging for Pan Controls when Zoom > 1x
@@ -614,7 +645,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const meanHipMoment = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
   const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
-  const currentVerdict = evaluateBiomechanicalVerdict(
+  const isInitialSetup = repCount === 0 && currentPhase === 'LOCKOUT';
+
+  const rawVerdict = evaluateBiomechanicalVerdict(
     targetMuscle,
     meanHipMoment,
     meanKneeMoment,
@@ -624,10 +657,21 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     currentTelemetry?.technique.isSpineNeutral ?? true
   );
 
+  const currentVerdict = isInitialSetup
+    ? {
+        isOptimal: true,
+        ratio: 1.0,
+        verdictTitle: 'Posición Inicial: Esperando inicio de repetición',
+        verdictDescription: 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
+      }
+    : rawVerdict;
+
   const hipRaw = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
   const kneeRaw = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
   const totalMoment = hipRaw + kneeRaw + 1e-5;
-  const hipShare = Math.round((hipRaw / totalMoment) * 100);
+  const hipShare = isInitialSetup || (hipRaw + kneeRaw < 0.05)
+    ? 50
+    : Math.round((hipRaw / totalMoment) * 100);
   const kneeShare = 100 - hipShare;
 
   return (
@@ -882,69 +926,80 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             </button>
           </div>
 
-          {/* HTML5 Video Element with Full Event Tracking */}
-          <video
-            ref={videoElementRef}
-            src={uploadedVideoUrl || undefined}
-            playsInline
-            loop={!useWebcam}
-            muted
-            onLoadedMetadata={(e) => {
-              const vid = e.currentTarget;
-              const dur = vid.duration || 0;
-              setVideoDuration(dur);
-              setVideoCodecError(null);
-              if (vid.currentTime === 0) {
-                vid.currentTime = 0.01;
-              }
-              setTimeout(() => processSingleFrame(), 80);
+          {/* Synchronized Zoom & Pan Transform Viewport for BOTH Video & Analysis Overlay */}
+          <div
+            className="w-full h-full relative flex items-center justify-center transition-transform duration-75 origin-center will-change-transform"
+            style={{
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`
             }}
-            onDurationChange={(e) => {
-              const dur = e.currentTarget.duration || 0;
-              if (dur > 0) setVideoDuration(dur);
-            }}
-            onTimeUpdate={(e) => {
-              if (!isScrubbingRef.current) {
-                setVideoCurrentTime(e.currentTarget.currentTime);
-              }
-            }}
-            onPlay={() => setIsVideoPlaying(true)}
-            onPause={() => setIsVideoPlaying(false)}
-            onEnded={() => setIsVideoPlaying(false)}
-            onError={() => {
-              setVideoCodecError('No se pudo decodificar este vídeo en tu navegador. Si es un archivo .MOV de iPhone grabado en ProRes o HEVC/H.265, te sugerimos convertirlo a MP4 (H.264) o usar la cámara web.');
-            }}
-            onSeeked={() => {
-              processSingleFrame();
-            }}
-            className={`absolute inset-0 w-full h-full object-contain ${
-              !uploadedVideoUrl && !useWebcam ? 'opacity-0 pointer-events-none' : 'opacity-100'
-            }`}
-          />
+          >
+            {/* HTML5 Video Element with Full Event Tracking */}
+            <video
+              ref={videoElementRef}
+              src={uploadedVideoUrl || undefined}
+              playsInline
+              loop={!useWebcam}
+              muted
+              onLoadedMetadata={(e) => {
+                const vid = e.currentTarget;
+                const dur = vid.duration || 0;
+                setVideoDuration(dur);
+                setVideoCodecError(null);
+                if (vid.currentTime === 0) {
+                  vid.currentTime = 0.01;
+                }
+                setTimeout(() => processSingleFrame(), 80);
+              }}
+              onDurationChange={(e) => {
+                const dur = e.currentTarget.duration || 0;
+                if (dur > 0) setVideoDuration(dur);
+              }}
+              onTimeUpdate={(e) => {
+                if (!isScrubbingRef.current) {
+                  setVideoCurrentTime(e.currentTarget.currentTime);
+                }
+              }}
+              onPlay={() => setIsVideoPlaying(true)}
+              onPause={() => {
+                setIsVideoPlaying(false);
+                setTimeout(() => processSingleFrame(), 20);
+              }}
+              onEnded={() => setIsVideoPlaying(false)}
+              onError={() => {
+                setVideoCodecError('No se pudo decodificar este vídeo en tu navegador. Si es un archivo .MOV de iPhone grabado en ProRes o HEVC/H.265, te sugerimos convertirlo a MP4 (H.264) o usar la cámara web.');
+              }}
+              onSeeked={() => {
+                processSingleFrame();
+              }}
+              className={`absolute inset-0 w-full h-full object-contain ${
+                !uploadedVideoUrl && !useWebcam ? 'opacity-0 pointer-events-none' : 'opacity-100'
+              }`}
+            />
 
-          {/* Placeholder when no video is loaded */}
-          {!uploadedVideoUrl && !useWebcam && !isRecording && (
-            <div className="text-center space-y-2 p-4 z-10">
-              <Video className="w-12 h-12 text-cyan-400/60 mx-auto animate-pulse" />
-              <p className="text-xs text-slate-300 font-semibold max-w-xs">
-                Sube tu vídeo de sentadilla búlgara, RDL, press o dominada para evaluar los brazos de palanca y sesgo muscular.
-              </p>
-              <p className="text-[11px] text-slate-500">
-                MediaPipe + OneEuroFilter estabilizan la señal sin jitter y calculan d_cadera vs d_rodilla.
-              </p>
-            </div>
-          )}
+            {/* Placeholder when no video is loaded */}
+            {!uploadedVideoUrl && !useWebcam && !isRecording && (
+              <div className="text-center space-y-2 p-4 z-10 pointer-events-none">
+                <Video className="w-12 h-12 text-cyan-400/60 mx-auto animate-pulse" />
+                <p className="text-xs text-slate-300 font-semibold max-w-xs">
+                  Sube tu vídeo de sentadilla búlgara, RDL, press o dominada para evaluar los brazos de palanca y sesgo muscular.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  MediaPipe + OneEuroFilter estabilizan la señal sin jitter y calculan d_cadera vs d_rodilla.
+                </p>
+              </div>
+            )}
 
-          {/* Real Human Skeleton & Biomechanical Canvas Overlay */}
-          <canvas
-            ref={canvasRef}
-            width={640}
-            height={360}
-            className="absolute inset-0 w-full h-full object-contain pointer-events-none z-20"
-          />
+            {/* Real Human Skeleton & Biomechanical Canvas Overlay */}
+            <canvas
+              ref={canvasRef}
+              width={640}
+              height={360}
+              className="absolute inset-0 w-full h-full object-contain pointer-events-none z-20"
+            />
+          </div>
 
           {/* Real-Time Telemetry HUD Overlays */}
-          {isRecording && (
+          {(isRecording || isVideoPlaying || (uploadedVideoUrl && currentTelemetry)) && (
             <>
               {/* Primary Joint Angle Gauge */}
               <div className="absolute top-3 left-3 bg-black/85 backdrop-blur-md border border-cyan-500/50 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2 z-30 shadow-lg">
