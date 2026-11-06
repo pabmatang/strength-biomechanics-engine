@@ -368,8 +368,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             {
               showLeverArms,
               zoom,
-              panOffset
-            }
+              panOffset,
+              primaryJointKey: selectedPattern.primaryJoint
+            },
+            selectedPattern.primaryJoint
           );
         }
       }
@@ -1200,18 +1202,42 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
             </div>
 
-            {/* Active Feedback Alerts */}
-            {activeAlerts.length > 0 && (
-              <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1.5">
+            {/* Active Feedback Alerts & Real-time Pattern Biomechanical Audit */}
+            {((currentTelemetry?.technique.alerts && currentTelemetry.technique.alerts.length > 0) || activeAlerts.length > 0) && (
+              <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
                 <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  Feedback de Ejecución en Tiempo Real
+                  Auditoría Técnica en Tiempo Real ({selectedPattern.name})
                 </span>
+
+                {/* Specific Real-Time Rule Alerts */}
+                {currentTelemetry?.technique.alerts?.map((alert, i) => (
+                  <div
+                    key={`realtime-${alert.code}-${i}`}
+                    className={`p-2 rounded-xl text-xs flex items-start gap-2 border ${
+                      alert.type === 'success'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    }`}
+                  >
+                    {alert.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                    )}
+                    <div className="space-y-0.5">
+                      <span className="font-semibold block">{alert.message}</span>
+                      <span className="text-[10px] opacity-60 font-mono">[{alert.code}]</span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Completed Repetition Cues */}
                 {activeAlerts.map((msg, i) => {
                   const isSuccess = msg.startsWith('✓') || msg.startsWith('★');
                   return (
                     <div
-                      key={i}
+                      key={`hist-${i}`}
                       className={`p-2 rounded-xl text-xs flex items-start gap-2 border ${
                         isSuccess
                           ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'

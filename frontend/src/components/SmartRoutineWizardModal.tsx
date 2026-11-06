@@ -887,14 +887,11 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
         item => !isMuscleDisliked(item.muscle, dislikedMuscles)
       );
 
-      // In Torso/Upper days, preserve the 1-per-group balance (Back, Chest, Delts, Biceps, Triceps)
-      // In Leg/Lower days, ensure priority leg muscles (Glutes, Quads, Hamstrings) are evaluated before accessory calves/adductors
-      let candidatePool = filteredQueue;
-      if (day.focusCategory === 'legs' || day.focusCategory === 'lower') {
-        const priorityCandidates = filteredQueue.filter(item => isMusclePrioritized(item.muscle, priorityMuscles));
-        const secondaryCandidates = filteredQueue.filter(item => !isMusclePrioritized(item.muscle, priorityMuscles));
-        candidatePool = [...priorityCandidates, ...secondaryCandidates];
-      }
+      // Evaluate priority candidates first across all training days
+      // (ensures priority muscles are never starved by candidate pool limits)
+      const priorityCandidates = filteredQueue.filter(item => isMusclePrioritized(item.muscle, priorityMuscles));
+      const secondaryCandidates = filteredQueue.filter(item => !isMusclePrioritized(item.muscle, priorityMuscles));
+      const candidatePool = [...priorityCandidates, ...secondaryCandidates];
 
       const chosenQueue: DayQueueItem[] = [];
 

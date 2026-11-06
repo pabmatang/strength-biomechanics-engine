@@ -16,16 +16,41 @@ import { CompletedRepetition, FsmPhase } from './biomechanicalFSM';
 export type LoadType = 'gravity' | 'cable' | 'machine';
 export type TargetMuscle = 'quadriceps' | 'glutes_max' | 'hamstrings' | 'lats' | 'pectorals';
 export type CameraPlane = 'sagittal' | 'frontal' | 'oblique';
+export type PatternFamily = 'hinge_deadlift' | 'squat_knee_dominant' | 'pull_row' | 'push_press';
 
 export type ResistanceSourceType = 'gravity' | 'cable_high' | 'cable_mid' | 'cable_low';
 export type MuscleBiasCategory = 'hip_glute_bias' | 'knee_quad_bias' | 'balanced_hybrid' | 'lat_bias' | 'upper_back_bias';
 export type ResistanceCurveMatch = 'lengthened_stretch' | 'shortened_lockout' | 'mid_range_bell';
+
+export interface TechniqueFeedbackAlert {
+  type: 'warning' | 'success';
+  code: string;
+  message: string;
+}
+
+export interface PatternBiomechanicsConfig {
+  family: PatternFamily;
+  primaryJoint: 'knee' | 'hip' | 'elbow' | 'shoulder';
+  vertexKey: 'hip' | 'knee' | 'elbow' | 'shoulder';
+  anglePoints: {
+    pointA: string;
+    vertex: string;
+    pointC: string;
+  };
+  evaluateRules: (
+    keypoints: Record<string, Point2D>,
+    currentAngle: number,
+    fsmPhase: FsmPhase,
+    loadPosition: Point2D
+  ) => TechniqueFeedbackAlert[];
+}
 
 export interface ExercisePatternSpec {
   id: string;
   name: string;
   targetMuscle: TargetMuscle;
   loadType: LoadType;
+  patternFamily: PatternFamily;
   primaryJoint: 'knee' | 'hip' | 'elbow' | 'shoulder';
   trackingMode: 'ascending' | 'descending';
   standingThreshold: number;
@@ -35,15 +60,16 @@ export interface ExercisePatternSpec {
 }
 
 /**
- * Exercise Catalog grouped by Target Muscle & Load Type
+ * Exercise Catalog grouped by Target Muscle, Pattern Family & Load Type
  */
 export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
-  // Glúteo Mayor
+  // Glúteo Mayor (Patrones de Bisagra / Glúteo)
   {
     id: 'bulgarian_split_squat_glute',
     name: 'Sentadilla Búlgara (Sesgo Glúteo - Torso Inclinado)',
     targetMuscle: 'glutes_max',
     loadType: 'gravity',
+    patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
     trackingMode: 'descending',
     standingThreshold: 165,
@@ -56,6 +82,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Hip Thrust con Barra / Máquina',
     targetMuscle: 'glutes_max',
     loadType: 'gravity',
+    patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
     trackingMode: 'ascending',
     standingThreshold: 110,
@@ -68,6 +95,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Peso Muerto Rumano (RDL con flexión de rodilla)',
     targetMuscle: 'glutes_max',
     loadType: 'gravity',
+    patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
     trackingMode: 'descending',
     standingThreshold: 170,
@@ -80,6 +108,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Prensa de Piernas 45° (Pies altos y separados)',
     targetMuscle: 'glutes_max',
     loadType: 'machine',
+    patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
     trackingMode: 'descending',
     standingThreshold: 165,
@@ -92,6 +121,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Patada de Glúteo en Polea Baja',
     targetMuscle: 'glutes_max',
     loadType: 'cable',
+    patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
     trackingMode: 'ascending',
     standingThreshold: 120,
@@ -100,12 +130,13 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     targetRatioDescription: 'Vector orientado 30° respecto al eje fémur'
   },
 
-  // Cuádriceps
+  // Cuádriceps (Patrones de Rodilla)
   {
     id: 'squat_high_bar',
     name: 'Sentadilla Libre / Barra Alta (Dominancia Rodilla)',
     targetMuscle: 'quadriceps',
     loadType: 'gravity',
+    patternFamily: 'squat_knee_dominant',
     primaryJoint: 'knee',
     trackingMode: 'descending',
     standingThreshold: 168,
@@ -118,6 +149,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Extensión de Cuádriceps en Máquina',
     targetMuscle: 'quadriceps',
     loadType: 'machine',
+    patternFamily: 'squat_knee_dominant',
     primaryJoint: 'knee',
     trackingMode: 'ascending',
     standingThreshold: 90,
@@ -130,6 +162,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Sentadilla Hack (Máquina)',
     targetMuscle: 'quadriceps',
     loadType: 'machine',
+    patternFamily: 'squat_knee_dominant',
     primaryJoint: 'knee',
     trackingMode: 'descending',
     standingThreshold: 165,
@@ -142,6 +175,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Sentadilla Sissy / Búlgara Sesgo Cuádriceps',
     targetMuscle: 'quadriceps',
     loadType: 'gravity',
+    patternFamily: 'squat_knee_dominant',
     primaryJoint: 'knee',
     trackingMode: 'descending',
     standingThreshold: 170,
@@ -150,12 +184,13 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     targetRatioDescription: 'Ángulo tibial > 24°'
   },
 
-  // Isquiosurales
+  // Isquiosurales (Patrones de Bisagra Pura)
   {
     id: 'rdl_strict_hamstring',
     name: 'Peso Muerto Rumano (RDL Bisagra estricta cadera)',
     targetMuscle: 'hamstrings',
     loadType: 'gravity',
+    patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
     trackingMode: 'descending',
     standingThreshold: 170,
@@ -168,6 +203,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Curl Femoral Sentado (Máquina)',
     targetMuscle: 'hamstrings',
     loadType: 'machine',
+    patternFamily: 'squat_knee_dominant',
     primaryJoint: 'knee',
     trackingMode: 'descending',
     standingThreshold: 165,
@@ -180,6 +216,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Curl Femoral Tumbado (Máquina)',
     targetMuscle: 'hamstrings',
     loadType: 'machine',
+    patternFamily: 'squat_knee_dominant',
     primaryJoint: 'knee',
     trackingMode: 'descending',
     standingThreshold: 165,
@@ -188,12 +225,13 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     targetRatioDescription: 'Pico de torque en rango medio'
   },
 
-  // Dorsal
+  // Dorsal (Patrones de Tracción / Espalda)
   {
     id: 'lat_pulldown_unilateral',
     name: 'Jalón Unilateral en Polea (Codo al Ilíaco)',
     targetMuscle: 'lats',
     loadType: 'cable',
+    patternFamily: 'pull_row',
     primaryJoint: 'elbow',
     trackingMode: 'descending',
     standingThreshold: 155,
@@ -206,6 +244,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Remo al Ilíaco con Apoyo de Pecho',
     targetMuscle: 'lats',
     loadType: 'machine',
+    patternFamily: 'pull_row',
     primaryJoint: 'elbow',
     trackingMode: 'descending',
     standingThreshold: 160,
@@ -218,6 +257,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Pull-over en Polea Alta',
     targetMuscle: 'lats',
     loadType: 'cable',
+    patternFamily: 'pull_row',
     primaryJoint: 'shoulder',
     trackingMode: 'descending',
     standingThreshold: 140,
@@ -226,12 +266,13 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     targetRatioDescription: 'Sobrecarga en ángulo de máxima extensión'
   },
 
-  // Pectoral
+  // Pectoral (Patrones de Empuje / Pecho)
   {
     id: 'converging_chest_press_machine',
     name: 'Press de Pecho en Máquina Convergente',
     targetMuscle: 'pectorals',
     loadType: 'machine',
+    patternFamily: 'push_press',
     primaryJoint: 'elbow',
     trackingMode: 'ascending',
     standingThreshold: 85,
@@ -244,6 +285,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Press Inclinado con Mancuernas (30°)',
     targetMuscle: 'pectorals',
     loadType: 'gravity',
+    patternFamily: 'push_press',
     primaryJoint: 'elbow',
     trackingMode: 'ascending',
     standingThreshold: 85,
@@ -256,6 +298,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Cruces en Polea a Altura Media',
     targetMuscle: 'pectorals',
     loadType: 'cable',
+    patternFamily: 'push_press',
     primaryJoint: 'shoulder',
     trackingMode: 'descending',
     standingThreshold: 150,
@@ -268,6 +311,7 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     name: 'Fondos en Paralelas (Inclinación Torácica)',
     targetMuscle: 'pectorals',
     loadType: 'gravity',
+    patternFamily: 'push_press',
     primaryJoint: 'elbow',
     trackingMode: 'descending',
     standingThreshold: 165,
@@ -276,6 +320,180 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     targetRatioDescription: 'Momento de flexión en hombro aumentado'
   }
 ];
+
+export function getPatternFamily(exerciseId: string): PatternFamily {
+  const pattern = EXERCISE_PATTERNS.find(p => p.id === exerciseId);
+  if (pattern) return pattern.patternFamily;
+  if (exerciseId.includes('rdl') || exerciseId.includes('deadlift') || exerciseId.includes('thrust') || exerciseId.includes('glute') || exerciseId.includes('hinge')) {
+    return 'hinge_deadlift';
+  }
+  if (exerciseId.includes('squat') || exerciseId.includes('press') || exerciseId.includes('extension') || exerciseId.includes('quad')) {
+    return 'squat_knee_dominant';
+  }
+  if (exerciseId.includes('pull') || exerciseId.includes('row') || exerciseId.includes('lat') || exerciseId.includes('espalda')) {
+    return 'pull_row';
+  }
+  return 'push_press';
+}
+
+/**
+ * Technical Fault Auditor by Movement Pattern
+ */
+export function auditTechniqueRules(
+  patternFamily: PatternFamily,
+  keypoints: Record<string, Point2D>,
+  currentAngle: number,
+  fsmPhase: FsmPhase,
+  loadPosition: Point2D
+): TechniqueFeedbackAlert[] {
+  const alerts: TechniqueFeedbackAlert[] = [];
+  const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
+  const shoulder = keypoints['shoulder'] || keypoints['right_shoulder'] || keypoints['left_shoulder'];
+  const hip = keypoints['hip'] || keypoints['right_hip'] || keypoints['left_hip'];
+  const knee = keypoints['knee'] || keypoints['right_knee'] || keypoints['left_knee'];
+  const ankle = keypoints['ankle'] || keypoints['right_ankle'] || keypoints['left_ankle'];
+  const wrist = keypoints['wrist'] || keypoints['right_wrist'] || keypoints['left_wrist'];
+
+  // A) Patrón Peso Muerto / RDL (Hinge / Glúteo / Isquios)
+  if (patternFamily === 'hinge_deadlift') {
+    // 1. Separación de la carga (Momento lumbar lesivo):
+    // Distancia horizontal en X entre mano (mancuerna/barra) y espinilla/rodilla (|X_mano - X_tibia|)
+    if (wrist && knee) {
+      const tibiaX = ankle ? (knee.x + ankle.x) / 2 : knee.x;
+      const loadSeparation = Math.abs(wrist.x - tibiaX);
+      if (fsmPhase !== 'LOCKOUT' && loadSeparation > 0.12) {
+        alerts.push({
+          type: 'warning',
+          code: 'LOAD_SEPARATION',
+          message: '¡Carga alejada del cuerpo! Acércala a las espinillas para proteger la zona lumbar'
+        });
+      } else {
+        alerts.push({
+          type: 'success',
+          code: 'LOAD_TIGHT',
+          message: '✓ Carga pegada a las espinillas: momento lumbar minimizado'
+        });
+      }
+    }
+
+    // 2. Neutralidad Espinal (Colinealidad Oreja - Hombro - Cadera > 15°)
+    const spineCollinearity = calculateSpinalCollinearity(ear, shoulder, hip);
+    if (!spineCollinearity.isSpineNeutral) {
+      alerts.push({
+        type: 'warning',
+        code: 'SPINE_BREAKDOWN',
+        message: 'Pérdida de neutralidad: flexión espinal detectada'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'SPINE_NEUTRAL',
+        message: '✓ Neutralidad espinal firme y columna protegida'
+      });
+    }
+  }
+
+  // B) Patrón Sentadilla / Squat (Rodilla / Cuádriceps)
+  else if (patternFamily === 'squat_knee_dominant') {
+    // 1. Falta de Profundidad:
+    // En BOTTOM, Y_cadera >= Y_rodilla (en coordenadas de pantalla donde Y aumenta hacia abajo)
+    if (fsmPhase === 'BOTTOM' && hip && knee) {
+      if (hip.y < knee.y - 0.02) {
+        alerts.push({
+          type: 'warning',
+          code: 'DEPTH_DEFICIT',
+          message: 'Profundidad insuficiente: el fémur no alcanza la paralela'
+        });
+      } else {
+        alerts.push({
+          type: 'success',
+          code: 'DEPTH_ACHIEVED',
+          message: '✓ Profundidad óptima: cadera en paralelo o sub-paralelo'
+        });
+      }
+    }
+
+    // 2. Inclinación tibial y avance de rodilla sobre el mediopié
+    if (ankle && knee) {
+      const tibialAngle = calculateTibialAngle(ankle, knee);
+      if (tibialAngle < 16 && fsmPhase === 'BOTTOM') {
+        alerts.push({
+          type: 'warning',
+          code: 'INSUFFICIENT_TIBIAL_TRAVEL',
+          message: 'Falta avance de rodilla sobre el mediopié: limita la flexión de rodilla'
+        });
+      } else if (tibialAngle >= 18) {
+        alerts.push({
+          type: 'success',
+          code: 'TIBIAL_TRAVEL_OPTIMAL',
+          message: '✓ Avance tibial óptimo con flexión profunda de rodilla'
+        });
+      }
+    }
+  }
+
+  // C) Patrón de Tracción / Remo / Espalda
+  else if (patternFamily === 'pull_row') {
+    // 1. Alineación de Fuerza y Antebrazo:
+    if (currentAngle < 70 && (fsmPhase === 'BOTTOM' || fsmPhase === 'CONCENTRIC')) {
+      alerts.push({
+        type: 'warning',
+        code: 'BICEPS_OVERUSE',
+        message: 'Tirón excesivo de bíceps: alinea el antebrazo con la dirección de la tracción'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'PULL_ALIGNED',
+        message: '✓ Tracción eficiente con dorsal: antebrazo en línea con la fuerza'
+      });
+    }
+  }
+
+  // D) Patrón de Empuje / Pecho
+  else if (patternFamily === 'push_press') {
+    if (currentAngle < 75 && fsmPhase === 'BOTTOM') {
+      alerts.push({
+        type: 'success',
+        code: 'CHEST_STRETCH',
+        message: '✓ Estiramiento profundo del pectoral con adecuada retracción escapular'
+      });
+    }
+  }
+
+  return alerts;
+}
+
+export const EXERCISE_BIOMECHANICS_RULES: Record<PatternFamily, PatternBiomechanicsConfig> = {
+  hinge_deadlift: {
+    family: 'hinge_deadlift',
+    primaryJoint: 'hip',
+    vertexKey: 'hip',
+    anglePoints: { pointA: 'shoulder', vertex: 'hip', pointC: 'knee' },
+    evaluateRules: (kp, angle, phase, load) => auditTechniqueRules('hinge_deadlift', kp, angle, phase, load)
+  },
+  squat_knee_dominant: {
+    family: 'squat_knee_dominant',
+    primaryJoint: 'knee',
+    vertexKey: 'knee',
+    anglePoints: { pointA: 'hip', vertex: 'knee', pointC: 'ankle' },
+    evaluateRules: (kp, angle, phase, load) => auditTechniqueRules('squat_knee_dominant', kp, angle, phase, load)
+  },
+  pull_row: {
+    family: 'pull_row',
+    primaryJoint: 'elbow',
+    vertexKey: 'elbow',
+    anglePoints: { pointA: 'shoulder', vertex: 'elbow', pointC: 'wrist' },
+    evaluateRules: (kp, angle, phase, load) => auditTechniqueRules('pull_row', kp, angle, phase, load)
+  },
+  push_press: {
+    family: 'push_press',
+    primaryJoint: 'elbow',
+    vertexKey: 'elbow',
+    anglePoints: { pointA: 'shoulder', vertex: 'elbow', pointC: 'wrist' },
+    evaluateRules: (kp, angle, phase, load) => auditTechniqueRules('push_press', kp, angle, phase, load)
+  }
+};
 
 export interface Vector2D {
   x: number;
@@ -304,6 +522,7 @@ export interface BiomechanicalTelemetryFrame {
     isKneeValgusDetected: boolean;
     valgusDeviationRatio: number;
     activeCues: string[];
+    alerts?: TechniqueFeedbackAlert[];
   };
 
   // Mode 2: Biomechanical Optimization & Physics
@@ -540,7 +759,7 @@ export function evaluateBiomechanicalVerdict(
         isOptimal,
         ratio: Math.round(hipOverKnee * 100) / 100,
         verdictTitle: isOptimal
-          ? 'Enfoque óptimo en Glúteo en estiramiento'
+          ? 'Enfoque óptimo en Glúteo en estiramiento: Brazo de momento en cadera maximizado'
           : 'Dominancia desplazada hacia Cuádriceps (exceso de traslación tibial)',
         verdictDescription: isOptimal
           ? `Brazo de momento en cadera dominante (ratio ${hipOverKnee.toFixed(2)}x) y tibia vertical (${tibialAngle.toFixed(1)}°). Carga concentrada en fibras del glúteo mayor.`
@@ -561,16 +780,18 @@ export function evaluateBiomechanicalVerdict(
       };
     }
     case 'quadriceps': {
-      const isOptimal = tibialAngle >= 20 || kneeOverHip >= 1.0;
+      const isOptimal = tibialAngle >= 18 && (kneeOverHip >= 0.9 || tibialAngle >= 20);
       return {
         isOptimal,
         ratio: Math.round(kneeOverHip * 100) / 100,
         verdictTitle: isOptimal
           ? 'Sobrecarga óptima en Cuádriceps'
-          : 'Dominancia desplazada hacia Cadera',
+          : (tibialAngle < 18
+              ? 'Falta de avance de rodilla sobre el mediopié (inclinación tibial insuficiente)'
+              : 'Dominancia desplazada hacia Cadera'),
         verdictDescription: isOptimal
           ? `Avance tibial pronunciado (${tibialAngle.toFixed(1)}°) y brazo de momento preponderante en rodilla (${kneeOverHip.toFixed(2)}x). Reclutamiento profundo de vastos.`
-          : `Torso inclinado en exceso (${torsoLean.toFixed(1)}°) reduciendo el brazo de momento en la rodilla. Eleva talones o mantén el torso más erguido.`
+          : `Avance tibial insuficiente (${tibialAngle.toFixed(1)}° < 18°). Aumenta la dorsiflexión o eleva ligeramente los talones para maximizar la flexión de rodilla.`
       };
     }
     case 'lats': {
@@ -613,12 +834,17 @@ export function evaluateBiomechanicalFrame(
   const elbow = smoothedKeypoints['elbow'] || smoothedKeypoints['right_elbow'] || smoothedKeypoints['left_elbow'];
 
   // Determine load center of mass
+  // In hinge/deadlift: load is strictly held at the hands (wrist landmark)
   // In squats / lunges / leg press: load is roughly at bar/hands or shoulder
-  // In deadlift / bench / pulldown / curl: load is at wrist/hands
-  const isLowerBodyCompound = exerciseId.includes('squat') || exerciseId.includes('press') || exerciseId.includes('lunge');
-  const loadPosition: Point2D = isLowerBodyCompound && shoulder
-    ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
-    : (wrist || shoulder || { x: 0.5, y: 0.5 });
+  // In bench / pulldown / curl: load is at wrist/hands
+  const patternFamily = getPatternFamily(exerciseId);
+  const isHinge = patternFamily === 'hinge_deadlift';
+  const isLowerBodyCompound = (exerciseId.includes('squat') || exerciseId.includes('press') || exerciseId.includes('lunge')) && !isHinge;
+  const loadPosition: Point2D = isHinge && wrist
+    ? wrist
+    : (isLowerBodyCompound && shoulder
+        ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
+        : (wrist || shoulder || { x: 0.5, y: 0.5 }));
 
   // 1. Line of Action of Force
   let lineP1: Point2D;
@@ -658,11 +884,27 @@ export function evaluateBiomechanicalFrame(
   const epsilon = 1e-4;
   const hipOverKneeRatio = dHip / (dKnee + epsilon);
 
-  // Moment arm orthogonal projection segments for visual overlay
-  const hipProjection = hip ? { start: hip, end: projectPointOntoLine(hip, lineP1, lineP2) } : undefined;
-  const kneeProjection = knee ? { start: knee, end: projectPointOntoLine(knee, lineP1, lineP2) } : undefined;
-  const shoulderProjection = shoulder ? { start: shoulder, end: projectPointOntoLine(shoulder, lineP1, lineP2) } : undefined;
-  const elbowProjection = elbow ? { start: elbow, end: projectPointOntoLine(elbow, lineP1, lineP2) } : undefined;
+  // Moment arm orthogonal projection segments for visual overlay directly onto athlete
+  const hipProjection = hip
+    ? (resistanceType === 'gravity'
+        ? { start: { x: loadPosition.x, y: hip.y }, end: hip }
+        : { start: hip, end: projectPointOntoLine(hip, lineP1, lineP2) })
+    : undefined;
+  const kneeProjection = knee
+    ? (resistanceType === 'gravity'
+        ? { start: { x: loadPosition.x, y: knee.y }, end: knee }
+        : { start: knee, end: projectPointOntoLine(knee, lineP1, lineP2) })
+    : undefined;
+  const shoulderProjection = shoulder
+    ? (resistanceType === 'gravity'
+        ? { start: { x: loadPosition.x, y: shoulder.y }, end: shoulder }
+        : { start: shoulder, end: projectPointOntoLine(shoulder, lineP1, lineP2) })
+    : undefined;
+  const elbowProjection = elbow
+    ? (resistanceType === 'gravity'
+        ? { start: { x: loadPosition.x, y: elbow.y }, end: elbow }
+        : { start: elbow, end: projectPointOntoLine(elbow, lineP1, lineP2) })
+    : undefined;
 
   // 3. Tibial Angle & Muscle Bias
   const tibialAngle = (ankle && knee) ? calculateTibialAngle(ankle, knee) : 0;
@@ -736,6 +978,14 @@ export function evaluateBiomechanicalFrame(
     }
   }
 
+  const techniqueAlerts = auditTechniqueRules(
+    patternFamily,
+    smoothedKeypoints,
+    currentAngle,
+    phase,
+    loadPosition
+  );
+
   const activeCues: string[] = [];
   if (!isSpineNeutral) {
     activeCues.push('⚡ Quiebre de neutralidad espinal: curvatura alterada (desviación oreja-hombro-cadera > 15°).');
@@ -746,6 +996,12 @@ export function evaluateBiomechanicalFrame(
   if (phase === 'BOTTOM' && currentAngle <= 95) {
     activeCues.push('✓ Rango de Movimiento (ROM) completo alcanzado.');
   }
+  // Include specific pattern warnings in active cues
+  techniqueAlerts.forEach(alert => {
+    if (alert.type === 'warning' && !activeCues.includes(alert.message)) {
+      activeCues.push(`⚡ ${alert.message}`);
+    }
+  });
 
   return {
     timestampMs,
@@ -758,7 +1014,8 @@ export function evaluateBiomechanicalFrame(
       isSpineNeutral,
       isKneeValgusDetected,
       valgusDeviationRatio: Math.round(valgusRatio * 100) / 100,
-      activeCues
+      activeCues,
+      alerts: techniqueAlerts
     },
     biomechanics: {
       resistanceType,

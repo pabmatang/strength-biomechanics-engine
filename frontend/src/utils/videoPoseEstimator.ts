@@ -462,7 +462,8 @@ export function drawSkeletonOnCanvas(
   width: number,
   height: number,
   feedbackColor: string = '#10B981',
-  activeAngleBadge?: { angle: number; label: string; x?: number; y?: number }
+  activeAngleBadge?: { angle: number; label: string; x?: number; y?: number },
+  primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder'
 ) {
   ctx.clearRect(0, 0, width, height);
 
@@ -553,16 +554,28 @@ export function drawSkeletonOnCanvas(
     if (j) drawJoint(j, 4.5, '#60A5FA');
   });
 
-  // Highlight dominant/tracked primary joint
-  const trackedJoint = keypoints['elbow'] || keypoints['knee'] || keypoints['hip'];
+  // Dynamic vertex resolution: strictly prioritize the target joint of the selected pattern
+  const trackedJoint = (primaryJointKey ? keypoints[primaryJointKey] : undefined) ||
+    keypoints['hip'] || keypoints['knee'] || keypoints['elbow'];
+
   if (trackedJoint && isVisible(trackedJoint)) {
+    // Primary vertex node
     drawJoint(trackedJoint, 7.5, feedbackColor);
+
+    // Articular angle arc at vertex (radius 22px)
+    ctx.save();
+    ctx.strokeStyle = feedbackColor;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(trackedJoint.x * width, trackedJoint.y * height, 22, -0.6 * Math.PI, 0.4 * Math.PI);
+    ctx.stroke();
+    ctx.restore();
   }
 
-  // Draw Floating Angle Badge on the primary tracked joint
+  // Draw Floating Angle Badge anchored directly adjacent to the primary vertex
   if (activeAngleBadge && trackedJoint && isVisible(trackedJoint)) {
     const badgeX = (activeAngleBadge.x ?? trackedJoint.x) * width;
-    const badgeY = ((activeAngleBadge.y ?? trackedJoint.y) * height) - 22;
+    const badgeY = ((activeAngleBadge.y ?? trackedJoint.y) * height) - 24;
 
     ctx.save();
     ctx.font = 'bold 12px monospace';
@@ -590,6 +603,7 @@ export interface RenderOverlayOptions {
   showLeverArms?: boolean;
   zoom?: number;
   panOffset?: { x: number; y: number };
+  primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder';
 }
 
 /**
@@ -603,7 +617,7 @@ export function drawBiomechanicsOverlayOnCanvas(
   height: number,
   options: RenderOverlayOptions = {}
 ) {
-  const { showLeverArms = true, zoom = 1, panOffset = { x: 0, y: 0 } } = options;
+  const { showLeverArms = true, zoom = 1, panOffset = { x: 0, y: 0 }, primaryJointKey } = options;
 
   ctx.save();
   if (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) {
@@ -611,11 +625,19 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.scale(zoom, zoom);
   }
 
-  // Subtle skeleton guide in background
-  drawSkeletonOnCanvas(ctx, keypoints, width, height, 'rgba(56, 189, 248, 0.45)', {
-    angle: frame.currentAngle,
-    label: 'ROM'
-  });
+  // Subtle skeleton guide in background with dynamic primary vertex
+  drawSkeletonOnCanvas(
+    ctx,
+    keypoints,
+    width,
+    height,
+    'rgba(56, 189, 248, 0.45)',
+    {
+      angle: frame.currentAngle,
+      label: 'ROM'
+    },
+    primaryJointKey
+  );
 
   const bio = frame.biomechanics;
   if (!bio) {
@@ -681,11 +703,11 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.fill();
   }
 
-  // 2. Perpendicular Moment Arms (Brazos de Momento): Cadera (Azul) y Rodilla (Verde)
+  // 2. Perpendicular Moment Arms (Brazos de Momento): Cadera (Azul Cian) y Rodilla (Verde Lima)
   if (showLeverArms) {
     const drawMomentArm = (
       seg?: { start: Point2D; end: Point2D },
-      color: string = '#3B82F6',
+      color: string = '#06B6D4',
       label: string = 'd'
     ) => {
       if (!seg || !seg.start || !seg.end) return;
@@ -729,13 +751,13 @@ export function drawBiomechanicsOverlayOnCanvas(
       ctx.fillText(label, midX, midY - 3);
     };
 
-    // Cadera: Azul (#3B82F6)
+    // Cadera: Azul Cian (#06B6D4)
     if (bio.momentArmProjections.hipProjection) {
       const hipPx = Math.round(bio.momentArms.hip * width);
-      drawMomentArm(bio.momentArmProjections.hipProjection, '#3B82F6', `d_cadera: ${hipPx}px`);
+      drawMomentArm(bio.momentArmProjections.hipProjection, '#06B6D4', `d_cadera: ${hipPx}px`);
     }
 
-    // Rodilla: Verde (#10B981)
+    // Rodilla: Verde Lima (#10B981)
     if (bio.momentArmProjections.kneeProjection) {
       const kneePx = Math.round(bio.momentArms.knee * width);
       drawMomentArm(bio.momentArmProjections.kneeProjection, '#10B981', `d_rodilla: ${kneePx}px`);
@@ -761,7 +783,7 @@ export function drawBiomechanicsOverlayOnCanvas(
   const bannerY = 24;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-  ctx.strokeStyle = bio.muscleBias === 'hip_glute_bias' ? '#3B82F6' : '#10B981';
+  ctx.strokeStyle = bio.muscleBias === 'hip_glute_bias' ? '#06B6D4' : '#10B981';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.roundRect(bannerX - bannerWidth / 2, bannerY - 12, bannerWidth, 24, 8);
@@ -787,23 +809,37 @@ export function drawDualModeOverlay(
   width: number,
   height: number,
   primaryColor = '#10B981',
-  options: RenderOverlayOptions = {}
+  options: RenderOverlayOptions = {},
+  primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder'
 ) {
+  const mergedOptions: RenderOverlayOptions = {
+    ...options,
+    primaryJointKey: primaryJointKey || options.primaryJointKey
+  };
+
   if (mode === 'biomechanics') {
-    drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, options);
+    drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, mergedOptions);
   } else {
-    const { zoom = 1, panOffset = { x: 0, y: 0 } } = options;
+    const { zoom = 1, panOffset = { x: 0, y: 0 } } = mergedOptions;
     ctx.save();
     if (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) {
       ctx.translate(panOffset.x, panOffset.y);
       ctx.scale(zoom, zoom);
     }
 
-    // Mode 1: Technique
-    drawSkeletonOnCanvas(ctx, keypoints, width, height, primaryColor, {
-      angle: frame.currentAngle,
-      label: 'Ángulo'
-    });
+    // Mode 1: Technique with dynamic vertex
+    drawSkeletonOnCanvas(
+      ctx,
+      keypoints,
+      width,
+      height,
+      primaryColor,
+      {
+        angle: frame.currentAngle,
+        label: 'Ángulo'
+      },
+      mergedOptions.primaryJointKey
+    );
 
     // Draw spinal neutrality ray if spine is flexed
     if (!frame.technique.isSpineNeutral && keypoints['shoulder'] && keypoints['hip']) {
@@ -818,5 +854,35 @@ export function drawDualModeOverlay(
       ctx.restore();
     }
     ctx.restore();
+  }
+}
+
+/**
+ * Deliverable 2: CanvasBiomechanicalRenderer
+ * Decoupled render orchestrator for high-performance canvas overlays
+ */
+export class CanvasBiomechanicalRenderer {
+  static render(
+    ctx: CanvasRenderingContext2D,
+    mode: 'technique' | 'biomechanics',
+    frame: BiomechanicalTelemetryFrame,
+    keypoints: Record<string, Keypoint2D>,
+    width: number,
+    height: number,
+    primaryColor: string = '#10B981',
+    options: RenderOverlayOptions = {},
+    primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder'
+  ): void {
+    drawDualModeOverlay(
+      ctx,
+      mode,
+      frame,
+      keypoints,
+      width,
+      height,
+      primaryColor,
+      options,
+      primaryJointKey
+    );
   }
 }

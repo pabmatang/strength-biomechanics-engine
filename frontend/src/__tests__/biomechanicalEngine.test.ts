@@ -10,7 +10,9 @@ import {
   auditCompletedRepetition,
   detectCameraPlane,
   calculateSpinalCollinearity,
-  evaluateBiomechanicalVerdict
+  evaluateBiomechanicalVerdict,
+  auditTechniqueRules,
+  EXERCISE_BIOMECHANICS_RULES
 } from '../utils/biomechanicsEngine';
 
 describe('1€ Filter (OneEuroFilter) - Anti-Jitter Signal Stabilization', () => {
@@ -350,5 +352,126 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     const quadOptimal = evaluateBiomechanicalVerdict('quadriceps', 0.20, 0.50, 25);
     expect(quadOptimal.isOptimal).toBe(true);
     expect(quadOptimal.verdictTitle).toContain('Sobrecarga óptima en Cuádriceps');
+
+    // 4. Quadriceps with insufficient tibial forward travel (< 18°)
+    const quadNoTravel = evaluateBiomechanicalVerdict('quadriceps', 0.45, 0.20, 12);
+    expect(quadNoTravel.isOptimal).toBe(false);
+    expect(quadNoTravel.verdictTitle).toContain('Falta de avance de rodilla sobre el mediopié');
+  });
+
+  it('audits pattern-specific technical faults via auditTechniqueRules', () => {
+    // A) Hinge / RDL: Load separation > 12/15cm
+    const hingeKeypointsSeparated = {
+      wrist: { x: 0.65, y: 0.60 },
+      knee: { x: 0.45, y: 0.60 },
+      ankle: { x: 0.45, y: 0.85 },
+      shoulder: { x: 0.48, y: 0.35 },
+      hip: { x: 0.40, y: 0.50 }
+    };
+    const alertsSeparation = auditTechniqueRules(
+      'hinge_deadlift',
+      hingeKeypointsSeparated,
+      130,
+      'ECCENTRIC',
+      hingeKeypointsSeparated.wrist
+    );
+    expect(alertsSeparation.some(a => a.code === 'LOAD_SEPARATION')).toBe(true);
+
+    // Hinge with load close to tibia
+    const hingeKeypointsTight = {
+      wrist: { x: 0.46, y: 0.60 },
+      knee: { x: 0.45, y: 0.60 },
+      ankle: { x: 0.45, y: 0.85 },
+      shoulder: { x: 0.48, y: 0.35 },
+      hip: { x: 0.40, y: 0.50 }
+    };
+    const alertsTight = auditTechniqueRules(
+      'hinge_deadlift',
+      hingeKeypointsTight,
+      130,
+      'ECCENTRIC',
+      hingeKeypointsTight.wrist
+    );
+    expect(alertsTight.some(a => a.code === 'LOAD_TIGHT')).toBe(true);
+
+    // B) Squat: Depth deficit at bottom (hip.y < knee.y - 0.02)
+    const squatKeypointsHigh = {
+      hip: { x: 0.50, y: 0.48 }, // Hip higher on screen (lower y) than knee
+      knee: { x: 0.52, y: 0.62 },
+      ankle: { x: 0.50, y: 0.85 }
+    };
+    const alertsDepth = auditTechniqueRules(
+      'squat_knee_dominant',
+      squatKeypointsHigh,
+      105,
+      'BOTTOM',
+      { x: 0.50, y: 0.40 }
+    );
+    expect(alertsDepth.some(a => a.code === 'DEPTH_DEFICIT')).toBe(true);
+
+    // Squat: Optimal parallel/sub-parallel depth
+    const squatKeypointsDeep = {
+      hip: { x: 0.48, y: 0.63 }, // Hip below or at knee level
+      knee: { x: 0.55, y: 0.62 },
+      ankle: { x: 0.50, y: 0.85 }
+    };
+    const alertsDeep = auditTechniqueRules(
+      'squat_knee_dominant',
+      squatKeypointsDeep,
+      85,
+      'BOTTOM',
+      { x: 0.50, y: 0.40 }
+    );
+    expect(alertsDeep.some(a => a.code === 'DEPTH_ACHIEVED')).toBe(true);
+
+    // C) Pull/Row: Biceps overuse (< 70° flexion)
+    const alertsPull = auditTechniqueRules(
+      'pull_row',
+      {},
+      55, // 55° acute elbow flexion
+      'CONCENTRIC',
+      { x: 0.5, y: 0.5 }
+    );
+    expect(alertsPull.some(a => a.code === 'BICEPS_OVERUSE')).toBe(true);
+  });
+
+  it('validates EXERCISE_BIOMECHANICS_RULES mapping for all pattern families', () => {
+    expect(EXERCISE_BIOMECHANICS_RULES.hinge_deadlift.primaryJoint).toBe('hip');
+    expect(EXERCISE_BIOMECHANICS_RULES.hinge_deadlift.anglePoints.vertex).toBe('hip');
+
+    expect(EXERCISE_BIOMECHANICS_RULES.squat_knee_dominant.primaryJoint).toBe('knee');
+    expect(EXERCISE_BIOMECHANICS_RULES.squat_knee_dominant.anglePoints.vertex).toBe('knee');
+
+    expect(EXERCISE_BIOMECHANICS_RULES.pull_row.primaryJoint).toBe('elbow');
+    expect(EXERCISE_BIOMECHANICS_RULES.push_press.primaryJoint).toBe('elbow');
+  });
+
+  it('computes horizontal orthogonal moment arm spans in gravity mode', () => {
+    const keypoints = {
+      hip: { x: 0.35, y: 0.55 },
+      knee: { x: 0.48, y: 0.70 },
+      wrist: { x: 0.50, y: 0.60 }
+    };
+    const frame = evaluateBiomechanicalFrame(
+      keypoints,
+      'rdl_glute',
+      'BOTTOM',
+      120,
+      0,
+      'gravity'
+    );
+
+    expect(frame.biomechanics.momentArmProjections.hipProjection).toBeDefined();
+    expect(frame.biomechanics.momentArmProjections.kneeProjection).toBeDefined();
+
+    // Hip orthogonal projection should connect horizontal span (start.x = load.x, start.y = hip.y) to hip
+    const hipProj = frame.biomechanics.momentArmProjections.hipProjection!;
+    expect(hipProj.start.y).toBeCloseTo(keypoints.hip.y);
+    expect(hipProj.end.x).toBeCloseTo(keypoints.hip.x);
+
+    // Knee orthogonal projection should connect horizontal span (start.x = load.x, start.y = knee.y) to knee
+    const kneeProj = frame.biomechanics.momentArmProjections.kneeProjection!;
+    expect(kneeProj.start.y).toBeCloseTo(keypoints.knee.y);
+    expect(kneeProj.end.x).toBeCloseTo(keypoints.knee.x);
   });
 });
