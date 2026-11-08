@@ -411,7 +411,17 @@ export function extractPoseDataFromLandmarks(
   const hip = dominantSide === 'right' ? rh : lh;
   const knee = dominantSide === 'right' ? rk : lk;
   const ankle = dominantSide === 'right' ? ra : la;
-  const ear = dominantSide === 'right' ? (rear || landmarks[0]) : (lear || landmarks[0]);
+
+  // Pick the most confident ear, or the dominant side ear if sufficiently visible (>= 0.35).
+  // NEVER fall back to nose (landmarks[0]) as connecting Nose -> Shoulder creates an artificial 35°-45° kink!
+  const preferredEar = dominantSide === 'right' ? rear : lear;
+  const alternateEar = dominantSide === 'right' ? lear : rear;
+  const validEar = (preferredEar && (preferredEar.visibility ?? 1) >= 0.35)
+    ? preferredEar
+    : (alternateEar && (alternateEar.visibility ?? 1) >= 0.35)
+      ? alternateEar
+      : undefined;
+  const ear = validEar;
 
   const keypoints: Record<string, Keypoint2D> = {
     nose: landmarks[0] ? { x: landmarks[0].x, y: landmarks[0].y, visibility: landmarks[0].visibility, name: 'nose' } : undefined as any,
@@ -626,6 +636,9 @@ export function drawBiomechanicsOverlayOnCanvas(
   height: number,
   options: RenderOverlayOptions = {}
 ) {
+  // Clear previous frame completely so lines and labels never duplicate or overlap
+  ctx.clearRect(0, 0, width, height);
+
   const {
     showLeverArms = true,
     zoom = 1,
@@ -660,11 +673,11 @@ export function drawBiomechanicsOverlayOnCanvas(
   const loadY = (bio.loadPosition ? bio.loadPosition.y : (hand ? hand.y : 0.5)) * height;
 
   // 1. Force Line of Action (Línea de Acción de la Fuerza):
-  // Continuous vertical line passing strictly through the load hand
+  // Clean continuous vertical line passing strictly through the load hand
   ctx.strokeStyle = '#EF4444';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(loadX, Math.max(0, loadY - 80));
+  ctx.moveTo(loadX, 0);
   ctx.lineTo(loadX, height);
   ctx.stroke();
 
@@ -852,6 +865,9 @@ export function drawDualModeOverlay(
   options: RenderOverlayOptions = {},
   primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder'
 ) {
+  // CRITICAL: Always clear canvas so prior frames never persist or ghost
+  ctx.clearRect(0, 0, width, height);
+
   const mergedOptions: RenderOverlayOptions = {
     ...options,
     primaryJointKey: primaryJointKey || options.primaryJointKey
@@ -883,21 +899,27 @@ export function drawDualModeOverlay(
     );
 
     // Spinal Alignment (Oreja -> Hombro -> Cadera)
-    const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'] || keypoints['nose'];
+    // Only use authentic ear landmark (never nose)
+    const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
     const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
     const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
 
     if (shoulder && hip) {
       ctx.save();
       const spineNeutral = frame.technique.isSpineNeutral;
-      const spineColor = spineNeutral ? 'rgba(16, 185, 129, 0.85)' : 'rgba(239, 68, 68, 0.95)';
+      const spineColor = spineNeutral ? '#10B981' : '#EF4444';
       ctx.strokeStyle = spineColor;
-      ctx.lineWidth = spineNeutral ? 2.5 : 3.5;
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
       if (!spineNeutral) {
-        ctx.setLineDash([6, 4]);
+        ctx.setLineDash([7, 4]);
       }
+
       ctx.beginPath();
-      if (ear) {
+      const hasValidEar = ear && (ear.visibility === undefined || ear.visibility >= 0.35);
+      if (hasValidEar) {
         ctx.moveTo(ear.x * width, ear.y * height);
         ctx.lineTo(shoulder.x * width, shoulder.y * height);
       } else {
@@ -906,24 +928,43 @@ export function drawDualModeOverlay(
       ctx.lineTo(hip.x * width, hip.y * height);
       ctx.stroke();
 
-      if (!spineNeutral) {
-        const midX = (shoulder.x + hip.x) * width / 2;
-        const midY = (shoulder.y + hip.y) * height / 2;
-        ctx.font = 'bold 11px monospace';
-        const label = 'ALERTA: FLEXIÓN ESPINAL';
-        const tWidth = ctx.measureText(label).width;
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-        ctx.strokeStyle = '#EF4444';
-        ctx.lineWidth = 1;
+      // Draw spinal alignment joint nodes
+      const drawSpinalNode = (p: Keypoint2D, color: string) => {
+        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.roundRect(midX - tWidth / 2 - 5, midY - 10, tWidth + 10, 18, 4);
+        ctx.arc(p.x * width, p.y * height, 5.5, 0, 2 * Math.PI);
         ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
-        ctx.fillStyle = '#FCA5A5';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(label, midX, midY - 1);
-      }
+      };
+
+      if (hasValidEar) drawSpinalNode(ear!, spineColor);
+      drawSpinalNode(shoulder, spineColor);
+      drawSpinalNode(hip, spineColor);
+
+      // Dedicated spinal alignment status badge
+      const midX = (shoulder.x + hip.x) * width / 2;
+      const midY = (shoulder.y + hip.y) * height / 2;
+      ctx.font = 'bold 11px monospace';
+      const label = spineNeutral
+        ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
+        : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`;
+      const tWidth = ctx.measureText(label).width;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.strokeStyle = spineColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(midX - tWidth / 2 - 6, midY - 11, tWidth + 12, 18, 5);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = spineNeutral ? '#6EE7B7' : '#FCA5A5';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, midX, midY - 2);
+
       ctx.restore();
     }
 

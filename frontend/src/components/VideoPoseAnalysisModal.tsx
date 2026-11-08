@@ -272,6 +272,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       canvas.height = video.videoHeight;
     }
 
+    // Clear canvas before processing and drawing new frame to prevent ghosting/overlapping
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
     try {
       const landmarker = await getPoseLandmarker();
       if (!landmarker) return;
