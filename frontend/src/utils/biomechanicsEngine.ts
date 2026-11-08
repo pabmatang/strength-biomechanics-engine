@@ -18,7 +18,7 @@ export type TargetMuscle = 'quadriceps' | 'glutes_max' | 'hamstrings' | 'lats' |
 export type CameraPlane = 'sagittal' | 'frontal' | 'oblique';
 export type PatternFamily = 'hinge_deadlift' | 'squat_knee_dominant' | 'pull_row' | 'push_press';
 
-export type ResistanceSourceType = 'gravity' | 'cable_high' | 'cable_mid' | 'cable_low';
+export type ResistanceSourceType = 'gravity' | 'cable_high' | 'cable_mid' | 'cable_low' | 'machine';
 export type MuscleBiasCategory = 'hip_glute_bias' | 'knee_quad_bias' | 'balanced_hybrid' | 'lat_bias' | 'upper_back_bias';
 export type ResistanceCurveMatch = 'lengthened_stretch' | 'shortened_lockout' | 'mid_range_bell';
 
@@ -824,7 +824,8 @@ export function evaluateBiomechanicalFrame(
   angularVelocity: number,
   resistanceType: ResistanceSourceType = 'gravity',
   targetMuscleGroup: 'quads' | 'glutes' | 'hamstrings' | 'lats' | 'chest' | 'triceps' | 'biceps' = 'quads',
-  timestampMs: number = performance.now()
+  timestampMs: number = performance.now(),
+  smoothedTibialAngle?: number
 ): BiomechanicalTelemetryFrame {
   const hip = smoothedKeypoints['hip'] || smoothedKeypoints['right_hip'] || smoothedKeypoints['left_hip'];
   const knee = smoothedKeypoints['knee'] || smoothedKeypoints['right_knee'] || smoothedKeypoints['left_knee'];
@@ -833,26 +834,32 @@ export function evaluateBiomechanicalFrame(
   const wrist = smoothedKeypoints['wrist'] || smoothedKeypoints['right_wrist'] || smoothedKeypoints['left_wrist'];
   const elbow = smoothedKeypoints['elbow'] || smoothedKeypoints['right_elbow'] || smoothedKeypoints['left_elbow'];
 
-  // Determine load center of mass
-  // In hinge/deadlift: load is strictly held at the hands (wrist landmark)
-  // In squats / lunges / leg press: load is roughly at bar/hands or shoulder
-  // In bench / pulldown / curl: load is at wrist/hands
+  // Determine load / force application point:
+  // - Machine exercises with foot on platform (leg press, hack squat, etc.) or when resistanceType === 'machine':
+  //   the force is applied at the foot/ankle on the machine.
+  // - Free-weight hinge/deadlift: load is strictly held at the hands (wrist landmark).
+  // - Free-weight barbell back squat: load is at the shoulder/bar.
+  // - Upper body patterns: load is at the hands.
   const patternFamily = getPatternFamily(exerciseId);
   const isHinge = patternFamily === 'hinge_deadlift';
-  const isLowerBodyCompound = (exerciseId.includes('squat') || exerciseId.includes('press') || exerciseId.includes('lunge')) && !isHinge;
-  const loadPosition: Point2D = isHinge && wrist
-    ? wrist
-    : (isLowerBodyCompound && shoulder
-        ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
-        : (wrist || shoulder || { x: 0.5, y: 0.5 }));
+  const isUpperBody = exerciseId.includes('lat') || exerciseId.includes('row') || exerciseId.includes('press_chest') || exerciseId.includes('curl') || exerciseId.includes('triceps') || patternFamily === 'push_press' || patternFamily === 'pull_row';
+  const isMachineFootContact = (resistanceType === 'machine' || exerciseId.includes('press') || exerciseId.includes('hack') || exerciseId.includes('extension')) && !isUpperBody;
+
+  const loadPosition: Point2D = isMachineFootContact && ankle
+    ? ankle
+    : (isHinge && wrist
+        ? wrist
+        : (shoulder
+            ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
+            : (wrist || ankle || shoulder || { x: 0.5, y: 0.5 })));
 
   // 1. Line of Action of Force
   let lineP1: Point2D;
   let lineP2: Point2D;
   let forceVector: Vector2D;
 
-  if (resistanceType === 'gravity') {
-    // Pure vertical gravity line passing through load position
+  if (resistanceType === 'gravity' || resistanceType === 'machine') {
+    // Pure vertical reaction / gravity line passing through load position (or foot on machine)
     forceVector = { x: 0, y: 1 };
     lineP1 = { x: loadPosition.x, y: 0.0 };
     lineP2 = { x: loadPosition.x, y: 1.0 };
@@ -910,8 +917,10 @@ export function evaluateBiomechanicalFrame(
         : { start: elbow, end: projectPointOntoLine(elbow, lineP1, lineP2) })
     : undefined;
 
-  // 3. Tibial Angle & Muscle Bias
-  const tibialAngle = (ankle && knee) ? calculateTibialAngle(ankle, knee) : 0;
+  // 3. Tibial Angle & Muscle Bias (smoothly stabilized)
+  const tibialAngle = smoothedTibialAngle !== undefined
+    ? smoothedTibialAngle
+    : ((ankle && knee) ? calculateTibialAngle(ankle, knee) : 0);
   let muscleBias: MuscleBiasCategory = 'balanced_hybrid';
   let muscleBiasLabel = 'Estímulo Equilibrado Híbrido';
 

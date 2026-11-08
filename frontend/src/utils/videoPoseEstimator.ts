@@ -7,7 +7,7 @@
  */
 
 import { FilesetResolver, PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision';
-import { BiomechanicalTelemetryFrame, PatternFamily, TargetMuscle, calculateTibialAngle } from './biomechanicsEngine';
+import { BiomechanicalTelemetryFrame, PatternFamily, TargetMuscle, LoadType, calculateTibialAngle } from './biomechanicsEngine';
 import { Point2D } from './oneEuroFilter';
 
 export interface Keypoint2D {
@@ -622,6 +622,8 @@ export interface RenderOverlayOptions {
   primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder';
   patternFamily?: PatternFamily;
   targetMuscle?: TargetMuscle;
+  loadType?: LoadType;
+  exerciseId?: string;
   useInternalCanvasTransform?: boolean;
 }
 
@@ -645,6 +647,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     panOffset = { x: 0, y: 0 },
     patternFamily,
     targetMuscle,
+    loadType,
+    exerciseId,
     useInternalCanvasTransform = false
   } = options;
 
@@ -668,12 +672,34 @@ export function drawBiomechanicsOverlayOnCanvas(
   const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
   const elbow = keypoints['elbow'] || keypoints['left_elbow'] || keypoints['right_elbow'];
 
-  // Load line origin & position
-  const loadX = (bio.loadPosition ? bio.loadPosition.x : (hand ? hand.x : 0.5)) * width;
-  const loadY = (bio.loadPosition ? bio.loadPosition.y : (hand ? hand.y : 0.5)) * height;
+  const isUpperBody = patternFamily === 'push_press' ||
+    patternFamily === 'pull_row' ||
+    targetMuscle === 'pectorals' ||
+    targetMuscle === 'lats';
+
+  // Force Application Contact Point:
+  // - If loadType === 'machine' or exercise is on a machine / leg press / hack (or foot on machine plate):
+  //   The load/reaction force is applied at the FOOT / ANKLE on the machine.
+  // - For free-weight hinge / dumbbell: force is at the hand / wrist.
+  // - For barbell squat: force is at the shoulder/bar.
+  // - For upper body: force is at the hand / wrist.
+  const isFootOnMachine = (
+    loadType === 'machine' ||
+    exerciseId?.includes('press') ||
+    exerciseId?.includes('hack') ||
+    exerciseId?.includes('machine') ||
+    exerciseId?.includes('extension')
+  ) && !isUpperBody;
+
+  const contactPoint = (isFootOnMachine && ankle)
+    ? ankle
+    : (bio.loadPosition || (isUpperBody ? hand : (hand || ankle || shoulder || { x: 0.5, y: 0.5 })));
+
+  const loadX = contactPoint.x * width;
+  const loadY = contactPoint.y * height;
 
   // 1. Force Line of Action (Línea de Acción de la Fuerza):
-  // Clean continuous vertical line passing strictly through the load hand
+  // Continuous vertical line passing strictly through the load application point (foot on machine or hand)
   ctx.strokeStyle = '#EF4444';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -686,10 +712,14 @@ export function drawBiomechanicsOverlayOnCanvas(
   ctx.beginPath();
   ctx.arc(loadX, loadY, 6, 0, 2 * Math.PI);
   ctx.fill();
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-  // Directional arrowhead pointing down along gravity
+  // Directional arrowhead
   const headLen = 8;
   const arrowY = Math.min(height - 12, loadY + 40);
+  ctx.fillStyle = '#EF4444';
   ctx.beginPath();
   ctx.moveTo(loadX, arrowY);
   ctx.lineTo(loadX - headLen * 0.7, arrowY - headLen);
@@ -739,67 +769,68 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.fillText(label, midX, midY - 3);
   };
 
-  const isUpperBody = patternFamily === 'push_press' ||
-    patternFamily === 'pull_row' ||
-    targetMuscle === 'pectorals' ||
-    targetMuscle === 'lats';
-
   // 2. Direct Orthogonal Moment Arms (Exclusively two segments)
   if (showLeverArms) {
     if (!isUpperBody) {
       if (hip) {
-        const hipPx = Math.round(bio.momentArms.hip * width);
+        const hipPx = Math.abs(Math.round(hip.x * width - loadX));
         drawMomentArm(hip.y * height, hip.x * width, '#06B6D4', `d_cadera: ${hipPx}px`);
       }
       if (knee) {
-        const kneePx = Math.round(bio.momentArms.knee * width);
+        const kneePx = Math.abs(Math.round(knee.x * width - loadX));
         drawMomentArm(knee.y * height, knee.x * width, '#10B981', `d_rodilla: ${kneePx}px`);
       }
     } else {
       if (shoulder) {
-        const shPx = Math.round((bio.momentArms.shoulder ?? 0) * width);
+        const shPx = Math.abs(Math.round(shoulder.x * width - loadX));
         drawMomentArm(shoulder.y * height, shoulder.x * width, '#8B5CF6', `d_hombro: ${shPx}px`);
       }
       if (elbow) {
-        const elPx = Math.round((bio.momentArms.elbow ?? 0) * width);
+        const elPx = Math.abs(Math.round(elbow.x * width - loadX));
         drawMomentArm(elbow.y * height, elbow.x * width, '#EC4899', `d_codo: ${elPx}px`);
       }
     }
   }
 
-  // 3. Subtle Tibia Segment (Rodilla -> Tobillo) with Tibial Inclination Angle θ_tibia
+  // 3. Subtle Tibia Segment (Rodilla -> Tobillo) with Non-Intrusive Stabilized Tibial Angle θ_tibia
   if (knee && ankle && !isUpperBody) {
     const kx = knee.x * width;
     const ky = knee.y * height;
     const ax = ankle.x * width;
     const ay = ankle.y * height;
 
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
-    ctx.lineWidth = 2;
+    // Thin, subtle dashed guide line that does not obstruct the leg
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.40)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
     ctx.beginPath();
     ctx.moveTo(kx, ky);
     ctx.lineTo(ax, ay);
     ctx.stroke();
+    ctx.setLineDash([]);
 
-    const tibialAngle = calculateTibialAngle(ankle, knee);
-    const midX = (kx + ax) / 2;
-    const midY = (ky + ay) / 2;
-    const tText = `θ_tibia: ${Math.round(tibialAngle)}°`;
+    // Use smoothly stabilized angle from telemetry
+    const tibialAngle = frame.biomechanics?.tibialAngleDegrees ?? Math.round(calculateTibialAngle(ankle, knee));
+
+    // Position the badge cleanly offset beside the foot/ankle base, NEVER over the middle of the shin!
+    const badgeX = ax + (ax >= kx ? 28 : -28);
+    const badgeY = ay - 6;
+    const tText = `θ_tibia: ${tibialAngle}°`;
     ctx.font = 'bold 10px monospace';
     const tWidth = ctx.measureText(tText).width;
 
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(midX - tWidth / 2 - 4, midY - 9, tWidth + 8, 14, 3);
+    ctx.roundRect(badgeX - tWidth / 2 - 4, badgeY - 8, tWidth + 8, 15, 4);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#38BDF8';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(tText, midX, midY - 2);
+    ctx.fillText(tText, badgeX, badgeY - 1);
   }
 
   // 4. Clean Joint Dots ONLY on Active Working Side (Zero Extra Noise)
@@ -816,8 +847,8 @@ export function drawBiomechanicsOverlayOnCanvas(
   if (!isUpperBody) {
     if (hip) drawJointDot(hip, '#06B6D4');
     if (knee) drawJointDot(knee, '#10B981');
-    if (ankle) drawJointDot(ankle, '#38BDF8');
-    if (hand) drawJointDot(hand, '#EF4444');
+    if (ankle) drawJointDot(ankle, isFootOnMachine ? '#EF4444' : '#38BDF8');
+    if (!isFootOnMachine && hand) drawJointDot(hand, '#EF4444');
   } else {
     if (shoulder) drawJointDot(shoulder, '#8B5CF6');
     if (elbow) drawJointDot(elbow, '#EC4899');

@@ -51,7 +51,8 @@ import {
   EXERCISE_PATTERNS,
   ExercisePatternSpec,
   evaluateBiomechanicalVerdict,
-  detectCameraPlane
+  detectCameraPlane,
+  calculateTibialAngle
 } from '../utils/biomechanicsEngine';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 
@@ -130,6 +131,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // Adaptive OneEuroFilter smoother for all landmarks (Anti-Jitter)
   const poseSmootherRef = useRef<PoseLandmarkSmoother>(new PoseLandmarkSmoother());
+  const smoothedTibialAngleRef = useRef<number>(14);
 
   // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
@@ -340,8 +342,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             setActiveAlerts(audit.techniqueVerdict.feedbackCues);
           }
 
+          // Smooth tibial angle across frames with EMA filter (persistence 0.88)
+          // Eliminates rapid jittering/flickering even at 0.25x playback speed
+          const rawTibial = (smoothedKeypoints['ankle'] && smoothedKeypoints['knee'])
+            ? calculateTibialAngle(smoothedKeypoints['ankle'], smoothedKeypoints['knee'])
+            : 14;
+          smoothedTibialAngleRef.current = 0.88 * smoothedTibialAngleRef.current + 0.12 * rawTibial;
+
           // 4. Biomechanical Physics Evaluation (Moment Arms, Line of Action, Muscle Bias)
-          const resistanceParam: ResistanceSourceType = loadType === 'gravity' ? 'gravity' : loadType === 'cable' ? 'cable_mid' : 'gravity';
+          const resistanceParam: ResistanceSourceType =
+            loadType === 'gravity' ? 'gravity' :
+            loadType === 'cable' ? 'cable_mid' :
+            'machine';
           const targetBiasParam = targetMuscle === 'glutes_max' ? 'glutes' : targetMuscle === 'quadriceps' ? 'quads' : targetMuscle === 'hamstrings' ? 'hamstrings' : 'lats';
 
           const telemetry = evaluateBiomechanicalFrame(
@@ -352,7 +364,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             angVelocity,
             resistanceParam,
             targetBiasParam as any,
-            monotonicTime
+            monotonicTime,
+            smoothedTibialAngleRef.current
           );
 
           setCurrentPrimaryAngle(Math.round(smoothedAngle));
@@ -375,6 +388,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               primaryJointKey: selectedPattern.primaryJoint,
               patternFamily: selectedPattern.patternFamily,
               targetMuscle: selectedPattern.targetMuscle,
+              loadType,
+              exerciseId: selectedPattern.id,
               useInternalCanvasTransform: false // Handled synchronously by parent DOM transform
             },
             selectedPattern.primaryJoint
