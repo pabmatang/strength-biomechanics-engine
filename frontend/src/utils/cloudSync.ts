@@ -179,9 +179,9 @@ export async function registerUser(
       return { success: false, error: error.message || 'Ya existe una cuenta con este correo electrónico.' };
     }
 
-    // If backend is 404 (static hosting like Netlify) or connection refused (status 0):
+    // If backend is 404/405 (static hosting like Netlify/Vite preview) or connection refused (status 0/502/503):
     // Fall back to Local Storage registration!
-    if (error instanceof ApiError && (error.status === 404 || error.status === 0)) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 405 || error.status === 0)) {
       const registry = getUsersRegistry();
       if (registry[cleanEmail]) {
         return { success: false, error: 'Ya existe una cuenta con este correo electrónico.' };
@@ -269,7 +269,7 @@ export async function loginUser(emailOrUsername: string, password: string): Prom
       }
     }
 
-    if (error instanceof ApiError && error.status === 404) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 405)) {
       return {
         success: false,
         error: 'Usuario no registrado. Regístrate en la pestaña "Crear Cuenta" o usa la cuenta demo pablo@chance.app / pablo123.'

@@ -7,7 +7,7 @@
  */
 
 import { FilesetResolver, PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision';
-import { BiomechanicalTelemetryFrame, PatternFamily, TargetMuscle } from './biomechanicsEngine';
+import { BiomechanicalTelemetryFrame, PatternFamily, TargetMuscle, calculateTibialAngle } from './biomechanicsEngine';
 import { Point2D } from './oneEuroFilter';
 
 export interface Keypoint2D {
@@ -398,6 +398,8 @@ export function extractPoseDataFromLandmarks(
   const rk = landmarks[26];
   const la = landmarks[27];
   const ra = landmarks[28];
+  const lear = landmarks[7];
+  const rear = landmarks[8];
 
   const leftVis = ((ls?.visibility ?? 0.8) + (le?.visibility ?? 0.8) + (lw?.visibility ?? 0.8) + (lh?.visibility ?? 0.8)) / 4;
   const rightVis = ((rs?.visibility ?? 0.8) + (re?.visibility ?? 0.8) + (rw?.visibility ?? 0.8) + (rh?.visibility ?? 0.8)) / 4;
@@ -409,9 +411,11 @@ export function extractPoseDataFromLandmarks(
   const hip = dominantSide === 'right' ? rh : lh;
   const knee = dominantSide === 'right' ? rk : lk;
   const ankle = dominantSide === 'right' ? ra : la;
+  const ear = dominantSide === 'right' ? (rear || landmarks[0]) : (lear || landmarks[0]);
 
   const keypoints: Record<string, Keypoint2D> = {
     nose: landmarks[0] ? { x: landmarks[0].x, y: landmarks[0].y, visibility: landmarks[0].visibility, name: 'nose' } : undefined as any,
+    ear: ear ? { x: ear.x, y: ear.y, visibility: ear.visibility, name: 'ear' } : undefined as any,
     shoulder: { x: shoulder.x, y: shoulder.y, visibility: shoulder.visibility, name: 'shoulder' },
     elbow: { x: elbow.x, y: elbow.y, visibility: elbow.visibility, name: 'elbow' },
     wrist: { x: wrist.x, y: wrist.y, visibility: wrist.visibility, name: 'wrist' },
@@ -419,6 +423,8 @@ export function extractPoseDataFromLandmarks(
     knee: { x: knee.x, y: knee.y, visibility: knee.visibility, name: 'knee' },
     ankle: { x: ankle.x, y: ankle.y, visibility: ankle.visibility, name: 'ankle' },
     // Both sides for full skeleton rendering
+    left_ear: lear ? { x: lear.x, y: lear.y, visibility: lear.visibility } : undefined as any,
+    right_ear: rear ? { x: rear.x, y: rear.y, visibility: rear.visibility } : undefined as any,
     left_shoulder: { x: ls.x, y: ls.y, visibility: ls.visibility },
     right_shoulder: { x: rs.x, y: rs.y, visibility: rs.visibility },
     left_elbow: { x: le.x, y: le.y, visibility: le.visibility },
@@ -624,7 +630,6 @@ export function drawBiomechanicsOverlayOnCanvas(
     showLeverArms = true,
     zoom = 1,
     panOffset = { x: 0, y: 0 },
-    primaryJointKey,
     patternFamily,
     targetMuscle,
     useInternalCanvasTransform = false
@@ -636,165 +641,177 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.scale(zoom, zoom);
   }
 
-  // Subtle skeleton guide in background with dynamic primary vertex
-  drawSkeletonOnCanvas(
-    ctx,
-    keypoints,
-    width,
-    height,
-    'rgba(56, 189, 248, 0.45)',
-    {
-      angle: frame.currentAngle,
-      label: 'ROM'
-    },
-    primaryJointKey
-  );
-
   const bio = frame.biomechanics;
   if (!bio) {
     ctx.restore();
     return;
   }
 
-  // 1. Force Line of Action (LOA): Red dashed line with directional arrow
-  const p1 = bio.forceLineOfAction.start;
-  const p2 = bio.forceLineOfAction.end;
-  const p1x = p1.x * width;
-  const p1y = p1.y * height;
-  const p2x = p2.x * width;
-  const p2y = p2.y * height;
+  // Working side keypoints (strictly active lead side, no background/rear clutter)
+  const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
+  const knee = keypoints['knee'] || keypoints['left_knee'] || keypoints['right_knee'];
+  const ankle = keypoints['ankle'] || keypoints['left_ankle'] || keypoints['right_ankle'];
+  const hand = keypoints['wrist'] || keypoints['left_wrist'] || keypoints['right_wrist'];
+  const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
+  const elbow = keypoints['elbow'] || keypoints['left_elbow'] || keypoints['right_elbow'];
 
-  ctx.strokeStyle = '#EF4444'; // Red-500
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([8, 5]);
+  // Load line origin & position
+  const loadX = (bio.loadPosition ? bio.loadPosition.x : (hand ? hand.x : 0.5)) * width;
+  const loadY = (bio.loadPosition ? bio.loadPosition.y : (hand ? hand.y : 0.5)) * height;
+
+  // 1. Force Line of Action (Línea de Acción de la Fuerza):
+  // Continuous vertical line passing strictly through the load hand
+  ctx.strokeStyle = '#EF4444';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(p1x, p1y);
-  ctx.lineTo(p2x, p2y);
+  ctx.moveTo(loadX, Math.max(0, loadY - 80));
+  ctx.lineTo(loadX, height);
   ctx.stroke();
-  ctx.setLineDash([]);
 
-  // Draw Load Position and Directional Red Arrow
-  if (bio.loadPosition) {
-    const lx = bio.loadPosition.x * width;
-    const ly = bio.loadPosition.y * height;
+  // Load position dot & arrow
+  ctx.fillStyle = '#EF4444';
+  ctx.beginPath();
+  ctx.arc(loadX, loadY, 6, 0, 2 * Math.PI);
+  ctx.fill();
 
-    // Load Center of Mass circle
-    ctx.fillStyle = '#EF4444';
-    ctx.beginPath();
-    ctx.arc(lx, ly, 6, 0, 2 * Math.PI);
-    ctx.fill();
+  // Directional arrowhead pointing down along gravity
+  const headLen = 8;
+  const arrowY = Math.min(height - 12, loadY + 40);
+  ctx.beginPath();
+  ctx.moveTo(loadX, arrowY);
+  ctx.lineTo(loadX - headLen * 0.7, arrowY - headLen);
+  ctx.lineTo(loadX + headLen * 0.7, arrowY - headLen);
+  ctx.closePath();
+  ctx.fill();
 
-    // Directional Arrow along forceVector
-    const arrowLen = 35;
-    const ax = lx + bio.forceVector.x * arrowLen;
-    const ay = ly + bio.forceVector.y * arrowLen;
-
-    ctx.strokeStyle = '#FCA5A5';
+  // Helper for drawing orthogonal moment arm segment with badge
+  const drawMomentArm = (
+    y: number,
+    xJoint: number,
+    color: string,
+    label: string
+  ) => {
+    // Horizontal orthogonal line from force vector to joint center
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(lx, ly);
-    ctx.lineTo(ax, ay);
+    ctx.moveTo(loadX, y);
+    ctx.lineTo(xJoint, y);
     ctx.stroke();
 
-    // Arrowhead
-    const angle = Math.atan2(bio.forceVector.y, bio.forceVector.x);
-    const headLen = 9;
-    ctx.fillStyle = '#EF4444';
+    // Endpoints
+    ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(
-      ax - headLen * Math.cos(angle - Math.PI / 6),
-      ay - headLen * Math.sin(angle - Math.PI / 6)
-    );
-    ctx.lineTo(
-      ax - headLen * Math.cos(angle + Math.PI / 6),
-      ay - headLen * Math.sin(angle + Math.PI / 6)
-    );
-    ctx.closePath();
+    ctx.arc(loadX, y, 4, 0, 2 * Math.PI);
+    ctx.arc(xJoint, y, 4, 0, 2 * Math.PI);
     ctx.fill();
-  }
 
-  // 2. Perpendicular Moment Arms (Brazos de Momento)
+    // Floating text badge
+    const midX = (loadX + xJoint) / 2;
+    const midY = y - 9;
+    ctx.font = 'bold 11px monospace';
+    const textWidth = ctx.measureText(label).width;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(midX - textWidth / 2 - 5, midY - 11, textWidth + 10, 16, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, midX, midY - 3);
+  };
+
+  const isUpperBody = patternFamily === 'push_press' ||
+    patternFamily === 'pull_row' ||
+    targetMuscle === 'pectorals' ||
+    targetMuscle === 'lats';
+
+  // 2. Direct Orthogonal Moment Arms (Exclusively two segments)
   if (showLeverArms) {
-    const drawMomentArm = (
-      seg?: { start: Point2D; end: Point2D },
-      color: string = '#06B6D4',
-      label: string = 'd'
-    ) => {
-      if (!seg || !seg.start || !seg.end) return;
-      const sx = seg.start.x * width;
-      const sy = seg.start.y * height;
-      const ex = seg.end.x * width;
-      const ey = seg.end.y * height;
-
-      // Solid moment arm perpendicular line
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
-      ctx.stroke();
-
-      // Joint and line endpoints
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 4.5, 0, 2 * Math.PI);
-      ctx.arc(ex, ey, 4.5, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Floating text label
-      const midX = (sx + ex) / 2;
-      const midY = (sy + ey) / 2 - 8;
-      ctx.font = 'bold 11px monospace';
-      const textWidth = ctx.measureText(label).width;
-
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(midX - textWidth / 2 - 5, midY - 11, textWidth + 10, 16, 4);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, midX, midY - 3);
-    };
-
-    const isUpperBody = patternFamily === 'push_press' ||
-      patternFamily === 'pull_row' ||
-      targetMuscle === 'pectorals' ||
-      targetMuscle === 'lats';
-
     if (!isUpperBody) {
-      // Lower body compound patterns (Sentadilla Búlgara, Sentadilla, Prensa, Hip Thrust, RDL):
-      // Only Cadera and Rodilla moment arms are shown (no shoulder or elbow clutter)
-      if (bio.momentArmProjections.hipProjection) {
+      if (hip) {
         const hipPx = Math.round(bio.momentArms.hip * width);
-        drawMomentArm(bio.momentArmProjections.hipProjection, '#06B6D4', `d_cadera: ${hipPx}px`);
+        drawMomentArm(hip.y * height, hip.x * width, '#06B6D4', `d_cadera: ${hipPx}px`);
       }
-
-      if (bio.momentArmProjections.kneeProjection) {
+      if (knee) {
         const kneePx = Math.round(bio.momentArms.knee * width);
-        drawMomentArm(bio.momentArmProjections.kneeProjection, '#10B981', `d_rodilla: ${kneePx}px`);
+        drawMomentArm(knee.y * height, knee.x * width, '#10B981', `d_rodilla: ${kneePx}px`);
       }
     } else {
-      // Upper body patterns (Chest Press, Biceps Curl, Pulldown, Row):
-      // Show Hombro and Codo moment arms
-      if (bio.momentArmProjections.shoulderProjection) {
+      if (shoulder) {
         const shPx = Math.round((bio.momentArms.shoulder ?? 0) * width);
-        drawMomentArm(bio.momentArmProjections.shoulderProjection, '#8B5CF6', `d_hombro: ${shPx}px`);
+        drawMomentArm(shoulder.y * height, shoulder.x * width, '#8B5CF6', `d_hombro: ${shPx}px`);
       }
-
-      if (bio.momentArmProjections.elbowProjection) {
+      if (elbow) {
         const elPx = Math.round((bio.momentArms.elbow ?? 0) * width);
-        drawMomentArm(bio.momentArmProjections.elbowProjection, '#EC4899', `d_codo: ${elPx}px`);
+        drawMomentArm(elbow.y * height, elbow.x * width, '#EC4899', `d_codo: ${elPx}px`);
       }
     }
   }
 
-  // 3. Draw Muscle Bias HUD Banner at top of canvas
+  // 3. Subtle Tibia Segment (Rodilla -> Tobillo) with Tibial Inclination Angle θ_tibia
+  if (knee && ankle && !isUpperBody) {
+    const kx = knee.x * width;
+    const ky = knee.y * height;
+    const ax = ankle.x * width;
+    const ay = ankle.y * height;
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(kx, ky);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+
+    const tibialAngle = calculateTibialAngle(ankle, knee);
+    const midX = (kx + ax) / 2;
+    const midY = (ky + ay) / 2;
+    const tText = `θ_tibia: ${Math.round(tibialAngle)}°`;
+    ctx.font = 'bold 10px monospace';
+    const tWidth = ctx.measureText(tText).width;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(midX - tWidth / 2 - 4, midY - 9, tWidth + 8, 14, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#38BDF8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(tText, midX, midY - 2);
+  }
+
+  // 4. Clean Joint Dots ONLY on Active Working Side (Zero Extra Noise)
+  const drawJointDot = (pt: { x: number; y: number }, color: string) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(pt.x * width, pt.y * height, 5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  };
+
+  if (!isUpperBody) {
+    if (hip) drawJointDot(hip, '#06B6D4');
+    if (knee) drawJointDot(knee, '#10B981');
+    if (ankle) drawJointDot(ankle, '#38BDF8');
+    if (hand) drawJointDot(hand, '#EF4444');
+  } else {
+    if (shoulder) drawJointDot(shoulder, '#8B5CF6');
+    if (elbow) drawJointDot(elbow, '#EC4899');
+    if (hand) drawJointDot(hand, '#EF4444');
+  }
+
+  // 5. Muscle Bias HUD Banner at top of canvas
   const isSetupOrLockout = frame.phase === 'LOCKOUT' && Math.abs(frame.angularVelocityDegPerSec) < 8;
   const biasText = isSetupOrLockout
     ? 'POSICIÓN INICIAL • ESPERANDO DESCENSO'
@@ -841,6 +858,7 @@ export function drawDualModeOverlay(
   };
 
   if (mode === 'biomechanics') {
+    // Mode 2: Biomechanical optimization - pure load vector, moment arms, zero skeleton clutter
     drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, mergedOptions);
   } else {
     const { zoom = 1, panOffset = { x: 0, y: 0 }, useInternalCanvasTransform = false } = mergedOptions;
@@ -850,7 +868,7 @@ export function drawDualModeOverlay(
       ctx.scale(zoom, zoom);
     }
 
-    // Mode 1: Technique with dynamic vertex
+    // Mode 1: Technique - full smoothed skeleton + primary joint ROM arc
     drawSkeletonOnCanvas(
       ctx,
       keypoints,
@@ -864,18 +882,51 @@ export function drawDualModeOverlay(
       mergedOptions.primaryJointKey
     );
 
-    // Draw spinal neutrality ray if spine is flexed
-    if (!frame.technique.isSpineNeutral && keypoints['shoulder'] && keypoints['hip']) {
+    // Spinal Alignment (Oreja -> Hombro -> Cadera)
+    const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'] || keypoints['nose'];
+    const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
+    const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
+
+    if (shoulder && hip) {
       ctx.save();
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([5, 4]);
+      const spineNeutral = frame.technique.isSpineNeutral;
+      const spineColor = spineNeutral ? 'rgba(16, 185, 129, 0.85)' : 'rgba(239, 68, 68, 0.95)';
+      ctx.strokeStyle = spineColor;
+      ctx.lineWidth = spineNeutral ? 2.5 : 3.5;
+      if (!spineNeutral) {
+        ctx.setLineDash([6, 4]);
+      }
       ctx.beginPath();
-      ctx.moveTo(keypoints['shoulder'].x * width, keypoints['shoulder'].y * height);
-      ctx.lineTo(keypoints['hip'].x * width, keypoints['hip'].y * height);
+      if (ear) {
+        ctx.moveTo(ear.x * width, ear.y * height);
+        ctx.lineTo(shoulder.x * width, shoulder.y * height);
+      } else {
+        ctx.moveTo(shoulder.x * width, shoulder.y * height);
+      }
+      ctx.lineTo(hip.x * width, hip.y * height);
       ctx.stroke();
+
+      if (!spineNeutral) {
+        const midX = (shoulder.x + hip.x) * width / 2;
+        const midY = (shoulder.y + hip.y) * height / 2;
+        ctx.font = 'bold 11px monospace';
+        const label = 'ALERTA: FLEXIÓN ESPINAL';
+        const tWidth = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.strokeStyle = '#EF4444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(midX - tWidth / 2 - 5, midY - 10, tWidth + 10, 18, 4);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#FCA5A5';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, midX, midY - 1);
+      }
       ctx.restore();
     }
+
     ctx.restore();
   }
 }
