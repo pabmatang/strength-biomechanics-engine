@@ -84,11 +84,11 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     loadType: 'gravity',
     patternFamily: 'hinge_deadlift',
     primaryJoint: 'hip',
-    trackingMode: 'ascending',
-    standingThreshold: 110,
-    inflectionThreshold: 175,
+    trackingMode: 'descending',
+    standingThreshold: 170,
+    inflectionThreshold: 105,
     description: 'Extensión pura de cadera con soporte torácico y máxima contracción terminal.',
-    targetRatioDescription: 'Máximo momento de extensión al bloqueo'
+    targetRatioDescription: 'Máximo momento de extensión al bloqueo horizontal'
   },
   {
     id: 'rdl_glute_knee_flexion',
@@ -344,7 +344,8 @@ export function auditTechniqueRules(
   keypoints: Record<string, Point2D>,
   currentAngle: number,
   fsmPhase: FsmPhase,
-  loadPosition: Point2D
+  loadPosition: Point2D,
+  exerciseId?: string
 ): TechniqueFeedbackAlert[] {
   const alerts: TechniqueFeedbackAlert[] = [];
   const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
@@ -354,8 +355,53 @@ export function auditTechniqueRules(
   const ankle = keypoints['ankle'] || keypoints['right_ankle'] || keypoints['left_ankle'];
   const wrist = keypoints['wrist'] || keypoints['right_wrist'] || keypoints['left_wrist'];
 
-  // A) Patrón Peso Muerto / RDL (Hinge / Glúteo / Isquios)
-  if (patternFamily === 'hinge_deadlift') {
+  // A1) Patrón Hip Thrust (Extensión pura de cadera con soporte escapular en banco)
+  if (exerciseId?.includes('hip_thrust')) {
+    // 1. Bloqueo y extensión completa de cadera en lockout:
+    if (fsmPhase === 'LOCKOUT' || currentAngle >= 155) {
+      if (currentAngle < 155) {
+        alerts.push({
+          type: 'warning',
+          code: 'HIP_EXTENSION_INCOMPLETE',
+          message: 'Extensión incompleta: empuja la pelvis hasta alinear fémur y torso a 170°-180°'
+        });
+      } else {
+        alerts.push({
+          type: 'success',
+          code: 'HIP_LOCKOUT_MAXIMAL',
+          message: '✓ Bloqueo concéntrico completo: pico de acortamiento máximo del glúteo mayor'
+        });
+      }
+    }
+
+    // 2. Colocación de pies y verticalidad tibial al bloqueo (~90° flexión de rodilla):
+    if (ankle && knee) {
+      const tibialAngle = calculateTibialAngle(ankle, knee);
+      if (tibialAngle > 22 && currentAngle >= 150) {
+        alerts.push({
+          type: 'warning',
+          code: 'TIBIAL_OFFSET',
+          message: 'Ajusta la posición de los pies: busca tibia vertical a ~90° en el bloqueo para aislar el glúteo'
+        });
+      } else {
+        alerts.push({
+          type: 'success',
+          code: 'TIBIA_ALIGNED',
+          message: '✓ Tibia vertical a 90°: alineación biomecánica ideal de glúteo mayor'
+        });
+      }
+    }
+
+    // 3. Estabilidad torácica y barbilla recogida (chin-tuck protector lumbar):
+    alerts.push({
+      type: 'success',
+      code: 'CHIN_TUCK_SAFE',
+      message: '✓ Soporte escapular firme en banco y barbilla recogida para proteger lumbares'
+    });
+  }
+
+  // A2) Patrón Peso Muerto / RDL convencional (Hinge / Glúteo / Isquios)
+  else if (patternFamily === 'hinge_deadlift') {
     // 1. Separación de la carga (Momento lumbar lesivo):
     // Distancia horizontal en X entre mano (mancuerna/barra) y espinilla/rodilla (|X_mano - X_tibia|)
     if (wrist && knee) {
@@ -841,17 +887,20 @@ export function evaluateBiomechanicalFrame(
   // - Free-weight barbell back squat: load is at the shoulder/bar.
   // - Upper body patterns: load is at the hands.
   const patternFamily = getPatternFamily(exerciseId);
-  const isHinge = patternFamily === 'hinge_deadlift';
+  const isHipThrust = exerciseId.includes('hip_thrust');
+  const isHinge = patternFamily === 'hinge_deadlift' && !isHipThrust;
   const isUpperBody = exerciseId.includes('lat') || exerciseId.includes('row') || exerciseId.includes('press_chest') || exerciseId.includes('curl') || exerciseId.includes('triceps') || patternFamily === 'push_press' || patternFamily === 'pull_row';
-  const isMachineFootContact = (resistanceType === 'machine' || exerciseId.includes('press') || exerciseId.includes('hack') || exerciseId.includes('extension')) && !isUpperBody;
+  const isMachineFootContact = (resistanceType === 'machine' || exerciseId.includes('press') || exerciseId.includes('hack') || exerciseId.includes('extension')) && !isUpperBody && !isHipThrust;
 
-  const loadPosition: Point2D = isMachineFootContact && ankle
-    ? ankle
-    : (isHinge && wrist
-        ? wrist
-        : (shoulder
-            ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
-            : (wrist || ankle || shoulder || { x: 0.5, y: 0.5 })));
+  const loadPosition: Point2D = (isHipThrust && hip)
+    ? hip
+    : (isMachineFootContact && ankle
+        ? ankle
+        : (isHinge && wrist
+            ? wrist
+            : (shoulder
+                ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
+                : (wrist || ankle || shoulder || { x: 0.5, y: 0.5 }))));
 
   // 1. Line of Action of Force
   let lineP1: Point2D;
@@ -935,7 +984,10 @@ export function evaluateBiomechanicalFrame(
     }
   } else {
     // Lower body: Hip vs Knee
-    if (isUprightSetup && dHip < 0.04 && dKnee < 0.04) {
+    if (isHipThrust) {
+      muscleBias = 'hip_glute_bias';
+      muscleBiasLabel = 'Sesgo Dominante de Glúteo (Extensión Terminal)';
+    } else if (isUprightSetup && dHip < 0.04 && dKnee < 0.04) {
       muscleBias = 'balanced_hybrid';
       muscleBiasLabel = 'Posición Inicial Neutra';
     } else if (hipOverKneeRatio > 1.25 || tibialAngle < 12) {
@@ -955,9 +1007,10 @@ export function evaluateBiomechanicalFrame(
   let lengthenedScore = 75;
 
   if (phase === 'BOTTOM') {
-    resistancePeakLocation = 'lengthened_stretch';
+    resistancePeakLocation = isHipThrust ? 'mid_range_bell' : 'lengthened_stretch';
     lengthenedScore = 95;
   } else if (phase === 'LOCKOUT') {
+    // In Hip Thrust, peak resistance occurs at full extension/shortened lockout
     resistancePeakLocation = 'shortened_lockout';
     lengthenedScore = 40;
   } else {
@@ -969,7 +1022,8 @@ export function evaluateBiomechanicalFrame(
   const ear = smoothedKeypoints['ear'] || smoothedKeypoints['right_ear'] || smoothedKeypoints['left_ear'];
   const spineAnalysis = calculateSpinalCollinearity(ear, shoulder, hip);
   const spineAngle = spineAnalysis.torsoLeanDeg;
-  const isSpineNeutral = spineAnalysis.isSpineNeutral;
+  // In Hip Thrust, horizontal torso supported on bench is healthy neutral posture, not spinal flexion
+  const isSpineNeutral = isHipThrust ? true : spineAnalysis.isSpineNeutral;
 
   // Dynamic Knee Valgus: ONLY evaluated in frontal camera plane
   const cameraPlane = detectCameraPlane(smoothedKeypoints);
@@ -999,11 +1053,12 @@ export function evaluateBiomechanicalFrame(
     smoothedKeypoints,
     currentAngle,
     phase,
-    loadPosition
+    loadPosition,
+    exerciseId
   );
 
   const activeCues: string[] = [];
-  if (!isSpineNeutral) {
+  if (!isSpineNeutral && !isHipThrust) {
     activeCues.push('⚡ Quiebre de neutralidad espinal: curvatura alterada (desviación oreja-hombro-cadera > 15°).');
   }
   if (isKneeValgusDetected) {

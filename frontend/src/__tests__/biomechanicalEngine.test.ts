@@ -474,4 +474,59 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(kneeProj.start.y).toBeCloseTo(keypoints.knee.y);
     expect(kneeProj.end.x).toBeCloseTo(keypoints.knee.x);
   });
+
+  it('correctly audits Hip Thrust biomechanics, load point at pelvis and avoids false technique alerts', () => {
+    // 1. Hip Thrust with full lockout and vertical shins
+    const hipThrustKeypoints = {
+      shoulder: { x: 0.65, y: 0.45 },
+      hip: { x: 0.45, y: 0.48 },
+      knee: { x: 0.35, y: 0.48 },
+      ankle: { x: 0.35, y: 0.75 },
+      ear: { x: 0.70, y: 0.40 },
+      wrist: { x: 0.45, y: 0.45 }
+    };
+
+    const alertsOptimal = auditTechniqueRules(
+      'hinge_deadlift',
+      hipThrustKeypoints,
+      172,
+      'LOCKOUT',
+      hipThrustKeypoints.hip,
+      'hip_thrust_barbell'
+    );
+
+    expect(alertsOptimal.some(a => a.code === 'HIP_LOCKOUT_MAXIMAL')).toBe(true);
+    expect(alertsOptimal.some(a => a.code === 'TIBIA_ALIGNED')).toBe(true);
+    expect(alertsOptimal.some(a => a.code === 'CHIN_TUCK_SAFE')).toBe(true);
+    // Crucial: Must NEVER trigger deadlift/RDL load separation or spinal breakdown in hip thrust
+    expect(alertsOptimal.some(a => a.code === 'LOAD_SEPARATION')).toBe(false);
+    expect(alertsOptimal.some(a => a.code === 'SPINE_BREAKDOWN')).toBe(false);
+
+    // 2. Hip Thrust with incomplete lockout (< 155°)
+    const alertsIncomplete = auditTechniqueRules(
+      'hinge_deadlift',
+      hipThrustKeypoints,
+      142,
+      'LOCKOUT',
+      hipThrustKeypoints.hip,
+      'hip_thrust_barbell'
+    );
+    expect(alertsIncomplete.some(a => a.code === 'HIP_EXTENSION_INCOMPLETE')).toBe(true);
+
+    // 3. Telemetry frame load placement at pelvis and glute bias
+    const frame = evaluateBiomechanicalFrame(
+      hipThrustKeypoints,
+      'hip_thrust_barbell',
+      'LOCKOUT',
+      175,
+      0,
+      'gravity'
+    );
+
+    expect(frame.biomechanics.loadPosition.x).toBeCloseTo(hipThrustKeypoints.hip.x);
+    expect(frame.biomechanics.loadPosition.y).toBeCloseTo(hipThrustKeypoints.hip.y);
+    expect(frame.biomechanics.muscleBias).toBe('hip_glute_bias');
+    expect(frame.biomechanics.resistancePeakLocation).toBe('shortened_lockout');
+    expect(frame.technique.isSpineNeutral).toBe(true);
+  });
 });

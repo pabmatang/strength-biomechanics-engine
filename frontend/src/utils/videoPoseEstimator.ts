@@ -374,7 +374,8 @@ export interface ExtractedPoseFrame {
  * Extracts keypoint coordinates and calculates joint angles from MediaPipe landmarks
  */
 export function extractPoseDataFromLandmarks(
-  landmarks: Array<{ x: number; y: number; z: number; visibility?: number }>
+  landmarks: Array<{ x: number; y: number; z: number; visibility?: number }>,
+  previousDominantSide?: 'left' | 'right'
 ): ExtractedPoseFrame | null {
   if (!landmarks || landmarks.length < 33) return null;
 
@@ -401,16 +402,37 @@ export function extractPoseDataFromLandmarks(
   const lear = landmarks[7];
   const rear = landmarks[8];
 
-  const leftVis = ((ls?.visibility ?? 0.8) + (le?.visibility ?? 0.8) + (lw?.visibility ?? 0.8) + (lh?.visibility ?? 0.8)) / 4;
-  const rightVis = ((rs?.visibility ?? 0.8) + (re?.visibility ?? 0.8) + (rw?.visibility ?? 0.8) + (rh?.visibility ?? 0.8)) / 4;
-  const dominantSide = rightVis >= leftVis ? 'right' : 'left';
+  // Evaluate full-body visibility (both lower and upper limbs) for rock-solid stability
+  const leftLegVis = ((lh?.visibility ?? 0.7) + (lk?.visibility ?? 0.7) + (la?.visibility ?? 0.7)) / 3;
+  const rightLegVis = ((rh?.visibility ?? 0.7) + (rk?.visibility ?? 0.7) + (ra?.visibility ?? 0.7)) / 3;
+  const leftArmVis = ((ls?.visibility ?? 0.7) + (le?.visibility ?? 0.7) + (lw?.visibility ?? 0.7)) / 3;
+  const rightArmVis = ((rs?.visibility ?? 0.7) + (re?.visibility ?? 0.7) + (rw?.visibility ?? 0.7)) / 3;
+  const leftVis = leftLegVis * 0.55 + leftArmVis * 0.45;
+  const rightVis = rightLegVis * 0.55 + rightArmVis * 0.45;
 
-  const shoulder = dominantSide === 'right' ? rs : ls;
-  const elbow = dominantSide === 'right' ? re : le;
-  const wrist = dominantSide === 'right' ? rw : lw;
-  const hip = dominantSide === 'right' ? rh : lh;
-  const knee = dominantSide === 'right' ? rk : lk;
-  const ankle = dominantSide === 'right' ? ra : la;
+  // Strict hysteresis to prevent flip-flopping between frames
+  let dominantSide: 'left' | 'right';
+  if (!previousDominantSide) {
+    dominantSide = rightVis >= leftVis ? 'right' : 'left';
+  } else if (previousDominantSide === 'left') {
+    dominantSide = (rightVis > leftVis + 0.15) ? 'right' : 'left';
+  } else {
+    dominantSide = (leftVis > rightVis + 0.15) ? 'left' : 'right';
+  }
+
+  // Graceful fallback if dominant landmark is heavily occluded by equipment/plates
+  const pickLandmark = (primary?: typeof ls, fallback?: typeof ls): NonNullable<typeof ls> => {
+    if (primary && (primary.visibility ?? 1) >= 0.25) return primary;
+    if (fallback && (fallback.visibility ?? 1) >= 0.35) return fallback;
+    return primary || fallback || { x: 0.5, y: 0.5, z: 0, visibility: 0 };
+  };
+
+  const shoulder = dominantSide === 'right' ? pickLandmark(rs, ls) : pickLandmark(ls, rs);
+  const elbow = dominantSide === 'right' ? pickLandmark(re, le) : pickLandmark(le, re);
+  const wrist = dominantSide === 'right' ? pickLandmark(rw, lw) : pickLandmark(lw, rw);
+  const hip = dominantSide === 'right' ? pickLandmark(rh, lh) : pickLandmark(lh, rh);
+  const knee = dominantSide === 'right' ? pickLandmark(rk, lk) : pickLandmark(lk, rk);
+  const ankle = dominantSide === 'right' ? pickLandmark(ra, la) : pickLandmark(la, ra);
 
   // Pick the most confident ear, or the dominant side ear if sufficiently visible (>= 0.35).
   // NEVER fall back to nose (landmarks[0]) as connecting Nose -> Shoulder creates an artificial 35°-45° kink!
@@ -677,7 +699,10 @@ export function drawBiomechanicsOverlayOnCanvas(
     targetMuscle === 'pectorals' ||
     targetMuscle === 'lats';
 
+  const isHipThrust = exerciseId?.includes('hip_thrust');
+
   // Force Application Contact Point:
+  // - For Hip Thrust: load is applied directly at the PELVIS / HIP where barbell or pad rests.
   // - If loadType === 'machine' or exercise is on a machine / leg press / hack (or foot on machine plate):
   //   The load/reaction force is applied at the FOOT / ANKLE on the machine.
   // - For free-weight hinge / dumbbell: force is at the hand / wrist.
@@ -689,11 +714,13 @@ export function drawBiomechanicsOverlayOnCanvas(
     exerciseId?.includes('hack') ||
     exerciseId?.includes('machine') ||
     exerciseId?.includes('extension')
-  ) && !isUpperBody;
+  ) && !isUpperBody && !isHipThrust;
 
-  const contactPoint = (isFootOnMachine && ankle)
-    ? ankle
-    : (bio.loadPosition || (isUpperBody ? hand : (hand || ankle || shoulder || { x: 0.5, y: 0.5 })));
+  const contactPoint = (isHipThrust && hip)
+    ? hip
+    : ((isFootOnMachine && ankle)
+        ? ankle
+        : (bio.loadPosition || (isUpperBody ? hand : (hand || ankle || shoulder || { x: 0.5, y: 0.5 }))));
 
   const loadX = contactPoint.x * width;
   const loadY = contactPoint.y * height;
@@ -771,7 +798,16 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   // 2. Direct Orthogonal Moment Arms (Exclusively two segments)
   if (showLeverArms) {
-    if (!isUpperBody) {
+    if (isHipThrust) {
+      if (knee) {
+        const kneePx = Math.abs(Math.round(knee.x * width - loadX));
+        drawMomentArm(knee.y * height, knee.x * width, '#10B981', `d_rodilla: ${kneePx}px`);
+      }
+      if (shoulder) {
+        const shPx = Math.abs(Math.round(shoulder.x * width - loadX));
+        drawMomentArm(shoulder.y * height, shoulder.x * width, '#06B6D4', `d_torso: ${shPx}px`);
+      }
+    } else if (!isUpperBody) {
       if (hip) {
         const hipPx = Math.abs(Math.round(hip.x * width - loadX));
         drawMomentArm(hip.y * height, hip.x * width, '#06B6D4', `d_cadera: ${hipPx}px`);
@@ -935,9 +971,11 @@ export function drawDualModeOverlay(
     const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
     const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
 
+    const isHipThrust = mergedOptions.exerciseId?.includes('hip_thrust');
+
     if (shoulder && hip) {
       ctx.save();
-      const spineNeutral = frame.technique.isSpineNeutral;
+      const spineNeutral = isHipThrust ? true : frame.technique.isSpineNeutral;
       const spineColor = spineNeutral ? '#10B981' : '#EF4444';
       ctx.strokeStyle = spineColor;
       ctx.lineWidth = 3.5;
@@ -978,9 +1016,11 @@ export function drawDualModeOverlay(
       const midX = (shoulder.x + hip.x) * width / 2;
       const midY = (shoulder.y + hip.y) * height / 2;
       ctx.font = 'bold 11px monospace';
-      const label = spineNeutral
-        ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
-        : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`;
+      const label = isHipThrust
+        ? `✓ APOYO ESCAPULAR (${frame.technique.spinalAngleDegrees}°)`
+        : (spineNeutral
+            ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
+            : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`);
       const tWidth = ctx.measureText(label).width;
 
       ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';

@@ -132,6 +132,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   // Adaptive OneEuroFilter smoother for all landmarks (Anti-Jitter)
   const poseSmootherRef = useRef<PoseLandmarkSmoother>(new PoseLandmarkSmoother());
   const smoothedTibialAngleRef = useRef<number>(14);
+  const dominantSideRef = useRef<'left' | 'right' | null>(null);
+  const lastValidAngleRef = useRef<number>(0);
+  const lastValidAngleTimeRef = useRef<number>(0);
 
   // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
@@ -142,7 +145,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       hysteresisAngleBand: 8,
       velocityThresholdDegPerSec: 15,
       minPhaseDurationMs: 120,
-      bounceThresholdMs: 160
+      bounceThresholdMs: 160,
+      minRepExcursionDeg: 35
     })
   );
 
@@ -179,9 +183,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       hysteresisAngleBand: 8,
       velocityThresholdDegPerSec: 15,
       minPhaseDurationMs: 120,
-      bounceThresholdMs: 160
+      bounceThresholdMs: 160,
+      minRepExcursionDeg: 35
     });
     poseSmootherRef.current.reset();
+    dominantSideRef.current = null;
+    lastValidAngleRef.current = 0;
+    lastValidAngleTimeRef.current = 0;
   }, [selectedPattern]);
 
   // Cleanup on close
@@ -287,14 +295,25 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
       const results = landmarker.detectForVideo(video, monotonicTime);
       if (results && results.landmarks && results.landmarks[0] && results.landmarks[0].length >= 33) {
-        const frame = extractPoseDataFromLandmarks(results.landmarks[0]);
+        const frame = extractPoseDataFromLandmarks(results.landmarks[0], dominantSideRef.current || undefined);
         if (frame) {
+          dominantSideRef.current = frame.dominantSide;
+
           // 1. STABILIZE KEYPOINTS WITH ONE-EURO FILTER (ANTI-JITTER)
           // No calculation is ever performed on raw keypoints
           const smoothedKeypoints = poseSmootherRef.current.smoothLandmarks(
             frame.keypoints,
             monotonicTime
           );
+
+          // Map active tracking landmarks strictly from side-isolated smoothed coordinates
+          const dom = frame.dominantSide;
+          smoothedKeypoints['hip'] = dom === 'right' ? (smoothedKeypoints['right_hip'] || smoothedKeypoints['hip']) : (smoothedKeypoints['left_hip'] || smoothedKeypoints['hip']);
+          smoothedKeypoints['knee'] = dom === 'right' ? (smoothedKeypoints['right_knee'] || smoothedKeypoints['knee']) : (smoothedKeypoints['left_knee'] || smoothedKeypoints['knee']);
+          smoothedKeypoints['ankle'] = dom === 'right' ? (smoothedKeypoints['right_ankle'] || smoothedKeypoints['ankle']) : (smoothedKeypoints['left_ankle'] || smoothedKeypoints['ankle']);
+          smoothedKeypoints['shoulder'] = dom === 'right' ? (smoothedKeypoints['right_shoulder'] || smoothedKeypoints['shoulder']) : (smoothedKeypoints['left_shoulder'] || smoothedKeypoints['shoulder']);
+          smoothedKeypoints['elbow'] = dom === 'right' ? (smoothedKeypoints['right_elbow'] || smoothedKeypoints['elbow']) : (smoothedKeypoints['left_elbow'] || smoothedKeypoints['elbow']);
+          smoothedKeypoints['wrist'] = dom === 'right' ? (smoothedKeypoints['right_wrist'] || smoothedKeypoints['wrist']) : (smoothedKeypoints['left_wrist'] || smoothedKeypoints['wrist']);
 
           // 2. Compute Angles strictly on smoothed coordinates
           let smoothedAngle = 160;
@@ -324,6 +343,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               smoothedKeypoints['ankle']
             );
           }
+
+          // Dynamic rate-of-change limiter to reject transient MediaPipe tracking dropouts/spikes
+          if (lastValidAngleRef.current > 0) {
+            const dtSec = Math.max((monotonicTime - lastValidAngleTimeRef.current) / 1000, 0.01);
+            const maxDeltaDeg = 360 * dtSec; // Maximum 360 deg/sec physiological limit
+            const diff = smoothedAngle - lastValidAngleRef.current;
+            if (Math.abs(diff) > maxDeltaDeg) {
+              smoothedAngle = lastValidAngleRef.current + Math.sign(diff) * maxDeltaDeg;
+            }
+          }
+          lastValidAngleRef.current = smoothedAngle;
+          lastValidAngleTimeRef.current = monotonicTime;
 
           // 3. FSM Update with Velocity & Hysteresis
           const completedRep = fsmRef.current.update(smoothedAngle, monotonicTime);
@@ -579,6 +610,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     isProcessingRef.current = false;
     lastTimestampRef.current = 0;
     poseSmootherRef.current.reset();
+    dominantSideRef.current = null;
+    lastValidAngleRef.current = 0;
+    lastValidAngleTimeRef.current = 0;
     fsmRef.current.reset();
 
     if (videoElementRef.current && !useWebcam) {
@@ -1253,14 +1287,20 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Neutralidad Espinal</span>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                  {selectedPattern.id.includes('hip_thrust') ? 'Soporte Escapular' : 'Neutralidad Espinal'}
+                </span>
                 <span className={`text-xs font-black font-mono block mt-0.5 ${
                   currentTelemetry?.technique.isSpineNeutral ? 'text-emerald-400' : 'text-amber-400'
                 }`}>
-                  {currentTelemetry?.technique.isSpineNeutral ? '✓ Alineada' : '⚡ Torso Inclinado'}
+                  {selectedPattern.id.includes('hip_thrust')
+                    ? '✓ Apoyo Firme en Banco'
+                    : (currentTelemetry?.technique.isSpineNeutral ? '✓ Alineada' : '⚡ Torso Inclinado')}
                 </span>
                 <span className="text-[9px] text-slate-500 block">
-                  {currentTelemetry?.technique.spinalAngleDegrees ?? 15}° a la vertical
+                  {selectedPattern.id.includes('hip_thrust')
+                    ? 'Barbilla recogida & caja neutra'
+                    : `${currentTelemetry?.technique.spinalAngleDegrees ?? 15}° a la vertical`}
                 </span>
               </div>
 
