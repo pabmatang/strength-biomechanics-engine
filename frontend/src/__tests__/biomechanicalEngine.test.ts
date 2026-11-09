@@ -357,6 +357,11 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     const quadNoTravel = evaluateBiomechanicalVerdict('quadriceps', 0.45, 0.20, 12);
     expect(quadNoTravel.isOptimal).toBe(false);
     expect(quadNoTravel.verdictTitle).toContain('Falta de avance de rodilla sobre el mediopié');
+
+    // 5. Hip Thrust specific verdict: optimal when tibia vertical (<= 24°)
+    const hipThrustOptimal = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell');
+    expect(hipThrustOptimal.isOptimal).toBe(true);
+    expect(hipThrustOptimal.verdictTitle).toContain('Enfoque Biomecánico Óptimo en Glúteo Mayor (Máxima Contracción Terminal)');
   });
 
   it('audits pattern-specific technical faults via auditTechniqueRules', () => {

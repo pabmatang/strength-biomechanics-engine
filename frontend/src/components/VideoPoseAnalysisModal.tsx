@@ -378,7 +378,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           const rawTibial = (smoothedKeypoints['ankle'] && smoothedKeypoints['knee'])
             ? calculateTibialAngle(smoothedKeypoints['ankle'], smoothedKeypoints['knee'])
             : 14;
-          smoothedTibialAngleRef.current = 0.88 * smoothedTibialAngleRef.current + 0.12 * rawTibial;
+          smoothedTibialAngleRef.current = Math.round((0.88 * smoothedTibialAngleRef.current + 0.12 * rawTibial) * 10) / 10;
 
           // 4. Biomechanical Physics Evaluation (Moment Arms, Line of Action, Muscle Bias)
           const resistanceParam: ResistanceSourceType =
@@ -706,7 +706,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
     currentTelemetry?.technique.spinalAngleDegrees ?? 20,
     75,
-    currentTelemetry?.technique.isSpineNeutral ?? true
+    currentTelemetry?.technique.isSpineNeutral ?? true,
+    selectedPattern.id
   );
 
   const currentVerdict = isInitialSetup
@@ -1104,7 +1105,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
                     <div className="bg-cyan-950/90 backdrop-blur-md border border-cyan-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-cyan-300 flex items-center gap-1">
                       <TrendingUp className="w-3 h-3 text-cyan-400" />
-                      Tibia: {currentTelemetry?.biomechanics.tibialAngleDegrees ?? 15}°
+                      Tibia: {Math.round(currentTelemetry?.biomechanics.tibialAngleDegrees ?? 15)}°
                     </div>
                   </div>
                 )}
@@ -1401,10 +1402,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <div className="flex items-center justify-between text-[10px] font-mono font-bold">
                 <span className="text-blue-400 flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  Cadera (Glúteo): {hipShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)
+                  {selectedPattern.id.includes('hip_thrust')
+                    ? `Palanca Cadera (Barra): ${hipShare}%`
+                    : `Cadera (Glúteo): ${hipShare}% (${Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)`}
                 </span>
                 <span className="text-emerald-400 flex items-center gap-1">
-                  Rodilla (Cuádriceps): {kneeShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.knee * 640)}px)
+                  {selectedPattern.id.includes('hip_thrust')
+                    ? `Palanca Rodilla (Fémur): ${kneeShare}%`
+                    : `Rodilla (Cuádriceps): ${kneeShare}% (${Math.round(currentTelemetry.biomechanics.momentArms.knee * 640)}px)`}
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 </span>
               </div>
@@ -1419,10 +1424,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                 <span className="text-[9px] text-slate-400 font-bold uppercase block">Inclinación Tibial</span>
                 <span className="text-xs font-black text-cyan-300 font-mono">
-                  {currentTelemetry.biomechanics.tibialAngleDegrees}°
+                  {Math.round(currentTelemetry.biomechanics.tibialAngleDegrees)}°
                 </span>
                 <span className="text-[9px] text-slate-500 block">
-                  {currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)'}
+                  {selectedPattern.id.includes('hip_thrust')
+                    ? (currentTelemetry.biomechanics.tibialAngleDegrees <= 24 ? 'Vertical a ~90° (Glúteo)' : 'Ajustar Pies')
+                    : (currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)')}
                 </span>
               </div>
 
@@ -1437,14 +1444,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[9px] text-slate-400 font-bold uppercase block">Columna / Curvatura</span>
+                <span className="text-[9px] text-slate-400 font-bold uppercase block">
+                  {selectedPattern.id.includes('hip_thrust') ? 'Soporte Escapular' : 'Columna / Curvatura'}
+                </span>
                 <span className={`text-xs font-black font-mono block ${
                   currentTelemetry.technique.isSpineNeutral ? 'text-emerald-400' : 'text-rose-400'
                 }`}>
-                  {currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)'}
+                  {selectedPattern.id.includes('hip_thrust')
+                    ? '✓ Firme en Banco'
+                    : (currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)')}
                 </span>
                 <span className="text-[9px] text-slate-500 block">
-                  {currentTelemetry.technique.spinalAngleDegrees}° inclinación
+                  {selectedPattern.id.includes('hip_thrust') ? 'Chin-tuck seguro' : `${currentTelemetry.technique.spinalAngleDegrees}° inclinación`}
                 </span>
               </div>
             </div>

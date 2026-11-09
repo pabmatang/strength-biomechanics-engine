@@ -788,13 +788,29 @@ export function evaluateBiomechanicalVerdict(
   tibialAngle: number,
   torsoLean: number = 0,
   romExcursion: number = 70,
-  spinalNeutral: boolean = true
+  spinalNeutral: boolean = true,
+  exerciseId?: string
 ): {
   isOptimal: boolean;
   verdictTitle: string;
   verdictDescription: string;
   ratio: number;
 } {
+  // Dedicated verdict for Hip Thrust patterns
+  if (exerciseId?.includes('hip_thrust')) {
+    const isOptimal = tibialAngle <= 24;
+    return {
+      isOptimal,
+      ratio: 1.0,
+      verdictTitle: isOptimal
+        ? 'Enfoque Biomecánico Óptimo en Glúteo Mayor (Máxima Contracción Terminal)'
+        : 'Ajuste de Posición de Pies Recomendado en Hip Thrust',
+      verdictDescription: isOptimal
+        ? `Tibia vertical a ~90° (${Math.round(tibialAngle)}°) y pelvis en extensión horizontal completa. Carga gravitacional máxima concentrada en el acortamiento del glúteo mayor.`
+        : `Tibia inclinada (${Math.round(tibialAngle)}°). Reubica los pies para lograr tibia perpendicular al suelo al bloquear la pelvis y maximizar la activación del glúteo.`
+    };
+  }
+
   const hipOverKnee = meanHipMoment / (meanKneeMoment + 1e-5);
   const kneeOverHip = meanKneeMoment / (meanHipMoment + 1e-5);
 
@@ -966,10 +982,10 @@ export function evaluateBiomechanicalFrame(
         : { start: elbow, end: projectPointOntoLine(elbow, lineP1, lineP2) })
     : undefined;
 
-  // 3. Tibial Angle & Muscle Bias (smoothly stabilized)
-  const tibialAngle = smoothedTibialAngle !== undefined
+  // 3. Tibial Angle & Muscle Bias (smoothly stabilized and rounded)
+  const tibialAngle = Math.round((smoothedTibialAngle !== undefined
     ? smoothedTibialAngle
-    : ((ankle && knee) ? calculateTibialAngle(ankle, knee) : 0);
+    : ((ankle && knee) ? calculateTibialAngle(ankle, knee) : 0)) * 10) / 10;
   let muscleBias: MuscleBiasCategory = 'balanced_hybrid';
   let muscleBiasLabel = 'Estímulo Equilibrado Híbrido';
 
