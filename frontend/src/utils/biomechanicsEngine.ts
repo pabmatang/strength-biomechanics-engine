@@ -400,11 +400,13 @@ export function evaluateHipThrustAlignment(
   if (ear && shoulder && hip) {
     const spineCollinearity = calculateSpinalCollinearity(ear, shoulder, hip);
     neckDeviationDeg = spineCollinearity.deviationAngleDeg;
+    const neckJointAngle = computeJointAngle2D(ear, shoulder, hip);
 
     let isCervicalHyperextension = false;
     if (Math.abs(shoulder.x - hip.x) > 0.04) {
       const slopeY = (shoulder.y - hip.y) / (shoulder.x - hip.x);
       const extrapolatedTorsoYAtEar = shoulder.y + (ear.x - shoulder.x) * slopeY;
+      // Only flag hyperextension when head drops noticeably backward/below torso bench axis
       if (ear.y > extrapolatedTorsoYAtEar + 0.03) {
         isCervicalHyperextension = true;
       }
@@ -413,9 +415,10 @@ export function evaluateHipThrustAlignment(
     if (isCervicalHyperextension) {
       neckNeutral = false;
       neckStatusLabel = '⚡ Hiperextensión Cervical';
-    } else if (neckDeviationDeg > 45) {
+    } else if (neckJointAngle < 75) {
+      // Allow healthy forward chin-tuck (80°-180°); only warn on extreme chest smash (<75°)
       neckNeutral = false;
-      neckStatusLabel = '⚡ Cuello Desalineado';
+      neckStatusLabel = '⚡ Flexión Cervical Excesiva';
     }
   }
 
@@ -428,6 +431,81 @@ export function evaluateHipThrustAlignment(
     neckStatusLabel,
     neckDeviationDeg
   };
+}
+
+export interface FramingQualityResult {
+  isValid: boolean;
+  reasonCode: 'OK' | 'TOO_CLOSE_CLIPPED' | 'OCCLUDED_LOW_CONFIDENCE' | 'COLLAPSED_TORSO_BY_PLATES';
+  message: string;
+}
+
+/**
+ * Detects whether the camera framing is too close or heavily occluded by equipment/plates
+ * for trustworthy pose tracking.
+ */
+export function assessFramingQuality(
+  keypoints: Record<string, Point2D & { visibility?: number }>,
+  exerciseId?: string
+): FramingQualityResult {
+  const shoulder = keypoints['shoulder'];
+  const hip = keypoints['hip'];
+  const knee = keypoints['knee'];
+  const ankle = keypoints['ankle'];
+
+  const isLowerBody = !exerciseId ||
+    exerciseId.includes('hip_thrust') ||
+    exerciseId.includes('squat') ||
+    exerciseId.includes('rdl') ||
+    exerciseId.includes('press') ||
+    exerciseId.includes('bulgarian');
+
+  if (!isLowerBody) {
+    return { isValid: true, reasonCode: 'OK', message: '' };
+  }
+
+  const required = [shoulder, hip, knee, ankle].filter(Boolean);
+  if (required.length < 4) {
+    return {
+      isValid: false,
+      reasonCode: 'OCCLUDED_LOW_CONFIDENCE',
+      message: 'No se puede analizar: cuerpo incompleto. Aleja más el vídeo para encuadrar todo el perfil.'
+    };
+  }
+
+  const lowVisCount = required.filter(p => p.visibility !== undefined && p.visibility < 0.38).length;
+  const avgVis = required.reduce((acc, p) => acc + (p.visibility ?? 0.8), 0) / required.length;
+  if (lowVisCount >= 2 || avgVis < 0.42) {
+    return {
+      isValid: false,
+      reasonCode: 'OCCLUDED_LOW_CONFIDENCE',
+      message: 'No se puede analizar: los discos tapan el torso o el plano está muy cerrado. Aleja más el vídeo.'
+    };
+  }
+
+  const clippedCount = required.filter(
+    p => p.x < 0.02 || p.x > 0.98 || p.y < 0.02 || p.y > 0.98
+  ).length;
+  if (clippedCount >= 2) {
+    return {
+      isValid: false,
+      reasonCode: 'TOO_CLOSE_CLIPPED',
+      message: 'No se puede analizar: vídeo demasiado cerca (cuerpo cortado). Aleja más la cámara.'
+    };
+  }
+
+  const torsoLen = Math.hypot(shoulder.x - hip.x, shoulder.y - hip.y);
+  const femurLen = Math.hypot(hip.x - knee.x, hip.y - knee.y);
+  const shinLen = Math.hypot(knee.x - ankle.x, knee.y - ankle.y);
+
+  if (torsoLen < 0.065 && (femurLen > 0.10 || shinLen > 0.12)) {
+    return {
+      isValid: false,
+      reasonCode: 'COLLAPSED_TORSO_BY_PLATES',
+      message: 'No se puede analizar bien: plano muy cercano u obstruido por discos. Aleja más el vídeo.'
+    };
+  }
+
+  return { isValid: true, reasonCode: 'OK', message: '' };
 }
 
 /**

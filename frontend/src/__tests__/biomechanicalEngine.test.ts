@@ -12,6 +12,7 @@ import {
   calculateSpinalCollinearity,
   evaluateBiomechanicalVerdict,
   auditTechniqueRules,
+  assessFramingQuality,
   EXERCISE_BIOMECHANICS_RULES
 } from '../utils/biomechanicsEngine';
 
@@ -595,5 +596,40 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(frame.technique.neckNeutral).toBe(true);
     expect(frame.biomechanics.muscleBias).toBe('hip_glute_bias');
     expect(frame.technique.isSpineNeutral).toBe(true);
+
+    // 7. Upright forward-gaze chin-tuck (~125 deg ear-shoulder-hip) must remain neckNeutral
+    const uprightChinTuckKp = {
+      ...hipThrustKeypoints,
+      shoulder: { x: 0.64, y: 0.48 },
+      hip: { x: 0.55, y: 0.57 },
+      ear: { x: 0.63, y: 0.36 }
+    };
+    const chinTuckFrame = evaluateBiomechanicalFrame(
+      uprightChinTuckKp,
+      'hip_thrust_barbell',
+      'CONCENTRIC',
+      140,
+      20,
+      'gravity'
+    );
+    expect(chinTuckFrame.technique.neckNeutral).toBe(true);
+
+    // 8. Framing quality detector flags close-up plate-collapsed torso & accepts well-framed video
+    const goodFraming = assessFramingQuality({
+      shoulder: { x: 0.64, y: 0.48, visibility: 0.9 },
+      hip: { x: 0.55, y: 0.57, visibility: 0.9 },
+      knee: { x: 0.37, y: 0.52, visibility: 0.9 },
+      ankle: { x: 0.31, y: 0.78, visibility: 0.9 }
+    }, 'hip_thrust_barbell');
+    expect(goodFraming.isValid).toBe(true);
+
+    const collapsedCloseFraming = assessFramingQuality({
+      shoulder: { x: 0.46, y: 0.49, visibility: 0.8 },
+      hip: { x: 0.45, y: 0.48, visibility: 0.8 },
+      knee: { x: 0.35, y: 0.48, visibility: 0.8 },
+      ankle: { x: 0.35, y: 0.75, visibility: 0.8 }
+    }, 'hip_thrust_barbell');
+    expect(collapsedCloseFraming.isValid).toBe(false);
+    expect(collapsedCloseFraming.message).toContain('Aleja más');
   });
 });

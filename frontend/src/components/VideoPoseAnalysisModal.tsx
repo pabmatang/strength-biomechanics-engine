@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Sliders,
   ChevronRight,
+  ChevronDown,
   Info
 } from 'lucide-react';
 import {
@@ -52,7 +53,8 @@ import {
   ExercisePatternSpec,
   evaluateBiomechanicalVerdict,
   detectCameraPlane,
-  calculateTibialAngle
+  calculateTibialAngle,
+  assessFramingQuality
 } from '../utils/biomechanicsEngine';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 
@@ -106,6 +108,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [auditedReps, setAuditedReps] = useState<RepetitionBiomechanicalAudit[]>([]);
   const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
   const [currentTelemetry, setCurrentTelemetry] = useState<BiomechanicalTelemetryFrame | null>(null);
+  const [framingWarning, setFramingWarning] = useState<string | null>(null);
+  const [showRepBreakdown, setShowRepBreakdown] = useState<boolean>(false);
 
   // Backend Diagnosis
   const [backendDiagnosis, setBackendDiagnosis] = useState<TelemetryAnalysisResponse | null>(null);
@@ -135,6 +139,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const dominantSideRef = useRef<'left' | 'right' | null>(null);
   const lastValidAngleRef = useRef<number>(0);
   const lastValidAngleTimeRef = useRef<number>(0);
+  const badFramingStreakRef = useRef<number>(0);
+  const goodFramingStreakRef = useRef<number>(0);
 
   // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
@@ -190,6 +196,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     dominantSideRef.current = null;
     lastValidAngleRef.current = 0;
     lastValidAngleTimeRef.current = 0;
+    badFramingStreakRef.current = 0;
+    goodFramingStreakRef.current = 0;
+    setFramingWarning(null);
   }, [selectedPattern]);
 
   // Cleanup on close
@@ -298,6 +307,24 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         const frame = extractPoseDataFromLandmarks(results.landmarks[0], dominantSideRef.current || undefined);
         if (frame) {
           dominantSideRef.current = frame.dominantSide;
+
+          // 0. Check framing quality (rejects excessively close / plate-occluded recordings)
+          const quality = assessFramingQuality(frame.keypoints, selectedPattern.id);
+          if (!quality.isValid) {
+            badFramingStreakRef.current += 1;
+            goodFramingStreakRef.current = 0;
+            if (badFramingStreakRef.current >= 5) {
+              setFramingWarning(quality.message);
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              return;
+            }
+          } else {
+            goodFramingStreakRef.current += 1;
+            badFramingStreakRef.current = 0;
+            if (goodFramingStreakRef.current >= 3) {
+              setFramingWarning(null);
+            }
+          }
 
           // 1. STABILIZE KEYPOINTS WITH ONE-EURO FILTER (ANTI-JITTER)
           // No calculation is ever performed on raw keypoints
@@ -613,6 +640,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     dominantSideRef.current = null;
     lastValidAngleRef.current = 0;
     lastValidAngleTimeRef.current = 0;
+    badFramingStreakRef.current = 0;
+    goodFramingStreakRef.current = 0;
+    setFramingWarning(null);
     fsmRef.current.reset();
 
     if (videoElementRef.current && !useWebcam) {
@@ -1159,9 +1189,34 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {framingWarning && (
+                <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 z-40 flex justify-center pointer-events-none">
+                  <div className="bg-rose-950/95 backdrop-blur-md border border-rose-500/70 rounded-2xl px-4 py-3 shadow-2xl max-w-sm text-center space-y-1">
+                    <div className="flex items-center justify-center gap-1.5 text-rose-300 font-black text-xs">
+                      <AlertTriangle className="w-4 h-4 text-rose-400" />
+                      <span>No se puede analizar bien</span>
+                    </div>
+                    <p className="text-[11px] text-rose-100 leading-snug">
+                      {framingWarning}
+                    </p>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
+
+        {/* Framing Distance Warning Banner */}
+        {framingWarning && (
+          <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5 flex-1">
+              <span className="font-bold text-rose-300">Vídeo demasiado cerca / ocluido:</span>
+              <p className="text-[11px] leading-relaxed text-rose-100/90">{framingWarning}</p>
+            </div>
+          </div>
+        )}
 
         {/* Codec Warning Banner if browser cannot decode */}
         {videoCodecError && (
@@ -1585,45 +1640,52 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
         )}
 
-        {/* Repetition History Detail Cards (Audited Reps with Tempo & Metrics) */}
+        {/* Repetition History Detail Cards (Collapsed Accordion by default) */}
         {auditedReps.length > 0 && (
-          <div className="p-3 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
-            <div className="flex items-center justify-between">
+          <div className="rounded-2xl bg-slate-900/60 border border-slate-800/80 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowRepBreakdown(prev => !prev)}
+              className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/40 transition"
+            >
               <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-cyan-400" />
-                Desglose FSM de Repeticiones ({auditedReps.length} registradas)
+                Desglose FSM de Repeticiones ({auditedReps.length})
               </span>
-              <span className="text-[10px] text-cyan-400 font-mono">
-                Tempo Real vs Planificado
+              <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1">
+                <span>{showRepBreakdown ? 'Ocultar' : 'Ver detalle'}</span>
+                {showRepBreakdown ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </span>
-            </div>
+            </button>
 
-            <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
-              {auditedReps.map((rep) => (
-                <div
-                  key={rep.repIndex}
-                  className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/50 flex flex-wrap items-center justify-between gap-2 text-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-black text-cyan-300 text-xs px-1.5 py-0.5 rounded-lg bg-cyan-950 border border-cyan-800">
-                      #{rep.repIndex}
-                    </span>
-                    <span className="font-semibold text-slate-200">
-                      ROM: <strong className="text-emerald-400">{rep.techniqueVerdict.romReachedDegrees}°</strong> ({rep.techniqueVerdict.romConsistencyScore}% consistencia)
-                    </span>
-                  </div>
+            {showRepBreakdown && (
+              <div className="px-3 pb-3 pt-1 max-h-36 overflow-y-auto space-y-1.5 border-t border-slate-800/70">
+                {auditedReps.map((rep) => (
+                  <div
+                    key={rep.repIndex}
+                    className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/50 flex flex-wrap items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-black text-cyan-300 text-xs px-1.5 py-0.5 rounded-lg bg-cyan-950 border border-cyan-800">
+                        #{rep.repIndex}
+                      </span>
+                      <span className="font-semibold text-slate-200">
+                        ROM: <strong className="text-emerald-400">{rep.techniqueVerdict.romReachedDegrees}°</strong> ({rep.techniqueVerdict.romConsistencyScore}% consistencia)
+                      </span>
+                    </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      Tempo: <strong className="text-cyan-300">{rep.tempo.tempoDisplay}</strong>
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      {rep.biomechanicsVerdict.biasLabel}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Tempo: <strong className="text-cyan-300">{rep.tempo.tempoDisplay}</strong>
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        {rep.biomechanicsVerdict.biasLabel}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
