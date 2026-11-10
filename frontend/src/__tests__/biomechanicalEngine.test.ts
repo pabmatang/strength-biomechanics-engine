@@ -11,6 +11,9 @@ import {
   detectCameraPlane,
   calculateSpinalCollinearity,
   evaluateBiomechanicalVerdict,
+  evaluatePressBiomechanics,
+  evaluatePressVerdict,
+  FootStabilityState,
   auditTechniqueRules,
   assessFramingQuality,
   EXERCISE_BIOMECHANICS_RULES
@@ -631,5 +634,91 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     }, 'hip_thrust_barbell');
     expect(collapsedCloseFraming.isValid).toBe(false);
     expect(collapsedCloseFraming.message).toContain('Aleja más');
+  });
+
+  it('evaluates Chest Press load vector at hand grip, ~90° hand-elbow alignment, safe elbow drop, frontal spine neutrality and foot leg drive', () => {
+    const tracker: FootStabilityState = {};
+
+    // 1. Ideal Frontal Converging Chest Press
+    const idealPressKp = {
+      left_shoulder: { x: 0.60, y: 0.38 },
+      right_shoulder: { x: 0.40, y: 0.38 },
+      left_elbow: { x: 0.66, y: 0.45 },
+      right_elbow: { x: 0.34, y: 0.45 },
+      left_wrist: { x: 0.65, y: 0.42 },
+      right_wrist: { x: 0.35, y: 0.42 },
+      left_hip: { x: 0.56, y: 0.60 },
+      right_hip: { x: 0.44, y: 0.60 },
+      left_ankle: { x: 0.58, y: 0.88, visibility: 0.9 },
+      right_ankle: { x: 0.42, y: 0.88, visibility: 0.9 },
+      ear: { x: 0.44, y: 0.28 },
+      shoulder: { x: 0.60, y: 0.38 },
+      elbow: { x: 0.66, y: 0.45 },
+      wrist: { x: 0.65, y: 0.42 },
+      hip: { x: 0.56, y: 0.60 }
+    };
+
+    const frame = evaluateBiomechanicalFrame(
+      idealPressKp,
+      'converging_chest_press_machine',
+      'CONCENTRIC',
+      125,
+      15,
+      'machine',
+      'chest',
+      1000,
+      14,
+      tracker
+    );
+
+    // Red load force line must anchor directly at wrist/hand grip, NOT midpoint to shoulder
+    expect(frame.biomechanics.loadPosition.x).toBeCloseTo(idealPressKp.wrist.x);
+    expect(frame.biomechanics.loadPosition.y).toBeCloseTo(idealPressKp.wrist.y);
+
+    // Frontal spine symmetry must remain neutral (no false unilateral ear-shoulder break)
+    expect(frame.technique.isSpineNeutral).toBe(true);
+
+    // Press specific metrics
+    const pressEval = frame.biomechanics.pressEvaluation!;
+    expect(pressEval.handElbowAlignment).toBe('aligned_90');
+    expect(pressEval.elbowShoulderPosition).toBe('optimal_below_shoulder');
+    expect(pressEval.footStabilityStatus).toBe('stable_leg_drive');
+    expect(evaluatePressVerdict(pressEval).isOptimal).toBe(true);
+
+    // 2. Closed hand inside elbow -> Triceps involvement
+    const closedPressKp = {
+      ...idealPressKp,
+      left_wrist: { x: 0.60, y: 0.42 },
+      right_wrist: { x: 0.40, y: 0.42 }
+    };
+    const closedEval = evaluatePressBiomechanics(closedPressKp, 'frontal', tracker);
+    expect(closedEval.handElbowAlignment).toBe('closed_triceps');
+    expect(evaluatePressVerdict(closedEval).verdictTitle).toContain('Tríceps');
+
+    // 3. Elbow raised at shoulder level -> Shoulder risk
+    const highElbowKp = {
+      ...idealPressKp,
+      left_elbow: { x: 0.69, y: 0.37 },
+      right_elbow: { x: 0.31, y: 0.37 }
+    };
+    const highElbowEval = evaluatePressBiomechanics(highElbowKp, 'frontal', tracker);
+    expect(highElbowEval.elbowShoulderPosition).toBe('high_shoulder_risk');
+    expect(evaluatePressVerdict(highElbowEval).isOptimal).toBe(false);
+
+    // 4. Lifting foot off floor breaks leg drive stability
+    const liftedFootKp = {
+      ...idealPressKp,
+      left_ankle: { x: 0.58, y: 0.80, visibility: 0.9 } // lifted upward
+    };
+    const liftedEval = evaluatePressBiomechanics(liftedFootKp, 'frontal', tracker);
+    expect(liftedEval.footStabilityStatus).toBe('foot_lifted');
+
+    // 5. Shifting foot position horizontally across reps triggers instability alert
+    const shiftedFootKp = {
+      ...idealPressKp,
+      right_ankle: { x: 0.33, y: 0.88, visibility: 0.9 } // slid horizontally
+    };
+    const shiftedEval = evaluatePressBiomechanics(shiftedFootKp, 'frontal', tracker);
+    expect(shiftedEval.footStabilityStatus).toBe('foot_shifted');
   });
 });

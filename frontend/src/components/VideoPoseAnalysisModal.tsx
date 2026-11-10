@@ -52,6 +52,8 @@ import {
   EXERCISE_PATTERNS,
   ExercisePatternSpec,
   evaluateBiomechanicalVerdict,
+  evaluatePressVerdict,
+  FootStabilityState,
   detectCameraPlane,
   calculateTibialAngle,
   assessFramingQuality
@@ -141,6 +143,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const lastValidAngleTimeRef = useRef<number>(0);
   const badFramingStreakRef = useRef<number>(0);
   const goodFramingStreakRef = useRef<number>(0);
+  const footTrackerRef = useRef<FootStabilityState>({});
 
   // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
@@ -198,6 +201,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     lastValidAngleTimeRef.current = 0;
     badFramingStreakRef.current = 0;
     goodFramingStreakRef.current = 0;
+    footTrackerRef.current = {};
     setFramingWarning(null);
   }, [selectedPattern]);
 
@@ -423,7 +427,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             resistanceParam,
             targetBiasParam as any,
             monotonicTime,
-            smoothedTibialAngleRef.current
+            smoothedTibialAngleRef.current,
+            footTrackerRef.current
           );
 
           setCurrentPrimaryAngle(Math.round(smoothedAngle));
@@ -642,6 +647,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     lastValidAngleTimeRef.current = 0;
     badFramingStreakRef.current = 0;
     goodFramingStreakRef.current = 0;
+    footTrackerRef.current = {};
     setFramingWarning(null);
     fsmRef.current.reset();
 
@@ -728,6 +734,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const meanHipMoment = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
   const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
   const isHipThrustExercise = selectedPattern.id.includes('hip_thrust');
+  const isPressExercise = selectedPattern.patternFamily === 'push_press';
+  const pressEval = currentTelemetry?.biomechanics.pressEvaluation ?? currentTelemetry?.technique.pressEvaluation;
+
   const htKneeAngle = Math.round(
     currentTelemetry?.biomechanics.kneeAngleDegrees ??
     currentTelemetry?.technique.kneeAngleDegrees ??
@@ -736,21 +745,27 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const htLumbarOk = currentTelemetry?.technique.lumbarNeutral !== false;
   const htNeckOk = currentTelemetry?.technique.neckNeutral !== false;
 
-  const isInitialSetup = repCount === 0 && currentPhase === 'LOCKOUT' && !(isHipThrustExercise && currentTelemetry);
+  const isInitialSetup =
+    repCount === 0 &&
+    currentPhase === 'LOCKOUT' &&
+    !(isHipThrustExercise && currentTelemetry) &&
+    !(isPressExercise && pressEval);
 
-  const rawVerdict = evaluateBiomechanicalVerdict(
-    targetMuscle,
-    meanHipMoment,
-    meanKneeMoment,
-    currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
-    currentTelemetry?.technique.spinalAngleDegrees ?? 20,
-    75,
-    currentTelemetry?.technique.isSpineNeutral ?? true,
-    selectedPattern.id,
-    htKneeAngle,
-    htLumbarOk,
-    htNeckOk
-  );
+  const rawVerdict = (isPressExercise && pressEval)
+    ? evaluatePressVerdict(pressEval)
+    : evaluateBiomechanicalVerdict(
+        targetMuscle,
+        meanHipMoment,
+        meanKneeMoment,
+        currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
+        currentTelemetry?.technique.spinalAngleDegrees ?? 20,
+        75,
+        currentTelemetry?.technique.isSpineNeutral ?? true,
+        selectedPattern.id,
+        htKneeAngle,
+        htLumbarOk,
+        htNeckOk
+      );
 
   const currentVerdict = isInitialSetup
     ? {
@@ -759,7 +774,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         verdictTitle: 'Posición Inicial: Esperando inicio de repetición',
         verdictDescription: isHipThrustExercise
           ? 'Ajusta los pies para buscar ~90° en rodilla y mantén lumbar y cuello neutros.'
-          : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
+          : isPressExercise
+            ? 'Alinea la mano con el codo (~90°), mantén el codo bajo el hombro y apoya firmes los pies en el suelo.'
+            : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
       }
     : rawVerdict;
 
@@ -770,6 +787,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     ? 50
     : Math.round((hipRaw / totalMoment) * 100);
   const kneeShare = 100 - hipShare;
+
+  const shoulderRaw = currentTelemetry?.biomechanics.momentArms.shoulder ?? 0.28;
+  const elbowRaw = currentTelemetry?.biomechanics.momentArms.elbow ?? 0.14;
+  const totalUpperMoment = shoulderRaw + elbowRaw + 1e-5;
+  const shoulderShare = (shoulderRaw + elbowRaw < 0.04) ? 50 : Math.round((shoulderRaw / totalUpperMoment) * 100);
+  const elbowShare = 100 - shoulderShare;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
@@ -1175,6 +1198,44 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                       Lumbar: {htLumbarOk ? '✓' : '⚠️'} · Cuello: {htNeckOk ? '✓' : '⚠️'}
                     </div>
                   </div>
+                ) : isPressExercise && pressEval ? (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      pressEval.handElbowAlignment === 'aligned_90'
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <Crosshair className="w-3 h-3" />
+                      {pressEval.handElbowAlignment === 'aligned_90'
+                        ? 'Mano/Codo: ~90°'
+                        : pressEval.handElbowAlignment === 'closed_triceps'
+                          ? 'Agarre Cerrado (+Tríceps)'
+                          : 'Mano Abierta'}
+                    </div>
+
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
+                        ? 'bg-cyan-950/90 border-cyan-500/50 text-cyan-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <ShieldCheck className="w-3 h-3" />
+                      {pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
+                        ? `Codo Bajo Hombro (${pressEval.shoulderAbductionDeg}°)`
+                        : pressEval.elbowShoulderPosition === 'high_shoulder_risk'
+                          ? '⚠️ Codo Alto (Hombro)'
+                          : 'Codo Pegado'}
+                    </div>
+
+                    {pressEval.footStabilityStatus !== 'not_visible' && (
+                      <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                        pressEval.footStabilityStatus === 'stable_leg_drive'
+                          ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                          : 'bg-rose-950/90 border-rose-500/50 text-rose-300'
+                      }`}>
+                        {pressEval.footStabilityStatus === 'stable_leg_drive' ? 'Pies: ✓ Firmes' : '⚠️ Pies Inestables'}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <div className="bg-amber-950/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-amber-300 flex items-center gap-1">
@@ -1424,6 +1485,72 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="text-[9px] text-slate-500 block">chin-tuck en banco</span>
                 </div>
               </div>
+            ) : isPressExercise && pressEval ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Mano vs Codo</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    pressEval.handElbowAlignment === 'aligned_90' ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {pressEval.handElbowAlignment === 'aligned_90'
+                      ? '✓ ~90° Pectoral'
+                      : pressEval.handElbowAlignment === 'closed_triceps'
+                        ? '⚡ +Tríceps'
+                        : '⚡ Agarre Abierto'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {pressEval.handElbowAlignment === 'aligned_90' ? 'antebrazo alineado' : 'ajusta apertura mano'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Codo vs Hombro</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    pressEval.elbowShoulderPosition === 'optimal_below_shoulder' ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
+                      ? `✓ Bajo Hombro (${pressEval.shoulderAbductionDeg}°)`
+                      : pressEval.elbowShoulderPosition === 'high_shoulder_risk'
+                        ? '⚠️ Codo Alto'
+                        : '⚡ Muy Pegado'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {pressEval.elbowShoulderPosition === 'high_shoulder_risk' ? 'riesgo en hombro' : 'plano escapular seguro'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Pies en Suelo</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    pressEval.footStabilityStatus === 'stable_leg_drive'
+                      ? 'text-emerald-400'
+                      : pressEval.footStabilityStatus === 'not_visible'
+                        ? 'text-slate-400'
+                        : 'text-rose-400'
+                  }`}>
+                    {pressEval.footStabilityStatus === 'stable_leg_drive'
+                      ? '✓ Firmes'
+                      : pressEval.footStabilityStatus === 'foot_lifted'
+                        ? '⚠️ Levantados'
+                        : pressEval.footStabilityStatus === 'foot_shifted'
+                          ? '⚠️ Inestables'
+                          : 'No visibles'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">estabilidad y leg drive</span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Columna</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    pressEval.spineNeutral ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {pressEval.spineNeutral ? '✓ Neutra' : '⚡ Inclinada'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {`${pressEval.spineAngleDeg}° eje torso`}
+                  </span>
+                </div>
+              </div>
             ) : (
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1581,6 +1708,89 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </span>
                 </div>
               </div>
+            ) : isPressExercise && pressEval ? (
+              <>
+                {/* Upper Body Press Lever Bar (Shoulder vs Elbow) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                    <span className="text-violet-400 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-violet-500" />
+                      Palanca Hombro (Pectoral): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
+                    </span>
+                    <span className="text-pink-400 flex items-center gap-1">
+                      Palanca Codo (Tríceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
+                      <span className="w-2 h-2 rounded-full bg-pink-500" />
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                    <div className="bg-violet-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
+                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
+                  </div>
+                </div>
+
+                {/* Press Telemetry Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Mano vs Codo</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      pressEval.handElbowAlignment === 'aligned_90' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {pressEval.handElbowAlignment === 'aligned_90'
+                        ? '✓ ~90° Pectoral'
+                        : pressEval.handElbowAlignment === 'closed_triceps'
+                          ? '⚡ +Tríceps'
+                          : '⚡ Abierto'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">alineación antebrazo</span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Codo vs Hombro</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      pressEval.elbowShoulderPosition === 'optimal_below_shoulder' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
+                        ? `✓ Bajo Hombro (${pressEval.shoulderAbductionDeg}°)`
+                        : pressEval.elbowShoulderPosition === 'high_shoulder_risk'
+                          ? '⚠️ Codo Alto'
+                          : '⚡ Muy Pegado'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">salud articular hombro</span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Pies (Leg Drive)</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      pressEval.footStabilityStatus === 'stable_leg_drive'
+                        ? 'text-emerald-400'
+                        : pressEval.footStabilityStatus === 'not_visible'
+                          ? 'text-slate-400'
+                          : 'text-rose-400'
+                    }`}>
+                      {pressEval.footStabilityStatus === 'stable_leg_drive'
+                        ? '✓ Firmes Suelo'
+                        : pressEval.footStabilityStatus === 'foot_lifted'
+                          ? '⚠️ Levantados'
+                          : pressEval.footStabilityStatus === 'foot_shifted'
+                            ? '⚠️ Cambian Pos.'
+                            : 'No visibles'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">empuje y estabilidad</span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Columna</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      pressEval.spineNeutral ? 'text-emerald-400' : 'text-rose-400'
+                    }`}>
+                      {pressEval.spineNeutral ? '✓ Neutra' : '⚡ Inclinada'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {`${pressEval.spineAngleDeg}° inclinación`}
+                    </span>
+                  </div>
+                </div>
+              </>
             ) : (
               <>
                 {/* Muscle Dominance Comparison Bar (Cadera vs Rodilla) */}

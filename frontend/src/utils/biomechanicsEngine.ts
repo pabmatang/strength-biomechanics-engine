@@ -508,6 +508,204 @@ export function assessFramingQuality(
   return { isValid: true, reasonCode: 'OK', message: '' };
 }
 
+export interface FootStabilityState {
+  baselineLeftAnkle?: Point2D;
+  baselineRightAnkle?: Point2D;
+  groundY?: number;
+}
+
+export interface PressBiomechanicsEvaluation {
+  handElbowAlignment: 'aligned_90' | 'closed_triceps' | 'wide_stretch';
+  handElbowLabel: string;
+  elbowShoulderPosition: 'optimal_below_shoulder' | 'high_shoulder_risk' | 'too_tucked';
+  elbowShoulderLabel: string;
+  shoulderAbductionDeg: number;
+  footStabilityStatus: 'stable_leg_drive' | 'foot_lifted' | 'foot_shifted' | 'not_visible';
+  footStabilityLabel: string;
+  spineNeutral: boolean;
+  spineAngleDeg: number;
+}
+
+/**
+ * Evaluates Upper Body Chest Press biomechanics:
+ * 1) Hand vs Elbow alignment (~90° stacked vs closed +Triceps vs wide)
+ * 2) Elbow height relative to Shoulder (safely below shoulder ~45°-65° scapular plane)
+ * 3) Bilateral/Frontal Spinal Neutrality (prevents ear-to-shoulder false frontal break)
+ * 4) Ground Foot Stability / Leg Drive (detects lifting feet or shifting foot placement across reps)
+ */
+export function evaluatePressBiomechanics(
+  keypoints: Record<string, Point2D & { visibility?: number }>,
+  cameraPlane: CameraPlane,
+  footTracker?: FootStabilityState
+): PressBiomechanicsEvaluation {
+  const ls = keypoints['left_shoulder'];
+  const rs = keypoints['right_shoulder'];
+  const le = keypoints['left_elbow'];
+  const re = keypoints['right_elbow'];
+  const lw = keypoints['left_wrist'];
+  const rw = keypoints['right_wrist'];
+  const lh = keypoints['left_hip'];
+  const rh = keypoints['right_hip'];
+  const la = keypoints['left_ankle'];
+  const ra = keypoints['right_ankle'];
+
+  const shoulder = keypoints['shoulder'] || rs || ls;
+  const elbow = keypoints['elbow'] || re || le;
+  const wrist = keypoints['wrist'] || rw || lw;
+  const hip = keypoints['hip'] || rh || lh;
+  const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
+
+  // 1. Hand vs Elbow Alignment
+  let handElbowAlignment: 'aligned_90' | 'closed_triceps' | 'wide_stretch' = 'aligned_90';
+  let handElbowLabel = '✓ Mano a la altura del codo (~90° Pectoral)';
+
+  const evalArmHandElbow = (sh?: Point2D, el?: Point2D, wr?: Point2D): number | null => {
+    if (!sh || !el || !wr) return null;
+    const upperLen = Math.max(0.05, Math.hypot(el.x - sh.x, el.y - sh.y));
+    if (cameraPlane === 'sagittal') {
+      const forearmLen = Math.max(0.05, Math.hypot(wr.x - el.x, wr.y - el.y));
+      return (wr.x - el.x) / forearmLen;
+    }
+    const outwardSign = el.x >= sh.x ? 1 : -1;
+    return ((wr.x - el.x) * outwardSign) / upperLen;
+  };
+
+  const leftOffset = (ls && le && lw && (lw.visibility ?? 0.8) >= 0.35) ? evalArmHandElbow(ls, le, lw) : null;
+  const rightOffset = (rs && re && rw && (rw.visibility ?? 0.8) >= 0.35) ? evalArmHandElbow(rs, re, rw) : null;
+
+  let forearmRatio = 0;
+  if (leftOffset !== null && rightOffset !== null) {
+    forearmRatio = (leftOffset + rightOffset) / 2;
+  } else if (leftOffset !== null) {
+    forearmRatio = leftOffset;
+  } else if (rightOffset !== null) {
+    forearmRatio = rightOffset;
+  } else if (shoulder && elbow && wrist) {
+    forearmRatio = evalArmHandElbow(shoulder, elbow, wrist) ?? 0;
+  }
+
+  if (forearmRatio < -0.35) {
+    handElbowAlignment = 'closed_triceps';
+    handElbowLabel = 'Mano más cerrada que el codo → +Tríceps';
+  } else if (forearmRatio > 0.38) {
+    handElbowAlignment = 'wide_stretch';
+    handElbowLabel = 'Mano más abierta que el codo (+Estiramiento)';
+  }
+
+  // 2. Elbow Height Relative to Shoulder (safely below shoulder ~45°-65°)
+  let elbowShoulderPosition: 'optimal_below_shoulder' | 'high_shoulder_risk' | 'too_tucked' = 'optimal_below_shoulder';
+  let elbowShoulderLabel = '✓ Codo debajo del hombro (~45°-65° seguro)';
+  let shoulderAbductionDeg = 55;
+
+  const evalShoulderArm = (sh?: Point2D, el?: Point2D, hp?: Point2D) => {
+    if (!sh || !el) return null;
+    const armLen = Math.max(0.05, Math.hypot(el.x - sh.x, el.y - sh.y));
+    const dropY = el.y - sh.y; // > 0 when elbow is lower on screen than shoulder
+    const dropRatio = dropY / armLen;
+    const abd = hp ? computeJointAngle2D(hp, sh, el) : 55;
+    return { dropY, dropRatio, abd };
+  };
+
+  const leftArm = evalShoulderArm(ls, le, lh);
+  const rightArm = evalShoulderArm(rs, re, rh);
+  const armSample = (leftArm && rightArm)
+    ? {
+        dropY: (leftArm.dropY + rightArm.dropY) / 2,
+        dropRatio: (leftArm.dropRatio + rightArm.dropRatio) / 2,
+        abd: Math.round((leftArm.abd + rightArm.abd) / 2)
+      }
+    : (leftArm || rightArm || evalShoulderArm(shoulder, elbow, hip));
+
+  if (armSample) {
+    shoulderAbductionDeg = Math.round(armSample.abd);
+    if (armSample.dropY <= 0.012 || (armSample.abd > 78 && armSample.dropRatio < 0.16)) {
+      elbowShoulderPosition = 'high_shoulder_risk';
+      elbowShoulderLabel = '⚠️ Codo alto (a nivel/encima del hombro): riesgo articular';
+    } else if (armSample.abd < 22 && armSample.dropRatio > 0.88) {
+      elbowShoulderPosition = 'too_tucked';
+      elbowShoulderLabel = 'Codo muy pegado al torso (<25°): énfasis en tríceps';
+    } else {
+      elbowShoulderPosition = 'optimal_below_shoulder';
+      elbowShoulderLabel = `✓ Codo bajo el hombro (${shoulderAbductionDeg}° plano escapular seguro)`;
+    }
+  }
+
+  // 3. Spinal Neutrality (use symmetrical mid-line in frontal/oblique view so wide shoulders aren't penalized)
+  let spineNeutral = true;
+  let spineAngleDeg = 0;
+  if (cameraPlane !== 'sagittal' && ls && rs && lh && rh) {
+    const midShoulder = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
+    const midHip = { x: (lh.x + rh.x) / 2, y: (lh.y + rh.y) / 2 };
+    spineAngleDeg = calculateSpineAlignment(midShoulder, midHip);
+    spineNeutral = spineAngleDeg <= 15.0;
+  } else {
+    const col = calculateSpinalCollinearity(ear, shoulder, hip);
+    spineAngleDeg = col.torsoLeanDeg;
+    spineNeutral = col.deviationAngleDeg <= 22.0;
+  }
+
+  // 4. Foot Stability / Ground Leg Drive Check
+  let footStabilityStatus: 'stable_leg_drive' | 'foot_lifted' | 'foot_shifted' | 'not_visible' = 'not_visible';
+  let footStabilityLabel = 'Pies no visibles en encuadre';
+
+  const laVisible = la && (la.visibility === undefined || la.visibility >= 0.35) && la.y <= 0.985;
+  const raVisible = ra && (ra.visibility === undefined || ra.visibility >= 0.35) && ra.y <= 0.985;
+
+  if (laVisible || raVisible) {
+    if (footTracker) {
+      if (laVisible && !footTracker.baselineLeftAnkle) {
+        footTracker.baselineLeftAnkle = { x: la!.x, y: la!.y };
+      }
+      if (raVisible && !footTracker.baselineRightAnkle) {
+        footTracker.baselineRightAnkle = { x: ra!.x, y: ra!.y };
+      }
+      const lowestCurrentY = Math.max(laVisible ? la!.y : 0, raVisible ? ra!.y : 0);
+      if (footTracker.groundY === undefined) {
+        footTracker.groundY = lowestCurrentY;
+      } else {
+        // Allow slight settling downward onto floor, never upward
+        footTracker.groundY = Math.max(footTracker.groundY, lowestCurrentY);
+      }
+
+      const refGroundY = footTracker.groundY;
+      const liftedLeft = laVisible && la!.y < refGroundY - 0.035;
+      const liftedRight = raVisible && ra!.y < refGroundY - 0.035;
+      const asymY = laVisible && raVisible && Math.abs(la!.y - ra!.y) > 0.045;
+
+      const shiftedLeft = laVisible && footTracker.baselineLeftAnkle &&
+        Math.abs(la!.x - footTracker.baselineLeftAnkle.x) > 0.045;
+      const shiftedRight = raVisible && footTracker.baselineRightAnkle &&
+        Math.abs(ra!.x - footTracker.baselineRightAnkle.x) > 0.045;
+
+      if (liftedLeft || liftedRight || asymY) {
+        footStabilityStatus = 'foot_lifted';
+        footStabilityLabel = '⚠️ Pies levantados del suelo: apóyalos firmes para leg drive';
+      } else if (shiftedLeft || shiftedRight) {
+        footStabilityStatus = 'foot_shifted';
+        footStabilityLabel = '⚠️ Pies cambiando de posición: fíjalos en cada repetición';
+      } else {
+        footStabilityStatus = 'stable_leg_drive';
+        footStabilityLabel = '✓ Pies firmes en el suelo (leg drive estable)';
+      }
+    } else {
+      footStabilityStatus = 'stable_leg_drive';
+      footStabilityLabel = '✓ Pies firmes en el suelo (leg drive estable)';
+    }
+  }
+
+  return {
+    handElbowAlignment,
+    handElbowLabel,
+    elbowShoulderPosition,
+    elbowShoulderLabel,
+    shoulderAbductionDeg,
+    footStabilityStatus,
+    footStabilityLabel,
+    spineNeutral,
+    spineAngleDeg
+  };
+}
+
 /**
  * Technical Fault Auditor by Movement Pattern
  */
@@ -517,7 +715,8 @@ export function auditTechniqueRules(
   currentAngle: number,
   fsmPhase: FsmPhase,
   loadPosition: Point2D,
-  exerciseId?: string
+  exerciseId?: string,
+  footTracker?: FootStabilityState
 ): TechniqueFeedbackAlert[] {
   const alerts: TechniqueFeedbackAlert[] = [];
   const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
@@ -688,9 +887,75 @@ export function auditTechniqueRules(
     }
   }
 
-  // D) Patrón de Empuje / Pecho
+  // D) Patrón de Empuje / Pecho (Press de Pecho)
   else if (patternFamily === 'push_press') {
-    if (currentAngle < 75 && fsmPhase === 'BOTTOM') {
+    const camPlane = detectCameraPlane(keypoints);
+    const pressEval = evaluatePressBiomechanics(keypoints, camPlane, footTracker);
+
+    // 1. Alineación mano vs codo (~90° vs +Tríceps vs Abierto)
+    if (pressEval.handElbowAlignment === 'closed_triceps') {
+      alerts.push({
+        type: 'warning',
+        code: 'HAND_INSIDE_ELBOW_TRICEPS',
+        message: 'Mano más cerrada que el codo: mayor implicación de tríceps; alinea la muñeca con el codo (~90°) para aislar pectoral.'
+      });
+    } else if (pressEval.handElbowAlignment === 'wide_stretch') {
+      alerts.push({
+        type: 'warning',
+        code: 'HAND_WIDE_ELBOW',
+        message: 'Mano más abierta que el codo: aumenta tensión en inserción pectoral/hombro; busca alineación a ~90°.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'HAND_ELBOW_90_ALIGNED',
+        message: '✓ Mano alineada con el codo (~90°): empuje eficiente centrado en fibras pectorales'
+      });
+    }
+
+    // 2. Altura del codo respecto al hombro (~45°-65° debajo del hombro)
+    if (pressEval.elbowShoulderPosition === 'high_shoulder_risk') {
+      alerts.push({
+        type: 'warning',
+        code: 'ELBOW_TOO_HIGH_SHOULDER_RISK',
+        message: 'Codo demasiado alto (a la altura o encima del hombro): bájalos ligeramente (~45°-65°) para evitar molestias articulares.'
+      });
+    } else if (pressEval.elbowShoulderPosition === 'too_tucked') {
+      alerts.push({
+        type: 'warning',
+        code: 'ELBOW_TOO_TUCKED_TRICEPS',
+        message: 'Codos muy pegados al cuerpo (<25°): desplaza el trabajo hacia tríceps y deltoides anterior.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'ELBOW_BELOW_SHOULDER_SAFE',
+        message: pressEval.elbowShoulderLabel
+      });
+    }
+
+    // 3. Estabilidad de pies en el suelo (Leg Drive)
+    if (pressEval.footStabilityStatus === 'foot_lifted') {
+      alerts.push({
+        type: 'warning',
+        code: 'FOOT_LIFTED_NO_LEG_DRIVE',
+        message: 'Pies levantándose del suelo: mantén toda la planta firme abajo para generar mayor fuerza (leg drive) y estabilidad.'
+      });
+    } else if (pressEval.footStabilityStatus === 'foot_shifted') {
+      alerts.push({
+        type: 'warning',
+        code: 'FOOT_SHIFTING_INSTABILITY',
+        message: 'Pies moviéndose entre repeticiones: fija su posición en el suelo para no perder estabilidad.'
+      });
+    } else if (pressEval.footStabilityStatus === 'stable_leg_drive') {
+      alerts.push({
+        type: 'success',
+        code: 'FOOT_DRIVE_STABLE',
+        message: '✓ Pies firmes en el suelo: buena transferencia de fuerza y estabilidad en el press'
+      });
+    }
+
+    if (currentAngle < 85 && fsmPhase === 'BOTTOM') {
       alerts.push({
         type: 'success',
         code: 'CHEST_STRETCH',
@@ -764,6 +1029,7 @@ export interface BiomechanicalTelemetryFrame {
     lumbarStatusLabel?: string;
     neckNeutral?: boolean;
     neckStatusLabel?: string;
+    pressEvaluation?: PressBiomechanicsEvaluation;
     activeCues: string[];
     alerts?: TechniqueFeedbackAlert[];
   };
@@ -794,6 +1060,7 @@ export interface BiomechanicalTelemetryFrame {
 
     tibialAngleDegrees: number;
     kneeAngleDegrees?: number;
+    pressEvaluation?: PressBiomechanicsEvaluation;
     muscleBias: MuscleBiasCategory;
     muscleBiasLabel: string;
     resistancePeakLocation: ResistanceCurveMatch;
@@ -1094,6 +1361,65 @@ export function evaluateBiomechanicalVerdict(
 }
 
 /**
+ * Generates direct verdict for Press / Pectorals from real-time Press evaluation
+ */
+export function evaluatePressVerdict(pressEval: PressBiomechanicsEvaluation): {
+  isOptimal: boolean;
+  verdictTitle: string;
+  verdictDescription: string;
+  ratio: number;
+} {
+  const handOk = pressEval.handElbowAlignment === 'aligned_90';
+  const elbowHeightOk = pressEval.elbowShoulderPosition === 'optimal_below_shoulder';
+  const feetOk = pressEval.footStabilityStatus === 'stable_leg_drive' || pressEval.footStabilityStatus === 'not_visible';
+  const spineOk = pressEval.spineNeutral;
+
+  const isOptimal = handOk && elbowHeightOk && feetOk && spineOk;
+
+  if (pressEval.elbowShoulderPosition === 'high_shoulder_risk') {
+    return {
+      isOptimal: false,
+      ratio: 1.0,
+      verdictTitle: 'Riesgo Articular: Codo demasiado alto respecto al Hombro',
+      verdictDescription: 'Los codos suben a nivel o encima del hombro. Bájalos ligeramente (~45°-65° debajo del hombro) para evitar molestias y proteger el manguito rotador.'
+    };
+  }
+  if (pressEval.footStabilityStatus === 'foot_lifted' || pressEval.footStabilityStatus === 'foot_shifted') {
+    return {
+      isOptimal: false,
+      ratio: 1.0,
+      verdictTitle: pressEval.footStabilityStatus === 'foot_lifted'
+        ? 'Falta de Apoyo Podal: Pies levantándose del suelo'
+        : 'Pies Inestables: Cambiando de posición en la serie',
+      verdictDescription: 'Apoya ambas plantas firmes en el suelo para generar leg drive, estabilidad torácica y máxima producción de fuerza en el press.'
+    };
+  }
+  if (pressEval.handElbowAlignment === 'closed_triceps') {
+    return {
+      isOptimal: false,
+      ratio: 1.0,
+      verdictTitle: 'Mano más cerrada que el codo → Mayor implicación de Tríceps',
+      verdictDescription: 'La muñeca queda por dentro del eje del codo, aumentando el momento extensor en tríceps. Ábrela ligeramente hasta alinear mano y codo (~90°) para aislar pectoral.'
+    };
+  }
+  if (pressEval.handElbowAlignment === 'wide_stretch') {
+    return {
+      isOptimal: false,
+      ratio: 1.0,
+      verdictTitle: 'Mano más abierta que el codo (+Tensión Inserción Pectoral)',
+      verdictDescription: 'La muñeca supera por fuera la vertical del codo. Alinea la mano a la altura del codo (~90°) para optimizar el empuje.'
+    };
+  }
+
+  return {
+    isOptimal,
+    ratio: 1.4,
+    verdictTitle: 'Press Óptimo para Pectoral (~90° Mano-Codo & Hombro Seguro)',
+    verdictDescription: `Mano alineada con el codo (~90°), codo bajo el hombro (${pressEval.shoulderAbductionDeg}° plano escapular) y base sólida.`
+  };
+}
+
+/**
  * Evaluates real-time biomechanics and technique from stabilized keypoints
  */
 export function evaluateBiomechanicalFrame(
@@ -1105,7 +1431,8 @@ export function evaluateBiomechanicalFrame(
   resistanceType: ResistanceSourceType = 'gravity',
   targetMuscleGroup: 'quads' | 'glutes' | 'hamstrings' | 'lats' | 'chest' | 'triceps' | 'biceps' = 'quads',
   timestampMs: number = performance.now(),
-  smoothedTibialAngle?: number
+  smoothedTibialAngle?: number,
+  footTracker?: FootStabilityState
 ): BiomechanicalTelemetryFrame {
   const hip = smoothedKeypoints['hip'] || smoothedKeypoints['right_hip'] || smoothedKeypoints['left_hip'];
   const knee = smoothedKeypoints['knee'] || smoothedKeypoints['right_knee'] || smoothedKeypoints['left_knee'];
@@ -1115,11 +1442,11 @@ export function evaluateBiomechanicalFrame(
   const elbow = smoothedKeypoints['elbow'] || smoothedKeypoints['right_elbow'] || smoothedKeypoints['left_elbow'];
 
   // Determine load / force application point:
-  // - Machine exercises with foot on platform (leg press, hack squat, etc.) or when resistanceType === 'machine':
-  //   the force is applied at the foot/ankle on the machine.
-  // - Free-weight hinge/deadlift: load is strictly held at the hands (wrist landmark).
-  // - Free-weight barbell back squat: load is at the shoulder/bar.
-  // - Upper body patterns: load is at the hands.
+  // - Hip Thrust: load is at the hip/pelvis.
+  // - Upper body (press/row/curl/triceps): load is strictly at the hand/grip (wrist).
+  // - Machine lower body with foot on platform: force is at the foot/ankle.
+  // - Free-weight hinge/deadlift: load is at the hand (wrist).
+  // - Barbell back squat: load is at the shoulder/bar.
   const patternFamily = getPatternFamily(exerciseId);
   const isHipThrust = exerciseId.includes('hip_thrust');
   const isHinge = patternFamily === 'hinge_deadlift' && !isHipThrust;
@@ -1128,13 +1455,15 @@ export function evaluateBiomechanicalFrame(
 
   const loadPosition: Point2D = (isHipThrust && hip)
     ? hip
-    : (isMachineFootContact && ankle
-        ? ankle
-        : (isHinge && wrist
-            ? wrist
-            : (shoulder
-                ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
-                : (wrist || ankle || shoulder || { x: 0.5, y: 0.5 }))));
+    : (isUpperBody && wrist
+        ? wrist
+        : (isMachineFootContact && ankle
+            ? ankle
+            : (isHinge && wrist
+                ? wrist
+                : (shoulder
+                    ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
+                    : (wrist || ankle || shoulder || { x: 0.5, y: 0.5 })))));
 
   // 1. Line of Action of Force
   let lineP1: Point2D;
@@ -1252,18 +1581,39 @@ export function evaluateBiomechanicalFrame(
     lengthenedScore = 70;
   }
 
-  // 5. Technique Checks (Mode 1) & Knee/Lumbar/Neck evaluation
+  // 5. Technique Checks (Mode 1) & Pattern Evaluations
+  const cameraPlane = detectCameraPlane(smoothedKeypoints);
   const ear = smoothedKeypoints['ear'] || smoothedKeypoints['right_ear'] || smoothedKeypoints['left_ear'];
   const spineAnalysis = calculateSpinalCollinearity(ear, shoulder, hip);
-  const spineAngle = spineAnalysis.torsoLeanDeg;
+  let spineAngle = spineAnalysis.torsoLeanDeg;
 
   const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
   const htEval = isHipThrust ? evaluateHipThrustAlignment(smoothedKeypoints, currentAngle) : null;
+  const isChestPress = patternFamily === 'push_press';
+  const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker) : undefined;
 
-  // In Hip Thrust, lumbar & neck neutrality govern true spine alignment rather than vertical torso lean
-  const isSpineNeutral = isHipThrust
-    ? Boolean(htEval?.lumbarNeutral && htEval?.neckNeutral)
-    : spineAnalysis.isSpineNeutral;
+  // Spinal neutrality:
+  // - Hip Thrust: lumbar + neck neutrality
+  // - Chest Press (especially frontal view): symmetrical torso alignment (never unilateral ear->shoulder triangle)
+  // - Sagittal lower-body patterns: ear->shoulder->hip collinearity
+  let isSpineNeutral = spineAnalysis.isSpineNeutral;
+  if (isHipThrust) {
+    isSpineNeutral = Boolean(htEval?.lumbarNeutral && htEval?.neckNeutral);
+  } else if (pressEval) {
+    isSpineNeutral = pressEval.spineNeutral;
+    spineAngle = pressEval.spineAngleDeg;
+  } else if (cameraPlane !== 'sagittal') {
+    const ls = smoothedKeypoints['left_shoulder'];
+    const rs = smoothedKeypoints['right_shoulder'];
+    const lh = smoothedKeypoints['left_hip'];
+    const rh = smoothedKeypoints['right_hip'];
+    if (ls && rs && lh && rh) {
+      const midSh = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
+      const midHp = { x: (lh.x + rh.x) / 2, y: (lh.y + rh.y) / 2 };
+      spineAngle = calculateSpineAlignment(midSh, midHp);
+      isSpineNeutral = spineAngle <= 15.0;
+    }
+  }
 
   if (isHipThrust && htEval) {
     if (htEval.kneeBias === 'quad_dominant') {
@@ -1276,14 +1626,20 @@ export function evaluateBiomechanicalFrame(
       muscleBias = 'hip_glute_bias';
       muscleBiasLabel = `Ángulo Óptimo Glúteo (${htEval.kneeAngleDegrees}° ≈ 90°)`;
     }
+  } else if (pressEval) {
+    muscleBias = 'balanced_hybrid';
+    muscleBiasLabel = pressEval.handElbowAlignment === 'closed_triceps'
+      ? 'Sesgo hacia Tríceps (Mano cerrada)'
+      : pressEval.handElbowAlignment === 'wide_stretch'
+        ? 'Sesgo Estiramiento Pectoral'
+        : 'Empuje Óptimo Pectoral (~90°)';
   }
 
-  // Dynamic Knee Valgus: ONLY evaluated in frontal camera plane
-  const cameraPlane = detectCameraPlane(smoothedKeypoints);
+  // Dynamic Knee Valgus: ONLY evaluated in frontal camera plane for lower-body patterns
   let isKneeValgusDetected = false;
   let valgusRatio = 1.0;
 
-  if (cameraPlane === 'frontal') {
+  if (cameraPlane === 'frontal' && !isUpperBody) {
     const lKnee = smoothedKeypoints['left_knee'];
     const rKnee = smoothedKeypoints['right_knee'];
     const lAnkle = smoothedKeypoints['left_ankle'];
@@ -1307,12 +1663,13 @@ export function evaluateBiomechanicalFrame(
     currentAngle,
     phase,
     loadPosition,
-    exerciseId
+    exerciseId,
+    footTracker
   );
 
   const activeCues: string[] = [];
   if (!isSpineNeutral && !isHipThrust) {
-    activeCues.push('⚡ Quiebre de neutralidad espinal: curvatura alterada (desviación oreja-hombro-cadera > 15°).');
+    activeCues.push('⚡ Quiebre de neutralidad espinal: inclinación lateral o curvatura alterada (> 15°).');
   }
   if (isKneeValgusDetected) {
     activeCues.push('⚡ Valgo dinámico de rodilla: empuja las rodillas hacia afuera en línea con los pies.');
@@ -1340,9 +1697,10 @@ export function evaluateBiomechanicalFrame(
       valgusDeviationRatio: Math.round(valgusRatio * 100) / 100,
       kneeAngleDegrees,
       lumbarNeutral: htEval ? htEval.lumbarNeutral : isSpineNeutral,
-      lumbarStatusLabel: htEval ? htEval.lumbarStatusLabel : (isSpineNeutral ? '✓ Neutra' : '⚡ Flexión'),
+      lumbarStatusLabel: htEval ? htEval.lumbarStatusLabel : (isSpineNeutral ? '✓ Neutra' : '⚡ Desalineada'),
       neckNeutral: htEval ? htEval.neckNeutral : isSpineNeutral,
       neckStatusLabel: htEval ? htEval.neckStatusLabel : (isSpineNeutral ? '✓ Cuello Neutro' : '⚡ Desalineado'),
+      pressEvaluation: pressEval,
       activeCues,
       alerts: techniqueAlerts
     },
@@ -1366,6 +1724,7 @@ export function evaluateBiomechanicalFrame(
       },
       tibialAngleDegrees: tibialAngle,
       kneeAngleDegrees,
+      pressEvaluation: pressEval,
       muscleBias,
       muscleBiasLabel,
       resistancePeakLocation,

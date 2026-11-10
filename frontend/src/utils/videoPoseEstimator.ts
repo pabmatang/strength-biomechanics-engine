@@ -895,15 +895,17 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   const contactPoint = (isHipThrust && hip)
     ? hip
-    : ((isFootOnMachine && ankle)
-        ? ankle
-        : (bio.loadPosition || (isUpperBody ? hand : (hand || ankle || shoulder || { x: 0.5, y: 0.5 }))));
+    : (isUpperBody && hand)
+        ? hand
+        : ((isFootOnMachine && ankle)
+            ? ankle
+            : (bio.loadPosition || (hand || ankle || shoulder || { x: 0.5, y: 0.5 })));
 
   const loadX = contactPoint.x * width;
   const loadY = contactPoint.y * height;
 
   // 1. Force Line of Action (Línea de Acción de la Fuerza):
-  // Continuous vertical line passing strictly through the load application point (foot on machine or hand)
+  // Continuous vertical line passing strictly through the load application point (hand grip or foot on machine)
   ctx.strokeStyle = '#EF4444';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -931,12 +933,13 @@ export function drawBiomechanicsOverlayOnCanvas(
   ctx.closePath();
   ctx.fill();
 
-  // Helper for drawing orthogonal moment arm segment with badge
+  // Helper for drawing orthogonal moment arm segment with non-overlapping badge
   const drawMomentArm = (
     y: number,
     xJoint: number,
     color: string,
-    label: string
+    label: string,
+    labelOffsetY: number = -9
   ) => {
     // Horizontal orthogonal line from force vector to joint center
     ctx.strokeStyle = color;
@@ -955,7 +958,7 @@ export function drawBiomechanicsOverlayOnCanvas(
 
     // Floating text badge
     const midX = (loadX + xJoint) / 2;
-    const midY = y - 9;
+    const midY = y + labelOffsetY;
     ctx.font = 'bold 11px monospace';
     const textWidth = ctx.measureText(label).width;
 
@@ -963,28 +966,19 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(midX - textWidth / 2 - 5, midY - 11, textWidth + 10, 16, 4);
+    ctx.roundRect(midX - textWidth / 2 - 5, midY - 8, textWidth + 10, 16, 4);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, midX, midY - 3);
+    ctx.fillText(label, midX, midY);
   };
 
   // 2. Direct Orthogonal Moment Arms (Exclusively two segments)
   if (showLeverArms) {
-    if (isHipThrust) {
-      if (knee) {
-        const kneePx = Math.abs(Math.round(knee.x * width - loadX));
-        drawMomentArm(knee.y * height, knee.x * width, '#10B981', `d_rodilla: ${kneePx}px`);
-      }
-      if (shoulder) {
-        const shPx = Math.abs(Math.round(shoulder.x * width - loadX));
-        drawMomentArm(shoulder.y * height, shoulder.x * width, '#06B6D4', `d_torso: ${shPx}px`);
-      }
-    } else if (!isUpperBody) {
+    if (!isUpperBody) {
       if (hip) {
         const hipPx = Math.abs(Math.round(hip.x * width - loadX));
         drawMomentArm(hip.y * height, hip.x * width, '#06B6D4', `d_cadera: ${hipPx}px`);
@@ -994,13 +988,26 @@ export function drawBiomechanicsOverlayOnCanvas(
         drawMomentArm(knee.y * height, knee.x * width, '#10B981', `d_rodilla: ${kneePx}px`);
       }
     } else {
+      const armsCloseY = shoulder && elbow && Math.abs(shoulder.y - elbow.y) * height < 34;
       if (shoulder) {
         const shPx = Math.abs(Math.round(shoulder.x * width - loadX));
-        drawMomentArm(shoulder.y * height, shoulder.x * width, '#8B5CF6', `d_hombro: ${shPx}px`);
+        drawMomentArm(
+          shoulder.y * height,
+          shoulder.x * width,
+          '#8B5CF6',
+          `d_hombro: ${shPx}px`,
+          armsCloseY ? -13 : -9
+        );
       }
       if (elbow) {
         const elPx = Math.abs(Math.round(elbow.x * width - loadX));
-        drawMomentArm(elbow.y * height, elbow.x * width, '#EC4899', `d_codo: ${elPx}px`);
+        drawMomentArm(
+          elbow.y * height,
+          elbow.x * width,
+          '#EC4899',
+          `d_codo: ${elPx}px`,
+          armsCloseY ? 15 : -9
+        );
       }
     }
   }
@@ -1066,6 +1073,16 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (shoulder) drawJointDot(shoulder, '#8B5CF6');
     if (elbow) drawJointDot(elbow, '#EC4899');
     if (hand) drawJointDot(hand, '#EF4444');
+
+    // Ground foot stability dots for Chest Press (Leg Drive visibility)
+    const pressEval = bio.pressEvaluation;
+    if (pressEval && pressEval.footStabilityStatus !== 'not_visible') {
+      const footColor = pressEval.footStabilityStatus === 'stable_leg_drive' ? '#10B981' : '#EF4444';
+      const la = keypoints['left_ankle'];
+      const ra = keypoints['right_ankle'];
+      if (la && (la.visibility === undefined || la.visibility >= 0.35)) drawJointDot(la, footColor);
+      if (ra && (ra.visibility === undefined || ra.visibility >= 0.35)) drawJointDot(ra, footColor);
+    }
   }
 
   // 5. Muscle Bias HUD Banner at top of canvas
@@ -1160,7 +1177,18 @@ export function drawDualModeOverlay(
       drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false);
     }
 
-    if (shoulder && hip) {
+    const ls = keypoints['left_shoulder'];
+    const rs = keypoints['right_shoulder'];
+    const lh = keypoints['left_hip'];
+    const rh = keypoints['right_hip'];
+    const nose = keypoints['nose'];
+    const isFrontalBilateral = Boolean(ls && rs && lh && rh && Math.abs(rs.x - ls.x) >= 0.12 && !isHipThrust);
+
+    const spineShoulder = isFrontalBilateral ? { x: (ls!.x + rs!.x) / 2, y: (ls!.y + rs!.y) / 2 } : shoulder;
+    const spineHip = isFrontalBilateral ? { x: (lh!.x + rh!.x) / 2, y: (lh!.y + rh!.y) / 2 } : hip;
+    const spineHead = isFrontalBilateral ? nose : ear;
+
+    if (spineShoulder && spineHip) {
       ctx.save();
       const lumbarOk = frame.technique.lumbarNeutral !== false;
       const neckOk = frame.technique.neckNeutral !== false;
@@ -1176,14 +1204,14 @@ export function drawDualModeOverlay(
       }
 
       ctx.beginPath();
-      const hasValidEar = ear && (ear.visibility === undefined || ear.visibility >= 0.35);
-      if (hasValidEar) {
-        ctx.moveTo(ear.x * width, ear.y * height);
-        ctx.lineTo(shoulder.x * width, shoulder.y * height);
+      const hasValidHead = spineHead && (spineHead.visibility === undefined || spineHead.visibility >= 0.35);
+      if (hasValidHead) {
+        ctx.moveTo(spineHead.x * width, spineHead.y * height);
+        ctx.lineTo(spineShoulder.x * width, spineShoulder.y * height);
       } else {
-        ctx.moveTo(shoulder.x * width, shoulder.y * height);
+        ctx.moveTo(spineShoulder.x * width, spineShoulder.y * height);
       }
-      ctx.lineTo(hip.x * width, hip.y * height);
+      ctx.lineTo(spineHip.x * width, spineHip.y * height);
       ctx.stroke();
 
       // Draw spinal alignment joint nodes
@@ -1197,13 +1225,13 @@ export function drawDualModeOverlay(
         ctx.stroke();
       };
 
-      if (hasValidEar) drawSpinalNode(ear!, spineColor);
-      drawSpinalNode(shoulder, spineColor);
-      drawSpinalNode(hip, spineColor);
+      if (hasValidHead) drawSpinalNode(spineHead!, spineColor);
+      drawSpinalNode(spineShoulder, spineColor);
+      drawSpinalNode(spineHip, spineColor);
 
       // Dedicated spinal alignment status badge
-      const midX = (shoulder.x + hip.x) * width / 2;
-      const midY = (shoulder.y + hip.y) * height / 2;
+      const midX = (spineShoulder.x + spineHip.x) * width / 2;
+      const midY = (spineShoulder.y + spineHip.y) * height / 2;
       ctx.font = 'bold 11px monospace';
       const label = isHipThrust
         ? (spineNeutral
