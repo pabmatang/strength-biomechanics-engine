@@ -358,10 +358,26 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(quadNoTravel.isOptimal).toBe(false);
     expect(quadNoTravel.verdictTitle).toContain('Falta de avance de rodilla sobre el mediopié');
 
-    // 5. Hip Thrust specific verdict: optimal when tibia vertical (<= 24°)
-    const hipThrustOptimal = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell');
+    // 5. Hip Thrust specific verdict: Knee Angle (~90° vs Quads/Femoral) + Lumbar & Neck Neutrality
+    const hipThrustOptimal = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell', 90, true, true);
     expect(hipThrustOptimal.isOptimal).toBe(true);
-    expect(hipThrustOptimal.verdictTitle).toContain('Enfoque Biomecánico Óptimo en Glúteo Mayor (Máxima Contracción Terminal)');
+    expect(hipThrustOptimal.verdictTitle).toContain('Ángulo de Rodilla Óptimo para Glúteo Mayor (~90°)');
+
+    const hipThrustQuads = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell', 70, true, true);
+    expect(hipThrustQuads.isOptimal).toBe(false);
+    expect(hipThrustQuads.verdictTitle).toContain('Cuádriceps');
+
+    const hipThrustHams = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell', 115, true, true);
+    expect(hipThrustHams.isOptimal).toBe(false);
+    expect(hipThrustHams.verdictTitle).toContain('Femoral');
+
+    const hipThrustLumbarBad = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell', 90, false, true);
+    expect(hipThrustLumbarBad.isOptimal).toBe(false);
+    expect(hipThrustLumbarBad.verdictTitle).toContain('Lumbar');
+
+    const hipThrustNeckBad = evaluateBiomechanicalVerdict('glutes_max', 0.10, 0.35, 14, 0, 70, true, 'hip_thrust_barbell', 90, true, false);
+    expect(hipThrustNeckBad.isOptimal).toBe(false);
+    expect(hipThrustNeckBad.verdictTitle).toContain('Cuello');
   });
 
   it('audits pattern-specific technical faults via auditTechniqueRules', () => {
@@ -501,13 +517,58 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     );
 
     expect(alertsOptimal.some(a => a.code === 'HIP_LOCKOUT_MAXIMAL')).toBe(true);
-    expect(alertsOptimal.some(a => a.code === 'TIBIA_ALIGNED')).toBe(true);
+    expect(alertsOptimal.some(a => a.code === 'KNEE_ANGLE_OPTIMAL_90')).toBe(true);
     expect(alertsOptimal.some(a => a.code === 'CHIN_TUCK_SAFE')).toBe(true);
     // Crucial: Must NEVER trigger deadlift/RDL load separation or spinal breakdown in hip thrust
     expect(alertsOptimal.some(a => a.code === 'LOAD_SEPARATION')).toBe(false);
     expect(alertsOptimal.some(a => a.code === 'SPINE_BREAKDOWN')).toBe(false);
 
-    // 2. Hip Thrust with incomplete lockout (< 155°)
+    // 2. Hip Thrust with feet too close (knee < 80° -> quad dominant)
+    const hipThrustQuadsKp = {
+      ...hipThrustKeypoints,
+      ankle: { x: 0.45, y: 0.72 } // ankle tucked backward under hip -> acute knee angle
+    };
+    const alertsQuads = auditTechniqueRules(
+      'hinge_deadlift',
+      hipThrustQuadsKp,
+      172,
+      'LOCKOUT',
+      hipThrustQuadsKp.hip,
+      'hip_thrust_barbell'
+    );
+    expect(alertsQuads.some(a => a.code === 'KNEE_ANGLE_TOO_CLOSED_QUADS')).toBe(true);
+
+    // 3. Hip Thrust with feet too far forward (knee > 102° -> hamstring/femoral dominant)
+    const hipThrustHamsKp = {
+      ...hipThrustKeypoints,
+      ankle: { x: 0.22, y: 0.72 } // ankle pushed far forward -> obtuse knee angle
+    };
+    const alertsHams = auditTechniqueRules(
+      'hinge_deadlift',
+      hipThrustHamsKp,
+      172,
+      'LOCKOUT',
+      hipThrustHamsKp.hip,
+      'hip_thrust_barbell'
+    );
+    expect(alertsHams.some(a => a.code === 'KNEE_ANGLE_TOO_OPEN_HAMS')).toBe(true);
+
+    // 4. Hip Thrust with cervical hyperextension (head dropped backward)
+    const hipThrustNeckBadKp = {
+      ...hipThrustKeypoints,
+      ear: { x: 0.72, y: 0.52 } // dropped below bench/shoulder axis
+    };
+    const alertsNeckBad = auditTechniqueRules(
+      'hinge_deadlift',
+      hipThrustNeckBadKp,
+      172,
+      'LOCKOUT',
+      hipThrustNeckBadKp.hip,
+      'hip_thrust_barbell'
+    );
+    expect(alertsNeckBad.some(a => a.code === 'HIP_THRUST_NECK_MISALIGNMENT')).toBe(true);
+
+    // 5. Hip Thrust with incomplete lockout (< 155°)
     const alertsIncomplete = auditTechniqueRules(
       'hinge_deadlift',
       hipThrustKeypoints,
@@ -518,7 +579,7 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     );
     expect(alertsIncomplete.some(a => a.code === 'HIP_EXTENSION_INCOMPLETE')).toBe(true);
 
-    // 3. Telemetry frame load placement at pelvis and glute bias
+    // 6. Telemetry frame knee angle & lumbar/neck fields
     const frame = evaluateBiomechanicalFrame(
       hipThrustKeypoints,
       'hip_thrust_barbell',
@@ -528,10 +589,11 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       'gravity'
     );
 
-    expect(frame.biomechanics.loadPosition.x).toBeCloseTo(hipThrustKeypoints.hip.x);
-    expect(frame.biomechanics.loadPosition.y).toBeCloseTo(hipThrustKeypoints.hip.y);
+    expect(frame.technique.kneeAngleDegrees).toBeGreaterThanOrEqual(80);
+    expect(frame.technique.kneeAngleDegrees).toBeLessThanOrEqual(102);
+    expect(frame.technique.lumbarNeutral).toBe(true);
+    expect(frame.technique.neckNeutral).toBe(true);
     expect(frame.biomechanics.muscleBias).toBe('hip_glute_bias');
-    expect(frame.biomechanics.resistancePeakLocation).toBe('shortened_lockout');
     expect(frame.technique.isSpineNeutral).toBe(true);
   });
 });

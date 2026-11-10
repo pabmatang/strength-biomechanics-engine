@@ -650,6 +650,176 @@ export interface RenderOverlayOptions {
 }
 
 /**
+ * Shared helper to draw a floating rounded badge on canvas
+ */
+function drawCanvasBadge(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  text: string,
+  borderColor: string,
+  textColor = '#FFFFFF'
+) {
+  ctx.save();
+  ctx.font = 'bold 11px monospace';
+  const textWidth = ctx.measureText(text).width;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  ctx.roundRect(x - textWidth / 2 - 6, y - 10, textWidth + 12, 18, 5);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = textColor;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y - 1);
+  ctx.restore();
+}
+
+/**
+ * Draws the Knee Angle arc + proximity-to-90° badge for Hip Thrust (used in both Mode 1 and Mode 2)
+ */
+function drawHipThrustKneeAngle(
+  ctx: CanvasRenderingContext2D,
+  hip: Keypoint2D,
+  knee: Keypoint2D,
+  ankle: Keypoint2D,
+  width: number,
+  height: number,
+  kneeAngleDeg: number,
+  includeSegments: boolean
+) {
+  const kx = knee.x * width;
+  const ky = knee.y * height;
+
+  const isOptimal = kneeAngleDeg >= 80 && kneeAngleDeg <= 102;
+  const isQuads = kneeAngleDeg < 80;
+  const kneeColor = isOptimal ? '#10B981' : (isQuads ? '#F59E0B' : '#38BDF8');
+
+  ctx.save();
+  if (includeSegments) {
+    ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(hip.x * width, hip.y * height);
+    ctx.lineTo(kx, ky);
+    ctx.lineTo(ankle.x * width, ankle.y * height);
+    ctx.stroke();
+  }
+
+  // Draw true geometric arc between femur (knee->hip) and tibia (knee->ankle)
+  const aHip = Math.atan2(hip.y * height - ky, hip.x * width - kx);
+  const aAnkle = Math.atan2(ankle.y * height - ky, ankle.x * width - kx);
+  let diff = aAnkle - aHip;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+
+  ctx.strokeStyle = kneeColor;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(kx, ky, 22, aHip, aHip + diff, diff < 0);
+  ctx.stroke();
+
+  // Joint circle at knee
+  ctx.fillStyle = kneeColor;
+  ctx.beginPath();
+  ctx.arc(kx, ky, 5.5, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const tag = isOptimal ? 'Glúteo ~90°' : (isQuads ? '+Cuádriceps' : '+Femoral');
+  drawCanvasBadge(ctx, kx, ky - 24, `Rodilla: ${Math.round(kneeAngleDeg)}° (${tag})`, kneeColor);
+  ctx.restore();
+}
+
+/**
+ * Mode 2 dedicated Hip Thrust Optimization Overlay:
+ * No moment arms / gravity force line — renders strictly Knee Angle (Glute vs Quads/Femoral)
+ * and Lumbar + Neck Neutrality (Ear -> Shoulder -> Hip).
+ */
+function drawHipThrustOptimizationOverlay(
+  ctx: CanvasRenderingContext2D,
+  frame: BiomechanicalTelemetryFrame,
+  keypoints: Record<string, Keypoint2D>,
+  width: number,
+  height: number
+) {
+  const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
+  const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
+  const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
+  const knee = keypoints['knee'] || keypoints['left_knee'] || keypoints['right_knee'];
+  const ankle = keypoints['ankle'] || keypoints['left_ankle'] || keypoints['right_ankle'];
+
+  const kneeAngle = Math.round(
+    frame.biomechanics?.kneeAngleDegrees ??
+    (hip && knee && ankle ? calculateJointAngle(hip, knee, ankle) : 90)
+  );
+
+  // 1. Knee Angle (Femur - Knee - Tibia) for Quads vs Femoral vs Glute (~90°)
+  if (hip && knee && ankle) {
+    drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, true);
+  }
+
+  // 2. Lumbar & Neck Neutrality (Shoulder -> Hip and Ear -> Shoulder)
+  const lumbarOk = frame.technique.lumbarNeutral !== false;
+  const neckOk = frame.technique.neckNeutral !== false;
+  const lumbarColor = lumbarOk ? '#10B981' : '#EF4444';
+  const neckColor = neckOk ? '#10B981' : '#EF4444';
+
+  if (shoulder && hip) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3.5;
+
+    // Lumbar segment (shoulder -> hip)
+    ctx.strokeStyle = lumbarColor;
+    if (!lumbarOk) ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(shoulder.x * width, shoulder.y * height);
+    ctx.lineTo(hip.x * width, hip.y * height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Neck segment (ear -> shoulder)
+    const hasValidEar = ear && (ear.visibility === undefined || ear.visibility >= 0.35);
+    if (hasValidEar) {
+      ctx.strokeStyle = neckColor;
+      if (!neckOk) ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(ear!.x * width, ear!.y * height);
+      ctx.lineTo(shoulder.x * width, shoulder.y * height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const drawNode = (p: Keypoint2D, color: string) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.x * width, p.y * height, 5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+    if (hasValidEar) drawNode(ear!, neckColor);
+    drawNode(shoulder, neckOk && lumbarOk ? '#10B981' : '#F59E0B');
+    drawNode(hip, lumbarColor);
+
+    const midX = (shoulder.x + hip.x) * width / 2;
+    const midY = (shoulder.y + hip.y) * height / 2 - 18;
+    const statusText = `Lumbar: ${lumbarOk ? '✓' : '⚠️'} · Cuello: ${neckOk ? '✓' : '⚠️'}`;
+    drawCanvasBadge(ctx, midX, midY, statusText, lumbarOk && neckOk ? '#10B981' : '#EF4444');
+    ctx.restore();
+  }
+}
+
+/**
  * Draws Mode 2: Biomechanical Moment Arms & Force Vector Overlay
  */
 export function drawBiomechanicsOverlayOnCanvas(
@@ -682,6 +852,13 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   const bio = frame.biomechanics;
   if (!bio) {
+    ctx.restore();
+    return;
+  }
+
+  // Dedicated Hip Thrust Mode 2: No moment arms; analyze Knee Angle + Lumbar & Neck neutrality
+  if (exerciseId?.includes('hip_thrust')) {
+    drawHipThrustOptimizationOverlay(ctx, frame, keypoints, width, height);
     ctx.restore();
     return;
   }
@@ -845,8 +1022,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Use smoothly stabilized angle from telemetry
-    const tibialAngle = frame.biomechanics?.tibialAngleDegrees ?? Math.round(calculateTibialAngle(ankle, knee));
+    // Use smoothly stabilized angle from telemetry (integer rounded)
+    const tibialAngle = Math.round(frame.biomechanics?.tibialAngleDegrees ?? calculateTibialAngle(ankle, knee));
 
     // Position the badge cleanly offset beside the foot/ankle base, NEVER over the middle of the shin!
     const badgeX = ax + (ax >= kx ? 28 : -28);
@@ -970,12 +1147,24 @@ export function drawDualModeOverlay(
     const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
     const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
     const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
+    const knee = keypoints['knee'] || keypoints['left_knee'] || keypoints['right_knee'];
+    const ankle = keypoints['ankle'] || keypoints['left_ankle'] || keypoints['right_ankle'];
 
     const isHipThrust = mergedOptions.exerciseId?.includes('hip_thrust');
 
+    // In Hip Thrust Mode 1, render the Knee Angle (~90° check) cleanly at the knee vertex
+    if (isHipThrust && hip && knee && ankle) {
+      const kneeAngle = Math.round(
+        frame.technique.kneeAngleDegrees ?? calculateJointAngle(hip, knee, ankle)
+      );
+      drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false);
+    }
+
     if (shoulder && hip) {
       ctx.save();
-      const spineNeutral = isHipThrust ? true : frame.technique.isSpineNeutral;
+      const lumbarOk = frame.technique.lumbarNeutral !== false;
+      const neckOk = frame.technique.neckNeutral !== false;
+      const spineNeutral = isHipThrust ? (lumbarOk && neckOk) : frame.technique.isSpineNeutral;
       const spineColor = spineNeutral ? '#10B981' : '#EF4444';
       ctx.strokeStyle = spineColor;
       ctx.lineWidth = 3.5;
@@ -1017,7 +1206,9 @@ export function drawDualModeOverlay(
       const midY = (shoulder.y + hip.y) * height / 2;
       ctx.font = 'bold 11px monospace';
       const label = isHipThrust
-        ? `✓ APOYO ESCAPULAR (${frame.technique.spinalAngleDegrees}°)`
+        ? (spineNeutral
+            ? '✓ LUMBAR Y CUELLO NEUTROS'
+            : (!lumbarOk ? '⚠️ HIPEREXTENSIÓN LUMBAR' : '⚠️ REVISAR CUELLO'))
         : (spineNeutral
             ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
             : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`);

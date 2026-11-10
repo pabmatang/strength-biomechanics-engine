@@ -337,6 +337,100 @@ export function getPatternFamily(exerciseId: string): PatternFamily {
 }
 
 /**
+ * Computes planar 2D joint angle (0..180 deg) at vertex formed by vertex->a and vertex->c.
+ */
+export function computeJointAngle2D(a?: Point2D, vertex?: Point2D, c?: Point2D): number {
+  if (!a || !vertex || !c) return 90;
+  const a1 = Math.atan2(a.y - vertex.y, a.x - vertex.x);
+  const a2 = Math.atan2(c.y - vertex.y, c.x - vertex.x);
+  let diff = Math.abs(a1 - a2);
+  if (diff > Math.PI) diff = 2 * Math.PI - diff;
+  return Math.round((diff * 180 / Math.PI) * 10) / 10;
+}
+
+export interface HipThrustAlignmentEvaluation {
+  kneeAngleDegrees: number;
+  kneeBias: 'optimal_glute_90' | 'quad_dominant' | 'hamstring_dominant';
+  lumbarNeutral: boolean;
+  lumbarStatusLabel: string;
+  neckNeutral: boolean;
+  neckStatusLabel: string;
+  neckDeviationDeg: number;
+}
+
+/**
+ * Evaluates Hip Thrust specific biomechanics:
+ * 1) Knee angle proximity to 90° (controls Glute vs Quad/Hamstring bias)
+ * 2) Lumbar neutrality (avoids hyperextension arch above shoulder-knee bridge line)
+ * 3) Neck / cervical neutrality (chin-tuck vs cervical hyperextension behind bench)
+ */
+export function evaluateHipThrustAlignment(
+  keypoints: Record<string, Point2D>,
+  currentHipAngle: number
+): HipThrustAlignmentEvaluation {
+  const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
+  const shoulder = keypoints['shoulder'] || keypoints['right_shoulder'] || keypoints['left_shoulder'];
+  const hip = keypoints['hip'] || keypoints['right_hip'] || keypoints['left_hip'];
+  const knee = keypoints['knee'] || keypoints['right_knee'] || keypoints['left_knee'];
+  const ankle = keypoints['ankle'] || keypoints['right_ankle'] || keypoints['left_ankle'];
+
+  const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
+
+  let kneeBias: 'optimal_glute_90' | 'quad_dominant' | 'hamstring_dominant' = 'optimal_glute_90';
+  if (kneeAngleDegrees < 80) {
+    kneeBias = 'quad_dominant';
+  } else if (kneeAngleDegrees > 102) {
+    kneeBias = 'hamstring_dominant';
+  }
+
+  let lumbarNeutral = true;
+  let lumbarStatusLabel = '✓ Lumbar Neutro';
+  if (shoulder && hip && knee && Math.abs(knee.x - shoulder.x) > 0.08) {
+    const t = Math.max(0, Math.min(1, (hip.x - shoulder.x) / (knee.x - shoulder.x)));
+    const expectedLineY = shoulder.y + t * (knee.y - shoulder.y);
+    if (hip.y < expectedLineY - 0.045 && currentHipAngle >= 165) {
+      lumbarNeutral = false;
+      lumbarStatusLabel = '⚡ Hiperextensión Lumbar';
+    }
+  }
+
+  let neckNeutral = true;
+  let neckStatusLabel = '✓ Cuello Neutro';
+  let neckDeviationDeg = 0;
+  if (ear && shoulder && hip) {
+    const spineCollinearity = calculateSpinalCollinearity(ear, shoulder, hip);
+    neckDeviationDeg = spineCollinearity.deviationAngleDeg;
+
+    let isCervicalHyperextension = false;
+    if (Math.abs(shoulder.x - hip.x) > 0.04) {
+      const slopeY = (shoulder.y - hip.y) / (shoulder.x - hip.x);
+      const extrapolatedTorsoYAtEar = shoulder.y + (ear.x - shoulder.x) * slopeY;
+      if (ear.y > extrapolatedTorsoYAtEar + 0.03) {
+        isCervicalHyperextension = true;
+      }
+    }
+
+    if (isCervicalHyperextension) {
+      neckNeutral = false;
+      neckStatusLabel = '⚡ Hiperextensión Cervical';
+    } else if (neckDeviationDeg > 45) {
+      neckNeutral = false;
+      neckStatusLabel = '⚡ Cuello Desalineado';
+    }
+  }
+
+  return {
+    kneeAngleDegrees,
+    kneeBias,
+    lumbarNeutral,
+    lumbarStatusLabel,
+    neckNeutral,
+    neckStatusLabel,
+    neckDeviationDeg
+  };
+}
+
+/**
  * Technical Fault Auditor by Movement Pattern
  */
 export function auditTechniqueRules(
@@ -355,9 +449,32 @@ export function auditTechniqueRules(
   const ankle = keypoints['ankle'] || keypoints['right_ankle'] || keypoints['left_ankle'];
   const wrist = keypoints['wrist'] || keypoints['right_wrist'] || keypoints['left_wrist'];
 
-  // A1) Patrón Hip Thrust (Extensión pura de cadera con soporte escapular en banco)
+  // A1) Patrón Hip Thrust (Extensión de cadera + Ángulo de rodilla cercano a 90° + Lumbar/Cuello)
   if (exerciseId?.includes('hip_thrust')) {
-    // 1. Bloqueo y extensión completa de cadera en lockout:
+    const htEval = evaluateHipThrustAlignment(keypoints, currentAngle);
+
+    // 1. Ángulo de rodilla cercano a 90° (evita implicar en exceso cuádriceps o femoral):
+    if (htEval.kneeBias === 'quad_dominant') {
+      alerts.push({
+        type: 'warning',
+        code: 'KNEE_ANGLE_TOO_CLOSED_QUADS',
+        message: `Rodilla muy cerrada (${htEval.kneeAngleDegrees}° < 80°): pies cerca del banco aumentan carga en cuádriceps. Adelántalos para acercarte a 90°.`
+      });
+    } else if (htEval.kneeBias === 'hamstring_dominant') {
+      alerts.push({
+        type: 'warning',
+        code: 'KNEE_ANGLE_TOO_OPEN_HAMS',
+        message: `Rodilla muy abierta (${htEval.kneeAngleDegrees}° > 102°): pies muy adelantados desplazan estímulo al femoral. Acércalos hacia ~90°.`
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'KNEE_ANGLE_OPTIMAL_90',
+        message: `✓ Ángulo de rodilla óptimo (${htEval.kneeAngleDegrees}° ≈ 90°): foco máximo en glúteo sin exceso de cuádriceps ni femoral`
+      });
+    }
+
+    // 2. Bloqueo y extensión completa de cadera en lockout:
     if (fsmPhase === 'LOCKOUT' || currentAngle >= 155) {
       if (currentAngle < 155) {
         alerts.push({
@@ -374,30 +491,27 @@ export function auditTechniqueRules(
       }
     }
 
-    // 2. Colocación de pies y verticalidad tibial al bloqueo (~90° flexión de rodilla):
-    if (ankle && knee) {
-      const tibialAngle = calculateTibialAngle(ankle, knee);
-      if (tibialAngle > 22 && currentAngle >= 150) {
-        alerts.push({
-          type: 'warning',
-          code: 'TIBIAL_OFFSET',
-          message: 'Ajusta la posición de los pies: busca tibia vertical a ~90° en el bloqueo para aislar el glúteo'
-        });
-      } else {
-        alerts.push({
-          type: 'success',
-          code: 'TIBIA_ALIGNED',
-          message: '✓ Tibia vertical a 90°: alineación biomecánica ideal de glúteo mayor'
-        });
-      }
+    // 3. Neutralidad Lumbar y Cuello:
+    if (!htEval.lumbarNeutral) {
+      alerts.push({
+        type: 'warning',
+        code: 'HIP_THRUST_LUMBAR_HYPEREXTENSION',
+        message: 'Hiperextensión lumbar al bloquear: mantén costillas abajo y retroversión pélvica'
+      });
     }
-
-    // 3. Estabilidad torácica y barbilla recogida (chin-tuck protector lumbar):
-    alerts.push({
-      type: 'success',
-      code: 'CHIN_TUCK_SAFE',
-      message: '✓ Soporte escapular firme en banco y barbilla recogida para proteger lumbares'
-    });
+    if (!htEval.neckNeutral) {
+      alerts.push({
+        type: 'warning',
+        code: 'HIP_THRUST_NECK_MISALIGNMENT',
+        message: 'Desalineación cervical: evita echar la cabeza atrás; mantén barbilla recogida (chin-tuck)'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'CHIN_TUCK_SAFE',
+        message: '✓ Neutralidad lumbar y cuello firme con barbilla recogida en banco'
+      });
+    }
   }
 
   // A2) Patrón Peso Muerto / RDL convencional (Hinge / Glúteo / Isquios)
@@ -567,6 +681,11 @@ export interface BiomechanicalTelemetryFrame {
     isSpineNeutral: boolean;
     isKneeValgusDetected: boolean;
     valgusDeviationRatio: number;
+    kneeAngleDegrees?: number;
+    lumbarNeutral?: boolean;
+    lumbarStatusLabel?: string;
+    neckNeutral?: boolean;
+    neckStatusLabel?: string;
     activeCues: string[];
     alerts?: TechniqueFeedbackAlert[];
   };
@@ -596,6 +715,7 @@ export interface BiomechanicalTelemetryFrame {
     };
 
     tibialAngleDegrees: number;
+    kneeAngleDegrees?: number;
     muscleBias: MuscleBiasCategory;
     muscleBiasLabel: string;
     resistancePeakLocation: ResistanceCurveMatch;
@@ -789,25 +909,45 @@ export function evaluateBiomechanicalVerdict(
   torsoLean: number = 0,
   romExcursion: number = 70,
   spinalNeutral: boolean = true,
-  exerciseId?: string
+  exerciseId?: string,
+  kneeAngle: number = 90,
+  lumbarNeutral: boolean = true,
+  neckNeutral: boolean = true
 ): {
   isOptimal: boolean;
   verdictTitle: string;
   verdictDescription: string;
   ratio: number;
 } {
-  // Dedicated verdict for Hip Thrust patterns
+  // Dedicated verdict for Hip Thrust patterns: based strictly on Knee Angle (~90° vs Quads/Femoral) + Lumbar & Neck Neutrality (no moment arms)
   if (exerciseId?.includes('hip_thrust')) {
-    const isOptimal = tibialAngle <= 24;
+    const angle = Math.round(kneeAngle);
+    const isAngleOptimal = angle >= 80 && angle <= 102;
+    const isOptimal = isAngleOptimal && lumbarNeutral && neckNeutral;
+
+    let verdictTitle = 'Ángulo de Rodilla Óptimo para Glúteo Mayor (~90°)';
+    let verdictDescription = `Rodilla en ${angle}° (cerca de 90°): evita implicar en exceso cuádriceps o femoral y concentra el estímulo en el glúteo con lumbar y cuello neutros.`;
+
+    if (angle < 80) {
+      verdictTitle = 'Sesgo Desplazado hacia Cuádriceps (Rodilla < 80°)';
+      verdictDescription = `Ángulo de rodilla cerrado (${angle}°). Pies muy cerca del banco aumentan la carga sobre el cuádriceps. Adelántalos para acercarte a ~90°.`;
+    } else if (angle > 102) {
+      verdictTitle = 'Sesgo Desplazado hacia Femoral / Isquios (Rodilla > 102°)';
+      verdictDescription = `Ángulo de rodilla abierto (${angle}°). Pies muy adelantados transfieren el estímulo al femoral. Acércalos hacia ~90°.`;
+    } else if (!lumbarNeutral || !neckNeutral) {
+      verdictTitle = !lumbarNeutral
+        ? 'Alerta de Neutralidad Lumbar en Hip Thrust'
+        : 'Alerta de Neutralidad del Cuello (Cervical)';
+      verdictDescription = !lumbarNeutral
+        ? `Ángulo de rodilla óptimo (${angle}°), pero se detecta hiperextensión lumbar. Mete costillas y realiza retroversión pélvica.`
+        : `Ángulo de rodilla óptimo (${angle}°), pero el cuello pierde alineación neutra. Mantén barbilla recogida mirando al frente (chin-tuck).`;
+    }
+
     return {
       isOptimal,
       ratio: 1.0,
-      verdictTitle: isOptimal
-        ? 'Enfoque Biomecánico Óptimo en Glúteo Mayor (Máxima Contracción Terminal)'
-        : 'Ajuste de Posición de Pies Recomendado en Hip Thrust',
-      verdictDescription: isOptimal
-        ? `Tibia vertical a ~90° (${Math.round(tibialAngle)}°) y pelvis en extensión horizontal completa. Carga gravitacional máxima concentrada en el acortamiento del glúteo mayor.`
-        : `Tibia inclinada (${Math.round(tibialAngle)}°). Reubica los pies para lograr tibia perpendicular al suelo al bloquear la pelvis y maximizar la activación del glúteo.`
+      verdictTitle,
+      verdictDescription
     };
   }
 
@@ -1034,12 +1174,31 @@ export function evaluateBiomechanicalFrame(
     lengthenedScore = 70;
   }
 
-  // 5. Technique Checks (Mode 1)
+  // 5. Technique Checks (Mode 1) & Knee/Lumbar/Neck evaluation
   const ear = smoothedKeypoints['ear'] || smoothedKeypoints['right_ear'] || smoothedKeypoints['left_ear'];
   const spineAnalysis = calculateSpinalCollinearity(ear, shoulder, hip);
   const spineAngle = spineAnalysis.torsoLeanDeg;
-  // In Hip Thrust, horizontal torso supported on bench is healthy neutral posture, not spinal flexion
-  const isSpineNeutral = isHipThrust ? true : spineAnalysis.isSpineNeutral;
+
+  const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
+  const htEval = isHipThrust ? evaluateHipThrustAlignment(smoothedKeypoints, currentAngle) : null;
+
+  // In Hip Thrust, lumbar & neck neutrality govern true spine alignment rather than vertical torso lean
+  const isSpineNeutral = isHipThrust
+    ? Boolean(htEval?.lumbarNeutral && htEval?.neckNeutral)
+    : spineAnalysis.isSpineNeutral;
+
+  if (isHipThrust && htEval) {
+    if (htEval.kneeBias === 'quad_dominant') {
+      muscleBias = 'knee_quad_bias';
+      muscleBiasLabel = `Sesgo hacia Cuádriceps (Rodilla ${htEval.kneeAngleDegrees}° < 80°)`;
+    } else if (htEval.kneeBias === 'hamstring_dominant') {
+      muscleBias = 'hip_glute_bias';
+      muscleBiasLabel = `Sesgo hacia Femoral / Isquios (Rodilla ${htEval.kneeAngleDegrees}° > 102°)`;
+    } else {
+      muscleBias = 'hip_glute_bias';
+      muscleBiasLabel = `Ángulo Óptimo Glúteo (${htEval.kneeAngleDegrees}° ≈ 90°)`;
+    }
+  }
 
   // Dynamic Knee Valgus: ONLY evaluated in frontal camera plane
   const cameraPlane = detectCameraPlane(smoothedKeypoints);
@@ -1096,11 +1255,16 @@ export function evaluateBiomechanicalFrame(
     currentAngle,
     angularVelocityDegPerSec: Math.round(angularVelocity),
     technique: {
-      romPercentage: Math.min(100, Math.round(((165 - currentAngle) / (165 - 90)) * 100)),
+      romPercentage: Math.max(0, Math.min(100, Math.round(((165 - currentAngle) / (165 - 90)) * 100))),
       spinalAngleDegrees: spineAngle,
       isSpineNeutral,
       isKneeValgusDetected,
       valgusDeviationRatio: Math.round(valgusRatio * 100) / 100,
+      kneeAngleDegrees,
+      lumbarNeutral: htEval ? htEval.lumbarNeutral : isSpineNeutral,
+      lumbarStatusLabel: htEval ? htEval.lumbarStatusLabel : (isSpineNeutral ? '✓ Neutra' : '⚡ Flexión'),
+      neckNeutral: htEval ? htEval.neckNeutral : isSpineNeutral,
+      neckStatusLabel: htEval ? htEval.neckStatusLabel : (isSpineNeutral ? '✓ Cuello Neutro' : '⚡ Desalineado'),
       activeCues,
       alerts: techniqueAlerts
     },
@@ -1123,6 +1287,7 @@ export function evaluateBiomechanicalFrame(
         elbowProjection
       },
       tibialAngleDegrees: tibialAngle,
+      kneeAngleDegrees,
       muscleBias,
       muscleBiasLabel,
       resistancePeakLocation,

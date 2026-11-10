@@ -697,7 +697,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const meanHipMoment = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
   const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
-  const isInitialSetup = repCount === 0 && currentPhase === 'LOCKOUT';
+  const isHipThrustExercise = selectedPattern.id.includes('hip_thrust');
+  const htKneeAngle = Math.round(
+    currentTelemetry?.biomechanics.kneeAngleDegrees ??
+    currentTelemetry?.technique.kneeAngleDegrees ??
+    90
+  );
+  const htLumbarOk = currentTelemetry?.technique.lumbarNeutral !== false;
+  const htNeckOk = currentTelemetry?.technique.neckNeutral !== false;
+
+  const isInitialSetup = repCount === 0 && currentPhase === 'LOCKOUT' && !(isHipThrustExercise && currentTelemetry);
 
   const rawVerdict = evaluateBiomechanicalVerdict(
     targetMuscle,
@@ -707,7 +716,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     currentTelemetry?.technique.spinalAngleDegrees ?? 20,
     75,
     currentTelemetry?.technique.isSpineNeutral ?? true,
-    selectedPattern.id
+    selectedPattern.id,
+    htKneeAngle,
+    htLumbarOk,
+    htNeckOk
   );
 
   const currentVerdict = isInitialSetup
@@ -715,7 +727,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         isOptimal: true,
         ratio: 1.0,
         verdictTitle: 'Posición Inicial: Esperando inicio de repetición',
-        verdictDescription: 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
+        verdictDescription: isHipThrustExercise
+          ? 'Ajusta los pies para buscar ~90° en rodilla y mantén lumbar y cuello neutros.'
+          : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
       }
     : rawVerdict;
 
@@ -945,7 +959,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         >
           {/* Viewport Zoom & Levers Toolbar */}
           <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-40 bg-black/85 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg">
-            <div className="flex items-center gap-0.5 border-r border-slate-700/80 pr-1 mr-0.5">
+            <div className={`flex items-center gap-0.5 ${!isHipThrustExercise ? 'border-r border-slate-700/80 pr-1 mr-0.5' : ''}`}>
               {[1, 1.5, 2].map(z => (
                 <button
                   key={z}
@@ -964,19 +978,21 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowLeverArms(prev => !prev)}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition ${
-                showLeverArms
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-              title={showLeverArms ? 'Ocultar líneas de palancas' : 'Mostrar líneas de palancas'}
-            >
-              <Sliders className="w-3 h-3" />
-              <span>{showLeverArms ? 'Palancas ON' : 'Palancas OFF'}</span>
-            </button>
+            {!isHipThrustExercise && (
+              <button
+                type="button"
+                onClick={() => setShowLeverArms(prev => !prev)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition ${
+                  showLeverArms
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title={showLeverArms ? 'Ocultar líneas de palancas' : 'Mostrar líneas de palancas'}
+              >
+                <Sliders className="w-3 h-3" />
+                <span>{showLeverArms ? 'Palancas ON' : 'Palancas OFF'}</span>
+              </button>
+            )}
           </div>
 
           {/* Synchronized Zoom & Pan Transform Viewport for BOTH Video & Analysis Overlay */}
@@ -1085,15 +1101,48 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
 
                 {analysisMode === 'technique' ? (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                      {currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Curvatura'}
+                      {isHipThrustExercise
+                        ? (htLumbarOk && htNeckOk ? 'Lumbar/Cuello OK' : 'Revisar Postura')
+                        : (currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Curvatura')}
                     </div>
+
+                    {isHipThrustExercise && (
+                      <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                        htKneeAngle >= 80 && htKneeAngle <= 102
+                          ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
+                          : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                      }`}>
+                        <TrendingUp className="w-3 h-3" />
+                        Rodilla: {htKneeAngle}° (~90°)
+                      </div>
+                    )}
 
                     <div className="bg-blue-950/80 backdrop-blur-md border border-blue-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-blue-300 flex items-center gap-1">
                       <Activity className="w-3 h-3 text-blue-400" />
                       ROM: {currentTelemetry?.technique.romPercentage ?? 90}%
+                    </div>
+                  </div>
+                ) : isHipThrustExercise ? (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      htKneeAngle >= 80 && htKneeAngle <= 102
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <TrendingUp className="w-3 h-3" />
+                      Rodilla: {htKneeAngle}° ({htKneeAngle < 80 ? '+Cuádriceps' : htKneeAngle > 102 ? '+Femoral' : 'Glúteo ~90°'})
+                    </div>
+
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      htLumbarOk && htNeckOk
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-rose-950/90 border-rose-500/50 text-rose-300'
+                    }`}>
+                      <ShieldCheck className="w-3 h-3" />
+                      Lumbar: {htLumbarOk ? '✓' : '⚠️'} · Cuello: {htNeckOk ? '✓' : '⚠️'}
                     </div>
                   </div>
                 ) : (
@@ -1278,43 +1327,81 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         {analysisMode === 'technique' && (
           <div className="space-y-3">
             {/* Real-time Technique Status */}
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
-                <span className="text-sm font-black text-emerald-400 font-mono">
-                  {currentTelemetry?.technique.romPercentage ?? 85}%
-                </span>
-                <span className="text-[9px] text-slate-500 block">del recorrido</span>
-              </div>
+            {isHipThrustExercise ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
+                  <span className="text-sm font-black text-emerald-400 font-mono">
+                    {currentTelemetry?.technique.romPercentage ?? 85}%
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">extensión cadera</span>
+                </div>
 
-              <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">
-                  {selectedPattern.id.includes('hip_thrust') ? 'Soporte Escapular' : 'Neutralidad Espinal'}
-                </span>
-                <span className={`text-xs font-black font-mono block mt-0.5 ${
-                  currentTelemetry?.technique.isSpineNeutral ? 'text-emerald-400' : 'text-amber-400'
-                }`}>
-                  {selectedPattern.id.includes('hip_thrust')
-                    ? '✓ Apoyo Firme en Banco'
-                    : (currentTelemetry?.technique.isSpineNeutral ? '✓ Alineada' : '⚡ Torso Inclinado')}
-                </span>
-                <span className="text-[9px] text-slate-500 block">
-                  {selectedPattern.id.includes('hip_thrust')
-                    ? 'Barbilla recogida & caja neutra'
-                    : `${currentTelemetry?.technique.spinalAngleDegrees ?? 15}° a la vertical`}
-                </span>
-              </div>
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Ángulo Rodilla</span>
+                  <span className={`text-sm font-black font-mono ${
+                    htKneeAngle >= 80 && htKneeAngle <= 102 ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {htKneeAngle}°
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {htKneeAngle < 80 ? '+Cuádriceps (<80°)' : htKneeAngle > 102 ? '+Femoral (>102°)' : 'Óptimo ~90° Glúteo'}
+                  </span>
+                </div>
 
-              <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabilidad Rodilla</span>
-                <span className={`text-xs font-black font-mono block mt-0.5 ${
-                  currentTelemetry?.technique.isKneeValgusDetected ? 'text-rose-400' : 'text-emerald-400'
-                }`}>
-                  {currentTelemetry?.technique.isKneeValgusDetected ? '⚡ Valgo Dinámico' : '✓ Eje Estable'}
-                </span>
-                <span className="text-[9px] text-slate-500 block">sin colapso interno</span>
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Lumbar</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    htLumbarOk ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {htLumbarOk ? '✓ Neutro' : '⚡ Hiperextensión'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">pelvis y costillas</span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Cuello</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    htNeckOk ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {htNeckOk ? '✓ Neutro' : '⚡ Desalineado'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">chin-tuck en banco</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
+                  <span className="text-sm font-black text-emerald-400 font-mono">
+                    {currentTelemetry?.technique.romPercentage ?? 85}%
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">del recorrido</span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Neutralidad Espinal</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    currentTelemetry?.technique.isSpineNeutral ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {currentTelemetry?.technique.isSpineNeutral ? '✓ Alineada' : '⚡ Torso Inclinado'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {`${currentTelemetry?.technique.spinalAngleDegrees ?? 15}° a la vertical`}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabilidad Rodilla</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    currentTelemetry?.technique.isKneeValgusDetected ? 'text-rose-400' : 'text-emerald-400'
+                  }`}>
+                    {currentTelemetry?.technique.isKneeValgusDetected ? '⚡ Valgo Dinámico' : '✓ Eje Estable'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">sin colapso interno</span>
+                </div>
+              </div>
+            )}
 
             {/* Active Feedback Alerts & Real-time Pattern Biomechanical Audit */}
             {((currentTelemetry?.technique.alerts && currentTelemetry.technique.alerts.length > 0) || activeAlerts.length > 0) && (
@@ -1397,68 +1484,104 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </span>
             </div>
 
-            {/* Muscle Dominance Comparison Bar (Cadera vs Rodilla) */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[10px] font-mono font-bold">
-                <span className="text-blue-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  {selectedPattern.id.includes('hip_thrust')
-                    ? `Palanca Cadera (Barra): ${hipShare}%`
-                    : `Cadera (Glúteo): ${hipShare}% (${Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)`}
-                </span>
-                <span className="text-emerald-400 flex items-center gap-1">
-                  {selectedPattern.id.includes('hip_thrust')
-                    ? `Palanca Rodilla (Fémur): ${kneeShare}%`
-                    : `Rodilla (Cuádriceps): ${kneeShare}% (${Math.round(currentTelemetry.biomechanics.momentArms.knee * 640)}px)`}
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                </span>
-              </div>
-              <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                <div className="bg-blue-500 transition-all duration-100" style={{ width: `${hipShare}%` }} />
-                <div className="bg-emerald-500 transition-all duration-100" style={{ width: `${kneeShare}%` }} />
-              </div>
-            </div>
+            {isHipThrustExercise ? (
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Ángulo de Rodilla</span>
+                  <span className={`text-sm font-black font-mono block mt-0.5 ${
+                    htKneeAngle >= 80 && htKneeAngle <= 102 ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {htKneeAngle}°
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {htKneeAngle < 80
+                      ? '+Cuádriceps (<80°)'
+                      : htKneeAngle > 102
+                        ? '+Femoral (>102°)'
+                        : 'Óptimo Glúteo (~90°)'}
+                  </span>
+                </div>
 
-            {/* High-density Physical Telemetry Grid */}
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[9px] text-slate-400 font-bold uppercase block">Inclinación Tibial</span>
-                <span className="text-xs font-black text-cyan-300 font-mono">
-                  {Math.round(currentTelemetry.biomechanics.tibialAngleDegrees)}°
-                </span>
-                <span className="text-[9px] text-slate-500 block">
-                  {selectedPattern.id.includes('hip_thrust')
-                    ? (currentTelemetry.biomechanics.tibialAngleDegrees <= 24 ? 'Vertical a ~90° (Glúteo)' : 'Ajustar Pies')
-                    : (currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)')}
-                </span>
-              </div>
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Neutralidad Lumbar</span>
+                  <span className={`text-xs font-black font-mono block mt-1 ${
+                    htLumbarOk ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {htLumbarOk ? '✓ Lumbar Neutro' : '⚡ Hiperextensión'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block mt-0.5">
+                    {htLumbarOk ? 'Bloqueo sin arqueo' : 'Controla retroversión'}
+                  </span>
+                </div>
 
-              <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[9px] text-slate-400 font-bold uppercase block">Plano de Grabación</span>
-                <span className="text-xs font-black text-purple-300 font-mono">
-                  {currentCameraPlane === 'sagittal' ? 'Sagital (Perfil)' : currentCameraPlane === 'frontal' ? 'Frontal' : 'Oblicuo'}
-                </span>
-                <span className="text-[9px] text-slate-500 block">
-                  {currentCameraPlane === 'sagittal' ? 'Valgo no aplicable' : 'Valgo frontal'}
-                </span>
+                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Neutralidad del Cuello</span>
+                  <span className={`text-xs font-black font-mono block mt-1 ${
+                    htNeckOk ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {htNeckOk ? '✓ Cuello Neutro' : '⚡ Desalineado'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block mt-0.5">
+                    {htNeckOk ? 'Chin-tuck seguro' : 'Evita mirar atrás'}
+                  </span>
+                </div>
               </div>
+            ) : (
+              <>
+                {/* Muscle Dominance Comparison Bar (Cadera vs Rodilla) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                    <span className="text-blue-400 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      Cadera (Glúteo): {hipShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)
+                    </span>
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      Rodilla (Cuádriceps): {kneeShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.knee * 640)}px)
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                    <div className="bg-blue-500 transition-all duration-100" style={{ width: `${hipShare}%` }} />
+                    <div className="bg-emerald-500 transition-all duration-100" style={{ width: `${kneeShare}%` }} />
+                  </div>
+                </div>
 
-              <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[9px] text-slate-400 font-bold uppercase block">
-                  {selectedPattern.id.includes('hip_thrust') ? 'Soporte Escapular' : 'Columna / Curvatura'}
-                </span>
-                <span className={`text-xs font-black font-mono block ${
-                  currentTelemetry.technique.isSpineNeutral ? 'text-emerald-400' : 'text-rose-400'
-                }`}>
-                  {selectedPattern.id.includes('hip_thrust')
-                    ? '✓ Firme en Banco'
-                    : (currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)')}
-                </span>
-                <span className="text-[9px] text-slate-500 block">
-                  {selectedPattern.id.includes('hip_thrust') ? 'Chin-tuck seguro' : `${currentTelemetry.technique.spinalAngleDegrees}° inclinación`}
-                </span>
-              </div>
-            </div>
+                {/* High-density Physical Telemetry Grid */}
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Inclinación Tibial</span>
+                    <span className="text-xs font-black text-cyan-300 font-mono">
+                      {Math.round(currentTelemetry.biomechanics.tibialAngleDegrees)}°
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Plano de Grabación</span>
+                    <span className="text-xs font-black text-purple-300 font-mono">
+                      {currentCameraPlane === 'sagittal' ? 'Sagital (Perfil)' : currentCameraPlane === 'frontal' ? 'Frontal' : 'Oblicuo'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {currentCameraPlane === 'sagittal' ? 'Valgo no aplicable' : 'Valgo frontal'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Columna / Curvatura</span>
+                    <span className={`text-xs font-black font-mono block ${
+                      currentTelemetry.technique.isSpineNeutral ? 'text-emerald-400' : 'text-rose-400'
+                    }`}>
+                      {currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {`${currentTelemetry.technique.spinalAngleDegrees}° inclinación`}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
