@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { OneEuroFilter, PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM } from '../utils/biomechanicalFSM';
+import { extractPoseDataFromLandmarks } from '../utils/videoPoseEstimator';
 import {
   perpendicularDistanceToLine,
   projectPointOntoLine,
@@ -808,5 +809,48 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(frame.technique.flyEvaluation).toBeDefined();
     expect(frame.biomechanics.flyEvaluation).toBeDefined();
     expect(frame.technique.pressEvaluation).toBeUndefined();
+  });
+
+  it('Upper-body extraction picks the clearest non-foreshortened arm regardless of cropped-out legs, and ignores noisy edge ankles', () => {
+    const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.2 }));
+    // Right arm: occluded wrist / strong Z-foreshortening; Right leg: artificially high noisy visibility
+    landmarks[12] = { x: 0.44, y: 0.48, z: -0.05, visibility: 0.90 }; // right_shoulder
+    landmarks[14] = { x: 0.42, y: 0.50, z: -0.35, visibility: 0.72 }; // right_elbow foreshortened in 2D
+    landmarks[16] = { x: 0.43, y: 0.34, z: -0.55, visibility: 0.42 }; // right_wrist behind dumbbell plate
+    landmarks[24] = { x: 0.48, y: 0.85, z: 0, visibility: 0.95 }; // right_hip
+    landmarks[26] = { x: 0.48, y: 0.94, z: 0, visibility: 0.95 }; // right_knee
+    landmarks[28] = { x: 0.48, y: 0.99, z: 0, visibility: 0.95 }; // right_ankle hallucinated at edge
+
+    // Left arm: wide planar span in XY and high visibility across shoulder/elbow/wrist
+    landmarks[11] = { x: 0.58, y: 0.44, z: 0.0, visibility: 0.96 }; // left_shoulder
+    landmarks[13] = { x: 0.72, y: 0.46, z: 0.02, visibility: 0.96 }; // left_elbow
+    landmarks[15] = { x: 0.69, y: 0.22, z: 0.01, visibility: 0.95 }; // left_wrist
+    landmarks[23] = { x: 0.55, y: 0.85, z: 0, visibility: 0.15 }; // left_hip low
+    landmarks[25] = { x: 0.55, y: 0.95, z: 0, visibility: 0.15 }; // left_knee low
+    landmarks[27] = { x: 0.55, y: 0.99, z: 0, visibility: 0.15 }; // left_ankle off-screen
+
+    const extracted = extractPoseDataFromLandmarks(landmarks, undefined, 'upper');
+    expect(extracted).not.toBeNull();
+    expect(extracted?.dominantSide).toBe('left');
+
+    // Edge/low-confidence ankles (y > 0.96 or vis < 0.50) must NOT trigger false leg-drive warnings
+    const pressNoFeetEval = evaluatePressBiomechanics(
+      {
+        left_shoulder: landmarks[11],
+        right_shoulder: landmarks[12],
+        left_elbow: landmarks[13],
+        right_elbow: landmarks[14],
+        left_wrist: landmarks[15],
+        right_wrist: landmarks[16],
+        left_hip: landmarks[23],
+        right_hip: landmarks[24],
+        left_ankle: { x: 0.55, y: 0.98, visibility: 0.40 },
+        right_ankle: { x: 0.45, y: 0.99, visibility: 0.90 }
+      },
+      'frontal',
+      {},
+      105
+    );
+    expect(pressNoFeetEval.footStabilityStatus).toBe('not_visible');
   });
 });

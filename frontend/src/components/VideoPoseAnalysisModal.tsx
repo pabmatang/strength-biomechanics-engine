@@ -26,7 +26,10 @@ import {
   Sliders,
   ChevronRight,
   ChevronDown,
-  Info
+  Info,
+  Eye,
+  EyeOff,
+  Settings2
 } from 'lucide-react';
 import {
   calculateJointAngle,
@@ -99,6 +102,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showLeverArms, setShowLeverArms] = useState<boolean>(true);
+  const [showCanvasText, setShowCanvasText] = useState<boolean>(true);
+  const [showEngineSettings, setShowEngineSettings] = useState<boolean>(false);
+  const [isConfigOpenMobile, setIsConfigOpenMobile] = useState<boolean>(true);
 
   // AI MediaPipe Vision Model Status
   const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
@@ -243,8 +249,15 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       });
       webcamStreamRef.current = stream;
       setUseWebcam(true);
+      setZoom(1);
+      setPanOffset({ x: 0, y: 0 });
+      setPlaybackSpeed(1.0);
+      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setIsConfigOpenMobile(false);
+      }
       if (videoElementRef.current) {
         videoElementRef.current.srcObject = stream;
+        videoElementRef.current.playbackRate = 1.0;
         videoElementRef.current.play().catch(() => {});
       }
       handleReset();
@@ -271,6 +284,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setVideoCurrentTime(0);
     setVideoDuration(0);
     setIsVideoPlaying(false);
+    // Reset zoom, pan & playback speed to default whenever a new video is uploaded
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+    setPlaybackSpeed(1.0);
+    if (videoElementRef.current) {
+      videoElementRef.current.playbackRate = 1.0;
+    }
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setIsConfigOpenMobile(false);
+    }
     handleReset();
   };
 
@@ -309,7 +332,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
       const results = landmarker.detectForVideo(video, monotonicTime);
       if (results && results.landmarks && results.landmarks[0] && results.landmarks[0].length >= 33) {
-        const frame = extractPoseDataFromLandmarks(results.landmarks[0], dominantSideRef.current || undefined);
+        const analysisRegion = (selectedPattern.primaryJoint === 'elbow' || selectedPattern.primaryJoint === 'shoulder')
+          ? 'upper'
+          : 'lower';
+        const frame = extractPoseDataFromLandmarks(
+          results.landmarks[0],
+          dominantSideRef.current || undefined,
+          analysisRegion
+        );
         if (frame) {
           dominantSideRef.current = frame.dominantSide;
 
@@ -447,6 +477,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
             {
               showLeverArms,
+              showCanvasText,
               zoom,
               panOffset,
               primaryJointKey: selectedPattern.primaryJoint,
@@ -507,14 +538,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       isProcessingRef.current = false;
     };
-  }, [isRecording, isVideoPlaying, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, zoom, panOffset]);
+  }, [isRecording, isVideoPlaying, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
 
-  // Re-render single frame when zoom, pan, or lever toggles change while paused
+  // Re-render single frame when zoom, pan, or overlay toggles change while paused
   useEffect(() => {
     if (!isRecording && !isVideoPlaying && (uploadedVideoUrl || useWebcam)) {
       processSingleFrame();
     }
-  }, [zoom, panOffset, showLeverArms, analysisMode]);
+  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode]);
 
   // When AI model is ready or video url changes, trigger initial frame detection
   useEffect(() => {
@@ -802,171 +833,236 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const shoulderShare = (shoulderRaw + elbowRaw < 0.04) ? 50 : Math.round((shoulderRaw / totalUpperMoment) * 100);
   const elbowShare = 100 - shoulderShare;
 
+  const formatPhaseLabel = (phase: FsmPhase): string => {
+    switch (phase) {
+      case 'LOCKOUT':
+        return 'Inicio';
+      case 'ECCENTRIC':
+        return 'Excéntrica';
+      case 'BOTTOM':
+        return 'Fondo';
+      case 'CONCENTRIC':
+        return 'Concéntrica';
+      default:
+        return phase;
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
-      <div className="w-full max-w-2xl bg-[#0f111a] border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl text-white space-y-3.5 my-auto">
+      <div className="w-full max-w-6xl bg-[#0f111a] border border-blue-500/30 rounded-3xl p-4 sm:p-5 shadow-2xl text-white space-y-3 my-auto">
 
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        {/* Header (Product Cleanliness + Optional Engine Diagnostics Menu) */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25 shrink-0">
               <Video className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black text-white">Análisis Biomecánico & Visión Dual</h3>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
                   aiModelStatus === 'ready'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
                 }`}>
-                  <Cpu className="w-3 h-3" />
-                  {aiModelStatus === 'ready' ? '1€ Filter Anti-Jitter + GPU' : 'Cargando Visión IA...'}
+                  <span className={`w-1.5 h-1.5 rounded-full ${aiModelStatus === 'ready' ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400 animate-ping'}`} />
+                  {aiModelStatus === 'ready' ? 'Motor Biomecánico Activo' : 'Iniciando Motor...'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                Filtro temporal OneEuroFilter • FSM con Histéresis • Brazos de Momento & Muscle Bias
+              <p className="text-xs text-slate-300/80 hidden sm:block">
+                Evaluación técnica, alineación articular y reparto muscular en tiempo real
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Dual Mode Switcher (Botón 1 vs Botón 2) */}
-        <div className="bg-slate-950/80 p-1 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1.5 shadow-inner">
-          <button
-            type="button"
-            onClick={() => setAnalysisMode('technique')}
-            className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-              analysisMode === 'technique'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-black'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            <span>1. Corrección de Técnica</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setAnalysisMode('biomechanics')}
-            className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-              analysisMode === 'biomechanics'
-                ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30 font-black'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-          >
-            <Scale className="w-4 h-4" />
-            <span>2. Optimización Biomecánica</span>
-          </button>
-        </div>
-
-        {/* Cascading Filter Hierarchy (Tipo de Carga -> Músculo Objetivo -> Patrón/Ejercicio) */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-md">
-          {/* 1. Tipo de Carga (Segmented Button) */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <Scale className="w-3.5 h-3.5 text-cyan-400" />
-                1. Tipo de Carga
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono">
-                {loadType === 'gravity' ? 'Gravedad [0, 1]' : loadType === 'cable' ? 'Vector Polea' : 'Brazo de Palanca'}
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-              {[
-                { key: 'gravity' as LoadType, label: 'Peso Libre (Gravedad)' },
-                { key: 'cable' as LoadType, label: 'Polea / Cable' },
-                { key: 'machine' as LoadType, label: 'Máquina / Palanca' }
-              ].map(item => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setLoadType(item.key)}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold text-center truncate transition-all ${
-                    loadType === item.key
-                      ? 'bg-blue-600 text-white shadow-md font-bold'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 2. Músculo Objetivo (Individual chips, NUNCA agrupar Glúteo con Femoral) */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <Crosshair className="w-3.5 h-3.5 text-amber-400" />
-                2. Músculo Objetivo
-              </span>
-              <span className="text-[10px] text-amber-400 font-mono">Chips independientes</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { key: 'quadriceps' as TargetMuscle, label: 'Cuádriceps' },
-                { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
-                { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
-                { key: 'lats' as TargetMuscle, label: 'Dorsal' },
-                { key: 'pectorals' as TargetMuscle, label: 'Pectoral' }
-              ].map(m => (
-                <button
-                  key={m.key}
-                  type="button"
-                  onClick={() => {
-                    setTargetMuscle(m.key);
-                    const patterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === m.key);
-                    if (patterns.length > 0) setSelectedPatternId(patterns[0].id);
-                  }}
-                  className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
-                    targetMuscle === m.key
-                      ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/25'
-                      : 'bg-slate-800/80 text-slate-300 border-slate-700/60 hover:border-slate-500'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 3. Patrón / Ejercicio Dependiente */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-blue-400" />
-                3. Patrón / Ejercicio
-              </span>
-              <span className="text-[10px] text-blue-300 font-mono">
-                {selectedPattern.targetRatioDescription}
-              </span>
-            </div>
-            <select
-              value={selectedPattern.id}
-              onChange={e => setSelectedPatternId(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 transition"
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowEngineSettings(prev => !prev)}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-colors ${
+                showEngineSettings
+                  ? 'bg-slate-800 text-cyan-300 border-cyan-500/40'
+                  : 'text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800/80'
+              }`}
+              title="Ajustes avanzados del motor"
             >
-              {availablePatterns.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-slate-400 pl-1">
-              {selectedPattern.description}
-            </p>
+              <Settings2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Ajustes</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {/* Video Sources Toolbar */}
+        {/* Collapsible Advanced Engine Settings Drawer */}
+        {showEngineSettings && (
+          <div className="px-3 py-2.5 rounded-2xl bg-slate-950/90 border border-slate-800 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span>
+                Configuración técnica: <strong className="text-white">OneEuroFilter Anti-Jitter</strong> · Máquina de estados con histéresis · MediaPipe Pose ({aiModelStatus === 'ready' ? 'GPU/WASM activo' : aiModelStatus})
+              </span>
+            </div>
+            <span className="text-[10px] text-cyan-300 font-mono">
+              Selección automática de brazo más visible
+            </span>
+          </div>
+        )}
+
+        {/* Responsive 2-Column Layout: Desktop (60% Left Video / 40% Right Controls & Metrics) | Mobile (Compact Top Config -> Video -> Verdict) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[auto_1fr] gap-3.5 items-start">
+
+          {/* RIGHT COLUMN TOP (Desktop col-span-5 row-1 | Mobile top): Dual Mode Switcher + Config Selector */}
+          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-1 space-y-2.5">
+            {/* Dual Mode Switcher */}
+            <div className="bg-slate-950/80 p-1 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1.5 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setAnalysisMode('technique')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  analysisMode === 'technique'
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-black'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>1. Corrección Técnica</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAnalysisMode('biomechanics')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  analysisMode === 'biomechanics'
+                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30 font-black'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                }`}
+              >
+                <Scale className="w-4 h-4 shrink-0" />
+                <span>2. Optimización Biomecánica</span>
+              </button>
+            </div>
+
+            {/* Mobile Accordion Header for Exercise Config */}
+            <button
+              type="button"
+              onClick={() => setIsConfigOpenMobile(prev => !prev)}
+              className="w-full lg:hidden px-3 py-2 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs"
+            >
+              <span className="font-semibold text-slate-200 truncate">
+                Ejercicio: <strong className="text-amber-300">{selectedPattern.name}</strong>
+              </span>
+              <span className="text-[11px] text-cyan-300 font-bold flex items-center gap-1 shrink-0 ml-2">
+                {isConfigOpenMobile ? 'Ocultar' : 'Cambiar'}
+                {isConfigOpenMobile ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </span>
+            </button>
+
+            {/* Cascading Exercise Configuration */}
+            <div className={`${isConfigOpenMobile ? 'block' : 'hidden lg:block'} bg-slate-900/90 border border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-md`}>
+              {/* 1. Tipo de Carga */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
+                  <span className="flex items-center gap-1.5">
+                    <Scale className="w-3.5 h-3.5 text-cyan-400" />
+                    1. Tipo de Carga
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  {[
+                    { key: 'gravity' as LoadType, label: 'Peso Libre' },
+                    { key: 'cable' as LoadType, label: 'Polea / Cable' },
+                    { key: 'machine' as LoadType, label: 'Máquina' }
+                  ].map(item => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setLoadType(item.key)}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-semibold text-center truncate transition-all ${
+                        loadType === item.key
+                          ? 'bg-blue-600 text-white shadow-md font-bold'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. Músculo Objetivo */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
+                  <span className="flex items-center gap-1.5">
+                    <Crosshair className="w-3.5 h-3.5 text-amber-400" />
+                    2. Músculo Objetivo
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { key: 'quadriceps' as TargetMuscle, label: 'Cuádriceps' },
+                    { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
+                    { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
+                    { key: 'lats' as TargetMuscle, label: 'Dorsal' },
+                    { key: 'pectorals' as TargetMuscle, label: 'Pectoral' }
+                  ].map(m => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => {
+                        setTargetMuscle(m.key);
+                        const patterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === m.key);
+                        if (patterns.length > 0) setSelectedPatternId(patterns[0].id);
+                      }}
+                      className={`py-1 px-2.5 rounded-xl text-xs font-bold transition-all border ${
+                        targetMuscle === m.key
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/25'
+                          : 'bg-slate-800/80 text-slate-200 border-slate-700/60 hover:border-slate-500'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Patrón / Ejercicio */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-200">
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <Layers className="w-3.5 h-3.5 text-blue-400" />
+                    3. Ejercicio
+                  </span>
+                  <span className="text-[10px] text-blue-300 truncate">
+                    {selectedPattern.targetRatioDescription}
+                  </span>
+                </div>
+                <select
+                  value={selectedPattern.id}
+                  onChange={e => setSelectedPatternId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 transition"
+                >
+                  {availablePatterns.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-300/90 pl-0.5 leading-snug">
+                  {selectedPattern.description}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* LEFT COLUMN (Desktop col-span-7 60% width): Video Toolbar + Viewport + Controls + Primary Actions */}
+          <div className="lg:col-start-1 lg:col-span-7 lg:row-start-1 lg:row-span-2 space-y-2.5">
+
+            {/* Video Sources Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
           <div className="flex items-center gap-2">
             <input
@@ -1014,13 +1110,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleMouseUp}
-          className={`relative w-full h-72 sm:h-80 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none ${
+          className={`relative w-full h-64 sm:h-80 lg:h-[420px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none ${
             zoom > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
           }`}
         >
-          {/* Viewport Zoom & Levers Toolbar */}
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-40 bg-black/85 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg">
-            <div className={`flex items-center gap-0.5 ${!isHipThrustExercise ? 'border-r border-slate-700/80 pr-1 mr-0.5' : ''}`}>
+          {/* Viewport Zoom, Canvas Text & Levers Toolbar */}
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-40 bg-black/85 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg">
+            <div className="flex items-center gap-0.5 border-r border-slate-700/80 pr-1 mr-0.5">
               {[1, 1.5, 2].map(z => (
                 <button
                   key={z}
@@ -1038,6 +1134,20 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowCanvasText(prev => !prev)}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition ${
+                showCanvasText
+                  ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
+                  : 'bg-slate-800/80 text-slate-300 border border-slate-700 hover:text-white'
+              }`}
+              title={showCanvasText ? 'Ocultar textos flotantes sobre el vídeo' : 'Mostrar textos sobre el vídeo'}
+            >
+              {showCanvasText ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+              <span>{showCanvasText ? 'Textos ON' : 'Ocultar Textos'}</span>
+            </button>
 
             {!isHipThrustExercise && (
               <button
@@ -1075,6 +1185,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 const dur = vid.duration || 0;
                 setVideoDuration(dur);
                 setVideoCodecError(null);
+                vid.playbackRate = playbackSpeed;
                 if (vid.currentTime === 0) {
                   vid.currentTime = 0.01;
                 }
@@ -1110,11 +1221,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             {!uploadedVideoUrl && !useWebcam && !isRecording && (
               <div className="text-center space-y-2 p-4 z-10 pointer-events-none">
                 <Video className="w-12 h-12 text-cyan-400/60 mx-auto animate-pulse" />
-                <p className="text-xs text-slate-300 font-semibold max-w-xs">
-                  Sube tu vídeo de sentadilla búlgara, RDL, press o dominada para evaluar los brazos de palanca y sesgo muscular.
+                <p className="text-xs text-slate-200 font-semibold max-w-xs">
+                  Sube un vídeo de tu serie (sentadilla, hip thrust, press o cruces) o usa tu cámara para analizar la técnica y eficiencia muscular.
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  MediaPipe + OneEuroFilter estabilizan la señal sin jitter y calculan d_cadera vs d_rodilla.
+                <p className="text-[11px] text-slate-400">
+                  Recibirás corrección postural en vivo, conteo de repeticiones y diagnóstico de palancas.
                 </p>
               </div>
             )}
@@ -1135,29 +1246,29 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <div className="absolute top-3 left-3 bg-black/85 backdrop-blur-md border border-cyan-500/50 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2 z-30 shadow-lg">
                 <Gauge className="w-4 h-4 text-cyan-400" />
                 <div>
-                  <div className="text-[10px] text-slate-400 uppercase font-semibold">
+                  <div className="text-[10px] text-slate-300 uppercase font-semibold">
                     Ángulo {selectedPattern.primaryJoint === 'elbow' ? 'de Codo' : selectedPattern.primaryJoint === 'hip' ? 'de Cadera' : selectedPattern.primaryJoint === 'shoulder' ? 'de Hombro' : 'de Rodilla'}
                   </div>
                   <div className="font-mono text-sm font-black text-white">
-                    {currentPrimaryAngle}° <span className="text-[10px] text-cyan-400 font-sans font-bold">({currentPhase})</span>
+                    {currentPrimaryAngle}° <span className="text-[10px] text-cyan-400 font-sans font-bold">({formatPhaseLabel(currentPhase)})</span>
                   </div>
                 </div>
               </div>
 
               {/* Rep Count HUD */}
               <div className="absolute bottom-12 right-3 bg-black/85 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
-                <div className="text-[10px] text-slate-400 font-semibold">Repeticiones FSM</div>
+                <div className="text-[10px] text-slate-300 font-semibold">Repeticiones</div>
                 <div className="font-mono text-lg font-black text-white">{repCount}</div>
               </div>
 
               {/* Real-time Status Badges */}
               <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-1.5 z-30 pointer-events-none">
-                <div className="bg-black/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
-                  <span className="text-slate-400">Fase FSM:</span>
-                  <span className={`uppercase font-mono font-bold ${
+                <div className="bg-black/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span className="text-slate-300">Fase:</span>
+                  <span className={`font-bold ${
                     currentPhase === 'BOTTOM' ? 'text-amber-400' : currentPhase === 'CONCENTRIC' ? 'text-emerald-400' : 'text-cyan-400'
                   }`}>
-                    {currentPhase}
+                    {formatPhaseLabel(currentPhase)}
                   </span>
                 </div>
 
@@ -1465,7 +1576,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
               {/* Playback Speeds */}
               <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-semibold px-1">Velocidad:</span>
+                <span className="text-[10px] text-slate-300 font-semibold px-1">Velocidad:</span>
                 {[0.25, 0.5, 0.75, 1.0].map(speed => (
                   <button
                     key={speed}
@@ -1485,6 +1596,42 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
         )}
 
+            {/* Main Action Buttons (Right under video & scrubber on Desktop & Mobile) */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleStartStop}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  isRecording
+                    ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/30'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
+                }`}
+              >
+                {isRecording ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                {isRecording ? 'Pausar Análisis' : (uploadedFileName ? 'Iniciar Análisis' : 'Iniciar Tracking')}
+              </button>
+
+              <button
+                onClick={handleReset}
+                className="py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reiniciar
+              </button>
+
+              <button
+                disabled={auditedReps.length === 0 || isSendingToBackend}
+                onClick={handleSendToBackend}
+                className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all"
+              >
+                <Send className="w-3.5 h-3.5" />
+                {isSendingToBackend ? 'Guardando...' : 'Guardar Análisis'}
+              </button>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN BOTTOM (Desktop col-span-5 row-2 | Mobile below video): Verdict & Telemetry Cards */}
+          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-2 space-y-3">
+
         {/* ========================================================= */}
         {/* MODE 1: DIAGNOSTIC CARDS (CORRECCIÓN DE TÉCNICA)          */}
         {/* ========================================================= */}
@@ -1498,7 +1645,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="text-sm font-black text-emerald-400 font-mono">
                     {currentTelemetry?.technique.romPercentage ?? 85}%
                   </span>
-                  <span className="text-[9px] text-slate-500 block">extensión cadera</span>
+                  <span className="text-[10px] text-slate-300 block">extensión cadera</span>
                 </div>
 
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1508,7 +1655,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {htKneeAngle}°
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {htKneeAngle < 80 ? '+Cuádriceps (<80°)' : htKneeAngle > 102 ? '+Femoral (>102°)' : 'Óptimo ~90° Glúteo'}
                   </span>
                 </div>
@@ -1520,7 +1667,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {htLumbarOk ? '✓ Neutro' : '⚡ Hiperextensión'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">pelvis y costillas</span>
+                  <span className="text-[10px] text-slate-300 block">pelvis y costillas</span>
                 </div>
 
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1530,7 +1677,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {htNeckOk ? '✓ Neutro' : '⚡ Desalineado'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">chin-tuck en banco</span>
+                  <span className="text-[10px] text-slate-300 block">chin-tuck en banco</span>
                 </div>
               </div>
             ) : isFlyExercise && flyEval ? (
@@ -1540,7 +1687,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="text-sm font-black text-emerald-400 font-mono">
                     {currentTelemetry?.technique.romPercentage ?? 85}%
                   </span>
-                  <span className="text-[9px] text-slate-500 block">recorrido pectoral</span>
+                  <span className="text-[10px] text-slate-300 block">recorrido pectoral</span>
                 </div>
 
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1552,7 +1699,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                       ? `✓ Extendidos (${flyEval.elbowAngleDeg}°)`
                       : `⚡ Flexionados (${flyEval.elbowAngleDeg}°)`}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {flyEval.areArmsExtended ? 'brazos casi rectos' : 'extiende más el codo'}
                   </span>
                 </div>
@@ -1564,7 +1711,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {flyEval.shoulderAnteriorized ? '⚠️ Anteriorizado' : '✓ Estable Atrás'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {flyEval.shoulderAnteriorized ? 'evita adelantar hombro' : 'retracción escapular OK'}
                   </span>
                 </div>
@@ -1582,7 +1729,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                         ? '⚡ +Tríceps'
                         : '⚡ Agarre Abierto'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {pressEval.handElbowAlignment === 'aligned_90' ? 'antebrazo alineado' : 'ajusta apertura mano'}
                   </span>
                 </div>
@@ -1598,7 +1745,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                         ? '⚠️ Codo Alto'
                         : '⚡ Muy Pegado'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {pressEval.elbowShoulderPosition === 'high_shoulder_risk' ? 'riesgo en hombro' : 'plano escapular seguro'}
                   </span>
                 </div>
@@ -1620,7 +1767,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                           ? '⚠️ Inestables'
                           : 'No visibles'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">estabilidad y leg drive</span>
+                  <span className="text-[10px] text-slate-300 block">estabilidad y leg drive</span>
                 </div>
 
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1630,7 +1777,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {pressEval.spineNeutral ? '✓ Neutra' : '⚡ Inclinada'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {`${pressEval.spineAngleDeg}° eje torso`}
                   </span>
                 </div>
@@ -1642,7 +1789,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="text-sm font-black text-emerald-400 font-mono">
                     {currentTelemetry?.technique.romPercentage ?? 85}%
                   </span>
-                  <span className="text-[9px] text-slate-500 block">del recorrido</span>
+                  <span className="text-[10px] text-slate-300 block">del recorrido</span>
                 </div>
 
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1652,7 +1799,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {currentTelemetry?.technique.isSpineNeutral ? '✓ Alineada' : '⚡ Torso Inclinado'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {`${currentTelemetry?.technique.spinalAngleDegrees ?? 15}° a la vertical`}
                   </span>
                 </div>
@@ -1664,7 +1811,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   }`}>
                     {currentTelemetry?.technique.isKneeValgusDetected ? '⚡ Valgo Dinámico' : '✓ Eje Estable'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block">sin colapso interno</span>
+                  <span className="text-[10px] text-slate-300 block">sin colapso interno</span>
                 </div>
               </div>
             )}
@@ -1694,7 +1841,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     )}
                     <div className="space-y-0.5">
                       <span className="font-semibold block">{alert.message}</span>
-                      <span className="text-[10px] opacity-60 font-mono">[{alert.code}]</span>
+                      {showEngineSettings && (
+                        <span className="text-[10px] opacity-70 font-mono">[{alert.code}]</span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1753,13 +1902,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             {isHipThrustExercise ? (
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Ángulo de Rodilla</span>
+                  <span className="text-[10px] text-slate-300 font-bold uppercase block">Ángulo de Rodilla</span>
                   <span className={`text-sm font-black font-mono block mt-0.5 ${
                     htKneeAngle >= 80 && htKneeAngle <= 102 ? 'text-emerald-400' : 'text-amber-400'
                   }`}>
                     {htKneeAngle}°
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[10px] text-slate-300 block">
                     {htKneeAngle < 80
                       ? '+Cuádriceps (<80°)'
                       : htKneeAngle > 102
@@ -1769,25 +1918,25 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
 
                 <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Neutralidad Lumbar</span>
+                  <span className="text-[10px] text-slate-300 font-bold uppercase block">Neutralidad Lumbar</span>
                   <span className={`text-xs font-black font-mono block mt-1 ${
                     htLumbarOk ? 'text-emerald-400' : 'text-rose-400'
                   }`}>
                     {htLumbarOk ? '✓ Lumbar Neutro' : '⚡ Hiperextensión'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">
+                  <span className="text-[10px] text-slate-300 block mt-0.5">
                     {htLumbarOk ? 'Bloqueo sin arqueo' : 'Controla retroversión'}
                   </span>
                 </div>
 
                 <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Neutralidad del Cuello</span>
+                  <span className="text-[10px] text-slate-300 font-bold uppercase block">Neutralidad del Cuello</span>
                   <span className={`text-xs font-black font-mono block mt-1 ${
                     htNeckOk ? 'text-emerald-400' : 'text-rose-400'
                   }`}>
                     {htNeckOk ? '✓ Cuello Neutro' : '⚡ Desalineado'}
                   </span>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">
+                  <span className="text-[10px] text-slate-300 block mt-0.5">
                     {htNeckOk ? 'Chin-tuck seguro' : 'Evita mirar atrás'}
                   </span>
                 </div>
@@ -1815,35 +1964,35 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 {/* Fly Biomechanics Telemetry Grid */}
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Ángulo del Codo</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Ángulo del Codo</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       flyEval.areArmsExtended ? 'text-emerald-400' : 'text-amber-400'
                     }`}>
                       {flyEval.elbowAngleDeg}° ({flyEval.areArmsExtended ? 'Rectos' : 'Flexionados'})
                     </span>
-                    <span className="text-[9px] text-slate-500 block">objetivo ≥ 142°</span>
+                    <span className="text-[10px] text-slate-300 block">objetivo ≥ 142°</span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Reparto Muscular</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Reparto Muscular</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       flyEval.areArmsExtended ? 'text-violet-300' : 'text-pink-400'
                     }`}>
                       {flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">
+                    <span className="text-[10px] text-slate-300 block">
                       {flyEval.areArmsExtended ? 'el pecho limita' : 'flexión desvía carga'}
                     </span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Anteriorización Hombro</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Anteriorización Hombro</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       flyEval.shoulderAnteriorized ? 'text-rose-400' : 'text-emerald-400'
                     }`}>
                       {flyEval.shoulderAnteriorized ? '⚠️ Adelantado' : '✓ Retraído'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">control articular</span>
+                    <span className="text-[10px] text-slate-300 block">control articular</span>
                   </div>
                 </div>
               </>
@@ -1870,7 +2019,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 {/* Press Telemetry Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Mano vs Codo</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Mano vs Codo</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       pressEval.handElbowAlignment === 'aligned_90' ? 'text-emerald-400' : 'text-amber-400'
                     }`}>
@@ -1880,11 +2029,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                           ? '⚡ +Tríceps'
                           : '⚡ Abierto'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">alineación antebrazo</span>
+                    <span className="text-[10px] text-slate-300 block">alineación antebrazo</span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Codo vs Hombro</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Codo vs Hombro</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       pressEval.elbowShoulderPosition === 'optimal_below_shoulder' ? 'text-emerald-400' : 'text-amber-400'
                     }`}>
@@ -1894,11 +2043,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                           ? '⚠️ Codo Alto'
                           : '⚡ Muy Pegado'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">salud articular hombro</span>
+                    <span className="text-[10px] text-slate-300 block">salud articular hombro</span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Pies (Leg Drive)</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Pies (Leg Drive)</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       pressEval.footStabilityStatus === 'stable_leg_drive'
                         ? 'text-emerald-400'
@@ -1914,17 +2063,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                             ? '⚠️ Cambian Pos.'
                             : 'No visibles'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">empuje y estabilidad</span>
+                    <span className="text-[10px] text-slate-300 block">empuje y estabilidad</span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Columna</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Columna</span>
                     <span className={`text-xs font-black font-mono block mt-0.5 ${
                       pressEval.spineNeutral ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
                       {pressEval.spineNeutral ? '✓ Neutra' : '⚡ Inclinada'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">
+                    <span className="text-[10px] text-slate-300 block">
                       {`${pressEval.spineAngleDeg}° inclinación`}
                     </span>
                   </div>
@@ -1953,33 +2102,33 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 {/* High-density Physical Telemetry Grid */}
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Inclinación Tibial</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Inclinación Tibial</span>
                     <span className="text-xs font-black text-cyan-300 font-mono">
                       {Math.round(currentTelemetry.biomechanics.tibialAngleDegrees)}°
                     </span>
-                    <span className="text-[9px] text-slate-500 block">
+                    <span className="text-[10px] text-slate-300 block">
                       {currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)'}
                     </span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Plano de Grabación</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Plano de Grabación</span>
                     <span className="text-xs font-black text-purple-300 font-mono">
                       {currentCameraPlane === 'sagittal' ? 'Sagital (Perfil)' : currentCameraPlane === 'frontal' ? 'Frontal' : 'Oblicuo'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">
+                    <span className="text-[10px] text-slate-300 block">
                       {currentCameraPlane === 'sagittal' ? 'Valgo no aplicable' : 'Valgo frontal'}
                     </span>
                   </div>
 
                   <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Columna / Curvatura</span>
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Columna / Curvatura</span>
                     <span className={`text-xs font-black font-mono block ${
                       currentTelemetry.technique.isSpineNeutral ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
                       {currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)'}
                     </span>
-                    <span className="text-[9px] text-slate-500 block">
+                    <span className="text-[10px] text-slate-300 block">
                       {`${currentTelemetry.technique.spinalAngleDegrees}° inclinación`}
                     </span>
                   </div>
@@ -1997,11 +2146,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               onClick={() => setShowRepBreakdown(prev => !prev)}
               className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/40 transition"
             >
-              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-cyan-400" />
-                Desglose FSM de Repeticiones ({auditedReps.length})
+                Desglose de Repeticiones ({auditedReps.length})
               </span>
-              <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1">
+              <span className="text-[10px] text-cyan-300 font-mono flex items-center gap-1">
                 <span>{showRepBreakdown ? 'Ocultar' : 'Ver detalle'}</span>
                 {showRepBreakdown ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </span>
@@ -2024,7 +2173,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-400 font-mono">
+                      <span className="text-[11px] text-slate-300 font-mono">
                         Tempo: <strong className="text-cyan-300">{rep.tempo.tempoDisplay}</strong>
                       </span>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
@@ -2038,45 +2187,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
         )}
 
-        {/* Main Action Buttons */}
-        <div className="flex gap-2.5">
-          <button
-            onClick={handleStartStop}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-              isRecording
-                ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/30'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
-            }`}
-          >
-            {isRecording ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {isRecording ? 'Pausar Detección' : (uploadedFileName ? 'Iniciar Detección Dual' : 'Iniciar Tracking Articular')}
-          </button>
-
-          <button
-            onClick={handleReset}
-            className="py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reiniciar
-          </button>
-
-          <button
-            disabled={auditedReps.length === 0 || isSendingToBackend}
-            onClick={handleSendToBackend}
-            className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all"
-          >
-            <Send className="w-3.5 h-3.5" />
-            {isSendingToBackend ? 'Enviando...' : 'Guardar Análisis'}
-          </button>
-        </div>
-
         {/* Backend Diagnosis Panel */}
         {backendDiagnosis && (
           <div className="p-3.5 rounded-2xl bg-slate-900 border border-blue-500/40 space-y-2 animate-fadeIn">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Diagnóstico del Servidor (Spring Boot 3.3)
+                Resumen Guardado
               </span>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -2088,7 +2205,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 {backendDiagnosis.status} • {backendDiagnosis.efficiencyPercentage}% Eficiencia
               </span>
             </div>
-            <p className="text-xs text-slate-300">{backendDiagnosis.biomechanicalPrescription}</p>
+            <p className="text-xs text-slate-200">{backendDiagnosis.biomechanicalPrescription}</p>
           </div>
         )}
 
@@ -2097,6 +2214,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             {backendError}
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

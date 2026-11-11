@@ -375,7 +375,8 @@ export interface ExtractedPoseFrame {
  */
 export function extractPoseDataFromLandmarks(
   landmarks: Array<{ x: number; y: number; z: number; visibility?: number }>,
-  previousDominantSide?: 'left' | 'right'
+  previousDominantSide?: 'left' | 'right',
+  analysisRegion?: 'upper' | 'lower'
 ): ExtractedPoseFrame | null {
   if (!landmarks || landmarks.length < 33) return null;
 
@@ -402,22 +403,52 @@ export function extractPoseDataFromLandmarks(
   const lear = landmarks[7];
   const rear = landmarks[8];
 
-  // Evaluate full-body visibility (both lower and upper limbs) for rock-solid stability
-  const leftLegVis = ((lh?.visibility ?? 0.7) + (lk?.visibility ?? 0.7) + (la?.visibility ?? 0.7)) / 3;
-  const rightLegVis = ((rh?.visibility ?? 0.7) + (rk?.visibility ?? 0.7) + (ra?.visibility ?? 0.7)) / 3;
-  const leftArmVis = ((ls?.visibility ?? 0.7) + (le?.visibility ?? 0.7) + (lw?.visibility ?? 0.7)) / 3;
-  const rightArmVis = ((rs?.visibility ?? 0.7) + (re?.visibility ?? 0.7) + (rw?.visibility ?? 0.7)) / 3;
-  const leftVis = leftLegVis * 0.55 + leftArmVis * 0.45;
-  const rightVis = rightLegVis * 0.55 + rightArmVis * 0.45;
+  const scoreUpperArm = (s: typeof ls, e: typeof ls, w: typeof ls) => {
+    const sVis = s?.visibility ?? 0.7;
+    const eVis = e?.visibility ?? 0.7;
+    const wVis = w?.visibility ?? 0.7;
+    const minVis = Math.min(sVis, eVis, wVis);
+    const avgVis = (sVis + eVis + wVis) / 3;
 
-  // Strict hysteresis to prevent flip-flopping between frames
+    const upper2D = (s && e) ? Math.hypot(e.x - s.x, e.y - s.y) : 0;
+    const fore2D = (e && w) ? Math.hypot(w.x - e.x, w.y - e.y) : 0;
+    const span2D = upper2D + fore2D;
+    const dz = ((s && e) ? Math.abs((e.z ?? 0) - (s.z ?? 0)) : 0) + ((e && w) ? Math.abs((w.z ?? 0) - (e.z ?? 0)) : 0);
+    // Arms moving cleanly in the XY camera plane (less foreshortened along Z) yield more accurate 2D angles
+    const planarClarity = span2D / Math.max(0.05, span2D + dz * 0.65);
+    const minSegPenalty = Math.min(upper2D, fore2D) < 0.045 ? -0.08 : 0;
+    const inBoundsBonus = (s && e && w && w.x >= 0.03 && w.x <= 0.97 && e.x >= 0.03 && e.x <= 0.97) ? 0.04 : 0;
+
+    return avgVis * 0.42 + minVis * 0.34 + planarClarity * 0.24 + minSegPenalty + inBoundsBonus;
+  };
+
+  let leftVis: number;
+  let rightVis: number;
+  if (analysisRegion === 'upper') {
+    leftVis = scoreUpperArm(ls, le, lw);
+    rightVis = scoreUpperArm(rs, re, rw);
+  } else {
+    const leftLegVis = ((lh?.visibility ?? 0.7) + (lk?.visibility ?? 0.7) + (la?.visibility ?? 0.7)) / 3;
+    const rightLegVis = ((rh?.visibility ?? 0.7) + (rk?.visibility ?? 0.7) + (ra?.visibility ?? 0.7)) / 3;
+    const leftArmVis = ((ls?.visibility ?? 0.7) + (le?.visibility ?? 0.7) + (lw?.visibility ?? 0.7)) / 3;
+    const rightArmVis = ((rs?.visibility ?? 0.7) + (re?.visibility ?? 0.7) + (rw?.visibility ?? 0.7)) / 3;
+    leftVis = analysisRegion === 'lower'
+      ? leftLegVis * 0.75 + leftArmVis * 0.25
+      : leftLegVis * 0.55 + leftArmVis * 0.45;
+    rightVis = analysisRegion === 'lower'
+      ? rightLegVis * 0.75 + rightArmVis * 0.25
+      : rightLegVis * 0.55 + rightArmVis * 0.45;
+  }
+
+  // Hysteresis prevents rapid flip-flopping while allowing clean switch when one side is clearly easier to read
+  const switchMargin = analysisRegion === 'upper' ? 0.09 : 0.15;
   let dominantSide: 'left' | 'right';
   if (!previousDominantSide) {
     dominantSide = rightVis >= leftVis ? 'right' : 'left';
   } else if (previousDominantSide === 'left') {
-    dominantSide = (rightVis > leftVis + 0.15) ? 'right' : 'left';
+    dominantSide = (rightVis > leftVis + switchMargin) ? 'right' : 'left';
   } else {
-    dominantSide = (leftVis > rightVis + 0.15) ? 'left' : 'right';
+    dominantSide = (leftVis > rightVis + switchMargin) ? 'left' : 'right';
   }
 
   // Graceful fallback if dominant landmark is heavily occluded by equipment/plates
@@ -515,13 +546,25 @@ export function drawSkeletonOnCanvas(
     return true;
   };
 
-  const drawSegment = (p1?: Keypoint2D, p2?: Keypoint2D, color = 'rgba(255, 255, 255, 0.75)') => {
+  const drawSegment = (p1?: Keypoint2D, p2?: Keypoint2D, color = 'rgba(255, 255, 255, 0.85)') => {
     if (!isVisible(p1) || !isVisible(p2)) return;
-    ctx.strokeStyle = color;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+    ctx.shadowBlur = 3;
+    ctx.strokeStyle = 'rgba(2, 6, 23, 0.6)';
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(p1!.x * width, p1!.y * height);
     ctx.lineTo(p2!.x * width, p2!.y * height);
     ctx.stroke();
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p1!.x * width, p1!.y * height);
+    ctx.lineTo(p2!.x * width, p2!.y * height);
+    ctx.stroke();
+    ctx.restore();
   };
 
   const drawJoint = (p?: Keypoint2D, radius = 5, color = '#3B82F6') => {
@@ -639,6 +682,7 @@ export function drawSkeletonOnCanvas(
 
 export interface RenderOverlayOptions {
   showLeverArms?: boolean;
+  showCanvasText?: boolean;
   zoom?: number;
   panOffset?: { x: number; y: number };
   primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder';
@@ -647,6 +691,40 @@ export interface RenderOverlayOptions {
   loadType?: LoadType;
   exerciseId?: string;
   useInternalCanvasTransform?: boolean;
+}
+
+/**
+ * Strokes a canvas path with a subtle dark backing outline + shadow so colored lines stay crisp on any background.
+ */
+function strokeHighContrastPath(
+  ctx: CanvasRenderingContext2D,
+  buildPath: () => void,
+  color: string,
+  lineWidth: number,
+  dash: number[] = []
+) {
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.setLineDash(dash);
+
+  // Dark outline under-stroke
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 4;
+  ctx.strokeStyle = 'rgba(2, 6, 23, 0.75)';
+  ctx.lineWidth = lineWidth + 2.4;
+  ctx.beginPath();
+  buildPath();
+  ctx.stroke();
+
+  // Foreground high-contrast stroke
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  buildPath();
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**
@@ -690,7 +768,8 @@ function drawHipThrustKneeAngle(
   width: number,
   height: number,
   kneeAngleDeg: number,
-  includeSegments: boolean
+  includeSegments: boolean,
+  showCanvasText = true
 ) {
   const kx = knee.x * width;
   const ky = knee.y * height;
@@ -701,14 +780,16 @@ function drawHipThrustKneeAngle(
 
   ctx.save();
   if (includeSegments) {
-    ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(hip.x * width, hip.y * height);
-    ctx.lineTo(kx, ky);
-    ctx.lineTo(ankle.x * width, ankle.y * height);
-    ctx.stroke();
+    strokeHighContrastPath(
+      ctx,
+      () => {
+        ctx.moveTo(hip.x * width, hip.y * height);
+        ctx.lineTo(kx, ky);
+        ctx.lineTo(ankle.x * width, ankle.y * height);
+      },
+      'rgba(226, 232, 240, 0.90)',
+      3
+    );
   }
 
   // Draw true geometric arc between femur (knee->hip) and tibia (knee->ankle)
@@ -718,11 +799,14 @@ function drawHipThrustKneeAngle(
   while (diff > Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
 
-  ctx.strokeStyle = kneeColor;
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.arc(kx, ky, 22, aHip, aHip + diff, diff < 0);
-  ctx.stroke();
+  strokeHighContrastPath(
+    ctx,
+    () => {
+      ctx.arc(kx, ky, 22, aHip, aHip + diff, diff < 0);
+    },
+    kneeColor,
+    2.5
+  );
 
   // Joint circle at knee
   ctx.fillStyle = kneeColor;
@@ -733,8 +817,10 @@ function drawHipThrustKneeAngle(
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  const tag = isOptimal ? 'Glúteo ~90°' : (isQuads ? '+Cuádriceps' : '+Femoral');
-  drawCanvasBadge(ctx, kx, ky - 24, `Rodilla: ${Math.round(kneeAngleDeg)}° (${tag})`, kneeColor);
+  if (showCanvasText) {
+    const tag = isOptimal ? 'Glúteo ~90°' : (isQuads ? '+Cuádriceps' : '+Femoral');
+    drawCanvasBadge(ctx, kx, ky - 24, `Rodilla: ${Math.round(kneeAngleDeg)}° (${tag})`, kneeColor);
+  }
   ctx.restore();
 }
 
@@ -748,7 +834,8 @@ function drawHipThrustOptimizationOverlay(
   frame: BiomechanicalTelemetryFrame,
   keypoints: Record<string, Keypoint2D>,
   width: number,
-  height: number
+  height: number,
+  showCanvasText = true
 ) {
   const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
   const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
@@ -763,7 +850,7 @@ function drawHipThrustOptimizationOverlay(
 
   // 1. Knee Angle (Femur - Knee - Tibia) for Quads vs Femoral vs Glute (~90°)
   if (hip && knee && ankle) {
-    drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, true);
+    drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, true, showCanvasText);
   }
 
   // 2. Lumbar & Neck Neutrality (Shoulder -> Hip and Ear -> Shoulder)
@@ -774,28 +861,32 @@ function drawHipThrustOptimizationOverlay(
 
   if (shoulder && hip) {
     ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineWidth = 3.5;
 
     // Lumbar segment (shoulder -> hip)
-    ctx.strokeStyle = lumbarColor;
-    if (!lumbarOk) ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    ctx.moveTo(shoulder.x * width, shoulder.y * height);
-    ctx.lineTo(hip.x * width, hip.y * height);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    strokeHighContrastPath(
+      ctx,
+      () => {
+        ctx.moveTo(shoulder.x * width, shoulder.y * height);
+        ctx.lineTo(hip.x * width, hip.y * height);
+      },
+      lumbarColor,
+      3.5,
+      !lumbarOk ? [6, 4] : []
+    );
 
     // Neck segment (ear -> shoulder)
     const hasValidEar = ear && (ear.visibility === undefined || ear.visibility >= 0.35);
     if (hasValidEar) {
-      ctx.strokeStyle = neckColor;
-      if (!neckOk) ctx.setLineDash([6, 4]);
-      ctx.beginPath();
-      ctx.moveTo(ear!.x * width, ear!.y * height);
-      ctx.lineTo(shoulder.x * width, shoulder.y * height);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      strokeHighContrastPath(
+        ctx,
+        () => {
+          ctx.moveTo(ear!.x * width, ear!.y * height);
+          ctx.lineTo(shoulder.x * width, shoulder.y * height);
+        },
+        neckColor,
+        3.5,
+        !neckOk ? [6, 4] : []
+      );
     }
 
     const drawNode = (p: Keypoint2D, color: string) => {
@@ -811,10 +902,12 @@ function drawHipThrustOptimizationOverlay(
     drawNode(shoulder, neckOk && lumbarOk ? '#10B981' : '#F59E0B');
     drawNode(hip, lumbarColor);
 
-    const midX = (shoulder.x + hip.x) * width / 2;
-    const midY = (shoulder.y + hip.y) * height / 2 - 18;
-    const statusText = `Lumbar: ${lumbarOk ? '✓' : '⚠️'} · Cuello: ${neckOk ? '✓' : '⚠️'}`;
-    drawCanvasBadge(ctx, midX, midY, statusText, lumbarOk && neckOk ? '#10B981' : '#EF4444');
+    if (showCanvasText) {
+      const midX = (shoulder.x + hip.x) * width / 2;
+      const midY = (shoulder.y + hip.y) * height / 2 - 18;
+      const statusText = `Lumbar: ${lumbarOk ? '✓' : '⚠️'} · Cuello: ${neckOk ? '✓' : '⚠️'}`;
+      drawCanvasBadge(ctx, midX, midY, statusText, lumbarOk && neckOk ? '#10B981' : '#EF4444');
+    }
     ctx.restore();
   }
 }
@@ -835,6 +928,7 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   const {
     showLeverArms = true,
+    showCanvasText = true,
     zoom = 1,
     panOffset = { x: 0, y: 0 },
     patternFamily,
@@ -858,7 +952,7 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   // Dedicated Hip Thrust Mode 2: No moment arms; analyze Knee Angle + Lumbar & Neck neutrality
   if (exerciseId?.includes('hip_thrust')) {
-    drawHipThrustOptimizationOverlay(ctx, frame, keypoints, width, height);
+    drawHipThrustOptimizationOverlay(ctx, frame, keypoints, width, height, showCanvasText);
     ctx.restore();
     return;
   }
@@ -904,14 +998,16 @@ export function drawBiomechanicsOverlayOnCanvas(
   const loadX = contactPoint.x * width;
   const loadY = contactPoint.y * height;
 
-  // 1. Force Line of Action (Línea de Acción de la Fuerza):
-  // Continuous vertical line passing strictly through the load application point (hand grip or foot on machine)
-  ctx.strokeStyle = '#EF4444';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(loadX, 0);
-  ctx.lineTo(loadX, height);
-  ctx.stroke();
+  // 1. Force Line of Action of Force (with dark outline for visibility over gym backgrounds)
+  strokeHighContrastPath(
+    ctx,
+    () => {
+      ctx.moveTo(loadX, 0);
+      ctx.lineTo(loadX, height);
+    },
+    '#EF4444',
+    2.2
+  );
 
   // Load position dot & arrow
   ctx.fillStyle = '#EF4444';
@@ -925,6 +1021,9 @@ export function drawBiomechanicsOverlayOnCanvas(
   // Directional arrowhead
   const headLen = 8;
   const arrowY = Math.min(height - 12, loadY + 40);
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 3;
   ctx.fillStyle = '#EF4444';
   ctx.beginPath();
   ctx.moveTo(loadX, arrowY);
@@ -932,8 +1031,9 @@ export function drawBiomechanicsOverlayOnCanvas(
   ctx.lineTo(loadX + headLen * 0.7, arrowY - headLen);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
 
-  // Helper for drawing orthogonal moment arm segment with non-overlapping badge
+  // Helper for drawing orthogonal moment arm segment with optional floating badge
   const drawMomentArm = (
     y: number,
     xJoint: number,
@@ -941,13 +1041,15 @@ export function drawBiomechanicsOverlayOnCanvas(
     label: string,
     labelOffsetY: number = -9
   ) => {
-    // Horizontal orthogonal line from force vector to joint center
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(loadX, y);
-    ctx.lineTo(xJoint, y);
-    ctx.stroke();
+    strokeHighContrastPath(
+      ctx,
+      () => {
+        ctx.moveTo(loadX, y);
+        ctx.lineTo(xJoint, y);
+      },
+      color,
+      2.5
+    );
 
     // Endpoints
     ctx.fillStyle = color;
@@ -955,6 +1057,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.arc(loadX, y, 4, 0, 2 * Math.PI);
     ctx.arc(xJoint, y, 4, 0, 2 * Math.PI);
     ctx.fill();
+
+    if (!showCanvasText) return;
 
     // Floating text badge
     const midX = (loadX + xJoint) / 2;
@@ -1019,38 +1123,42 @@ export function drawBiomechanicsOverlayOnCanvas(
     const ax = ankle.x * width;
     const ay = ankle.y * height;
 
-    // Thin, subtle dashed guide line that does not obstruct the leg
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.40)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(kx, ky);
-    ctx.lineTo(ax, ay);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    // Thin, subtle dashed guide line with dark shadow so it stays visible over equipment
+    strokeHighContrastPath(
+      ctx,
+      () => {
+        ctx.moveTo(kx, ky);
+        ctx.lineTo(ax, ay);
+      },
+      'rgba(56, 189, 248, 0.55)',
+      1.8,
+      [4, 3]
+    );
 
-    // Use smoothly stabilized angle from telemetry (integer rounded)
-    const tibialAngle = Math.round(frame.biomechanics?.tibialAngleDegrees ?? calculateTibialAngle(ankle, knee));
+    if (showCanvasText) {
+      // Use smoothly stabilized angle from telemetry (integer rounded)
+      const tibialAngle = Math.round(frame.biomechanics?.tibialAngleDegrees ?? calculateTibialAngle(ankle, knee));
 
-    // Position the badge cleanly offset beside the foot/ankle base, NEVER over the middle of the shin!
-    const badgeX = ax + (ax >= kx ? 28 : -28);
-    const badgeY = ay - 6;
-    const tText = `θ_tibia: ${tibialAngle}°`;
-    ctx.font = 'bold 10px monospace';
-    const tWidth = ctx.measureText(tText).width;
+      // Position the badge cleanly offset beside the foot/ankle base, NEVER over the middle of the shin!
+      const badgeX = ax + (ax >= kx ? 28 : -28);
+      const badgeY = ay - 6;
+      const tText = `θ_tibia: ${tibialAngle}°`;
+      ctx.font = 'bold 10px monospace';
+      const tWidth = ctx.measureText(tText).width;
 
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(badgeX - tWidth / 2 - 4, badgeY - 8, tWidth + 8, 15, 4);
-    ctx.fill();
-    ctx.stroke();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(badgeX - tWidth / 2 - 4, badgeY - 8, tWidth + 8, 15, 4);
+      ctx.fill();
+      ctx.stroke();
 
-    ctx.fillStyle = '#38BDF8';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(tText, badgeX, badgeY - 1);
+      ctx.fillStyle = '#38BDF8';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tText, badgeX, badgeY - 1);
+    }
   }
 
   // 4. Clean Joint Dots ONLY on Active Working Side (Zero Extra Noise)
@@ -1076,7 +1184,7 @@ export function drawBiomechanicsOverlayOnCanvas(
 
     const isCableFly = Boolean(options.exerciseId?.includes('fly'));
     const flyEval = bio.flyEvaluation;
-    if (isCableFly && elbow && flyEval) {
+    if (showCanvasText && isCableFly && elbow && flyEval) {
       drawCanvasBadge(
         ctx,
         elbow.x * width,
@@ -1093,34 +1201,36 @@ export function drawBiomechanicsOverlayOnCanvas(
       const footColor = pressEval.footStabilityStatus === 'stable_leg_drive' ? '#10B981' : '#EF4444';
       const la = keypoints['left_ankle'];
       const ra = keypoints['right_ankle'];
-      if (la && (la.visibility === undefined || la.visibility >= 0.35)) drawJointDot(la, footColor);
-      if (ra && (ra.visibility === undefined || ra.visibility >= 0.35)) drawJointDot(ra, footColor);
+      if (la && (la.visibility === undefined || la.visibility >= 0.50) && la.y <= 0.96) drawJointDot(la, footColor);
+      if (ra && (ra.visibility === undefined || ra.visibility >= 0.50) && ra.y <= 0.96) drawJointDot(ra, footColor);
     }
   }
 
-  // 5. Muscle Bias HUD Banner at top of canvas
-  const isSetupOrLockout = frame.phase === 'LOCKOUT' && Math.abs(frame.angularVelocityDegPerSec) < 8;
-  const biasText = isSetupOrLockout
-    ? 'POSICIÓN INICIAL • ESPERANDO DESCENSO'
-    : `${bio.muscleBiasLabel.toUpperCase()} • RATIO: ${bio.momentArms.hipOverKneeRatio}`;
+  // 5. Top HUD Banner (suppressed when showCanvasText is false to avoid overlapping video text)
+  if (showCanvasText) {
+    const isSetupOrLockout = frame.phase === 'LOCKOUT' && Math.abs(frame.angularVelocityDegPerSec) < 8;
+    const biasText = isSetupOrLockout
+      ? 'POSICIÓN INICIAL • LISTO PARA INICIAR'
+      : bio.muscleBiasLabel.toUpperCase();
 
-  ctx.font = 'bold 11px monospace';
-  const bannerWidth = ctx.measureText(biasText).width + 24;
-  const bannerX = width / 2;
-  const bannerY = 24;
+    ctx.font = 'bold 11px monospace';
+    const bannerWidth = ctx.measureText(biasText).width + 24;
+    const bannerX = width / 2;
+    const bannerY = 24;
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-  ctx.strokeStyle = isSetupOrLockout ? '#64748B' : (bio.muscleBias === 'hip_glute_bias' ? '#06B6D4' : '#10B981');
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(bannerX - bannerWidth / 2, bannerY - 12, bannerWidth, 24, 8);
-  ctx.fill();
-  ctx.stroke();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.strokeStyle = isSetupOrLockout ? '#64748B' : (bio.muscleBias === 'hip_glute_bias' ? '#06B6D4' : '#10B981');
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(bannerX - bannerWidth / 2, bannerY - 12, bannerWidth, 24, 8);
+    ctx.fill();
+    ctx.stroke();
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(biasText, bannerX, bannerY);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(biasText, bannerX, bannerY);
+  }
 
   ctx.restore();
 }
@@ -1151,7 +1261,7 @@ export function drawDualModeOverlay(
     // Mode 2: Biomechanical optimization - pure load vector, moment arms, zero skeleton clutter
     drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, mergedOptions);
   } else {
-    const { zoom = 1, panOffset = { x: 0, y: 0 }, useInternalCanvasTransform = false } = mergedOptions;
+    const { zoom = 1, panOffset = { x: 0, y: 0 }, useInternalCanvasTransform = false, showCanvasText = true } = mergedOptions;
     ctx.save();
     if (useInternalCanvasTransform && (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0)) {
       ctx.translate(panOffset.x, panOffset.y);
@@ -1165,10 +1275,12 @@ export function drawDualModeOverlay(
       width,
       height,
       primaryColor,
-      {
-        angle: frame.currentAngle,
-        label: 'Ángulo'
-      },
+      showCanvasText
+        ? {
+            angle: frame.currentAngle,
+            label: 'Ángulo'
+          }
+        : undefined,
       mergedOptions.primaryJointKey
     );
 
@@ -1189,7 +1301,7 @@ export function drawDualModeOverlay(
       const kneeAngle = Math.round(
         frame.technique.kneeAngleDegrees ?? calculateJointAngle(hip, knee, ankle)
       );
-      drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false);
+      drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false, showCanvasText);
     }
 
     const ls = keypoints['left_shoulder'];
@@ -1205,7 +1317,7 @@ export function drawDualModeOverlay(
 
     // In Cable Fly Mode 1: hide spinal curvature overlay and render arm extension + shoulder posture badges
     const flyEval = frame.technique.flyEvaluation;
-    if (isCableFly && flyEval) {
+    if (showCanvasText && isCableFly && flyEval) {
       if (elbow) {
         drawCanvasBadge(
           ctx,
@@ -1234,25 +1346,23 @@ export function drawDualModeOverlay(
       const neckOk = frame.technique.neckNeutral !== false;
       const spineNeutral = isHipThrust ? (lumbarOk && neckOk) : frame.technique.isSpineNeutral;
       const spineColor = spineNeutral ? '#10B981' : '#EF4444';
-      ctx.strokeStyle = spineColor;
-      ctx.lineWidth = 3.5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (!spineNeutral) {
-        ctx.setLineDash([7, 4]);
-      }
-
-      ctx.beginPath();
       const hasValidHead = spineHead && (spineHead.visibility === undefined || spineHead.visibility >= 0.35);
-      if (hasValidHead) {
-        ctx.moveTo(spineHead.x * width, spineHead.y * height);
-        ctx.lineTo(spineShoulder.x * width, spineShoulder.y * height);
-      } else {
-        ctx.moveTo(spineShoulder.x * width, spineShoulder.y * height);
-      }
-      ctx.lineTo(spineHip.x * width, spineHip.y * height);
-      ctx.stroke();
+
+      strokeHighContrastPath(
+        ctx,
+        () => {
+          if (hasValidHead) {
+            ctx.moveTo(spineHead.x * width, spineHead.y * height);
+            ctx.lineTo(spineShoulder.x * width, spineShoulder.y * height);
+          } else {
+            ctx.moveTo(spineShoulder.x * width, spineShoulder.y * height);
+          }
+          ctx.lineTo(spineHip.x * width, spineHip.y * height);
+        },
+        spineColor,
+        3.5,
+        !spineNeutral ? [7, 4] : []
+      );
 
       // Draw spinal alignment joint nodes
       const drawSpinalNode = (p: Keypoint2D, color: string) => {
@@ -1269,31 +1379,33 @@ export function drawDualModeOverlay(
       drawSpinalNode(spineShoulder, spineColor);
       drawSpinalNode(spineHip, spineColor);
 
-      // Dedicated spinal alignment status badge
-      const midX = (spineShoulder.x + spineHip.x) * width / 2;
-      const midY = (spineShoulder.y + spineHip.y) * height / 2;
-      ctx.font = 'bold 11px monospace';
-      const label = isHipThrust
-        ? (spineNeutral
-            ? '✓ LUMBAR Y CUELLO NEUTROS'
-            : (!lumbarOk ? '⚠️ HIPEREXTENSIÓN LUMBAR' : '⚠️ REVISAR CUELLO'))
-        : (spineNeutral
-            ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
-            : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`);
-      const tWidth = ctx.measureText(label).width;
+      if (showCanvasText) {
+        // Dedicated spinal alignment status badge
+        const midX = (spineShoulder.x + spineHip.x) * width / 2;
+        const midY = (spineShoulder.y + spineHip.y) * height / 2;
+        ctx.font = 'bold 11px monospace';
+        const label = isHipThrust
+          ? (spineNeutral
+              ? '✓ LUMBAR Y CUELLO NEUTROS'
+              : (!lumbarOk ? '⚠️ HIPEREXTENSIÓN LUMBAR' : '⚠️ REVISAR CUELLO'))
+          : (spineNeutral
+              ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
+              : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`);
+        const tWidth = ctx.measureText(label).width;
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-      ctx.strokeStyle = spineColor;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(midX - tWidth / 2 - 6, midY - 11, tWidth + 12, 18, 5);
-      ctx.fill();
-      ctx.stroke();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.strokeStyle = spineColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(midX - tWidth / 2 - 6, midY - 11, tWidth + 12, 18, 5);
+        ctx.fill();
+        ctx.stroke();
 
-      ctx.fillStyle = spineNeutral ? '#6EE7B7' : '#FCA5A5';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, midX, midY - 2);
+        ctx.fillStyle = spineNeutral ? '#6EE7B7' : '#FCA5A5';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, midX, midY - 2);
+      }
 
       ctx.restore();
     }

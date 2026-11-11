@@ -290,8 +290,8 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     trackingMode: 'descending',
     standingThreshold: 165,
     inflectionThreshold: 88,
-    description: 'Vector vertical pasando por la clavícula para reclutamiento de haz clavicular.',
-    targetRatioDescription: 'Línea de gravedad sobre esternón superior'
+    description: 'Enfoque en pectoral superior (haz clavicular) con trayectoria vertical estable.',
+    targetRatioDescription: 'Énfasis en pectoral superior'
   },
   {
     id: 'cable_fly_mid_sternal',
@@ -303,8 +303,8 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     trackingMode: 'descending',
     standingThreshold: 95,
     inflectionThreshold: 38,
-    description: 'Tensión constante con brazos extendidos para maximizar el brazo de momento en pectoral.',
-    targetRatioDescription: 'Brazos casi rectos · pectoral limitante'
+    description: 'Brazos lo más extendidos posible para maximizar la tensión en el pectoral.',
+    targetRatioDescription: 'Aducción pectoral con brazos extendidos'
   },
   {
     id: 'dips_chest_lean',
@@ -652,8 +652,8 @@ export function evaluatePressBiomechanics(
   let footStabilityStatus: 'stable_leg_drive' | 'foot_lifted' | 'foot_shifted' | 'not_visible' = 'not_visible';
   let footStabilityLabel = 'Pies no visibles en encuadre';
 
-  const laVisible = la && (la.visibility === undefined || la.visibility >= 0.35) && la.y <= 0.985;
-  const raVisible = ra && (ra.visibility === undefined || ra.visibility >= 0.35) && ra.y <= 0.985;
+  const laVisible = la && (la.visibility === undefined || la.visibility >= 0.50) && la.y <= 0.96;
+  const raVisible = ra && (ra.visibility === undefined || ra.visibility >= 0.50) && ra.y <= 0.96;
 
   if (laVisible || raVisible) {
     if (footTracker) {
