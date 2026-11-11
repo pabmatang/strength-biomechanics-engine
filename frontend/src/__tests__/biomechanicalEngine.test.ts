@@ -3,6 +3,11 @@ import { OneEuroFilter, PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM } from '../utils/biomechanicalFSM';
 import { extractPoseDataFromLandmarks } from '../utils/videoPoseEstimator';
 import {
+  buildOfflineKinematicsTrack,
+  lookupOfflineFrameAtTime,
+  RawOfflinePoseSample
+} from '../utils/offlineVideoKinematics';
+import {
   perpendicularDistanceToLine,
   projectPointOntoLine,
   calculateTibialAngle,
@@ -894,5 +899,74 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       'gravity'
     );
     expect(bioFrame.biomechanics.loadPosition.y).toBeCloseTo(lockedFrame!.keypoints.hand_grip.y, 4);
+  });
+
+  it('Offline frame-by-frame kinematics track applies zero-phase smoothing, locks dominant side globally, counts chronological reps, and interpolates between timestamps', () => {
+    const pressPattern = EXERCISE_PATTERNS.find((p) => p.id === 'incline_dumbbell_press')!;
+    expect(pressPattern).toBeDefined();
+
+    // Synthesize a 4-second 30fps sequence (120 frames): Lockout (170°) -> Bottom (75°) -> Lockout (170°)
+    const fps = 30;
+    const totalFrames = 120;
+    const samples: RawOfflinePoseSample[] = [];
+
+    for (let i = 0; i < totalFrames; i++) {
+      const t = i / fps;
+      // Smooth cosine curve simulating flexion between t=0.5s and t=2.0s, extension back by t=3.5s
+      let elbowDeg = 168;
+      if (i >= 15 && i <= 105) {
+        const progress = (i - 15) / 90; // 0..1
+        elbowDeg = 168 - 94 * (0.5 - 0.5 * Math.cos(progress * 2 * Math.PI)); // dips to ~74 deg at mid-rep
+      }
+
+      const rad = (elbowDeg * Math.PI) / 180;
+      const lm = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.85 }));
+      // Place clean right arm shoulder -> elbow -> wrist geometry matching target angle + tiny high-freq jitter
+      const jitter = (i % 2 === 0 ? 0.004 : -0.004);
+      lm[12] = { x: 0.42, y: 0.46, z: 0.0, visibility: 0.96 }; // right_shoulder
+      lm[14] = { x: 0.30, y: 0.46 + jitter, z: 0.0, visibility: 0.96 }; // right_elbow
+      // Vector elbow->shoulder is (+0.12, 0), so wrist at angle `rad` gives exact elbowDeg
+      lm[16] = {
+        x: 0.30 + 0.14 * Math.cos(rad),
+        y: 0.46 - 0.14 * Math.sin(rad) + jitter,
+        z: 0.0,
+        visibility: 0.95
+      };
+      lm[11] = { x: 0.58, y: 0.46, z: 0.25, visibility: 0.80 }; // left_shoulder further back
+      lm[13] = { x: 0.65, y: 0.46, z: 0.25, visibility: 0.80 };
+      lm[15] = { x: 0.65, y: 0.32, z: 0.25, visibility: 0.80 };
+
+      samples.push({
+        frameIndex: i,
+        timeSec: t,
+        timestampMs: 1000 + i * (1000 / fps),
+        rawLandmarks: lm
+      });
+    }
+
+    const track = buildOfflineKinematicsTrack(samples, pressPattern, 'gravity', 'pectorals', fps);
+    expect(track.frames.length).toBe(totalFrames);
+    expect(track.dominantSide).toBe('right');
+    expect(track.auditedReps.length).toBe(1);
+
+    // Every single frame locks onto the exact same side ('right'), with zero side jumps
+    expect(track.frames[0].completedRepsCount).toBe(0);
+    expect(track.frames[totalFrames - 1].completedRepsCount).toBe(1);
+
+    // Zero-phase bidirectional smoothing must heavily attenuate +/-0.004 frame-to-frame jitter while remaining centered
+    const midWindow = track.frames.slice(3, 12).map((f) => f.smoothedKeypoints.right_elbow.y);
+    const maxSpread = Math.max(...midWindow) - Math.min(...midWindow);
+    expect(maxSpread).toBeLessThan(0.005);
+
+    // Binary search + smooth linear interpolation between frame 30 (t=1.000s) and frame 31 (t=1.0333s)
+    const f30 = track.frames[30];
+    const f31 = track.frames[31];
+    const halfTime = (f30.timeSec + f31.timeSec) / 2;
+    const interp = lookupOfflineFrameAtTime(track.frames, halfTime);
+    expect(interp).not.toBeNull();
+    expect(interp!.smoothedKeypoints.right_wrist.x).toBeCloseTo(
+      (f30.smoothedKeypoints.right_wrist.x + f31.smoothedKeypoints.right_wrist.x) / 2,
+      5
+    );
   });
 });

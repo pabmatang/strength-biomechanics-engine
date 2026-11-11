@@ -39,8 +39,17 @@ import {
   Keypoint2D,
   ExercisePoseProfile,
   drawDualModeOverlay,
-  RenderOverlayOptions
+  RenderOverlayOptions,
+  getMonotonicPoseTimestamp
 } from '../utils/videoPoseEstimator';
+import {
+  extractVideoLandmarksOffline,
+  buildOfflineKinematicsTrack,
+  lookupOfflineFrameAtTime,
+  OfflineExtractionProgress,
+  OfflineKinematicsResult,
+  RawOfflinePoseSample
+} from '../utils/offlineVideoKinematics';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
 import {
@@ -104,7 +113,15 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [showLeverArms, setShowLeverArms] = useState<boolean>(true);
   const [showCanvasText, setShowCanvasText] = useState<boolean>(true);
   const [showEngineSettings, setShowEngineSettings] = useState<boolean>(false);
-  const [isConfigOpenMobile, setIsConfigOpenMobile] = useState<boolean>(true);
+  const [showConfigBottomSheet, setShowConfigBottomSheet] = useState<boolean>(false);
+
+  // Decoupled Offline Frame-by-Frame Kinematics Cache
+  const [offlineTrack, setOfflineTrack] = useState<OfflineKinematicsResult | null>(null);
+  const [offlineStatus, setOfflineStatus] = useState<'idle' | 'extracting' | 'ready' | 'cancelled'>('idle');
+  const [offlineProgress, setOfflineProgress] = useState<OfflineExtractionProgress>({ currentFrame: 0, totalFrames: 0, percent: 0 });
+  const rawOfflineSamplesRef = useRef<RawOfflinePoseSample[]>([]);
+  const offlineFpsRef = useRef<number>(30);
+  const offlineAbortRef = useRef<AbortController | null>(null);
 
   // AI MediaPipe Vision Model Status
   const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
@@ -192,7 +209,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   }, [isOpen]);
 
-  // Re-initialize FSM when selectedPattern changes
+  // Re-initialize FSM when selectedPattern changes; if offline samples are already cached, recompute instantly in <5ms
   useEffect(() => {
     fsmRef.current = new BiomechanicalFSM({
       trackingMode: selectedPattern.trackingMode,
@@ -212,12 +229,108 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     goodFramingStreakRef.current = 0;
     footTrackerRef.current = {};
     setFramingWarning(null);
-  }, [selectedPattern]);
+
+    if (rawOfflineSamplesRef.current.length > 0 && offlineStatus === 'ready') {
+      const rebuilt = buildOfflineKinematicsTrack(
+        rawOfflineSamplesRef.current,
+        selectedPattern,
+        loadType,
+        targetMuscle,
+        offlineFpsRef.current
+      );
+      setOfflineTrack(rebuilt);
+      setAuditedReps(rebuilt.auditedReps);
+      setActiveAlerts(
+        rebuilt.auditedReps.length > 0
+          ? rebuilt.auditedReps[rebuilt.auditedReps.length - 1].techniqueVerdict.feedbackCues
+          : []
+      );
+    }
+  }, [selectedPattern, loadType, targetMuscle]);
+
+  const cancelOfflineAnalysis = () => {
+    if (offlineAbortRef.current) {
+      offlineAbortRef.current.abort();
+      offlineAbortRef.current = null;
+    }
+    setOfflineStatus('cancelled');
+  };
+
+  const startOfflineAnalysis = async (videoUrl: string) => {
+    if (offlineAbortRef.current) {
+      offlineAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    offlineAbortRef.current = controller;
+    setOfflineStatus('extracting');
+    setOfflineProgress({ currentFrame: 0, totalFrames: 0, percent: 0 });
+
+    try {
+      const landmarker = await getPoseLandmarker();
+      if (!landmarker || controller.signal.aborted) {
+        if (!controller.signal.aborted) setOfflineStatus('cancelled');
+        return;
+      }
+
+      const extraction = await extractVideoLandmarksOffline(videoUrl, landmarker, {
+        fps: 30,
+        onProgress: setOfflineProgress,
+        signal: controller.signal
+      });
+      if (controller.signal.aborted) return;
+
+      rawOfflineSamplesRef.current = extraction.samples;
+      offlineFpsRef.current = extraction.fps;
+
+      const track = buildOfflineKinematicsTrack(
+        extraction.samples,
+        selectedPattern,
+        loadType,
+        targetMuscle,
+        extraction.fps
+      );
+
+      setOfflineTrack(track);
+      setAuditedReps(track.auditedReps);
+      setActiveAlerts(
+        track.auditedReps.length > 0
+          ? track.auditedReps[track.auditedReps.length - 1].techniqueVerdict.feedbackCues
+          : []
+      );
+      setOfflineStatus('ready');
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.warn('Offline video pre-processing fallback to live inference:', err);
+        setOfflineStatus('cancelled');
+      }
+    }
+  };
+
+  // Trigger offline frame-by-frame pose extraction when an uploaded video & AI model are ready
+  useEffect(() => {
+    if (isOpen && aiModelStatus === 'ready' && uploadedVideoUrl && !useWebcam) {
+      startOfflineAnalysis(uploadedVideoUrl);
+    }
+    return () => {
+      if (offlineAbortRef.current) {
+        offlineAbortRef.current.abort();
+        offlineAbortRef.current = null;
+      }
+    };
+  }, [isOpen, aiModelStatus, uploadedVideoUrl, useWebcam]);
 
   // Cleanup on close
   useEffect(() => {
     if (!isOpen) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (offlineAbortRef.current) {
+        offlineAbortRef.current.abort();
+        offlineAbortRef.current = null;
+      }
+      rawOfflineSamplesRef.current = [];
+      setOfflineTrack(null);
+      setOfflineStatus('idle');
+      setShowConfigBottomSheet(false);
       setIsRecording(false);
       setBackendDiagnosis(null);
       setAuditedReps([]);
@@ -250,13 +363,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         video: { width: { ideal: 720 }, height: { ideal: 1280 }, facingMode: 'user' }
       });
       webcamStreamRef.current = stream;
+      if (offlineAbortRef.current) {
+        offlineAbortRef.current.abort();
+        offlineAbortRef.current = null;
+      }
+      rawOfflineSamplesRef.current = [];
+      setOfflineTrack(null);
+      setOfflineStatus('idle');
       setUseWebcam(true);
       setZoom(1);
       setPanOffset({ x: 0, y: 0 });
       setPlaybackSpeed(1.0);
-      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-        setIsConfigOpenMobile(false);
-      }
+      setShowConfigBottomSheet(false);
       if (videoElementRef.current) {
         videoElementRef.current.srcObject = stream;
         videoElementRef.current.playbackRate = 1.0;
@@ -275,6 +393,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     if (!file) return;
 
     stopWebcam();
+    if (offlineAbortRef.current) {
+      offlineAbortRef.current.abort();
+      offlineAbortRef.current = null;
+    }
+    rawOfflineSamplesRef.current = [];
+    setOfflineTrack(null);
+    setOfflineStatus('idle');
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
     }
@@ -290,11 +415,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
     setPlaybackSpeed(1.0);
+    setShowConfigBottomSheet(false);
     if (videoElementRef.current) {
       videoElementRef.current.playbackRate = 1.0;
-    }
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-      setIsConfigOpenMobile(false);
     }
     handleReset();
   };
@@ -324,12 +447,52 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     // Clear canvas before processing and drawing new frame to prevent ghosting/overlapping
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // STEP 2 OFFLINE PLAYBACK FAST-PATH:
+    // When pre-processed offline track is ready, render directly from cached zero-phase smoothed frames
+    if (offlineTrack && offlineTrack.frames.length > 0 && uploadedVideoUrl && !useWebcam) {
+      const cached = lookupOfflineFrameAtTime(offlineTrack.frames, video.currentTime || 0);
+      if (cached) {
+        setFramingWarning(cached.framingWarning);
+        if (cached.framingWarning) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          return;
+        }
+        setCurrentPrimaryAngle(cached.primaryAngle);
+        setCurrentTelemetry(cached.telemetry);
+        setCurrentPhase(cached.phase);
+        setRepCount(cached.completedRepsCount);
+
+        drawDualModeOverlay(
+          ctx,
+          analysisMode,
+          cached.telemetry,
+          cached.smoothedKeypoints,
+          canvas.width,
+          canvas.height,
+          analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
+          {
+            showLeverArms,
+            showCanvasText,
+            zoom,
+            panOffset,
+            primaryJointKey: selectedPattern.primaryJoint,
+            patternFamily: selectedPattern.patternFamily,
+            targetMuscle: selectedPattern.targetMuscle,
+            loadType,
+            exerciseId: selectedPattern.id,
+            useInternalCanvasTransform: false
+          },
+          selectedPattern.primaryJoint
+        );
+      }
+      return;
+    }
+
     try {
       const landmarker = await getPoseLandmarker();
       if (!landmarker) return;
 
-      const now = performance.now();
-      const monotonicTime = Math.max(now, lastTimestampRef.current + 1);
+      const monotonicTime = getMonotonicPoseTimestamp();
       lastTimestampRef.current = monotonicTime;
 
       const results = landmarker.detectForVideo(video, monotonicTime);
@@ -543,14 +706,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       isProcessingRef.current = false;
     };
-  }, [isRecording, isVideoPlaying, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
+  }, [isRecording, isVideoPlaying, offlineTrack, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
 
-  // Re-render single frame when zoom, pan, or overlay toggles change while paused
+  // Re-render single frame when zoom, pan, offline track, or overlay toggles change while paused
   useEffect(() => {
     if (!isRecording && !isVideoPlaying && (uploadedVideoUrl || useWebcam)) {
       processSingleFrame();
     }
-  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode]);
+  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode, offlineTrack]);
 
   // When AI model is ready or video url changes, trigger initial frame detection
   useEffect(() => {
@@ -697,14 +860,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
     setRepCount(0);
-    setAuditedReps([]);
+    setAuditedReps(offlineTrack ? offlineTrack.auditedReps : []);
     setActiveAlerts([]);
-    setCurrentTelemetry(null);
+    setCurrentTelemetry(offlineTrack?.frames[0]?.telemetry ?? null);
     setBackendDiagnosis(null);
-    setCurrentPrimaryAngle(selectedPattern.standingThreshold);
-    setCurrentPhase('LOCKOUT');
+    setCurrentPrimaryAngle(offlineTrack?.frames[0]?.primaryAngle ?? selectedPattern.standingThreshold);
+    setCurrentPhase(offlineTrack?.frames[0]?.phase ?? 'LOCKOUT');
     setVideoCurrentTime(0);
     setIsVideoPlaying(false);
+    if (offlineTrack) {
+      setTimeout(() => processSingleFrame(), 30);
+    }
   };
 
   const handleSendToBackend = async () => {
@@ -853,38 +1019,182 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
-      <div className="w-full max-w-6xl bg-[#0f111a] border border-blue-500/30 rounded-3xl p-4 sm:p-5 shadow-2xl text-white space-y-3 my-auto">
+  const modeSwitcherButtons = (
+    <div className="bg-slate-950/80 p-1 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1.5 shadow-inner">
+      <button
+        type="button"
+        onClick={() => setAnalysisMode('technique')}
+        className={`py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+          analysisMode === 'technique'
+            ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-black'
+            : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+        }`}
+      >
+        <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+        <span className="truncate">1. Corrección Técnica</span>
+      </button>
 
-        {/* Header (Product Cleanliness + Optional Engine Diagnostics Menu) */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25 shrink-0">
-              <Video className="w-5 h-5" />
+      <button
+        type="button"
+        onClick={() => setAnalysisMode('biomechanics')}
+        className={`py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+          analysisMode === 'biomechanics'
+            ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30 font-black'
+            : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+        }`}
+      >
+        <Scale className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+        <span className="truncate">2. Optimización Biomecánica</span>
+      </button>
+    </div>
+  );
+
+  const exerciseConfigControls = (
+    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-md">
+      {/* 1. Tipo de Carga */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
+          <span className="flex items-center gap-1.5">
+            <Scale className="w-3.5 h-3.5 text-cyan-400" />
+            1. Tipo de Carga
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+          {[
+            { key: 'gravity' as LoadType, label: 'Peso Libre' },
+            { key: 'cable' as LoadType, label: 'Polea / Cable' },
+            { key: 'machine' as LoadType, label: 'Máquina' }
+          ].map(item => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setLoadType(item.key)}
+              className={`py-1.5 px-2 rounded-lg text-xs font-semibold text-center truncate transition-all ${
+                loadType === item.key
+                  ? 'bg-blue-600 text-white shadow-md font-bold'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 2. Músculo Objetivo */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
+          <span className="flex items-center gap-1.5">
+            <Crosshair className="w-3.5 h-3.5 text-amber-400" />
+            2. Músculo Objetivo
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { key: 'quadriceps' as TargetMuscle, label: 'Cuádriceps' },
+            { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
+            { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
+            { key: 'lats' as TargetMuscle, label: 'Dorsal' },
+            { key: 'pectorals' as TargetMuscle, label: 'Pectoral' }
+          ].map(m => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => {
+                setTargetMuscle(m.key);
+                const patterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === m.key);
+                if (patterns.length > 0) setSelectedPatternId(patterns[0].id);
+              }}
+              className={`py-1 px-2.5 rounded-xl text-xs font-bold transition-all border ${
+                targetMuscle === m.key
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/25'
+                  : 'bg-slate-800/80 text-slate-200 border-slate-700/60 hover:border-slate-500'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 3. Patrón / Ejercicio */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-200">
+          <span className="flex items-center gap-1.5 shrink-0">
+            <Layers className="w-3.5 h-3.5 text-blue-400" />
+            3. Ejercicio
+          </span>
+          <span className="text-[10px] text-blue-300 truncate">
+            {selectedPattern.targetRatioDescription}
+          </span>
+        </div>
+        <select
+          value={selectedPattern.id}
+          onChange={e => setSelectedPatternId(e.target.value)}
+          className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 transition"
+        >
+          {availablePatterns.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] text-slate-300/90 pl-0.5 leading-snug">
+          {selectedPattern.description}
+        </p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3 landscape:p-2 lg:p-4 bg-black/95 backdrop-blur-md overflow-hidden">
+      <div className="w-full h-[100dvh] sm:h-auto sm:max-h-[96dvh] landscape:h-[100dvh] lg:landscape:h-auto lg:landscape:max-h-[95dvh] max-w-6xl bg-[#0f111a] sm:border border-blue-500/30 rounded-none sm:rounded-3xl p-2.5 sm:p-4 lg:p-5 shadow-2xl text-white flex flex-col gap-2 sm:gap-3 overflow-hidden my-auto">
+
+        {/* Compact Header (Adapts seamlessly between Portrait Mobile, Landscape Mobile & Desktop) */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2 gap-2 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25 shrink-0">
+              <Video className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base sm:text-lg font-black text-white">Análisis Biomecánico & Visión Dual</h3>
-                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-lg font-black text-white truncate">Análisis Biomecánico</h3>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${
                   aiModelStatus === 'ready'
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                     : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${aiModelStatus === 'ready' ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400 animate-ping'}`} />
-                  {aiModelStatus === 'ready' ? 'Motor Biomecánico Activo' : 'Iniciando Motor...'}
+                  <span className="hidden sm:inline">{aiModelStatus === 'ready' ? 'Motor Biomecánico Activo' : 'Iniciando Motor...'}</span>
+                  <span className="sm:hidden">{aiModelStatus === 'ready' ? 'Activo' : 'Cargando'}</span>
                 </span>
+                {offlineStatus === 'ready' && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hidden sm:inline-flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    Cinematic Cache 60fps
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-300/80 hidden sm:block">
+              <p className="text-xs text-slate-300/80 hidden lg:block">
                 Evaluación técnica, alineación articular y reparto muscular en tiempo real
               </p>
             </div>
           </div>
+
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
+              onClick={() => setShowConfigBottomSheet(true)}
+              className="lg:hidden px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40 flex items-center gap-1 max-w-[140px]"
+              title="Cambiar ejercicio o tipo de carga"
+            >
+              <Layers className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{selectedPattern.name.split('(')[0].trim()}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setShowEngineSettings(prev => !prev)}
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-colors ${
+              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-colors ${
                 showEngineSettings
                   ? 'bg-slate-800 text-cyan-300 border-cyan-500/40'
                   : 'text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800/80'
@@ -892,7 +1202,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               title="Ajustes avanzados del motor"
             >
               <Settings2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ajustes</span>
+              <span className="hidden lg:inline">Ajustes</span>
             </button>
             <button
               onClick={onClose}
@@ -903,169 +1213,48 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
         </div>
 
+        {/* Mobile Portrait Dual Mode Switcher right under compact header */}
+        <div className="shrink-0 landscape:hidden lg:hidden">
+          {modeSwitcherButtons}
+        </div>
+
         {/* Collapsible Advanced Engine Settings Drawer */}
         {showEngineSettings && (
-          <div className="px-3 py-2.5 rounded-2xl bg-slate-950/90 border border-slate-800 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-3 py-2 rounded-2xl bg-slate-950/90 border border-slate-800 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
               <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>
-                Configuración técnica: <strong className="text-white">OneEuroFilter Anti-Jitter</strong> · Máquina de estados con histéresis · MediaPipe Pose ({aiModelStatus === 'ready' ? 'GPU/WASM activo' : aiModelStatus})
+                Motor: <strong className="text-white">Preprocesado Offline Frame-by-Frame (30fps) + Filtro Bidireccional Cero-Retardo</strong> · MediaPipe Pose Full ({aiModelStatus === 'ready' ? 'GPU/WASM activo' : aiModelStatus})
               </span>
             </div>
-            <span className="text-[10px] text-cyan-300 font-mono">
-              Selección automática de brazo más visible
-            </span>
+            {uploadedVideoUrl && !useWebcam && offlineStatus !== 'extracting' && (
+              <button
+                type="button"
+                onClick={() => startOfflineAnalysis(uploadedVideoUrl)}
+                className="px-2.5 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Re-escanear Offline
+              </button>
+            )}
           </div>
         )}
 
-        {/* Responsive 2-Column Layout: Desktop (60% Left Video / 40% Right Controls & Metrics) | Mobile (Compact Top Config -> Video -> Verdict) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[auto_1fr] gap-3.5 items-start">
+        {/* Responsive Main Layout:
+            - Portrait Mobile: Single column 100dvh (Top 45% Video/Controls | Bottom 55% Verdict & Metrics)
+            - Landscape Mobile & Desktop: 2-Column 60% Left Video / 40% Right Controls & Metrics */}
+        <div className="flex-1 min-h-0 flex flex-col landscape:grid landscape:grid-cols-12 landscape:grid-rows-[auto_1fr] landscape:gap-3 lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-4 items-stretch landscape:items-start lg:items-start overflow-hidden landscape:overflow-y-auto lg:overflow-y-auto">
 
-          {/* RIGHT COLUMN TOP (Desktop col-span-5 row-1 | Mobile top): Dual Mode Switcher + Config Selector */}
-          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-1 space-y-2.5 min-w-0">
-            {/* Dual Mode Switcher */}
-            <div className="bg-slate-950/80 p-1 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1.5 shadow-inner">
-              <button
-                type="button"
-                onClick={() => setAnalysisMode('technique')}
-                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                  analysisMode === 'technique'
-                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-black'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>1. Corrección Técnica</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAnalysisMode('biomechanics')}
-                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                  analysisMode === 'biomechanics'
-                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30 font-black'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <Scale className="w-4 h-4 shrink-0" />
-                <span>2. Optimización Biomecánica</span>
-              </button>
-            </div>
-
-            {/* Mobile Accordion Header for Exercise Config */}
-            <button
-              type="button"
-              onClick={() => setIsConfigOpenMobile(prev => !prev)}
-              className="w-full lg:hidden px-3 py-2 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs"
-            >
-              <span className="font-semibold text-slate-200 truncate">
-                Ejercicio: <strong className="text-amber-300">{selectedPattern.name}</strong>
-              </span>
-              <span className="text-[11px] text-cyan-300 font-bold flex items-center gap-1 shrink-0 ml-2">
-                {isConfigOpenMobile ? 'Ocultar' : 'Cambiar'}
-                {isConfigOpenMobile ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              </span>
-            </button>
-
-            {/* Cascading Exercise Configuration */}
-            <div className={`${isConfigOpenMobile ? 'block' : 'hidden lg:block'} bg-slate-900/90 border border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-md`}>
-              {/* 1. Tipo de Carga */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
-                  <span className="flex items-center gap-1.5">
-                    <Scale className="w-3.5 h-3.5 text-cyan-400" />
-                    1. Tipo de Carga
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                  {[
-                    { key: 'gravity' as LoadType, label: 'Peso Libre' },
-                    { key: 'cable' as LoadType, label: 'Polea / Cable' },
-                    { key: 'machine' as LoadType, label: 'Máquina' }
-                  ].map(item => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => setLoadType(item.key)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-semibold text-center truncate transition-all ${
-                        loadType === item.key
-                          ? 'bg-blue-600 text-white shadow-md font-bold'
-                          : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 2. Músculo Objetivo */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
-                  <span className="flex items-center gap-1.5">
-                    <Crosshair className="w-3.5 h-3.5 text-amber-400" />
-                    2. Músculo Objetivo
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { key: 'quadriceps' as TargetMuscle, label: 'Cuádriceps' },
-                    { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
-                    { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
-                    { key: 'lats' as TargetMuscle, label: 'Dorsal' },
-                    { key: 'pectorals' as TargetMuscle, label: 'Pectoral' }
-                  ].map(m => (
-                    <button
-                      key={m.key}
-                      type="button"
-                      onClick={() => {
-                        setTargetMuscle(m.key);
-                        const patterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === m.key);
-                        if (patterns.length > 0) setSelectedPatternId(patterns[0].id);
-                      }}
-                      className={`py-1 px-2.5 rounded-xl text-xs font-bold transition-all border ${
-                        targetMuscle === m.key
-                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/25'
-                          : 'bg-slate-800/80 text-slate-200 border-slate-700/60 hover:border-slate-500'
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 3. Patrón / Ejercicio */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-200">
-                  <span className="flex items-center gap-1.5 shrink-0">
-                    <Layers className="w-3.5 h-3.5 text-blue-400" />
-                    3. Ejercicio
-                  </span>
-                  <span className="text-[10px] text-blue-300 truncate">
-                    {selectedPattern.targetRatioDescription}
-                  </span>
-                </div>
-                <select
-                  value={selectedPattern.id}
-                  onChange={e => setSelectedPatternId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 transition"
-                >
-                  {availablePatterns.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-300/90 pl-0.5 leading-snug">
-                  {selectedPattern.description}
-                </p>
-              </div>
+          {/* RIGHT COLUMN TOP (Desktop & Landscape Mobile: Mode Switcher + Config Selector) */}
+          <div className="hidden landscape:block lg:block landscape:col-start-8 landscape:col-span-5 landscape:row-start-1 lg:col-start-8 lg:col-span-5 lg:row-start-1 space-y-2.5 min-w-0">
+            {modeSwitcherButtons}
+            <div className="hidden lg:block">
+              {exerciseConfigControls}
             </div>
           </div>
 
-          {/* LEFT COLUMN (Desktop col-span-7 60% width): Video Toolbar + Viewport + Controls + Primary Actions */}
-          <div className="lg:col-start-1 lg:col-span-7 lg:row-start-1 lg:row-span-2 space-y-2.5 min-w-0">
+          {/* LEFT COLUMN (Portrait Top 45% | Landscape/Desktop 60% col-span-7): Video + Scrubber + Actions */}
+          <div className="shrink-0 flex flex-col gap-1.5 sm:gap-2 min-w-0 landscape:col-start-1 landscape:col-span-7 landscape:row-start-1 landscape:row-span-2 lg:col-start-1 lg:col-span-7 lg:row-start-1 lg:row-span-2">
 
             {/* Video Sources Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
@@ -1115,7 +1304,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleMouseUp}
-          className={`relative w-full h-64 sm:h-80 lg:h-[420px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none ${
+          className={`relative w-full h-[33dvh] min-h-[185px] sm:h-[38dvh] landscape:h-[calc(100dvh-11.5rem)] landscape:min-h-[195px] lg:h-[420px] lg:landscape:h-[420px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none ${
             zoom > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
           }`}
         >
@@ -1430,6 +1619,37 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               )}
             </>
           )}
+
+          {/* Decoupled Offline Frame-by-Frame Extraction Overlay */}
+          {offlineStatus === 'extracting' && (
+            <div className="absolute inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-4 text-center space-y-3">
+              <div className="flex items-center gap-2 text-cyan-300 font-black text-xs sm:text-sm">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Analizando fotogramas (offline sin lag)...</span>
+              </div>
+              <div className="w-full max-w-xs space-y-1.5">
+                <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-150"
+                    style={{ width: `${offlineProgress.percent}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-mono text-slate-300">
+                  <span>
+                    Frame {offlineProgress.currentFrame} / {offlineProgress.totalFrames || '…'}
+                  </span>
+                  <span className="font-bold text-emerald-300">{offlineProgress.percent}%</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={cancelOfflineAnalysis}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold transition"
+              >
+                Cancelar escaneo
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Framing Distance Warning Banner */}
@@ -1634,8 +1854,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             </div>
           </div>
 
-          {/* RIGHT COLUMN BOTTOM (Desktop col-span-5 row-2 | Mobile below video): Verdict & Telemetry Cards */}
-          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-2 space-y-3 min-w-0">
+          {/* RIGHT COLUMN BOTTOM (Portrait Bottom 55% scrollable | Landscape/Desktop col-span-5 row-2): Verdict & Telemetry Cards */}
+          <div className="flex-1 min-h-0 overflow-y-auto pt-1 sm:pt-1.5 landscape:pt-0 lg:pt-0 landscape:max-h-[calc(100dvh-6.2rem)] lg:max-h-[540px] space-y-2.5 min-w-0 pr-0.5 landscape:col-start-8 landscape:col-span-5 landscape:row-start-2 lg:col-start-8 lg:col-span-5 lg:row-start-2">
 
         {/* ========================================================= */}
         {/* MODE 1: DIAGNOSTIC CARDS (CORRECCIÓN DE TÉCNICA)          */}
@@ -2222,6 +2442,42 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Mobile BottomSheet Slide-up Drawer for Exercise / Load Configuration */}
+      {showConfigBottomSheet && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setShowConfigBottomSheet(false)}
+        >
+          <div
+            className="w-full max-w-lg bg-[#121521] border-t sm:border border-slate-700/80 rounded-t-3xl sm:rounded-3xl p-4 pb-6 shadow-2xl space-y-3 max-h-[85dvh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-slate-700 rounded-full mx-auto sm:hidden" />
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-black text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-cyan-400" />
+                Configurar Ejercicio y Carga
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowConfigBottomSheet(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {exerciseConfigControls}
+            <button
+              type="button"
+              onClick={() => setShowConfigBottomSheet(false)}
+              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black shadow-lg shadow-blue-600/30 transition"
+            >
+              Aplicar y Ver Análisis
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -363,6 +363,18 @@ export async function getPoseLandmarker(): Promise<PoseLandmarker | null> {
   }
 }
 
+let lastMonotonicPoseTimestampMs = 0;
+
+/**
+ * Ensures strictly increasing timestamps across both offline frame extraction and live video inference,
+ * preventing MediaPipe VIDEO-mode timestamp collision errors.
+ */
+export function getMonotonicPoseTimestamp(candidateMs: number = performance.now()): number {
+  const next = Math.max(candidateMs, lastMonotonicPoseTimestampMs + 1);
+  lastMonotonicPoseTimestampMs = next;
+  return next;
+}
+
 export interface ExtractedPoseFrame {
   keypoints: Record<string, Keypoint2D>;
   rawLandmarks?: Array<{ x: number; y: number; z: number; visibility?: number }>;
@@ -371,6 +383,7 @@ export interface ExtractedPoseFrame {
   hipAngle: number;
   torsoLeanAngle: number;
   dominantSide: 'left' | 'right';
+  sideScores?: { left: number; right: number };
 }
 
 /**
@@ -622,7 +635,8 @@ export function extractPoseDataFromLandmarks(
     kneeAngle,
     hipAngle,
     torsoLeanAngle,
-    dominantSide
+    dominantSide,
+    sideScores: { left: leftVis, right: rightVis }
   };
 }
 
