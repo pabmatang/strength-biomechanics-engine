@@ -40,7 +40,8 @@ import {
   ExercisePoseProfile,
   drawDualModeOverlay,
   RenderOverlayOptions,
-  getMonotonicPoseTimestamp
+  getMonotonicPoseTimestamp,
+  PoseModelQuality
 } from '../utils/videoPoseEstimator';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
@@ -109,6 +110,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // AI MediaPipe Vision Model Status
   const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
+  const [poseQuality, setPoseQuality] = useState<PoseModelQuality>('full');
   const [isRecording, setIsRecording] = useState(false);
 
   // Dynamic telemetry
@@ -144,8 +146,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const isScrubbingRef = useRef<boolean>(false);
 
   // Adaptive OneEuroFilter smoother for all landmarks (Anti-Jitter)
+  // Adaptive OneEuroFilter calibrated for normalized [0..1] coordinates:
+  // high smoothness at rest (minCutoff 1.4Hz), near-zero lag during fast concentric/eccentric movement (beta 6.5)
   const poseSmootherRef = useRef<PoseLandmarkSmoother>(
-    new PoseLandmarkSmoother({ minCutoff: 0.65, beta: 0.005, dCutoff: 1.0 })
+    new PoseLandmarkSmoother({ minCutoff: 1.4, beta: 6.5, dCutoff: 1.0 })
   );
   const smoothedTibialAngleRef = useRef<number>(14);
   const dominantSideRef = useRef<'left' | 'right' | null>(null);
@@ -169,12 +173,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     })
   );
 
-  // Initialize MediaPipe Tasks Vision on Modal Open
+  // Initialize MediaPipe Tasks Vision on Modal Open or Quality Tier Change
   useEffect(() => {
     let isMounted = true;
     if (isOpen) {
       setAiModelStatus('loading');
-      getPoseLandmarker()
+      getPoseLandmarker(poseQuality)
         .then(instance => {
           if (!isMounted) return;
           if (instance) {
@@ -191,7 +195,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen]);
+  }, [isOpen, poseQuality]);
 
   // Re-initialize FSM when selectedPattern changes
   useEffect(() => {
@@ -323,7 +327,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     try {
-      const landmarker = await getPoseLandmarker();
+      const landmarker = await getPoseLandmarker(poseQuality);
       if (!landmarker) return;
 
       const monotonicTime = getMonotonicPoseTimestamp();
@@ -501,7 +505,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   };
 
-  // Continuous loop when recording or playing video
+  // Continuous loop synced 1:1 to decoded video frames via requestVideoFrameCallback (fallback requestAnimationFrame)
   useEffect(() => {
     const shouldRunLoop = isRecording || isVideoPlaying;
     if (!shouldRunLoop) {
@@ -510,7 +514,26 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       return;
     }
 
-    const processLoop = async () => {
+    let cancelled = false;
+    const videoEl = videoElementRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (id: number) => void;
+    }) | null;
+    let vfcHandle: number | null = null;
+
+    const useVfc = Boolean(uploadedVideoUrl && !useWebcam && videoEl && typeof videoEl.requestVideoFrameCallback === 'function');
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+      if (useVfc && videoEl?.requestVideoFrameCallback) {
+        vfcHandle = videoEl.requestVideoFrameCallback(runStep);
+      } else {
+        animationFrameRef.current = requestAnimationFrame(runStep);
+      }
+    };
+
+    const runStep = async () => {
+      if (cancelled) return;
       const video = videoElementRef.current;
       if (!isRecording && !isVideoPlaying) {
         isProcessingRef.current = false;
@@ -522,7 +545,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       }
 
       if (isProcessingRef.current) {
-        animationFrameRef.current = requestAnimationFrame(processLoop);
+        scheduleNext();
         return;
       }
       isProcessingRef.current = true;
@@ -530,17 +553,21 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         await processSingleFrame();
       } finally {
         isProcessingRef.current = false;
-        animationFrameRef.current = requestAnimationFrame(processLoop);
+        scheduleNext();
       }
     };
 
-    animationFrameRef.current = requestAnimationFrame(processLoop);
+    scheduleNext();
 
     return () => {
+      cancelled = true;
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (vfcHandle !== null && videoEl?.cancelVideoFrameCallback) {
+        videoEl.cancelVideoFrameCallback(vfcHandle);
+      }
       isProcessingRef.current = false;
     };
-  }, [isRecording, isVideoPlaying, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
+  }, [isRecording, isVideoPlaying, uploadedVideoUrl, useWebcam, poseQuality, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
 
   // Re-render single frame when zoom, pan, or overlay toggles change while paused
   useEffect(() => {
@@ -582,18 +609,23 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const current = video.currentTime || 0;
     const maxDur = video.duration || 100;
     const newTime = Math.max(0, Math.min(maxDur, current + seconds));
+    if (Math.abs(newTime - current) >= 0.2) {
+      poseSmootherRef.current.reset();
+    }
     video.currentTime = newTime;
     setVideoCurrentTime(newTime);
-    processSingleFrame();
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoElementRef.current;
     if (!video) return;
+    const prev = video.currentTime || 0;
     const target = parseFloat(e.target.value);
+    if (Math.abs(target - prev) >= 0.2) {
+      poseSmootherRef.current.reset();
+    }
     setVideoCurrentTime(target);
     video.currentTime = target;
-    processSingleFrame();
   };
 
   const handleSpeedChange = (speed: number) => {
@@ -1049,12 +1081,32 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             <div className="flex items-center gap-2">
               <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>
-                Motor: <strong className="text-white">OneEuroFilter Anti-Jitter</strong> · Máquina de estados con histéresis · MediaPipe Pose ({aiModelStatus === 'ready' ? 'GPU/WASM activo' : aiModelStatus})
+                Motor: <strong className="text-white">OneEuroFilter (Cero-Lag)</strong> · Precisión MediaPipe ({aiModelStatus === 'ready' ? 'Activo' : aiModelStatus})
               </span>
             </div>
-            <span className="text-[10px] text-cyan-300 font-mono">
-              Selección automática de lado más visible
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-400">Modelo:</span>
+              {([
+                { id: 'full' as PoseModelQuality, label: 'Rápido (Full)' },
+                { id: 'heavy' as PoseModelQuality, label: 'Máx. Precisión (Heavy)' }
+              ]).map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    poseSmootherRef.current.reset();
+                    setPoseQuality(opt.id);
+                  }}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                    poseQuality === opt.id
+                      ? 'bg-cyan-600/25 border-cyan-500/60 text-cyan-200'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

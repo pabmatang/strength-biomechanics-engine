@@ -304,51 +304,78 @@ export interface RepetitionRecord {
   }>;
 }
 
+export type PoseModelQuality = 'full' | 'heavy' | 'lite';
+
 // Global singleton for MediaPipe Pose Landmarker
 let poseLandmarkerInstance: PoseLandmarker | null = null;
+let poseLandmarkerQualityLoaded: PoseModelQuality | null = null;
 let isInitializingLandmarker = false;
 
 /**
  * Initializes or returns the singleton Google MediaPipe PoseLandmarker model.
+ * Uses 'full' by default (much sharper elbow/wrist/knee localization on dark/occluded clothes than 'lite'
+ * with zero offline MP4 seek delay), with optional 'heavy' mode and automatic 'lite' fallback.
  */
-export async function getPoseLandmarker(): Promise<PoseLandmarker | null> {
-  if (poseLandmarkerInstance) return poseLandmarkerInstance;
+export async function getPoseLandmarker(quality: PoseModelQuality = 'full'): Promise<PoseLandmarker | null> {
+  if (poseLandmarkerInstance && poseLandmarkerQualityLoaded === quality) {
+    return poseLandmarkerInstance;
+  }
   if (isInitializingLandmarker) {
     while (isInitializingLandmarker) {
       await new Promise(r => setTimeout(r, 80));
     }
-    return poseLandmarkerInstance;
+    if (poseLandmarkerInstance && poseLandmarkerQualityLoaded === quality) {
+      return poseLandmarkerInstance;
+    }
   }
 
-  const liteModelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+  const modelUrls: Record<PoseModelQuality, string> = {
+    heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
+    full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+    lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'
+  };
   const confidenceOpts = {
-    minPoseDetectionConfidence: 0.55,
-    minPosePresenceConfidence: 0.55,
-    minTrackingConfidence: 0.60
+    minPoseDetectionConfidence: 0.6,
+    minPosePresenceConfidence: 0.6,
+    minTrackingConfidence: 0.68
   };
 
   isInitializingLandmarker = true;
   try {
+    if (poseLandmarkerInstance && poseLandmarkerQualityLoaded !== quality) {
+      try {
+        poseLandmarkerInstance.close();
+      } catch {
+        // Ignore cleanup errors
+      }
+      poseLandmarkerInstance = null;
+      poseLandmarkerQualityLoaded = null;
+    }
+
     const vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
     );
 
-    const attempts: Array<{ modelAssetPath: string; delegate: 'GPU' | 'CPU' }> = [
-      { modelAssetPath: liteModelUrl, delegate: 'GPU' },
-      { modelAssetPath: liteModelUrl, delegate: 'CPU' }
-    ];
+    const order: PoseModelQuality[] = quality === 'heavy'
+      ? ['heavy', 'full', 'lite']
+      : quality === 'full'
+        ? ['full', 'lite']
+        : ['lite'];
 
-    for (const attempt of attempts) {
-      try {
-        poseLandmarkerInstance = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: attempt,
-          runningMode: 'VIDEO',
-          numPoses: 1,
-          ...confidenceOpts
-        });
-        return poseLandmarkerInstance;
-      } catch (attemptErr) {
-        console.warn(`PoseLandmarker init fallback (${attempt.delegate}):`, attemptErr);
+    for (const tier of order) {
+      for (const delegate of ['GPU', 'CPU'] as const) {
+        try {
+          poseLandmarkerInstance = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: modelUrls[tier], delegate },
+            runningMode: 'VIDEO',
+            numPoses: 1,
+            ...confidenceOpts
+          });
+          poseLandmarkerQualityLoaded = tier;
+          return poseLandmarkerInstance;
+        } catch (attemptErr) {
+          console.warn(`PoseLandmarker init fallback (${tier}/${delegate}):`, attemptErr);
+        }
       }
     }
     return null;
@@ -465,7 +492,7 @@ export function extractPoseDataFromLandmarks(
   const la = refineAnkle(laRaw, lHeel, lFootIndex);
   const ra = refineAnkle(raRaw, rHeel, rFootIndex);
 
-  // Estimate fist / grip center only when hand knuckles are strongly confident; otherwise stay locked to stable wrist
+  // Estimate true palm / fist grip center when index/pinky/thumb knuckles are near the wrist (bar/dumbbell handle)
   const computeHandGripCenter = (
     wr?: typeof ls,
     idx?: typeof ls,
@@ -473,25 +500,25 @@ export function extractPoseDataFromLandmarks(
     thb?: typeof ls
   ) => {
     if (!wr) return { x: 0.5, y: 0.5, z: 0, visibility: 0 };
-    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.70 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.12);
-    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.70 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.12);
+    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.42 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.11);
+    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.42 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.11);
     if (!idxOk && !pnkOk) return wr;
 
     const knX = idxOk && pnkOk ? (idx!.x + pnk!.x) / 2 : (idxOk ? idx!.x : pnk!.x);
     const knY = idxOk && pnkOk ? (idx!.y + pnk!.y) / 2 : (idxOk ? idx!.y : pnk!.y);
-    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.70 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.12);
+    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.42 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.11);
 
     if (thbOk) {
       return {
-        x: knX * 0.42 + thb!.x * 0.18 + wr.x * 0.40,
-        y: knY * 0.42 + thb!.y * 0.18 + wr.y * 0.40,
+        x: knX * 0.48 + thb!.x * 0.22 + wr.x * 0.30,
+        y: knY * 0.48 + thb!.y * 0.22 + wr.y * 0.30,
         z: wr.z,
         visibility: wr.visibility
       };
     }
     return {
-      x: knX * 0.50 + wr.x * 0.50,
-      y: knY * 0.50 + wr.y * 0.50,
+      x: knX * 0.62 + wr.x * 0.38,
+      y: knY * 0.62 + wr.y * 0.38,
       z: wr.z,
       visibility: wr.visibility
     };
@@ -1338,9 +1365,10 @@ export function drawBiomechanicsOverlayOnCanvas(
       );
     }
 
-    // Ground foot stability dots for Chest Press (Leg Drive visibility)
+    // Ground foot stability dots for Chest Press (Leg Drive visibility; skip for dips & flys)
+    const isDips = Boolean(options.exerciseId?.includes('dips'));
     const pressEval = bio.pressEvaluation;
-    if (!isCableFly && pressEval && pressEval.footStabilityStatus !== 'not_visible') {
+    if (!isCableFly && !isDips && pressEval && pressEval.footStabilityStatus !== 'not_visible') {
       const footColor = pressEval.footStabilityStatus === 'stable_leg_drive' ? '#10B981' : '#EF4444';
       const la = keypoints['left_ankle'];
       const ra = keypoints['right_ankle'];

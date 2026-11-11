@@ -894,5 +894,31 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       'gravity'
     );
     expect(bioFrame.biomechanics.loadPosition.y).toBeCloseTo(lockedFrame!.keypoints.hand_grip.y, 4);
+
+    // 5. Normalized-space OneEuroFilter (beta = 6.5) tracks linear movement tightly without 250ms trailing lag
+    const fastNormFilter = new OneEuroFilter(1.4, 6.5, 1.0);
+    let lastVal = 0.2;
+    for (let f = 0; f <= 15; f++) {
+      const target = 0.2 + f * 0.025; // ~0.75 normalized units/sec at 30fps
+      lastVal = fastNormFilter.filter(target, 1000 + f * 33.3);
+    }
+    const finalTarget = 0.2 + 15 * 0.025;
+    expect(Math.abs(finalTarget - lastVal)).toBeLessThan(0.022);
+
+    // 6. Dips (Fondos) must ignore feet off the ground so ankle dots / leg-drive warnings never fire
+    const dipsEval = evaluatePressBiomechanics(
+      {
+        ...lockedFrame!.keypoints,
+        left_ankle: { x: 0.68, y: 0.78, visibility: 0.92 },
+        right_ankle: { x: 0.65, y: 0.84, visibility: 0.92 },
+        left_knee: { x: 0.66, y: 0.68, visibility: 0.92 },
+        right_knee: { x: 0.64, y: 0.72, visibility: 0.92 }
+      },
+      'sagittal',
+      {},
+      95,
+      'dips_chest_lean'
+    );
+    expect(dipsEval.footStabilityStatus).toBe('not_visible');
   });
 });

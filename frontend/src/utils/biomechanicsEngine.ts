@@ -537,7 +537,8 @@ export function evaluatePressBiomechanics(
   keypoints: Record<string, Point2D & { visibility?: number }>,
   cameraPlane: CameraPlane,
   footTracker?: FootStabilityState,
-  currentElbowAngle?: number
+  currentElbowAngle?: number,
+  exerciseId?: string
 ): PressBiomechanicsEvaluation {
   const ls = keypoints['left_shoulder'];
   const rs = keypoints['right_shoulder'];
@@ -652,8 +653,9 @@ export function evaluatePressBiomechanics(
   let footStabilityStatus: 'stable_leg_drive' | 'foot_lifted' | 'foot_shifted' | 'not_visible' = 'not_visible';
   let footStabilityLabel = 'Pies no visibles en encuadre';
 
-  const laVisible = la && (la.visibility === undefined || la.visibility >= 0.62) && la.y <= 0.93 && (!keypoints['left_knee'] || keypoints['left_knee'].y <= 0.88);
-  const raVisible = ra && (ra.visibility === undefined || ra.visibility >= 0.62) && ra.y <= 0.93 && (!keypoints['right_knee'] || keypoints['right_knee'].y <= 0.88);
+  const isDips = Boolean(exerciseId?.includes('dips'));
+  const laVisible = !isDips && la && (la.visibility === undefined || la.visibility >= 0.62) && la.y <= 0.93 && (!keypoints['left_knee'] || keypoints['left_knee'].y <= 0.88);
+  const raVisible = !isDips && ra && (ra.visibility === undefined || ra.visibility >= 0.62) && ra.y <= 0.93 && (!keypoints['right_knee'] || keypoints['right_knee'].y <= 0.88);
 
   if (laVisible || raVisible) {
     if (footTracker) {
@@ -1761,7 +1763,7 @@ export function evaluateBiomechanicalFrame(
   const isCableFly = exerciseId.includes('fly');
   const isChestPress = patternFamily === 'push_press' && !isCableFly;
   const flyEval = isCableFly ? evaluateFlyBiomechanics(smoothedKeypoints, cameraPlane) : undefined;
-  const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker, currentAngle) : undefined;
+  const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker, currentAngle, exerciseId) : undefined;
 
   // Spinal neutrality:
   // - Cable Fly: spine check disabled (user focus strictly on arm extension + shoulder retraction)
