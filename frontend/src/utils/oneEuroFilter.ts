@@ -11,8 +11,9 @@
 
 export interface OneEuroParams {
   minCutoff: number; // Minimum cutoff frequency in Hz (typically 0.8 - 1.5 Hz)
-  beta: number;      // Speed coefficient (typically 0.005 - 0.02)
+  beta: number;      // Speed coefficient
   dCutoff: number;   // Cutoff frequency for derivative filtering (typically 1.0 Hz)
+  deadzone?: number; // Optional micro-jitter deadzone in normalized coordinates (0 = disabled)
 }
 
 export const DEFAULT_ONE_EURO_PARAMS: OneEuroParams = {
@@ -180,9 +181,11 @@ export class PoseLandmarkSmoother {
     for (const [name, pt] of Object.entries(keypoints)) {
       if (!pt) continue;
 
+      const prev = this.lastSmoothed[name];
+
       // Reject 1-frame low-confidence landmark spikes/dropouts if a valid prior position exists
-      if (pt.visibility !== undefined && pt.visibility < 0.35 && this.lastSmoothed[name]) {
-        smoothed[name] = { ...this.lastSmoothed[name], visibility: pt.visibility };
+      if (pt.visibility !== undefined && pt.visibility < 0.35 && prev) {
+        smoothed[name] = { ...prev, visibility: pt.visibility };
         continue;
       }
 
@@ -192,7 +195,15 @@ export class PoseLandmarkSmoother {
         this.landmarkFilters.set(name, filter);
       }
 
-      smoothed[name] = filter.filter(pt, timestampMs);
+      const filtered = filter.filter(pt, timestampMs);
+
+      // Hold coordinate rock-steady within micro-jitter deadzone so stationary joints don't twitch
+      const dz = this.params.deadzone ?? 0;
+      if (dz > 0 && prev && Math.abs(filtered.x - prev.x) < dz && Math.abs(filtered.y - prev.y) < dz) {
+        smoothed[name] = { ...prev, visibility: pt.visibility };
+      } else {
+        smoothed[name] = filtered;
+      }
     }
 
     this.lastSmoothed = smoothed;

@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { OneEuroFilter, PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM } from '../utils/biomechanicalFSM';
-import { extractPoseDataFromLandmarks } from '../utils/videoPoseEstimator';
+import {
+  extractPoseDataFromLandmarks,
+  computeZoomedVideoRoi,
+  remapLandmarksFromRoi
+} from '../utils/videoPoseEstimator';
 import {
   perpendicularDistanceToLine,
   projectPointOntoLine,
@@ -920,5 +924,20 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       'dips_chest_lean'
     );
     expect(dipsEval.footStabilityStatus).toBe('not_visible');
+
+    // 7. Micro-jitter deadzone holds stationary landmarks steady without twitching
+    const dzSmoother = new PoseLandmarkSmoother({ minCutoff: 1.0, beta: 5.5, dCutoff: 1.0, deadzone: 0.003 });
+    const base = dzSmoother.smoothLandmarks({ elbow: { x: 0.5, y: 0.5, visibility: 0.9 } }, 100);
+    const micro = dzSmoother.smoothLandmarks({ elbow: { x: 0.5015, y: 0.501, visibility: 0.9 } }, 133);
+    expect(micro.elbow.x).toBe(base.elbow.x);
+    expect(micro.elbow.y).toBe(base.elbow.y);
+
+    // 8. Zoomed ROI cropping + coordinate remapping round-trips cleanly back into full [0..1] video space
+    const roi = computeZoomedVideoRoi(600, 420, 720, 1280, 2.0, { x: 0, y: 0 });
+    expect(roi.h).toBeCloseTo(0.5, 4);
+    expect(roi.y).toBeCloseTo(0.25, 4);
+    const remapped = remapLandmarksFromRoi([{ x: 0.5, y: 0.5, z: 0, visibility: 0.9 }], roi);
+    expect(remapped[0].x).toBeCloseTo(0.5, 4);
+    expect(remapped[0].y).toBeCloseTo(0.5, 4);
   });
 });

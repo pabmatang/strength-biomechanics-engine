@@ -41,7 +41,9 @@ import {
   drawDualModeOverlay,
   RenderOverlayOptions,
   getMonotonicPoseTimestamp,
-  PoseModelQuality
+  PoseModelQuality,
+  computeZoomedVideoRoi,
+  remapLandmarksFromRoi
 } from '../utils/videoPoseEstimator';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
@@ -138,6 +140,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   // References
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const roiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
@@ -145,11 +149,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const lastTimestampRef = useRef<number>(0);
   const isScrubbingRef = useRef<boolean>(false);
 
-  // Adaptive OneEuroFilter smoother for all landmarks (Anti-Jitter)
-  // Adaptive OneEuroFilter calibrated for normalized [0..1] coordinates:
-  // high smoothness at rest (minCutoff 1.4Hz), near-zero lag during fast concentric/eccentric movement (beta 6.5)
+  // Adaptive OneEuroFilter calibrated for normalized [0..1] coordinates + 0.0028 micro-jitter deadzone:
+  // holds points rock-steady when still, tracks fast movement cleanly with near-zero trailing lag
   const poseSmootherRef = useRef<PoseLandmarkSmoother>(
-    new PoseLandmarkSmoother({ minCutoff: 1.4, beta: 6.5, dCutoff: 1.0 })
+    new PoseLandmarkSmoother({ minCutoff: 1.0, beta: 5.5, dCutoff: 1.0, deadzone: 0.0028 })
   );
   const smoothedTibialAngleRef = useRef<number>(14);
   const dominantSideRef = useRef<'left' | 'right' | null>(null);
@@ -333,13 +336,68 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       const monotonicTime = getMonotonicPoseTimestamp();
       lastTimestampRef.current = monotonicTime;
 
-      const results = landmarker.detectForVideo(video, monotonicTime);
-      if (results && results.landmarks && results.landmarks[0] && results.landmarks[0].length >= 33) {
+      let detectedLandmarks: Array<{ x: number; y: number; z: number; visibility?: number }> | undefined;
+
+      // When user zooms (>1x) on the athlete, feed the zoomed ROI crop to MediaPipe so joints get 1.5x-2x higher pixel density
+      const vp = viewportRef.current;
+      if (zoom > 1.05 && vp && video.videoWidth > 0 && video.videoHeight > 0) {
+        const roi = computeZoomedVideoRoi(
+          vp.clientWidth,
+          vp.clientHeight,
+          video.videoWidth,
+          video.videoHeight,
+          zoom,
+          panOffset
+        );
+        if (roi.w < 0.92 || roi.h < 0.92) {
+          if (!roiCanvasRef.current && typeof document !== 'undefined') {
+            roiCanvasRef.current = document.createElement('canvas');
+          }
+          const roiCanvas = roiCanvasRef.current;
+          const roiCtx = roiCanvas?.getContext('2d');
+          if (roiCanvas && roiCtx) {
+            const srcW = Math.max(1, Math.round(roi.w * video.videoWidth));
+            const srcH = Math.max(1, Math.round(roi.h * video.videoHeight));
+            const maxDim = 640;
+            const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+            const dstW = Math.max(2, Math.round(srcW * scale));
+            const dstH = Math.max(2, Math.round(srcH * scale));
+            if (roiCanvas.width !== dstW) roiCanvas.width = dstW;
+            if (roiCanvas.height !== dstH) roiCanvas.height = dstH;
+
+            roiCtx.drawImage(
+              video,
+              Math.round(roi.x * video.videoWidth),
+              Math.round(roi.y * video.videoHeight),
+              srcW,
+              srcH,
+              0,
+              0,
+              dstW,
+              dstH
+            );
+            const roiResults = landmarker.detectForVideo(roiCanvas, monotonicTime);
+            if (roiResults?.landmarks?.[0]?.length >= 33) {
+              detectedLandmarks = remapLandmarksFromRoi(roiResults.landmarks[0], roi);
+            }
+          }
+        }
+      }
+
+      if (!detectedLandmarks) {
+        const fullTime = detectedLandmarks ? monotonicTime : getMonotonicPoseTimestamp();
+        const results = landmarker.detectForVideo(video, fullTime);
+        if (results?.landmarks?.[0]?.length >= 33) {
+          detectedLandmarks = results.landmarks[0];
+        }
+      }
+
+      if (detectedLandmarks && detectedLandmarks.length >= 33) {
         const analysisRegion = (selectedPattern.primaryJoint === 'elbow' || selectedPattern.primaryJoint === 'shoulder')
           ? 'upper'
           : 'lower';
         const frame = extractPoseDataFromLandmarks(
-          results.landmarks[0],
+          detectedLandmarks,
           dominantSideRef.current || undefined,
           analysisRegion
         );
@@ -1167,6 +1225,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
         {/* Video Canvas Viewport */}
         <div
+          ref={viewportRef}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}

@@ -387,6 +387,62 @@ export async function getPoseLandmarker(quality: PoseModelQuality = 'full'): Pro
   }
 }
 
+export interface NormalizedVideoRoi {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Computes the normalized [0..1] crop rectangle of the video visible inside a zoomed & panned object-contain viewport.
+ * Allows MediaPipe PoseLandmarker to infer on higher-resolution cropped athlete pixels when zoom > 1.
+ */
+export function computeZoomedVideoRoi(
+  boxW: number,
+  boxH: number,
+  vidW: number,
+  vidH: number,
+  zoom: number,
+  panOffset: { x: number; y: number }
+): NormalizedVideoRoi {
+  if (zoom <= 1.05 || boxW <= 0 || boxH <= 0 || vidW <= 0 || vidH <= 0) {
+    return { x: 0, y: 0, w: 1, h: 1 };
+  }
+
+  const scaleContain = Math.min(boxW / vidW, boxH / vidH);
+  const rw = vidW * scaleContain;
+  const rh = vidH * scaleContain;
+
+  const vx0 = Math.max(0, 0.5 - (boxW / 2 + panOffset.x) / (zoom * rw));
+  const vx1 = Math.min(1, 0.5 + (boxW / 2 - panOffset.x) / (zoom * rw));
+  const vy0 = Math.max(0, 0.5 - (boxH / 2 + panOffset.y) / (zoom * rh));
+  const vy1 = Math.min(1, 0.5 + (boxH / 2 - panOffset.y) / (zoom * rh));
+
+  const w = vx1 - vx0;
+  const h = vy1 - vy0;
+  if (w < 0.15 || h < 0.15) {
+    return { x: 0, y: 0, w: 1, h: 1 };
+  }
+  return { x: vx0, y: vy0, w, h };
+}
+
+/**
+ * Maps PoseLandmarker normalized landmarks detected on a cropped ROI back into full [0..1] video space.
+ */
+export function remapLandmarksFromRoi(
+  landmarks: Array<{ x: number; y: number; z: number; visibility?: number }>,
+  roi: NormalizedVideoRoi
+): Array<{ x: number; y: number; z: number; visibility?: number }> {
+  if (roi.x === 0 && roi.y === 0 && roi.w === 1 && roi.h === 1) return landmarks;
+  return landmarks.map(lm => ({
+    x: roi.x + lm.x * roi.w,
+    y: roi.y + lm.y * roi.h,
+    z: lm.z * Math.max(roi.w, roi.h),
+    visibility: lm.visibility
+  }));
+}
+
 let lastMonotonicPoseTimestampMs = 0;
 
 /**
