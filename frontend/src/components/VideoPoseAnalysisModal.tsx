@@ -42,14 +42,6 @@ import {
   RenderOverlayOptions,
   getMonotonicPoseTimestamp
 } from '../utils/videoPoseEstimator';
-import {
-  extractVideoLandmarksOffline,
-  buildOfflineKinematicsTrack,
-  lookupOfflineFrameAtTime,
-  OfflineExtractionProgress,
-  OfflineKinematicsResult,
-  RawOfflinePoseSample
-} from '../utils/offlineVideoKinematics';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
 import {
@@ -114,14 +106,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [showCanvasText, setShowCanvasText] = useState<boolean>(true);
   const [showEngineSettings, setShowEngineSettings] = useState<boolean>(false);
   const [showConfigBottomSheet, setShowConfigBottomSheet] = useState<boolean>(false);
-
-  // Decoupled Offline Frame-by-Frame Kinematics Cache
-  const [offlineTrack, setOfflineTrack] = useState<OfflineKinematicsResult | null>(null);
-  const [offlineStatus, setOfflineStatus] = useState<'idle' | 'extracting' | 'ready' | 'cancelled'>('idle');
-  const [offlineProgress, setOfflineProgress] = useState<OfflineExtractionProgress>({ currentFrame: 0, totalFrames: 0, percent: 0 });
-  const rawOfflineSamplesRef = useRef<RawOfflinePoseSample[]>([]);
-  const offlineFpsRef = useRef<number>(30);
-  const offlineAbortRef = useRef<AbortController | null>(null);
 
   // AI MediaPipe Vision Model Status
   const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
@@ -209,7 +193,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   }, [isOpen]);
 
-  // Re-initialize FSM when selectedPattern changes; if offline samples are already cached, recompute instantly in <5ms
+  // Re-initialize FSM when selectedPattern changes
   useEffect(() => {
     fsmRef.current = new BiomechanicalFSM({
       trackingMode: selectedPattern.trackingMode,
@@ -229,107 +213,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     goodFramingStreakRef.current = 0;
     footTrackerRef.current = {};
     setFramingWarning(null);
-
-    if (rawOfflineSamplesRef.current.length > 0 && offlineStatus === 'ready') {
-      const rebuilt = buildOfflineKinematicsTrack(
-        rawOfflineSamplesRef.current,
-        selectedPattern,
-        loadType,
-        targetMuscle,
-        offlineFpsRef.current
-      );
-      setOfflineTrack(rebuilt);
-      setAuditedReps(rebuilt.auditedReps);
-      setActiveAlerts(
-        rebuilt.auditedReps.length > 0
-          ? rebuilt.auditedReps[rebuilt.auditedReps.length - 1].techniqueVerdict.feedbackCues
-          : []
-      );
-    }
-  }, [selectedPattern, loadType, targetMuscle]);
-
-  const cancelOfflineAnalysis = () => {
-    if (offlineAbortRef.current) {
-      offlineAbortRef.current.abort();
-      offlineAbortRef.current = null;
-    }
-    setOfflineStatus('cancelled');
-  };
-
-  const startOfflineAnalysis = async (videoUrl: string) => {
-    if (offlineAbortRef.current) {
-      offlineAbortRef.current.abort();
-    }
-    const controller = new AbortController();
-    offlineAbortRef.current = controller;
-    setOfflineStatus('extracting');
-    setOfflineProgress({ currentFrame: 0, totalFrames: 0, percent: 0 });
-
-    try {
-      const landmarker = await getPoseLandmarker();
-      if (!landmarker || controller.signal.aborted) {
-        if (!controller.signal.aborted) setOfflineStatus('cancelled');
-        return;
-      }
-
-      const extraction = await extractVideoLandmarksOffline(videoUrl, landmarker, {
-        fps: 30,
-        onProgress: setOfflineProgress,
-        signal: controller.signal
-      });
-      if (controller.signal.aborted) return;
-
-      rawOfflineSamplesRef.current = extraction.samples;
-      offlineFpsRef.current = extraction.fps;
-
-      const track = buildOfflineKinematicsTrack(
-        extraction.samples,
-        selectedPattern,
-        loadType,
-        targetMuscle,
-        extraction.fps
-      );
-
-      setOfflineTrack(track);
-      setAuditedReps(track.auditedReps);
-      setActiveAlerts(
-        track.auditedReps.length > 0
-          ? track.auditedReps[track.auditedReps.length - 1].techniqueVerdict.feedbackCues
-          : []
-      );
-      setOfflineStatus('ready');
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        console.warn('Offline video pre-processing fallback to live inference:', err);
-        setOfflineStatus('cancelled');
-      }
-    }
-  };
-
-  // Trigger offline frame-by-frame pose extraction when an uploaded video & AI model are ready
-  useEffect(() => {
-    if (isOpen && aiModelStatus === 'ready' && uploadedVideoUrl && !useWebcam) {
-      startOfflineAnalysis(uploadedVideoUrl);
-    }
-    return () => {
-      if (offlineAbortRef.current) {
-        offlineAbortRef.current.abort();
-        offlineAbortRef.current = null;
-      }
-    };
-  }, [isOpen, aiModelStatus, uploadedVideoUrl, useWebcam]);
+  }, [selectedPattern]);
 
   // Cleanup on close
   useEffect(() => {
     if (!isOpen) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (offlineAbortRef.current) {
-        offlineAbortRef.current.abort();
-        offlineAbortRef.current = null;
-      }
-      rawOfflineSamplesRef.current = [];
-      setOfflineTrack(null);
-      setOfflineStatus('idle');
       setShowConfigBottomSheet(false);
       setIsRecording(false);
       setBackendDiagnosis(null);
@@ -363,13 +252,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         video: { width: { ideal: 720 }, height: { ideal: 1280 }, facingMode: 'user' }
       });
       webcamStreamRef.current = stream;
-      if (offlineAbortRef.current) {
-        offlineAbortRef.current.abort();
-        offlineAbortRef.current = null;
-      }
-      rawOfflineSamplesRef.current = [];
-      setOfflineTrack(null);
-      setOfflineStatus('idle');
       setUseWebcam(true);
       setZoom(1);
       setPanOffset({ x: 0, y: 0 });
@@ -393,13 +275,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     if (!file) return;
 
     stopWebcam();
-    if (offlineAbortRef.current) {
-      offlineAbortRef.current.abort();
-      offlineAbortRef.current = null;
-    }
-    rawOfflineSamplesRef.current = [];
-    setOfflineTrack(null);
-    setOfflineStatus('idle');
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
     }
@@ -446,47 +321,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     // Clear canvas before processing and drawing new frame to prevent ghosting/overlapping
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // STEP 2 OFFLINE PLAYBACK FAST-PATH:
-    // When pre-processed offline track is ready, render directly from cached zero-phase smoothed frames
-    if (offlineTrack && offlineTrack.frames.length > 0 && uploadedVideoUrl && !useWebcam) {
-      const cached = lookupOfflineFrameAtTime(offlineTrack.frames, video.currentTime || 0);
-      if (cached) {
-        setFramingWarning(cached.framingWarning);
-        if (cached.framingWarning) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          return;
-        }
-        setCurrentPrimaryAngle(cached.primaryAngle);
-        setCurrentTelemetry(cached.telemetry);
-        setCurrentPhase(cached.phase);
-        setRepCount(cached.completedRepsCount);
-
-        drawDualModeOverlay(
-          ctx,
-          analysisMode,
-          cached.telemetry,
-          cached.smoothedKeypoints,
-          canvas.width,
-          canvas.height,
-          analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
-          {
-            showLeverArms,
-            showCanvasText,
-            zoom,
-            panOffset,
-            primaryJointKey: selectedPattern.primaryJoint,
-            patternFamily: selectedPattern.patternFamily,
-            targetMuscle: selectedPattern.targetMuscle,
-            loadType,
-            exerciseId: selectedPattern.id,
-            useInternalCanvasTransform: false
-          },
-          selectedPattern.primaryJoint
-        );
-      }
-      return;
-    }
 
     try {
       const landmarker = await getPoseLandmarker();
@@ -706,14 +540,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       isProcessingRef.current = false;
     };
-  }, [isRecording, isVideoPlaying, offlineTrack, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
+  }, [isRecording, isVideoPlaying, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
 
-  // Re-render single frame when zoom, pan, offline track, or overlay toggles change while paused
+  // Re-render single frame when zoom, pan, or overlay toggles change while paused
   useEffect(() => {
     if (!isRecording && !isVideoPlaying && (uploadedVideoUrl || useWebcam)) {
       processSingleFrame();
     }
-  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode, offlineTrack]);
+  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode]);
 
   // When AI model is ready or video url changes, trigger initial frame detection
   useEffect(() => {
@@ -860,17 +694,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
     setRepCount(0);
-    setAuditedReps(offlineTrack ? offlineTrack.auditedReps : []);
+    setAuditedReps([]);
     setActiveAlerts([]);
-    setCurrentTelemetry(offlineTrack?.frames[0]?.telemetry ?? null);
+    setCurrentTelemetry(null);
     setBackendDiagnosis(null);
-    setCurrentPrimaryAngle(offlineTrack?.frames[0]?.primaryAngle ?? selectedPattern.standingThreshold);
-    setCurrentPhase(offlineTrack?.frames[0]?.phase ?? 'LOCKOUT');
+    setCurrentPrimaryAngle(selectedPattern.standingThreshold);
+    setCurrentPhase('LOCKOUT');
     setVideoCurrentTime(0);
     setIsVideoPlaying(false);
-    if (offlineTrack) {
-      setTimeout(() => processSingleFrame(), 30);
-    }
   };
 
   const handleSendToBackend = async () => {
@@ -1168,12 +999,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="hidden sm:inline">{aiModelStatus === 'ready' ? 'Motor Biomecánico Activo' : 'Iniciando Motor...'}</span>
                   <span className="sm:hidden">{aiModelStatus === 'ready' ? 'Activo' : 'Cargando'}</span>
                 </span>
-                {offlineStatus === 'ready' && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hidden sm:inline-flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" />
-                    Cinematic Cache 60fps
-                  </span>
-                )}
               </div>
               <p className="text-xs text-slate-300/80 hidden lg:block">
                 Evaluación técnica, alineación articular y reparto muscular en tiempo real
@@ -1224,19 +1049,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             <div className="flex items-center gap-2">
               <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>
-                Motor: <strong className="text-white">Preprocesado Offline Frame-by-Frame (30fps) + Filtro Bidireccional Cero-Retardo</strong> · MediaPipe Pose Full ({aiModelStatus === 'ready' ? 'GPU/WASM activo' : aiModelStatus})
+                Motor: <strong className="text-white">OneEuroFilter Anti-Jitter</strong> · Máquina de estados con histéresis · MediaPipe Pose ({aiModelStatus === 'ready' ? 'GPU/WASM activo' : aiModelStatus})
               </span>
             </div>
-            {uploadedVideoUrl && !useWebcam && offlineStatus !== 'extracting' && (
-              <button
-                type="button"
-                onClick={() => startOfflineAnalysis(uploadedVideoUrl)}
-                className="px-2.5 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold flex items-center gap-1"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Re-escanear Offline
-              </button>
-            )}
+            <span className="text-[10px] text-cyan-300 font-mono">
+              Selección automática de lado más visible
+            </span>
           </div>
         )}
 
@@ -1618,37 +1436,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               )}
             </>
-          )}
-
-          {/* Decoupled Offline Frame-by-Frame Extraction Overlay */}
-          {offlineStatus === 'extracting' && (
-            <div className="absolute inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-4 text-center space-y-3">
-              <div className="flex items-center gap-2 text-cyan-300 font-black text-xs sm:text-sm">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Analizando fotogramas (offline sin lag)...</span>
-              </div>
-              <div className="w-full max-w-xs space-y-1.5">
-                <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-150"
-                    style={{ width: `${offlineProgress.percent}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] font-mono text-slate-300">
-                  <span>
-                    Frame {offlineProgress.currentFrame} / {offlineProgress.totalFrames || '…'}
-                  </span>
-                  <span className="font-bold text-emerald-300">{offlineProgress.percent}%</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={cancelOfflineAnalysis}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold transition"
-              >
-                Cancelar escaneo
-              </button>
-            </div>
           )}
         </div>
 

@@ -320,12 +320,11 @@ export async function getPoseLandmarker(): Promise<PoseLandmarker | null> {
     return poseLandmarkerInstance;
   }
 
-  const fullModelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
   const liteModelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
   const confidenceOpts = {
-    minPoseDetectionConfidence: 0.6,
-    minPosePresenceConfidence: 0.6,
-    minTrackingConfidence: 0.65
+    minPoseDetectionConfidence: 0.55,
+    minPosePresenceConfidence: 0.55,
+    minTrackingConfidence: 0.60
   };
 
   isInitializingLandmarker = true;
@@ -335,8 +334,6 @@ export async function getPoseLandmarker(): Promise<PoseLandmarker | null> {
     );
 
     const attempts: Array<{ modelAssetPath: string; delegate: 'GPU' | 'CPU' }> = [
-      { modelAssetPath: fullModelUrl, delegate: 'GPU' },
-      { modelAssetPath: fullModelUrl, delegate: 'CPU' },
       { modelAssetPath: liteModelUrl, delegate: 'GPU' },
       { modelAssetPath: liteModelUrl, delegate: 'CPU' }
     ];
@@ -468,7 +465,7 @@ export function extractPoseDataFromLandmarks(
   const la = refineAnkle(laRaw, lHeel, lFootIndex);
   const ra = refineAnkle(raRaw, rHeel, rFootIndex);
 
-  // Estimate actual fist / dumbbell / barbell grip center inside palm rather than forearm wrist cuff
+  // Estimate fist / grip center only when hand knuckles are strongly confident; otherwise stay locked to stable wrist
   const computeHandGripCenter = (
     wr?: typeof ls,
     idx?: typeof ls,
@@ -476,25 +473,25 @@ export function extractPoseDataFromLandmarks(
     thb?: typeof ls
   ) => {
     if (!wr) return { x: 0.5, y: 0.5, z: 0, visibility: 0 };
-    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.35 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.14);
-    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.35 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.14);
+    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.70 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.12);
+    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.70 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.12);
     if (!idxOk && !pnkOk) return wr;
 
     const knX = idxOk && pnkOk ? (idx!.x + pnk!.x) / 2 : (idxOk ? idx!.x : pnk!.x);
     const knY = idxOk && pnkOk ? (idx!.y + pnk!.y) / 2 : (idxOk ? idx!.y : pnk!.y);
-    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.35 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.14);
+    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.70 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.12);
 
     if (thbOk) {
       return {
-        x: knX * 0.46 + thb!.x * 0.24 + wr.x * 0.30,
-        y: knY * 0.46 + thb!.y * 0.24 + wr.y * 0.30,
+        x: knX * 0.42 + thb!.x * 0.18 + wr.x * 0.40,
+        y: knY * 0.42 + thb!.y * 0.18 + wr.y * 0.40,
         z: wr.z,
         visibility: wr.visibility
       };
     }
     return {
-      x: knX * 0.60 + wr.x * 0.40,
-      y: knY * 0.60 + wr.y * 0.40,
+      x: knX * 0.50 + wr.x * 0.50,
+      y: knY * 0.50 + wr.y * 0.50,
       z: wr.z,
       visibility: wr.visibility
     };
