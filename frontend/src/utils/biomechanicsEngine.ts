@@ -274,9 +274,9 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     loadType: 'machine',
     patternFamily: 'push_press',
     primaryJoint: 'elbow',
-    trackingMode: 'ascending',
-    standingThreshold: 85,
-    inflectionThreshold: 160,
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 88,
     description: 'Trayectoria convergente que sigue el alineamiento de fibras esternocostales.',
     targetRatioDescription: 'Aducción horizontal terminal'
   },
@@ -287,9 +287,9 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     loadType: 'gravity',
     patternFamily: 'push_press',
     primaryJoint: 'elbow',
-    trackingMode: 'ascending',
-    standingThreshold: 85,
-    inflectionThreshold: 162,
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 88,
     description: 'Vector vertical pasando por la clavícula para reclutamiento de haz clavicular.',
     targetRatioDescription: 'Línea de gravedad sobre esternón superior'
   },
@@ -536,7 +536,8 @@ export interface PressBiomechanicsEvaluation {
 export function evaluatePressBiomechanics(
   keypoints: Record<string, Point2D & { visibility?: number }>,
   cameraPlane: CameraPlane,
-  footTracker?: FootStabilityState
+  footTracker?: FootStabilityState,
+  currentElbowAngle?: number
 ): PressBiomechanicsEvaluation {
   const ls = keypoints['left_shoulder'];
   const rs = keypoints['right_shoulder'];
@@ -555,7 +556,7 @@ export function evaluatePressBiomechanics(
   const hip = keypoints['hip'] || rh || lh;
   const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
 
-  // 1. Hand vs Elbow Alignment
+  // 1. Hand vs Elbow Alignment (generous ±0.50 band around vertical/aligned ~90° so natural converging paths aren't penalized)
   let handElbowAlignment: 'aligned_90' | 'closed_triceps' | 'wide_stretch' = 'aligned_90';
   let handElbowLabel = '✓ Mano a la altura del codo (~90° Pectoral)';
 
@@ -584,17 +585,18 @@ export function evaluatePressBiomechanics(
     forearmRatio = evalArmHandElbow(shoulder, elbow, wrist) ?? 0;
   }
 
-  if (forearmRatio < -0.35) {
+  if (forearmRatio < -0.50) {
     handElbowAlignment = 'closed_triceps';
     handElbowLabel = 'Mano más cerrada que el codo → +Tríceps';
-  } else if (forearmRatio > 0.38) {
+  } else if (forearmRatio > 0.50) {
     handElbowAlignment = 'wide_stretch';
     handElbowLabel = 'Mano más abierta que el codo (+Estiramiento)';
   }
 
-  // 2. Elbow Height Relative to Shoulder (safely below shoulder ~45°-65°)
+  // 2. Elbow Height Relative to Shoulder (safely below shoulder ~45°-65° scapular plane)
+  // Ignore near lockout (>= 145 deg) because pushing straight forward toward camera projects elbow upward in 2D
   let elbowShoulderPosition: 'optimal_below_shoulder' | 'high_shoulder_risk' | 'too_tucked' = 'optimal_below_shoulder';
-  let elbowShoulderLabel = '✓ Codo debajo del hombro (~45°-65° seguro)';
+  let elbowShoulderLabel = '✓ Codo debajo del hombro (plano escapular seguro)';
   let shoulderAbductionDeg = 55;
 
   const evalShoulderArm = (sh?: Point2D, el?: Point2D, hp?: Point2D) => {
@@ -618,15 +620,16 @@ export function evaluatePressBiomechanics(
 
   if (armSample) {
     shoulderAbductionDeg = Math.round(armSample.abd);
-    if (armSample.dropY <= 0.012 || (armSample.abd > 78 && armSample.dropRatio < 0.16)) {
+    const isNearLockoutExtension = currentElbowAngle !== undefined && currentElbowAngle >= 145;
+    if (!isNearLockoutExtension && (armSample.dropY < -0.015 || (armSample.abd > 86 && armSample.dropRatio < 0.06))) {
       elbowShoulderPosition = 'high_shoulder_risk';
-      elbowShoulderLabel = '⚠️ Codo alto (a nivel/encima del hombro): riesgo articular';
-    } else if (armSample.abd < 22 && armSample.dropRatio > 0.88) {
+      elbowShoulderLabel = '⚠️ Codo alto (por encima del hombro): bájalos para proteger el hombro';
+    } else if (armSample.abd < 20 && armSample.dropRatio > 0.92) {
       elbowShoulderPosition = 'too_tucked';
-      elbowShoulderLabel = 'Codo muy pegado al torso (<25°): énfasis en tríceps';
+      elbowShoulderLabel = 'Codo muy pegado al torso (<20°): énfasis en tríceps';
     } else {
       elbowShoulderPosition = 'optimal_below_shoulder';
-      elbowShoulderLabel = `✓ Codo bajo el hombro (${shoulderAbductionDeg}° plano escapular seguro)`;
+      elbowShoulderLabel = '✓ Codo debajo del hombro (plano escapular seguro)';
     }
   }
 
@@ -645,6 +648,7 @@ export function evaluatePressBiomechanics(
   }
 
   // 4. Foot Stability / Ground Leg Drive Check
+  // Compare each foot strictly against ITS OWN individual floor baseline so oblique camera perspective never causes false alerts!
   let footStabilityStatus: 'stable_leg_drive' | 'foot_lifted' | 'foot_shifted' | 'not_visible' = 'not_visible';
   let footStabilityLabel = 'Pies no visibles en encuadre';
 
@@ -653,31 +657,32 @@ export function evaluatePressBiomechanics(
 
   if (laVisible || raVisible) {
     if (footTracker) {
-      if (laVisible && !footTracker.baselineLeftAnkle) {
-        footTracker.baselineLeftAnkle = { x: la!.x, y: la!.y };
+      if (laVisible) {
+        if (!footTracker.baselineLeftAnkle) {
+          footTracker.baselineLeftAnkle = { x: la!.x, y: la!.y };
+        } else {
+          // Track lowest floor baseline individually for left foot
+          footTracker.baselineLeftAnkle.y = Math.max(footTracker.baselineLeftAnkle.y, la!.y);
+        }
       }
-      if (raVisible && !footTracker.baselineRightAnkle) {
-        footTracker.baselineRightAnkle = { x: ra!.x, y: ra!.y };
-      }
-      const lowestCurrentY = Math.max(laVisible ? la!.y : 0, raVisible ? ra!.y : 0);
-      if (footTracker.groundY === undefined) {
-        footTracker.groundY = lowestCurrentY;
-      } else {
-        // Allow slight settling downward onto floor, never upward
-        footTracker.groundY = Math.max(footTracker.groundY, lowestCurrentY);
+      if (raVisible) {
+        if (!footTracker.baselineRightAnkle) {
+          footTracker.baselineRightAnkle = { x: ra!.x, y: ra!.y };
+        } else {
+          // Track lowest floor baseline individually for right foot
+          footTracker.baselineRightAnkle.y = Math.max(footTracker.baselineRightAnkle.y, ra!.y);
+        }
       }
 
-      const refGroundY = footTracker.groundY;
-      const liftedLeft = laVisible && la!.y < refGroundY - 0.035;
-      const liftedRight = raVisible && ra!.y < refGroundY - 0.035;
-      const asymY = laVisible && raVisible && Math.abs(la!.y - ra!.y) > 0.045;
+      const liftedLeft = Boolean(laVisible && footTracker.baselineLeftAnkle && la!.y < footTracker.baselineLeftAnkle.y - 0.055);
+      const liftedRight = Boolean(raVisible && footTracker.baselineRightAnkle && ra!.y < footTracker.baselineRightAnkle.y - 0.055);
 
-      const shiftedLeft = laVisible && footTracker.baselineLeftAnkle &&
-        Math.abs(la!.x - footTracker.baselineLeftAnkle.x) > 0.045;
-      const shiftedRight = raVisible && footTracker.baselineRightAnkle &&
-        Math.abs(ra!.x - footTracker.baselineRightAnkle.x) > 0.045;
+      const shiftedLeft = Boolean(laVisible && footTracker.baselineLeftAnkle &&
+        Math.abs(la!.x - footTracker.baselineLeftAnkle.x) > 0.075);
+      const shiftedRight = Boolean(raVisible && footTracker.baselineRightAnkle &&
+        Math.abs(ra!.x - footTracker.baselineRightAnkle.x) > 0.075);
 
-      if (liftedLeft || liftedRight || asymY) {
+      if (liftedLeft || liftedRight) {
         footStabilityStatus = 'foot_lifted';
         footStabilityLabel = '⚠️ Pies levantados del suelo: apóyalos firmes para leg drive';
       } else if (shiftedLeft || shiftedRight) {
@@ -890,7 +895,7 @@ export function auditTechniqueRules(
   // D) Patrón de Empuje / Pecho (Press de Pecho)
   else if (patternFamily === 'push_press') {
     const camPlane = detectCameraPlane(keypoints);
-    const pressEval = evaluatePressBiomechanics(keypoints, camPlane, footTracker);
+    const pressEval = evaluatePressBiomechanics(keypoints, camPlane, footTracker, currentAngle);
 
     // 1. Alineación mano vs codo (~90° vs +Tríceps vs Abierto)
     if (pressEval.handElbowAlignment === 'closed_triceps') {
@@ -1590,7 +1595,7 @@ export function evaluateBiomechanicalFrame(
   const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
   const htEval = isHipThrust ? evaluateHipThrustAlignment(smoothedKeypoints, currentAngle) : null;
   const isChestPress = patternFamily === 'push_press';
-  const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker) : undefined;
+  const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker, currentAngle) : undefined;
 
   // Spinal neutrality:
   // - Hip Thrust: lumbar + neck neutrality

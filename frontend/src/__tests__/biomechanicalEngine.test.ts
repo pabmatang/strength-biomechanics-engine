@@ -685,40 +685,50 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(pressEval.footStabilityStatus).toBe('stable_leg_drive');
     expect(evaluatePressVerdict(pressEval).isOptimal).toBe(true);
 
-    // 2. Closed hand inside elbow -> Triceps involvement
+    // 2. Clearly closed hand inside elbow -> Triceps involvement (tolerates mild ±0.50 convergence)
     const closedPressKp = {
       ...idealPressKp,
-      left_wrist: { x: 0.60, y: 0.42 },
-      right_wrist: { x: 0.40, y: 0.42 }
+      left_wrist: { x: 0.56, y: 0.42 },
+      right_wrist: { x: 0.44, y: 0.42 }
     };
-    const closedEval = evaluatePressBiomechanics(closedPressKp, 'frontal', tracker);
+    const closedEval = evaluatePressBiomechanics(closedPressKp, 'frontal', tracker, 120);
     expect(closedEval.handElbowAlignment).toBe('closed_triceps');
     expect(evaluatePressVerdict(closedEval).verdictTitle).toContain('Tríceps');
 
-    // 3. Elbow raised at shoulder level -> Shoulder risk
+    // 3. Elbow raised above shoulder during mid-press (< 145 deg) -> Shoulder risk; tolerated at lockout (>= 145 deg)
     const highElbowKp = {
       ...idealPressKp,
-      left_elbow: { x: 0.69, y: 0.37 },
-      right_elbow: { x: 0.31, y: 0.37 }
+      left_elbow: { x: 0.69, y: 0.35 },
+      right_elbow: { x: 0.31, y: 0.35 }
     };
-    const highElbowEval = evaluatePressBiomechanics(highElbowKp, 'frontal', tracker);
+    const highElbowEval = evaluatePressBiomechanics(highElbowKp, 'frontal', tracker, 110);
     expect(highElbowEval.elbowShoulderPosition).toBe('high_shoulder_risk');
     expect(evaluatePressVerdict(highElbowEval).isOptimal).toBe(false);
 
-    // 4. Lifting foot off floor breaks leg drive stability
-    const liftedFootKp = {
-      ...idealPressKp,
-      left_ankle: { x: 0.58, y: 0.80, visibility: 0.9 } // lifted upward
-    };
-    const liftedEval = evaluatePressBiomechanics(liftedFootKp, 'frontal', tracker);
-    expect(liftedEval.footStabilityStatus).toBe('foot_lifted');
+    const lockoutElbowEval = evaluatePressBiomechanics(highElbowKp, 'frontal', tracker, 170);
+    expect(lockoutElbowEval.elbowShoulderPosition).toBe('optimal_below_shoulder');
 
-    // 5. Shifting foot position horizontally across reps triggers instability alert
-    const shiftedFootKp = {
+    // 4. Perspective asymmetry (e.g. left foot 0.85, right foot 0.90) when planted stays stable_leg_drive
+    const obliqueTracker: FootStabilityState = {};
+    const obliquePlantedKp = {
       ...idealPressKp,
-      right_ankle: { x: 0.33, y: 0.88, visibility: 0.9 } // slid horizontally
+      left_ankle: { x: 0.58, y: 0.85, visibility: 0.9 },
+      right_ankle: { x: 0.42, y: 0.90, visibility: 0.9 }
     };
-    const shiftedEval = evaluatePressBiomechanics(shiftedFootKp, 'frontal', tracker);
-    expect(shiftedEval.footStabilityStatus).toBe('foot_shifted');
+    expect(evaluatePressBiomechanics(obliquePlantedKp, 'frontal', obliqueTracker, 120).footStabilityStatus).toBe('stable_leg_drive');
+
+    // Lifting foot genuinely upward from its own baseline (> 0.055) triggers foot_lifted
+    const liftedFootKp = {
+      ...obliquePlantedKp,
+      left_ankle: { x: 0.58, y: 0.77, visibility: 0.9 }
+    };
+    expect(evaluatePressBiomechanics(liftedFootKp, 'frontal', obliqueTracker, 120).footStabilityStatus).toBe('foot_lifted');
+
+    // 5. Shifting foot position horizontally (> 0.075) across reps triggers foot_shifted
+    const shiftedFootKp = {
+      ...obliquePlantedKp,
+      right_ankle: { x: 0.32, y: 0.90, visibility: 0.9 }
+    };
+    expect(evaluatePressBiomechanics(shiftedFootKp, 'frontal', obliqueTracker, 120).footStabilityStatus).toBe('foot_shifted');
   });
 });
