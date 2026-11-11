@@ -47,6 +47,12 @@ import {
 } from '../utils/videoPoseEstimator';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
+import { useKinematicAnalysis } from '../hooks/useKinematicAnalysis';
+import {
+  applyOcclusionAndConfidenceFallback,
+  createOcclusionTrackerState,
+  OcclusionTrackerState
+} from '../utils/kinematicAnalysisEngine';
 import {
   evaluateBiomechanicalFrame,
   auditCompletedRepetition,
@@ -161,6 +167,19 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const badFramingStreakRef = useRef<number>(0);
   const goodFramingStreakRef = useRef<number>(0);
   const footTrackerRef = useRef<FootStabilityState>({});
+  const occlusionTrackerRef = useRef<OcclusionTrackerState>(createOcclusionTrackerState());
+  const uploadedFileRef = useRef<File | null>(null);
+
+  const {
+    status: kinematicStatus,
+    progress: kinematicProgress,
+    clipResult,
+    analyzeClip,
+    recomputeForPattern,
+    cancel: cancelKinematicAnalysis,
+    reset: resetKinematicAnalysis,
+    getFrameAtTime
+  } = useKinematicAnalysis();
 
   // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
@@ -200,7 +219,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   }, [isOpen, poseQuality]);
 
-  // Re-initialize FSM when selectedPattern changes
+  // Re-initialize FSM when selectedPattern changes; recompute cached JSON telemetry in <3ms if offline clip is ready
   useEffect(() => {
     fsmRef.current = new BiomechanicalFSM({
       trackingMode: selectedPattern.trackingMode,
@@ -219,13 +238,65 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     badFramingStreakRef.current = 0;
     goodFramingStreakRef.current = 0;
     footTrackerRef.current = {};
+    occlusionTrackerRef.current = createOcclusionTrackerState();
     setFramingWarning(null);
-  }, [selectedPattern]);
+
+    if (kinematicStatus === 'ready') {
+      const updated = recomputeForPattern(selectedPattern, loadType, targetMuscle);
+      if (updated) {
+        setAuditedReps(updated.auditedReps);
+        setActiveAlerts(
+          updated.auditedReps.length > 0
+            ? updated.auditedReps[updated.auditedReps.length - 1].techniqueVerdict.feedbackCues
+            : []
+        );
+      }
+    }
+  }, [selectedPattern, loadType, targetMuscle]);
+
+  // Run fast trimmed (2.5s offset, max 12s @ 15fps) KinematicAnalysisEngine when an uploaded video is ready
+  const triggerClipExtraction = async () => {
+    const source: HTMLVideoElement | File | null = uploadedFileRef.current || videoElementRef.current;
+    if (!source) return;
+    const vp = viewportRef.current;
+    const result = await analyzeClip(source, {
+      pattern: selectedPattern,
+      loadType,
+      targetMuscle,
+      poseQuality,
+      zoom,
+      panOffset,
+      viewportSize: vp ? { width: vp.clientWidth, height: vp.clientHeight } : undefined
+    });
+    if (result) {
+      setAuditedReps(result.auditedReps);
+      setActiveAlerts(
+        result.auditedReps.length > 0
+          ? result.auditedReps[result.auditedReps.length - 1].techniqueVerdict.feedbackCues
+          : []
+      );
+      if (videoElementRef.current && videoElementRef.current.currentTime < result.startTimeSec) {
+        videoElementRef.current.currentTime = result.startTimeSec;
+        setVideoCurrentTime(result.startTimeSec);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && aiModelStatus === 'ready' && uploadedVideoUrl && !useWebcam) {
+      triggerClipExtraction();
+    }
+    return () => {
+      cancelKinematicAnalysis();
+    };
+  }, [isOpen, aiModelStatus, uploadedVideoUrl, useWebcam]);
 
   // Cleanup on close
   useEffect(() => {
     if (!isOpen) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      resetKinematicAnalysis();
+      uploadedFileRef.current = null;
       setShowConfigBottomSheet(false);
       setIsRecording(false);
       setBackendDiagnosis(null);
@@ -255,6 +326,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         setUploadedVideoUrl(null);
         setUploadedFileName(null);
       }
+      uploadedFileRef.current = null;
+      resetKinematicAnalysis();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 720 }, height: { ideal: 1280 }, facingMode: 'user' }
       });
@@ -282,10 +355,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     if (!file) return;
 
     stopWebcam();
+    resetKinematicAnalysis();
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
     }
 
+    uploadedFileRef.current = file;
     const objectUrl = URL.createObjectURL(file);
     setUploadedVideoUrl(objectUrl);
     setUploadedFileName(file.name);
@@ -328,6 +403,57 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     // Clear canvas before processing and drawing new frame to prevent ghosting/overlapping
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // DECOUPLED PLAYBACK PATH: When trimmed 15fps clip JSON is cached, synchronize directly via O(log N) lookup
+    if (
+      kinematicStatus === 'ready' &&
+      clipResult &&
+      clipResult.frames.length > 0 &&
+      uploadedVideoUrl &&
+      !useWebcam
+    ) {
+      const t = video.currentTime || 0;
+      const inTrimmedWindow =
+        t >= clipResult.startTimeSec - 0.15 && t <= clipResult.endTimeSec + 0.15;
+      if (inTrimmedWindow) {
+        const cached = getFrameAtTime(t);
+        if (cached) {
+          setFramingWarning(cached.framingWarning);
+          if (cached.framingWarning) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+          }
+          setCurrentPrimaryAngle(cached.primaryAngleDeg);
+          setCurrentTelemetry(cached.telemetry);
+          setCurrentPhase(cached.phase);
+          setRepCount(cached.completedRepsCount);
+
+          drawDualModeOverlay(
+            ctx,
+            analysisMode,
+            cached.telemetry,
+            cached.keypoints,
+            canvas.width,
+            canvas.height,
+            analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
+            {
+              showLeverArms,
+              showCanvasText,
+              zoom,
+              panOffset,
+              primaryJointKey: selectedPattern.primaryJoint,
+              patternFamily: selectedPattern.patternFamily,
+              targetMuscle: selectedPattern.targetMuscle,
+              loadType,
+              exerciseId: selectedPattern.id,
+              useInternalCanvasTransform: false
+            },
+            selectedPattern.primaryJoint
+          );
+        }
+        return;
+      }
+    }
 
     try {
       const landmarker = await getPoseLandmarker(poseQuality);
@@ -422,10 +548,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             }
           }
 
-          // 1. STABILIZE KEYPOINTS WITH ONE-EURO FILTER (ANTI-JITTER)
-          // No calculation is ever performed on raw keypoints
-          const smoothedKeypoints = poseSmootherRef.current.smoothLandmarks(
+          // 1. OCCLUSION RECOVERY (visibility < 0.65 -> forearm inverse projection / hold last valid) + ONE-EURO FILTER
+          const occlusionCleanKeypoints = applyOcclusionAndConfidenceFallback(
             frame.keypoints,
+            occlusionTrackerRef.current
+          );
+          const smoothedKeypoints = poseSmootherRef.current.smoothLandmarks(
+            occlusionCleanKeypoints,
             monotonicTime
           );
 
@@ -625,14 +754,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       }
       isProcessingRef.current = false;
     };
-  }, [isRecording, isVideoPlaying, uploadedVideoUrl, useWebcam, poseQuality, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
+  }, [isRecording, isVideoPlaying, kinematicStatus, clipResult, uploadedVideoUrl, useWebcam, poseQuality, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
 
-  // Re-render single frame when zoom, pan, or overlay toggles change while paused
+  // Re-render single frame when zoom, pan, cached clip, or overlay toggles change while paused
   useEffect(() => {
     if (!isRecording && !isVideoPlaying && (uploadedVideoUrl || useWebcam)) {
       processSingleFrame();
     }
-  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode]);
+  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode, clipResult]);
 
   // When AI model is ready or video url changes, trigger initial frame detection
   useEffect(() => {
@@ -772,26 +901,31 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     badFramingStreakRef.current = 0;
     goodFramingStreakRef.current = 0;
     footTrackerRef.current = {};
+    occlusionTrackerRef.current = createOcclusionTrackerState();
     setFramingWarning(null);
     fsmRef.current.reset();
 
+    const resetTargetTime = clipResult ? clipResult.startTimeSec : 0;
     if (videoElementRef.current && !useWebcam) {
       videoElementRef.current.pause();
-      videoElementRef.current.currentTime = 0;
+      videoElementRef.current.currentTime = resetTargetTime;
     }
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
     setRepCount(0);
-    setAuditedReps([]);
+    setAuditedReps(clipResult ? clipResult.auditedReps : []);
     setActiveAlerts([]);
-    setCurrentTelemetry(null);
+    setCurrentTelemetry(clipResult?.frames[0]?.telemetry ?? null);
     setBackendDiagnosis(null);
-    setCurrentPrimaryAngle(selectedPattern.standingThreshold);
-    setCurrentPhase('LOCKOUT');
-    setVideoCurrentTime(0);
+    setCurrentPrimaryAngle(clipResult?.frames[0]?.primaryAngleDeg ?? selectedPattern.standingThreshold);
+    setCurrentPhase(clipResult?.frames[0]?.phase ?? 'LOCKOUT');
+    setVideoCurrentTime(resetTargetTime);
     setIsVideoPlaying(false);
+    if (clipResult) {
+      setTimeout(() => processSingleFrame(), 30);
+    }
   };
 
   const handleSendToBackend = async () => {
@@ -1089,6 +1223,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="hidden sm:inline">{aiModelStatus === 'ready' ? 'Motor Biomecánico Activo' : 'Iniciando Motor...'}</span>
                   <span className="sm:hidden">{aiModelStatus === 'ready' ? 'Activo' : 'Cargando'}</span>
                 </span>
+                {kinematicStatus === 'ready' && clipResult && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hidden sm:inline-flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    {clipResult.startTimeSec.toFixed(1)}s–{clipResult.endTimeSec.toFixed(1)}s · {clipResult.fps}fps
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-300/80 hidden lg:block">
                 Evaluación técnica, alineación articular y reparto muscular en tiempo real
@@ -1142,7 +1282,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 Motor: <strong className="text-white">OneEuroFilter (Cero-Lag)</strong> · Precisión MediaPipe ({aiModelStatus === 'ready' ? 'Activo' : aiModelStatus})
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] text-slate-400">Modelo:</span>
               {([
                 { id: 'full' as PoseModelQuality, label: 'Rápido (Full)' },
@@ -1164,6 +1304,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   {opt.label}
                 </button>
               ))}
+              {uploadedVideoUrl && !useWebcam && kinematicStatus !== 'analyzing' && (
+                <button
+                  type="button"
+                  onClick={triggerClipExtraction}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-200 text-[10px] font-bold flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Re-analizar (15fps)
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1547,6 +1697,37 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               )}
             </>
+          )}
+
+          {/* Non-blocking Trimmed 15fps Analysis Progress Bar */}
+          {kinematicStatus === 'analyzing' && (
+            <div className="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center space-y-2.5">
+              <div className="flex items-center gap-2 text-cyan-300 font-black text-xs sm:text-sm">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Analizando: {kinematicProgress.percent}%</span>
+              </div>
+              <div className="w-full max-w-xs space-y-1">
+                <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-100"
+                    style={{ width: `${kinematicProgress.percent}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-mono text-slate-300">
+                  <span>
+                    Frame {kinematicProgress.currentFrame} / {kinematicProgress.totalFrames || '…'} (15 fps)
+                  </span>
+                  <span>{(kinematicProgress.elapsedMs / 1000).toFixed(1)}s</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={cancelKinematicAnalysis}
+                className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold transition"
+              >
+                Cancelar
+              </button>
+            </div>
           )}
         </div>
 

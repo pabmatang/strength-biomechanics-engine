@@ -7,6 +7,18 @@ import {
   remapLandmarksFromRoi
 } from '../utils/videoPoseEstimator';
 import {
+  START_OFFSET_SEC,
+  MAX_ANALYSIS_DURATION_SEC,
+  TARGET_SAMPLE_FPS,
+  computeTrimmedAnalysisWindow,
+  computeInferenceDimensions,
+  createOcclusionTrackerState,
+  applyOcclusionAndConfidenceFallback,
+  interpolateOccludedSpans,
+  KinematicAnalysisEngine,
+  lookupFrameKinematicsAtTime
+} from '../utils/kinematicAnalysisEngine';
+import {
   perpendicularDistanceToLine,
   projectPointOntoLine,
   calculateTibialAngle,
@@ -939,5 +951,121 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     const remapped = remapLandmarksFromRoi([{ x: 0.5, y: 0.5, z: 0, visibility: 0.9 }], roi);
     expect(remapped[0].x).toBeCloseTo(0.5, 4);
     expect(remapped[0].y).toBeCloseTo(0.5, 4);
+  });
+});
+
+describe('KinematicAnalysisEngine (15 FPS Trim, Offscreen Downscale & Occlusion Recovery)', () => {
+  it('computes smart temporal trim window (2.5s offset, 12s max, 15 FPS) and scales short clips', () => {
+    expect(START_OFFSET_SEC).toBe(2.5);
+    expect(MAX_ANALYSIS_DURATION_SEC).toBe(12.0);
+    expect(TARGET_SAMPLE_FPS).toBe(15);
+
+    const longClip = computeTrimmedAnalysisWindow(30);
+    expect(longClip.startTime).toBeCloseTo(2.5, 4);
+    expect(longClip.endTime).toBeCloseTo(14.5, 4);
+    expect(longClip.step).toBeCloseTo(1 / 15, 5);
+    expect(longClip.totalFrames).toBe(181);
+
+    const shortClip = computeTrimmedAnalysisWindow(8);
+    expect(shortClip.startTime).toBeCloseTo(0.8, 4);
+    expect(shortClip.endTime).toBeCloseTo(8.0, 4);
+  });
+
+  it('downscales 4K/1080p frames into <=640x480 preserving aspect ratio', () => {
+    expect(computeInferenceDimensions(1920, 1080, 640, 480)).toEqual({ width: 640, height: 360 });
+    expect(computeInferenceDimensions(2160, 3840, 640, 480)).toEqual({ width: 270, height: 480 });
+  });
+
+  it('projects occluded wrist along forearm vector when visibility < 0.65 and interpolates spans', () => {
+    const state = createOcclusionTrackerState();
+    applyOcclusionAndConfidenceFallback(
+      {
+        right_shoulder: { x: 0.3, y: 0.3, visibility: 0.95 },
+        right_elbow: { x: 0.5, y: 0.3, visibility: 0.95 },
+        right_wrist: { x: 0.7, y: 0.3, visibility: 0.95 }
+      },
+      state
+    );
+
+    const recovered = applyOcclusionAndConfidenceFallback(
+      {
+        right_shoulder: { x: 0.3, y: 0.3, visibility: 0.92 },
+        right_elbow: { x: 0.5, y: 0.3, visibility: 0.92 },
+        right_wrist: { x: 0.05, y: 0.95, visibility: 0.25 }
+      },
+      state
+    );
+
+    expect(recovered.right_wrist.x).toBeCloseTo(0.7, 2);
+    expect(recovered.right_wrist.y).toBeCloseTo(0.3, 2);
+    expect(recovered.right_wrist.occludedRecovered).toBe(true);
+
+    const span = interpolateOccludedSpans([
+      { right_elbow: { x: 0.4, y: 0.4, visibility: 0.95 } },
+      { right_elbow: { x: 0.9, y: 0.9, visibility: 0.2 } },
+      { right_elbow: { x: 0.6, y: 0.4, visibility: 0.95 } }
+    ]);
+    expect(span[1].right_elbow.x).toBeCloseTo(0.5, 2);
+    expect(span[1].right_elbow.y).toBeCloseTo(0.4, 2);
+  });
+
+  it('builds JSON-serializable FrameKinematics[] with rep counting and mid-step lookup', () => {
+    const engine = new KinematicAnalysisEngine({ targetSampleFps: 15 });
+    const pushPattern = EXERCISE_PATTERNS.find(p => p.id === 'dips_chest_lean') || EXERCISE_PATTERNS.find(p => p.patternFamily === 'push_press')!;
+    const samples = [];
+    const totalSteps = 50; // ~3.33s at 15 FPS -> natural ECCENTRIC -> BOTTOM -> CONCENTRIC -> LOCKOUT
+    for (let i = 0; i <= totalSteps; i++) {
+      const t = i / 15;
+      // Hold lockout briefly at start/end, pause briefly at bottom (~75 deg)
+      let angleDeg = 172;
+      if (i >= 4 && i < 20) {
+        angleDeg = 172 - ((i - 4) / 16) * 97; // 172 -> 75
+      } else if (i >= 20 && i <= 26) {
+        angleDeg = 75;
+      } else if (i > 26 && i <= 42) {
+        angleDeg = 75 + ((i - 26) / 16) * 97; // 75 -> 172
+      }
+      const interiorRad = ((180 - angleDeg) * Math.PI) / 180;
+      const wristX = 0.5 + 0.2 * Math.cos(interiorRad);
+      const wristY = 0.3 - 0.2 * Math.sin(interiorRad);
+      const rawLandmarks = Array.from({ length: 33 }, () => ({ x: 0.3, y: 0.5, z: 0, visibility: 0.1 }));
+      // Right side (dominant): 12=shoulder, 14=elbow, 16=wrist, 20=index, 24=hip, 26=knee, 28=ankle
+      rawLandmarks[12] = { x: 0.3, y: 0.3, z: 0, visibility: 0.95 };
+      rawLandmarks[14] = { x: 0.5, y: 0.3, z: 0, visibility: 0.95 };
+      rawLandmarks[16] = { x: wristX, y: wristY, z: 0, visibility: 0.95 };
+      rawLandmarks[20] = { x: wristX + 0.01, y: wristY, z: 0, visibility: 0.95 };
+      rawLandmarks[24] = { x: 0.3, y: 0.55, z: 0, visibility: 0.95 };
+      rawLandmarks[26] = { x: 0.32, y: 0.72, z: 0, visibility: 0.95 };
+      rawLandmarks[28] = { x: 0.32, y: 0.9, z: 0, visibility: 0.95 };
+      rawLandmarks[30] = { x: 0.31, y: 0.92, z: 0, visibility: 0.95 };
+      rawLandmarks[32] = { x: 0.35, y: 0.92, z: 0, visibility: 0.95 };
+
+      samples.push({
+        frameIndex: i,
+        timestampSec: t,
+        rawLandmarks
+      });
+    }
+
+    const result = engine.buildKinematicsFromSamples(samples, {
+      pattern: pushPattern,
+      loadType: 'gravity',
+      targetMuscle: 'pectorals',
+      fps: 15,
+      startTimeSec: 0,
+      endTimeSec: totalSteps / 15,
+      durationSec: totalSteps / 15
+    });
+
+    const roundTripped = JSON.parse(JSON.stringify(result.frames));
+    expect(roundTripped.length).toBe(samples.length);
+    expect(typeof roundTripped[0].elbowAngleDeg).toBe('number');
+    expect(typeof roundTripped[0].momentArms.shoulder).toBe('number');
+    expect(typeof roundTripped[0].completedRepsCount).toBe('number');
+    expect(typeof roundTripped[0].phase).toBe('string');
+    expect(result.auditedReps.length).toBeGreaterThanOrEqual(1);
+
+    const midFrame = lookupFrameKinematicsAtTime(result.frames, 1.03);
+    expect(midFrame).not.toBeNull();
   });
 });
