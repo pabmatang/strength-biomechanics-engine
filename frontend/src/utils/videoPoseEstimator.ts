@@ -1074,9 +1074,22 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (elbow) drawJointDot(elbow, '#EC4899');
     if (hand) drawJointDot(hand, '#EF4444');
 
+    const isCableFly = Boolean(options.exerciseId?.includes('fly'));
+    const flyEval = bio.flyEvaluation;
+    if (isCableFly && elbow && flyEval) {
+      drawCanvasBadge(
+        ctx,
+        elbow.x * width,
+        elbow.y * height - 20,
+        `Codo: ${flyEval.elbowAngleDeg}° (${flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'})`,
+        flyEval.areArmsExtended ? '#10B981' : '#F59E0B',
+        flyEval.areArmsExtended ? '#A7F3D0' : '#FDE68A'
+      );
+    }
+
     // Ground foot stability dots for Chest Press (Leg Drive visibility)
     const pressEval = bio.pressEvaluation;
-    if (pressEval && pressEval.footStabilityStatus !== 'not_visible') {
+    if (!isCableFly && pressEval && pressEval.footStabilityStatus !== 'not_visible') {
       const footColor = pressEval.footStabilityStatus === 'stable_leg_drive' ? '#10B981' : '#EF4444';
       const la = keypoints['left_ankle'];
       const ra = keypoints['right_ankle'];
@@ -1163,11 +1176,13 @@ export function drawDualModeOverlay(
     // Only use authentic ear landmark (never nose)
     const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
     const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
+    const elbow = keypoints['elbow'] || keypoints['left_elbow'] || keypoints['right_elbow'];
     const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
     const knee = keypoints['knee'] || keypoints['left_knee'] || keypoints['right_knee'];
     const ankle = keypoints['ankle'] || keypoints['left_ankle'] || keypoints['right_ankle'];
 
     const isHipThrust = mergedOptions.exerciseId?.includes('hip_thrust');
+    const isCableFly = Boolean(mergedOptions.exerciseId?.includes('fly'));
 
     // In Hip Thrust Mode 1, render the Knee Angle (~90° check) cleanly at the knee vertex
     if (isHipThrust && hip && knee && ankle) {
@@ -1188,7 +1203,32 @@ export function drawDualModeOverlay(
     const spineHip = isFrontalBilateral ? { x: (lh!.x + rh!.x) / 2, y: (lh!.y + rh!.y) / 2 } : hip;
     const spineHead = isFrontalBilateral ? nose : ear;
 
-    if (spineShoulder && spineHip) {
+    // In Cable Fly Mode 1: hide spinal curvature overlay and render arm extension + shoulder posture badges
+    const flyEval = frame.technique.flyEvaluation;
+    if (isCableFly && flyEval) {
+      if (elbow) {
+        drawCanvasBadge(
+          ctx,
+          elbow.x * width,
+          elbow.y * height - 18,
+          `Codo: ${flyEval.elbowAngleDeg}° · ${flyEval.areArmsExtended ? 'Extendido' : 'Más recto'}`,
+          flyEval.areArmsExtended ? '#10B981' : '#EF4444',
+          flyEval.areArmsExtended ? '#6EE7B7' : '#FCA5A5'
+        );
+      }
+      if (spineShoulder) {
+        drawCanvasBadge(
+          ctx,
+          spineShoulder.x * width,
+          spineShoulder.y * height - 22,
+          flyEval.shoulderAnteriorized ? '⚠️ Hombro anteriorizado' : '✓ Hombro atrás',
+          flyEval.shoulderAnteriorized ? '#EF4444' : '#10B981',
+          flyEval.shoulderAnteriorized ? '#FCA5A5' : '#6EE7B7'
+        );
+      }
+    }
+
+    if (!isCableFly && spineShoulder && spineHip) {
       ctx.save();
       const lumbarOk = frame.technique.lumbarNeutral !== false;
       const neckOk = frame.technique.neckNeutral !== false;

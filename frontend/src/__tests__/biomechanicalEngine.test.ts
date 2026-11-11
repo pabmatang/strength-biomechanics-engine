@@ -13,10 +13,13 @@ import {
   evaluateBiomechanicalVerdict,
   evaluatePressBiomechanics,
   evaluatePressVerdict,
+  evaluateFlyBiomechanics,
+  evaluateFlyVerdict,
   FootStabilityState,
   auditTechniqueRules,
   assessFramingQuality,
-  EXERCISE_BIOMECHANICS_RULES
+  EXERCISE_BIOMECHANICS_RULES,
+  EXERCISE_PATTERNS
 } from '../utils/biomechanicsEngine';
 
 describe('1€ Filter (OneEuroFilter) - Anti-Jitter Signal Stabilization', () => {
@@ -730,5 +733,80 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       right_ankle: { x: 0.32, y: 0.90, visibility: 0.9 }
     };
     expect(evaluatePressBiomechanics(shiftedFootKp, 'frontal', obliqueTracker, 120).footStabilityStatus).toBe('foot_shifted');
+  });
+
+  it('Cable Fly evaluates arm extension, shoulder anteriorization without spinal/leg-drive alerts, and switches verdict between triceps vs pec+shoulder', () => {
+    const flyPattern = EXERCISE_PATTERNS.find((p) => p.id === 'cable_fly_mid_sternal');
+    expect(flyPattern).toBeDefined();
+    expect(flyPattern?.trackingMode).toBe('descending');
+    expect(flyPattern?.standingThreshold).toBe(95);
+    expect(flyPattern?.inflectionThreshold).toBe(38);
+
+    // 1. Extended arms (~168 deg) with good shoulder posture
+    const extendedFlyKp = {
+      left_shoulder: { x: 0.56, y: 0.34, visibility: 0.95 },
+      right_shoulder: { x: 0.44, y: 0.34, visibility: 0.95 },
+      left_elbow: { x: 0.68, y: 0.36, visibility: 0.95 },
+      right_elbow: { x: 0.32, y: 0.36, visibility: 0.95 },
+      left_wrist: { x: 0.78, y: 0.40, visibility: 0.95 },
+      right_wrist: { x: 0.22, y: 0.40, visibility: 0.95 },
+      left_hip: { x: 0.55, y: 0.60, visibility: 0.95 },
+      right_hip: { x: 0.45, y: 0.60, visibility: 0.95 },
+      nose: { x: 0.50, y: 0.20, visibility: 0.95 },
+      left_ankle: { x: 0.54, y: 0.90, visibility: 0.95 },
+      right_ankle: { x: 0.46, y: 0.85, visibility: 0.95 }
+    };
+
+    const extendedEval = evaluateFlyBiomechanics(extendedFlyKp, 'frontal');
+    expect(extendedEval.areArmsExtended).toBe(true);
+    expect(extendedEval.elbowAngleDeg).toBeGreaterThanOrEqual(142);
+    expect(extendedEval.shoulderAnteriorized).toBe(false);
+
+    const extendedVerdict = evaluateFlyVerdict(extendedEval);
+    expect(extendedVerdict.isOptimal).toBe(true);
+    expect(extendedVerdict.verdictTitle.toLowerCase()).toContain('pectoral');
+    expect(extendedVerdict.verdictDescription.toLowerCase()).toContain('pecho el factor limitante');
+
+    // 2. Bent elbows (< 142 deg) shifts emphasis toward triceps
+    const bentFlyKp = {
+      ...extendedFlyKp,
+      left_elbow: { x: 0.66, y: 0.44, visibility: 0.95 },
+      right_elbow: { x: 0.34, y: 0.44, visibility: 0.95 },
+      left_wrist: { x: 0.58, y: 0.34, visibility: 0.95 },
+      right_wrist: { x: 0.42, y: 0.34, visibility: 0.95 }
+    };
+    const bentEval = evaluateFlyBiomechanics(bentFlyKp, 'frontal');
+    expect(bentEval.areArmsExtended).toBe(false);
+    expect(bentEval.elbowAngleDeg).toBeLessThan(142);
+
+    const bentVerdict = evaluateFlyVerdict(bentEval);
+    expect(bentVerdict.isOptimal).toBe(false);
+    expect(bentVerdict.verdictTitle.toLowerCase()).toContain('tríceps');
+
+    // 3. Technique audit skips spinal/leg-drive alerts and flags bent arms / anteriorized shoulder
+    const anteriorizedBentKp = {
+      ...bentFlyKp,
+      left_shoulder: { x: 0.54, y: 0.26, visibility: 0.95 },
+      right_shoulder: { x: 0.46, y: 0.26, visibility: 0.95 },
+      left_ear: { x: 0.50, y: 0.23, visibility: 0.95 }
+    };
+    const flyAudit = auditTechniqueRules(
+      'push_press',
+      anteriorizedBentKp,
+      65,
+      'ECCENTRIC',
+      anteriorizedBentKp.left_wrist,
+      'cable_fly_mid_sternal'
+    );
+    expect(flyAudit.some((a) => a.code === 'FLY_ARMS_BENT')).toBe(true);
+    expect(flyAudit.some((a) => a.code === 'FLY_SHOULDER_ANTERIORIZATION')).toBe(true);
+    expect(flyAudit.some((a) => a.code.includes('SPINE') || a.code.includes('PRESS_FEET'))).toBe(false);
+
+    // 4. Full frame telemetry sets flyEvaluation and forces isSpineNeutral = true for Cable Fly
+    const frame = evaluateBiomechanicalFrame(extendedFlyKp, 'cable_fly_mid_sternal', 'ECCENTRIC', 65, 1);
+    expect(frame.technique.isSpineNeutral).toBe(true);
+    expect(frame.technique.flyEvaluation).toBeDefined();
+    expect(frame.biomechanics.flyEvaluation).toBeDefined();
+    expect(frame.technique.pressEvaluation).toBeUndefined();
   });
 });

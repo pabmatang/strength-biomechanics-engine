@@ -53,6 +53,7 @@ import {
   ExercisePatternSpec,
   evaluateBiomechanicalVerdict,
   evaluatePressVerdict,
+  evaluateFlyVerdict,
   FootStabilityState,
   detectCameraPlane,
   calculateTibialAngle,
@@ -734,8 +735,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const meanHipMoment = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
   const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
   const isHipThrustExercise = selectedPattern.id.includes('hip_thrust');
-  const isPressExercise = selectedPattern.patternFamily === 'push_press';
+  const isFlyExercise = selectedPattern.id.includes('fly');
+  const isPressExercise = selectedPattern.patternFamily === 'push_press' && !isFlyExercise;
   const pressEval = currentTelemetry?.biomechanics.pressEvaluation ?? currentTelemetry?.technique.pressEvaluation;
+  const flyEval = currentTelemetry?.biomechanics.flyEvaluation ?? currentTelemetry?.technique.flyEvaluation;
 
   const htKneeAngle = Math.round(
     currentTelemetry?.biomechanics.kneeAngleDegrees ??
@@ -749,23 +752,26 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     repCount === 0 &&
     currentPhase === 'LOCKOUT' &&
     !(isHipThrustExercise && currentTelemetry) &&
-    !(isPressExercise && pressEval);
+    !(isPressExercise && pressEval) &&
+    !(isFlyExercise && flyEval);
 
-  const rawVerdict = (isPressExercise && pressEval)
-    ? evaluatePressVerdict(pressEval)
-    : evaluateBiomechanicalVerdict(
-        targetMuscle,
-        meanHipMoment,
-        meanKneeMoment,
-        currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
-        currentTelemetry?.technique.spinalAngleDegrees ?? 20,
-        75,
-        currentTelemetry?.technique.isSpineNeutral ?? true,
-        selectedPattern.id,
-        htKneeAngle,
-        htLumbarOk,
-        htNeckOk
-      );
+  const rawVerdict = (isFlyExercise && flyEval)
+    ? evaluateFlyVerdict(flyEval)
+    : (isPressExercise && pressEval)
+      ? evaluatePressVerdict(pressEval)
+      : evaluateBiomechanicalVerdict(
+          targetMuscle,
+          meanHipMoment,
+          meanKneeMoment,
+          currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
+          currentTelemetry?.technique.spinalAngleDegrees ?? 20,
+          75,
+          currentTelemetry?.technique.isSpineNeutral ?? true,
+          selectedPattern.id,
+          htKneeAngle,
+          htLumbarOk,
+          htNeckOk
+        );
 
   const currentVerdict = isInitialSetup
     ? {
@@ -774,9 +780,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         verdictTitle: 'Posición Inicial: Esperando inicio de repetición',
         verdictDescription: isHipThrustExercise
           ? 'Ajusta los pies para buscar ~90° en rodilla y mantén lumbar y cuello neutros.'
-          : isPressExercise
-            ? 'Alinea la mano con el codo (~90°), mantén el codo bajo el hombro y apoya firmes los pies en el suelo.'
-            : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
+          : isFlyExercise
+            ? 'Mantén los brazos lo más extendidos posible sin anteriorizar los hombros.'
+            : isPressExercise
+              ? 'Alinea la mano con el codo (~90°), mantén el codo bajo el hombro y apoya firmes los pies en el suelo.'
+              : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
       }
     : rawVerdict;
 
@@ -1155,12 +1163,33 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
                 {analysisMode === 'technique' ? (
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                      {isHipThrustExercise
-                        ? (htLumbarOk && htNeckOk ? 'Lumbar/Cuello OK' : 'Revisar Postura')
-                        : (currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Curvatura')}
-                    </div>
+                    {isFlyExercise && flyEval ? (
+                      <>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          flyEval.areArmsExtended
+                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <TrendingUp className="w-3 h-3" />
+                          Codos: {flyEval.elbowAngleDeg}°
+                        </div>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          flyEval.shoulderAnteriorized
+                            ? 'bg-rose-950/85 border-rose-500/50 text-rose-300'
+                            : 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
+                        }`}>
+                          <ShieldCheck className="w-3 h-3" />
+                          Hombro: {flyEval.shoulderAnteriorized ? '⚠️ Anteriorizado' : '✓ Estable'}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                        {isHipThrustExercise
+                          ? (htLumbarOk && htNeckOk ? 'Lumbar/Cuello OK' : 'Revisar Postura')
+                          : (currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Curvatura')}
+                      </div>
+                    )}
 
                     {isHipThrustExercise && (
                       <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
@@ -1176,6 +1205,25 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     <div className="bg-blue-950/80 backdrop-blur-md border border-blue-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-blue-300 flex items-center gap-1">
                       <Activity className="w-3 h-3 text-blue-400" />
                       ROM: {currentTelemetry?.technique.romPercentage ?? 90}%
+                    </div>
+                  </div>
+                ) : isFlyExercise && flyEval ? (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      flyEval.areArmsExtended
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <TrendingUp className="w-3 h-3" />
+                      Codo: {flyEval.elbowAngleDeg}° ({flyEval.areArmsExtended ? 'Rectos' : '+Tríceps'})
+                    </div>
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      flyEval.areArmsExtended
+                        ? 'bg-violet-950/90 border-violet-500/50 text-violet-300'
+                        : 'bg-pink-950/90 border-pink-500/50 text-pink-300'
+                    }`}>
+                      <Crosshair className="w-3 h-3" />
+                      Reparto: {flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'}
                     </div>
                   </div>
                 ) : isHipThrustExercise ? (
@@ -1485,6 +1533,42 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="text-[9px] text-slate-500 block">chin-tuck en banco</span>
                 </div>
               </div>
+            ) : isFlyExercise && flyEval ? (
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
+                  <span className="text-sm font-black text-emerald-400 font-mono">
+                    {currentTelemetry?.technique.romPercentage ?? 85}%
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">recorrido pectoral</span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Extensión de Brazos</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    flyEval.areArmsExtended ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {flyEval.areArmsExtended
+                      ? `✓ Extendidos (${flyEval.elbowAngleDeg}°)`
+                      : `⚡ Flexionados (${flyEval.elbowAngleDeg}°)`}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {flyEval.areArmsExtended ? 'brazos casi rectos' : 'extiende más el codo'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Posición del Hombro</span>
+                  <span className={`text-xs font-black font-mono block mt-0.5 ${
+                    flyEval.shoulderAnteriorized ? 'text-rose-400' : 'text-emerald-400'
+                  }`}>
+                    {flyEval.shoulderAnteriorized ? '⚠️ Anteriorizado' : '✓ Estable Atrás'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {flyEval.shoulderAnteriorized ? 'evita adelantar hombro' : 'retracción escapular OK'}
+                  </span>
+                </div>
+              </div>
             ) : isPressExercise && pressEval ? (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
                 <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
@@ -1708,6 +1792,61 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </span>
                 </div>
               </div>
+            ) : isFlyExercise && flyEval ? (
+              <>
+                {/* Upper Body Fly Lever Bar (Shoulder Pectoral vs Elbow Triceps) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                    <span className="text-violet-400 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-violet-500" />
+                      Palanca Hombro (Pectoral): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
+                    </span>
+                    <span className="text-pink-400 flex items-center gap-1">
+                      Palanca Codo (Tríceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
+                      <span className="w-2 h-2 rounded-full bg-pink-500" />
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                    <div className="bg-violet-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
+                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
+                  </div>
+                </div>
+
+                {/* Fly Biomechanics Telemetry Grid */}
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Ángulo del Codo</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      flyEval.areArmsExtended ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {flyEval.elbowAngleDeg}° ({flyEval.areArmsExtended ? 'Rectos' : 'Flexionados'})
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">objetivo ≥ 142°</span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Reparto Muscular</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      flyEval.areArmsExtended ? 'text-violet-300' : 'text-pink-400'
+                    }`}>
+                      {flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {flyEval.areArmsExtended ? 'el pecho limita' : 'flexión desvía carga'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase block">Anteriorización Hombro</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      flyEval.shoulderAnteriorized ? 'text-rose-400' : 'text-emerald-400'
+                    }`}>
+                      {flyEval.shoulderAnteriorized ? '⚠️ Adelantado' : '✓ Retraído'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">control articular</span>
+                  </div>
+                </div>
+              </>
             ) : isPressExercise && pressEval ? (
               <>
                 {/* Upper Body Press Lever Bar (Shoulder vs Elbow) */}

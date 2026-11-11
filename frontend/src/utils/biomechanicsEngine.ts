@@ -301,10 +301,10 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     patternFamily: 'push_press',
     primaryJoint: 'shoulder',
     trackingMode: 'descending',
-    standingThreshold: 150,
-    inflectionThreshold: 80,
-    description: 'Tensión constante durante el estiramiento profundo con vector perpendicular al húmero.',
-    targetRatioDescription: 'Máxima sobrecarga en estiramiento'
+    standingThreshold: 95,
+    inflectionThreshold: 38,
+    description: 'Tensión constante con brazos extendidos para maximizar el brazo de momento en pectoral.',
+    targetRatioDescription: 'Brazos casi rectos · pectoral limitante'
   },
   {
     id: 'dips_chest_lean',
@@ -711,6 +711,98 @@ export function evaluatePressBiomechanics(
   };
 }
 
+export interface FlyBiomechanicsEvaluation {
+  elbowAngleDeg: number;
+  areArmsExtended: boolean;
+  shoulderAnteriorized: boolean;
+  armExtensionLabel: string;
+  shoulderPostureLabel: string;
+  muscleFocusSummary: string;
+}
+
+/**
+ * Evaluates Cable Fly / Cruces en Polea biomechanics:
+ * 1) Arm extension: keep elbows as straight / minimally flexed as possible (>= 142°) vs triceps takeover
+ * 2) Shoulder retraction: avoid excessive shoulder anteriorization / protraction
+ */
+export function evaluateFlyBiomechanics(
+  keypoints: Record<string, Point2D & { visibility?: number }>,
+  cameraPlane: CameraPlane
+): FlyBiomechanicsEvaluation {
+  const ls = keypoints['left_shoulder'];
+  const rs = keypoints['right_shoulder'];
+  const le = keypoints['left_elbow'];
+  const re = keypoints['right_elbow'];
+  const lw = keypoints['left_wrist'];
+  const rw = keypoints['right_wrist'];
+  const lh = keypoints['left_hip'];
+  const rh = keypoints['right_hip'];
+
+  const shoulder = keypoints['shoulder'] || rs || ls;
+  const elbow = keypoints['elbow'] || re || le;
+  const wrist = keypoints['wrist'] || rw || lw;
+  const hip = keypoints['hip'] || rh || lh;
+  const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
+
+  // 1. Elbow extension across visible arms
+  const leftValid = Boolean(ls && le && lw && (le.visibility ?? 0.8) >= 0.35 && (lw.visibility ?? 0.8) >= 0.35);
+  const rightValid = Boolean(rs && re && rw && (re.visibility ?? 0.8) >= 0.35 && (rw.visibility ?? 0.8) >= 0.35);
+
+  let elbowAngleDeg = 160;
+  if (leftValid && rightValid) {
+    const lAng = computeJointAngle2D(ls, le, lw);
+    const rAng = computeJointAngle2D(rs, re, rw);
+    elbowAngleDeg = Math.round((lAng + rAng) / 2);
+  } else if (leftValid) {
+    elbowAngleDeg = Math.round(computeJointAngle2D(ls, le, lw));
+  } else if (rightValid) {
+    elbowAngleDeg = Math.round(computeJointAngle2D(rs, re, rw));
+  } else if (shoulder && elbow && wrist) {
+    elbowAngleDeg = Math.round(computeJointAngle2D(shoulder, elbow, wrist));
+  }
+
+  const areArmsExtended = elbowAngleDeg >= 142;
+
+  // 2. Shoulder anteriorization / excessive protraction check (without column check)
+  let shoulderAnteriorized = false;
+  if (cameraPlane !== 'sagittal' && ls && rs && lh && rh) {
+    const shoulderWidth = Math.abs(rs.x - ls.x);
+    const hipWidth = Math.abs(rh.x - lh.x);
+    const collapsedWidth = hipWidth > 0.05 && (shoulderWidth / hipWidth) < 1.12;
+    const midShoulderY = (ls.y + rs.y) / 2;
+    const shruggedTowardEar = Boolean(ear && (midShoulderY - ear.y) < 0.048);
+    shoulderAnteriorized = collapsedWidth || shruggedTowardEar;
+  } else if (shoulder && hip && wrist) {
+    // Sagittal: check if shoulder rolls noticeably forward toward wrist past ear-hip line
+    const pushDir = Math.sign(wrist.x - hip.x) || 1;
+    const refX = ear ? (ear.x + hip.x) / 2 : hip.x;
+    const forwardProtraction = (shoulder.x - refX) * pushDir;
+    const shruggedTowardEar = Boolean(ear && (shoulder.y - ear.y) < 0.048);
+    shoulderAnteriorized = forwardProtraction > 0.085 || shruggedTowardEar;
+  }
+
+  const armExtensionLabel = areArmsExtended
+    ? `✓ Brazos extendidos (${elbowAngleDeg}°): mínima flexión`
+    : `⚠️ Brazos flexionados (${elbowAngleDeg}°): extiéndelos más`;
+
+  const shoulderPostureLabel = shoulderAnteriorized
+    ? '⚠️ Hombro anteriorizado: abre el pecho atrás'
+    : '✓ Hombros estables sin anteriorización';
+
+  const muscleFocusSummary = areArmsExtended
+    ? 'Brazos rectos: pectoral y hombro comparten el trabajo (el pecho limita el ejercicio)'
+    : 'Codo flexionado: mayor trabajo de tríceps';
+
+  return {
+    elbowAngleDeg,
+    areArmsExtended,
+    shoulderAnteriorized,
+    armExtensionLabel,
+    shoulderPostureLabel,
+    muscleFocusSummary
+  };
+}
+
 /**
  * Technical Fault Auditor by Movement Pattern
  */
@@ -892,7 +984,41 @@ export function auditTechniqueRules(
     }
   }
 
-  // D) Patrón de Empuje / Pecho (Press de Pecho)
+  // D1) Patrón Cruces en Polea / Aperturas (Fly) -> Solo extensión de brazos y sin anteriorización excesiva del hombro
+  else if (exerciseId?.includes('fly')) {
+    const camPlane = detectCameraPlane(keypoints);
+    const flyEval = evaluateFlyBiomechanics(keypoints, camPlane);
+
+    if (!flyEval.areArmsExtended) {
+      alerts.push({
+        type: 'warning',
+        code: 'FLY_ARMS_BENT',
+        message: `Brazos flexionados (${flyEval.elbowAngleDeg}°): extiéndelos lo máximo posible (casi rectos, ≥142°) para no convertir el cruce en press.`
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'FLY_ARMS_EXTENDED',
+        message: `✓ Brazos bien extendidos (${flyEval.elbowAngleDeg}°): mínima flexión y brazo de momento óptimo en pectoral`
+      });
+    }
+
+    if (flyEval.shoulderAnteriorized) {
+      alerts.push({
+        type: 'warning',
+        code: 'FLY_SHOULDER_ANTERIORIZATION',
+        message: 'Hombros demasiado anteriorizados: mantén el pecho abierto y hombros abajo/atrás para no cargar en exceso el hombro anterior.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'FLY_SHOULDER_RETRACTED',
+        message: '✓ Hombro estable sin anteriorización excesiva: pecho abierto y escápulas controladas'
+      });
+    }
+  }
+
+  // D2) Patrón de Empuje / Pecho (Press de Pecho)
   else if (patternFamily === 'push_press') {
     const camPlane = detectCameraPlane(keypoints);
     const pressEval = evaluatePressBiomechanics(keypoints, camPlane, footTracker, currentAngle);
@@ -1035,6 +1161,7 @@ export interface BiomechanicalTelemetryFrame {
     neckNeutral?: boolean;
     neckStatusLabel?: string;
     pressEvaluation?: PressBiomechanicsEvaluation;
+    flyEvaluation?: FlyBiomechanicsEvaluation;
     activeCues: string[];
     alerts?: TechniqueFeedbackAlert[];
   };
@@ -1066,6 +1193,7 @@ export interface BiomechanicalTelemetryFrame {
     tibialAngleDegrees: number;
     kneeAngleDegrees?: number;
     pressEvaluation?: PressBiomechanicsEvaluation;
+    flyEvaluation?: FlyBiomechanicsEvaluation;
     muscleBias: MuscleBiasCategory;
     muscleBiasLabel: string;
     resistancePeakLocation: ResistanceCurveMatch;
@@ -1425,6 +1553,41 @@ export function evaluatePressVerdict(pressEval: PressBiomechanicsEvaluation): {
 }
 
 /**
+ * Generates direct verdict for Cable Fly / Aperturas from elbow extension & shoulder posture
+ */
+export function evaluateFlyVerdict(flyEval: FlyBiomechanicsEvaluation): {
+  isOptimal: boolean;
+  verdictTitle: string;
+  verdictDescription: string;
+  ratio: number;
+} {
+  if (!flyEval.areArmsExtended) {
+    return {
+      isOptimal: false,
+      ratio: 1.0,
+      verdictTitle: `Codo Flexionado (${flyEval.elbowAngleDeg}°): Mayor Trabajo de Tríceps`,
+      verdictDescription: 'Al doblar más el codo se acorta el brazo de palanca y el tríceps asume más trabajo para empujar la polea. Extiende más los brazos para maximizar la carga en el pectoral.'
+    };
+  }
+
+  if (flyEval.shoulderAnteriorized) {
+    return {
+      isOptimal: false,
+      ratio: 1.3,
+      verdictTitle: 'Brazos Rectos, pero Hombro Anteriorizado',
+      verdictDescription: 'Con brazos rectos pectoral y hombro comparten el trabajo y el pecho limita, pero al adelantar demasiado los hombros aumentas la tensión en el deltoides anterior. Abre el pecho atrás.'
+    };
+  }
+
+  return {
+    isOptimal: true,
+    ratio: 1.6,
+    verdictTitle: 'Brazos Rectos: Pectoral y Hombro Comparten el Trabajo (El Pecho Limita)',
+    verdictDescription: `Codos casi rectos (${flyEval.elbowAngleDeg}°): pectoral mayor y hombro se reparten el mismo brazo de momento en la aducción, siendo el pecho el factor limitante del ejercicio.`
+  };
+}
+
+/**
  * Evaluates real-time biomechanics and technique from stabilized keypoints
  */
 export function evaluateBiomechanicalFrame(
@@ -1594,15 +1757,20 @@ export function evaluateBiomechanicalFrame(
 
   const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
   const htEval = isHipThrust ? evaluateHipThrustAlignment(smoothedKeypoints, currentAngle) : null;
-  const isChestPress = patternFamily === 'push_press';
+  const isCableFly = exerciseId.includes('fly');
+  const isChestPress = patternFamily === 'push_press' && !isCableFly;
+  const flyEval = isCableFly ? evaluateFlyBiomechanics(smoothedKeypoints, cameraPlane) : undefined;
   const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker, currentAngle) : undefined;
 
   // Spinal neutrality:
+  // - Cable Fly: spine check disabled (user focus strictly on arm extension + shoulder retraction)
   // - Hip Thrust: lumbar + neck neutrality
   // - Chest Press (especially frontal view): symmetrical torso alignment (never unilateral ear->shoulder triangle)
   // - Sagittal lower-body patterns: ear->shoulder->hip collinearity
   let isSpineNeutral = spineAnalysis.isSpineNeutral;
-  if (isHipThrust) {
+  if (isCableFly) {
+    isSpineNeutral = true;
+  } else if (isHipThrust) {
     isSpineNeutral = Boolean(htEval?.lumbarNeutral && htEval?.neckNeutral);
   } else if (pressEval) {
     isSpineNeutral = pressEval.spineNeutral;
@@ -1631,6 +1799,11 @@ export function evaluateBiomechanicalFrame(
       muscleBias = 'hip_glute_bias';
       muscleBiasLabel = `Ángulo Óptimo Glúteo (${htEval.kneeAngleDegrees}° ≈ 90°)`;
     }
+  } else if (flyEval) {
+    muscleBias = 'balanced_hybrid';
+    muscleBiasLabel = flyEval.areArmsExtended
+      ? 'Brazos Rectos: Pectoral + Hombro (Pecho Limita)'
+      : 'Codo Flexionado: Mayor Trabajo Tríceps';
   } else if (pressEval) {
     muscleBias = 'balanced_hybrid';
     muscleBiasLabel = pressEval.handElbowAlignment === 'closed_triceps'
@@ -1673,13 +1846,13 @@ export function evaluateBiomechanicalFrame(
   );
 
   const activeCues: string[] = [];
-  if (!isSpineNeutral && !isHipThrust) {
+  if (!isSpineNeutral && !isHipThrust && !isCableFly) {
     activeCues.push('⚡ Quiebre de neutralidad espinal: inclinación lateral o curvatura alterada (> 15°).');
   }
   if (isKneeValgusDetected) {
     activeCues.push('⚡ Valgo dinámico de rodilla: empuja las rodillas hacia afuera en línea con los pies.');
   }
-  if (phase === 'BOTTOM' && currentAngle <= 95) {
+  if (phase === 'BOTTOM' && currentAngle <= 95 && !isCableFly) {
     activeCues.push('✓ Rango de Movimiento (ROM) completo alcanzado.');
   }
   // Include specific pattern warnings in active cues
@@ -1689,13 +1862,17 @@ export function evaluateBiomechanicalFrame(
     }
   });
 
+  const computedRomPct = isCableFly
+    ? Math.max(0, Math.min(100, Math.round(((95 - currentAngle) / (95 - 38)) * 100)))
+    : Math.max(0, Math.min(100, Math.round(((165 - currentAngle) / (165 - 90)) * 100)));
+
   return {
     timestampMs,
     phase,
     currentAngle,
     angularVelocityDegPerSec: Math.round(angularVelocity),
     technique: {
-      romPercentage: Math.max(0, Math.min(100, Math.round(((165 - currentAngle) / (165 - 90)) * 100))),
+      romPercentage: computedRomPct,
       spinalAngleDegrees: spineAngle,
       isSpineNeutral,
       isKneeValgusDetected,
@@ -1706,6 +1883,7 @@ export function evaluateBiomechanicalFrame(
       neckNeutral: htEval ? htEval.neckNeutral : isSpineNeutral,
       neckStatusLabel: htEval ? htEval.neckStatusLabel : (isSpineNeutral ? '✓ Cuello Neutro' : '⚡ Desalineado'),
       pressEvaluation: pressEval,
+      flyEvaluation: flyEval,
       activeCues,
       alerts: techniqueAlerts
     },
@@ -1730,6 +1908,7 @@ export function evaluateBiomechanicalFrame(
       tibialAngleDegrees: tibialAngle,
       kneeAngleDegrees,
       pressEvaluation: pressEval,
+      flyEvaluation: flyEval,
       muscleBias,
       muscleBiasLabel,
       resistancePeakLocation,
