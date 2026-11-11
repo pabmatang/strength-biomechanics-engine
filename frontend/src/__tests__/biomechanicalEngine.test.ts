@@ -15,6 +15,8 @@ import {
   createOcclusionTrackerState,
   applyOcclusionAndConfidenceFallback,
   interpolateOccludedSpans,
+  applyTemporalSpikeRejection,
+  computeAthleteBoundingRoi,
   KinematicAnalysisEngine,
   lookupFrameKinematicsAtTime
 } from '../utils/kinematicAnalysisEngine';
@@ -955,20 +957,22 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
 });
 
 describe('KinematicAnalysisEngine (15 FPS Trim, Offscreen Downscale & Occlusion Recovery)', () => {
-  it('computes smart temporal trim window (2.5s offset, 12s max, 15 FPS) and scales short clips', () => {
-    expect(START_OFFSET_SEC).toBe(2.5);
-    expect(MAX_ANALYSIS_DURATION_SEC).toBe(12.0);
+  it('computes smart temporal trim window (>=24s coverage @ 15 FPS) and preserves full <=24s clips', () => {
+    expect(START_OFFSET_SEC).toBe(1.5);
+    expect(MAX_ANALYSIS_DURATION_SEC).toBe(24.0);
     expect(TARGET_SAMPLE_FPS).toBe(15);
 
-    const longClip = computeTrimmedAnalysisWindow(30);
-    expect(longClip.startTime).toBeCloseTo(2.5, 4);
-    expect(longClip.endTime).toBeCloseTo(14.5, 4);
+    const longClip = computeTrimmedAnalysisWindow(40);
+    expect(longClip.startTime).toBeCloseTo(1.5, 4);
+    expect(longClip.endTime).toBeCloseTo(25.5, 4);
     expect(longClip.step).toBeCloseTo(1 / 15, 5);
-    expect(longClip.totalFrames).toBe(181);
+    expect(longClip.totalFrames).toBe(361);
 
-    const shortClip = computeTrimmedAnalysisWindow(8);
-    expect(shortClip.startTime).toBeCloseTo(0.8, 4);
-    expect(shortClip.endTime).toBeCloseTo(8.0, 4);
+    // 24s clip retains the entire 0s -> 24s set so >=24s is always visible
+    const clip24s = computeTrimmedAnalysisWindow(24);
+    expect(clip24s.startTime).toBe(0);
+    expect(clip24s.endTime).toBeCloseTo(24.0, 4);
+    expect(clip24s.totalFrames).toBe(361);
   });
 
   it('downscales 4K/1080p frames into <=640x480 preserving aspect ratio', () => {
@@ -976,27 +980,29 @@ describe('KinematicAnalysisEngine (15 FPS Trim, Offscreen Downscale & Occlusion 
     expect(computeInferenceDimensions(2160, 3840, 640, 480)).toEqual({ width: 270, height: 480 });
   });
 
-  it('projects occluded wrist along forearm vector when visibility < 0.65 and interpolates spans', () => {
+  it('projects occluded wrist along learned forearm direction (preserving bent 90° press arm) and removes isolated spikes', () => {
     const state = createOcclusionTrackerState();
+    // Learn a 90° flexed forearm (shoulder->elbow horizontal, elbow->wrist vertical up)
     applyOcclusionAndConfidenceFallback(
       {
-        right_shoulder: { x: 0.3, y: 0.3, visibility: 0.95 },
-        right_elbow: { x: 0.5, y: 0.3, visibility: 0.95 },
-        right_wrist: { x: 0.7, y: 0.3, visibility: 0.95 }
+        right_shoulder: { x: 0.3, y: 0.5, visibility: 0.95 },
+        right_elbow: { x: 0.5, y: 0.5, visibility: 0.95 },
+        right_wrist: { x: 0.5, y: 0.3, visibility: 0.95 }
       },
       state
     );
 
     const recovered = applyOcclusionAndConfidenceFallback(
       {
-        right_shoulder: { x: 0.3, y: 0.3, visibility: 0.92 },
-        right_elbow: { x: 0.5, y: 0.3, visibility: 0.92 },
+        right_shoulder: { x: 0.3, y: 0.5, visibility: 0.92 },
+        right_elbow: { x: 0.5, y: 0.5, visibility: 0.92 },
         right_wrist: { x: 0.05, y: 0.95, visibility: 0.25 }
       },
       state
     );
 
-    expect(recovered.right_wrist.x).toBeCloseTo(0.7, 2);
+    // Must project vertically along learned forearm dir (0.5, 0.3), NOT snap horizontal 180° behind elbow
+    expect(recovered.right_wrist.x).toBeCloseTo(0.5, 2);
     expect(recovered.right_wrist.y).toBeCloseTo(0.3, 2);
     expect(recovered.right_wrist.occludedRecovered).toBe(true);
 
@@ -1007,6 +1013,22 @@ describe('KinematicAnalysisEngine (15 FPS Trim, Offscreen Downscale & Occlusion 
     ]);
     expect(span[1].right_elbow.x).toBeCloseTo(0.5, 2);
     expect(span[1].right_elbow.y).toBeCloseTo(0.4, 2);
+
+    // Hampel spike filter eliminates single-frame dark-shirt elbow jump while keeping athlete ROI tight
+    const despiked = applyTemporalSpikeRejection([
+      { right_elbow: { x: 0.40, y: 0.50, visibility: 0.9 } },
+      { right_elbow: { x: 0.62, y: 0.72, visibility: 0.9 } },
+      { right_elbow: { x: 0.41, y: 0.51, visibility: 0.9 } }
+    ]);
+    expect(despiked[1].right_elbow.x).toBeCloseTo(0.405, 3);
+    expect(despiked[1].right_elbow.y).toBeCloseTo(0.505, 3);
+
+    const wideGymLandmarks = Array.from({ length: 33 }, () => ({ x: 0.55, y: 0.48, visibility: 0.9 }));
+    wideGymLandmarks[11] = { x: 0.48, y: 0.35, visibility: 0.95 };
+    wideGymLandmarks[28] = { x: 0.60, y: 0.72, visibility: 0.95 };
+    const tightRoi = computeAthleteBoundingRoi(wideGymLandmarks);
+    expect(tightRoi).not.toBeNull();
+    expect(tightRoi!.w).toBeLessThan(0.75);
   });
 
   it('builds JSON-serializable FrameKinematics[] with rep counting and mid-step lookup', () => {

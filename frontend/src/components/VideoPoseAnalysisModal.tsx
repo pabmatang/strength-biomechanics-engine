@@ -394,7 +394,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
    * 5. Biomechanical Physics & Moment Arms Evaluation
    * 6. Dual-Mode Canvas Rendering
    */
-  const processSingleFrame = async () => {
+  const processSingleFrame = async (exactMediaTimeSec?: number) => {
     if (isAnalyzingRef.current) return;
     const video = videoElementRef.current;
     const canvas = canvasRef.current;
@@ -419,7 +419,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       uploadedVideoUrl &&
       !useWebcam
     ) {
-      const t = video.currentTime || 0;
+      const t = typeof exactMediaTimeSec === 'number' ? exactMediaTimeSec : (video.currentTime || 0);
       const inTrimmedWindow =
         t >= clipResult.startTimeSec - 0.15 && t <= clipResult.endTimeSec + 0.15;
       if (inTrimmedWindow) {
@@ -710,7 +710,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     let cancelled = false;
     const videoEl = videoElementRef.current as (HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: () => void) => number;
+      requestVideoFrameCallback?: (cb: (now: number, meta?: { mediaTime?: number }) => void) => number;
       cancelVideoFrameCallback?: (id: number) => void;
     }) | null;
     let vfcHandle: number | null = null;
@@ -720,13 +720,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const scheduleNext = () => {
       if (cancelled) return;
       if (useVfc && videoEl?.requestVideoFrameCallback) {
-        vfcHandle = videoEl.requestVideoFrameCallback(runStep);
+        vfcHandle = videoEl.requestVideoFrameCallback((_now, meta) => {
+          void runStep(meta?.mediaTime);
+        });
       } else {
-        animationFrameRef.current = requestAnimationFrame(runStep);
+        animationFrameRef.current = requestAnimationFrame(() => {
+          void runStep();
+        });
       }
     };
 
-    const runStep = async () => {
+    const runStep = async (exactMediaTimeSec?: number) => {
       if (cancelled) return;
       const video = videoElementRef.current;
       if (!isRecording && !isVideoPlaying) {
@@ -744,7 +748,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       }
       isProcessingRef.current = true;
       try {
-        await processSingleFrame();
+        await processSingleFrame(exactMediaTimeSec);
       } finally {
         isProcessingRef.current = false;
         scheduleNext();

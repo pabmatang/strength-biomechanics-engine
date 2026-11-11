@@ -27,8 +27,8 @@ import {
 } from './biomechanicsEngine';
 
 // 1. Temporal Trim & Sampling Constants
-export const START_OFFSET_SEC = 2.5;
-export const MAX_ANALYSIS_DURATION_SEC = 12.0;
+export const START_OFFSET_SEC = 1.5;
+export const MAX_ANALYSIS_DURATION_SEC = 24.0;
 export const TARGET_SAMPLE_FPS = 15;
 export const MIN_LANDMARK_VISIBILITY = 0.65;
 export const MIN_CONFIDENCE_THRESHOLD = 0.6;
@@ -133,6 +133,12 @@ export interface OcclusionTrackerState {
   avgForearmLeftSamples: number;
   avgForearmRight: number | null;
   avgForearmRightSamples: number;
+  avgUpperArmLeft: number | null;
+  avgUpperArmRight: number | null;
+  lastForearmDirLeft: { ux: number; uy: number } | null;
+  lastForearmDirRight: { ux: number; uy: number } | null;
+  lastUpperArmDirLeft: { ux: number; uy: number } | null;
+  lastUpperArmDirRight: { ux: number; uy: number } | null;
   lastValidKeypoints: Record<string, SerializablePoint2D>;
 }
 
@@ -142,20 +148,27 @@ export function createOcclusionTrackerState(): OcclusionTrackerState {
     avgForearmLeftSamples: 0,
     avgForearmRight: null,
     avgForearmRightSamples: 0,
+    avgUpperArmLeft: null,
+    avgUpperArmRight: null,
+    lastForearmDirLeft: null,
+    lastForearmDirRight: null,
+    lastUpperArmDirLeft: null,
+    lastUpperArmDirRight: null,
     lastValidKeypoints: {}
   };
 }
 
 /**
- * Computes the trimmed time window [startTime .. endTime] and step size at 15 FPS
- * so long clips skip dead preparation seconds and cap analysis to <= ~180 frames.
+ * Computes the trimmed time window [startTime .. endTime] and step size at 15 FPS:
+ * covers up to 24s full-clip (preserving 0.0s start on <= 25.5s videos so users never miss opening reps,
+ * and skipping 1.5s dead setup on longer videos).
  */
 export function computeTrimmedAnalysisWindow(
   durationSec: number,
   config: Pick<KinematicEngineConfig, 'startOffsetSec' | 'maxAnalysisDurationSec' | 'targetSampleFps'> = {}
 ): TrimmedAnalysisWindow {
-  const offset = config.startOffsetSec ?? START_OFFSET_SEC;
   const maxDur = config.maxAnalysisDurationSec ?? MAX_ANALYSIS_DURATION_SEC;
+  const offset = config.startOffsetSec ?? START_OFFSET_SEC;
   const fps = Math.max(1, config.targetSampleFps ?? TARGET_SAMPLE_FPS);
   const step = 1 / fps;
 
@@ -163,7 +176,10 @@ export function computeTrimmedAnalysisWindow(
     return { startTime: 0, endTime: 0, step, totalFrames: 0 };
   }
 
-  const startTime = Math.min(offset, durationSec * 0.1);
+  const startTime =
+    config.startOffsetSec === undefined && durationSec <= maxDur + 1.5
+      ? 0
+      : Math.min(offset, durationSec * 0.1);
   const endTime = Math.min(startTime + maxDur, durationSec);
   const effectiveDuration = Math.max(0, endTime - startTime);
   const totalFrames = Math.max(1, Math.floor(effectiveDuration * fps) + 1);
@@ -200,19 +216,27 @@ function isConfident(pt?: Keypoint2D | SerializablePoint2D, threshold: number = 
   return vis >= threshold;
 }
 
-function projectWristFromShoulderElbow(
+function projectWristFromForearmOrHumerus(
   shoulder: SerializablePoint2D,
   elbow: SerializablePoint2D,
-  forearmLength: number
+  forearmLength: number,
+  preferredForearmDir: { ux: number; uy: number } | null
 ): SerializablePoint2D {
-  const dx = elbow.x - shoulder.x;
-  const dy = elbow.y - shoulder.y;
-  const norm = Math.hypot(dx, dy);
-  if (norm < 1e-4) {
-    return { x: elbow.x, y: Math.min(0.99, elbow.y + forearmLength), visibility: 0.72, occludedRecovered: true, projectedByKinematics: true };
+  let ux: number;
+  let uy: number;
+  if (preferredForearmDir) {
+    ux = preferredForearmDir.ux;
+    uy = preferredForearmDir.uy;
+  } else {
+    const dx = elbow.x - shoulder.x;
+    const dy = elbow.y - shoulder.y;
+    const norm = Math.hypot(dx, dy);
+    if (norm < 1e-4) {
+      return { x: elbow.x, y: Math.min(0.99, elbow.y + forearmLength), visibility: 0.72, occludedRecovered: true, projectedByKinematics: true };
+    }
+    ux = dx / norm;
+    uy = dy / norm;
   }
-  const ux = dx / norm;
-  const uy = dy / norm;
   return {
     x: Math.max(0.01, Math.min(0.99, elbow.x + forearmLength * ux)),
     y: Math.max(0.01, Math.min(0.99, elbow.y + forearmLength * uy)),
@@ -221,6 +245,119 @@ function projectWristFromShoulderElbow(
     occludedRecovered: true,
     projectedByKinematics: true
   };
+}
+
+/**
+ * Computes a padded bounding ROI around detected athlete landmarks so wide-angle gym videos
+ * allocate maximum pixel resolution onto the working joints (elbow, wrist, hand grip)
+ * and crop out background passersby.
+ */
+export function computeAthleteBoundingRoi(
+  landmarks: Array<{ x: number; y: number; visibility?: number }>
+): NormalizedVideoRoi | null {
+  let minX = 1;
+  let maxX = 0;
+  let minY = 1;
+  let maxY = 0;
+  let validCount = 0;
+
+  for (let i = 0; i < landmarks.length; i++) {
+    const lm = landmarks[i];
+    if (!lm || (lm.visibility ?? 0) < 0.35) continue;
+    if (lm.x < 0 || lm.x > 1 || lm.y < 0 || lm.y > 1) continue;
+    if (lm.x < minX) minX = lm.x;
+    if (lm.x > maxX) maxX = lm.x;
+    if (lm.y < minY) minY = lm.y;
+    if (lm.y > maxY) maxY = lm.y;
+    validCount += 1;
+  }
+
+  if (validCount < 8) return null;
+  const spanW = maxX - minX;
+  const spanH = maxY - minY;
+  if (spanW < 0.08 || spanH < 0.12) return null;
+
+  // Generous anatomical margin so concentric bar path & arms never leave the crop
+  const padX = Math.max(0.14, spanW * 0.45);
+  const padY = Math.max(0.14, spanH * 0.35);
+  const x0 = Math.max(0, minX - padX);
+  const y0 = Math.max(0, minY - padY);
+  const x1 = Math.min(1, maxX + padX);
+  const y1 = Math.min(1, maxY + padY);
+  const w = Math.max(0.25, x1 - x0);
+  const h = Math.max(0.28, y1 - y0);
+
+  if (w > 0.82 && h > 0.85) return null;
+  return { x: x0, y: y0, w, h };
+}
+
+/**
+ * Single-frame Hampel / velocity spike rejection for offline sequences:
+ * eliminates isolated MediaPipe jumps (e.g. elbow/wrist snapping to dark shirt/machine for 1 frame)
+ * before zero-phase smoothing while preserving legitimate fast joint paths.
+ */
+export function applyTemporalSpikeRejection(
+  sequence: Array<Record<string, SerializablePoint2D>>
+): Array<Record<string, SerializablePoint2D>> {
+  const n = sequence.length;
+  if (n < 3) return sequence;
+
+  const trackedKeys = [
+    'left_shoulder', 'right_shoulder',
+    'left_elbow', 'right_elbow',
+    'left_wrist', 'right_wrist',
+    'left_hand_grip', 'right_hand_grip',
+    'left_hip', 'right_hip',
+    'left_knee', 'right_knee',
+    'left_ankle', 'right_ankle'
+  ];
+
+  // Snapshot original points so rejections use clean unmutated neighbors
+  const out = sequence.map(frame => ({ ...frame }));
+
+  for (const key of trackedKeys) {
+    for (let i = 1; i < n - 1; i++) {
+      const prev = sequence[i - 1][key];
+      const curr = sequence[i][key];
+      const next = sequence[i + 1][key];
+      if (!prev || !curr || !next) continue;
+
+      const neighborDist = Math.hypot(next.x - prev.x, next.y - prev.y);
+      const midX = (prev.x + next.x) * 0.5;
+      const midY = (prev.y + next.y) * 0.5;
+      const dev = Math.hypot(curr.x - midX, curr.y - midY);
+
+      if (neighborDist < 0.065 && dev > Math.max(0.022, neighborDist * 1.35)) {
+        out[i][key] = {
+          ...curr,
+          x: midX,
+          y: midY
+        };
+      }
+    }
+  }
+
+  // Clamp hand_grip within physical fist radius (<= 0.095 norm) of its paired wrist
+  for (let i = 0; i < n; i++) {
+    for (const side of ['left', 'right'] as const) {
+      const wr = out[i][`${side}_wrist`];
+      const grip = out[i][`${side}_hand_grip`];
+      if (!wr || !grip) continue;
+      const dx = grip.x - wr.x;
+      const dy = grip.y - wr.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.095) {
+        const s = 0.095 / dist;
+        out[i][`${side}_hand_grip`] = {
+          ...grip,
+          x: wr.x + dx * s,
+          y: wr.y + dy * s
+        };
+      }
+    }
+  }
+
+  return out;
 }
 
 /**
@@ -245,18 +382,39 @@ export function applyOcclusionAndConfidenceFallback(
     const wr = rawKeypoints[`${side}_wrist`];
 
     if (isConfident(el, cleanThreshold) && isConfident(wr, cleanThreshold)) {
-      const len = Math.hypot(wr.x - el.x, wr.y - el.y);
+      const dx = wr.x - el.x;
+      const dy = wr.y - el.y;
+      const len = Math.hypot(dx, dy);
       if (len >= 0.03 && len <= 0.45) {
+        const dir = { ux: dx / len, uy: dy / len };
         if (side === 'left') {
           state.avgForearmLeftSamples += 1;
           state.avgForearmLeft = state.avgForearmLeft === null
             ? len
             : state.avgForearmLeft + (len - state.avgForearmLeft) / state.avgForearmLeftSamples;
+          state.lastForearmDirLeft = dir;
         } else {
           state.avgForearmRightSamples += 1;
           state.avgForearmRight = state.avgForearmRight === null
             ? len
             : state.avgForearmRight + (len - state.avgForearmRight) / state.avgForearmRightSamples;
+          state.lastForearmDirRight = dir;
+        }
+      }
+    }
+
+    if (isConfident(sh, cleanThreshold) && isConfident(el, cleanThreshold)) {
+      const udx = el.x - sh.x;
+      const udy = el.y - sh.y;
+      const uLen = Math.hypot(udx, udy);
+      if (uLen >= 0.03 && uLen <= 0.45) {
+        const uDir = { ux: udx / uLen, uy: udy / uLen };
+        if (side === 'left') {
+          state.avgUpperArmLeft = state.avgUpperArmLeft === null ? uLen : state.avgUpperArmLeft * 0.8 + uLen * 0.2;
+          state.lastUpperArmDirLeft = uDir;
+        } else {
+          state.avgUpperArmRight = state.avgUpperArmRight === null ? uLen : state.avgUpperArmRight * 0.8 + uLen * 0.2;
+          state.lastUpperArmDirRight = uDir;
         }
       }
     }
@@ -321,26 +479,56 @@ export function applyOcclusionAndConfidenceFallback(
     }
   }
 
-  // Apply analytical inverse projection for occluded hands/wrists per side
+  // Apply analytical inverse projection for occluded elbows & hands/wrists per side
   for (const side of ['left', 'right'] as const) {
     const shKey = `${side}_shoulder`;
     const elKey = `${side}_elbow`;
     const wrKey = `${side}_wrist`;
     const gripKey = `${side}_hand_grip`;
     const forearmLen = side === 'left' ? leftForearmLen : rightForearmLen;
+    const upperArmLen = (side === 'left' ? state.avgUpperArmLeft : state.avgUpperArmRight) ?? 0.16;
+    const prefForearmDir = side === 'left' ? state.lastForearmDirLeft : state.lastForearmDirRight;
+    const prefUpperDir = side === 'left' ? state.lastUpperArmDirLeft : state.lastUpperArmDirRight;
+
+    const rawElbow = rawKeypoints[elKey];
+    const elbowOccluded = !isConfident(rawElbow, cleanThreshold);
+    const sh = out[shKey];
+
+    // If elbow is temporarily occluded in dark sleeve/machine while shoulder & upper-arm vector are known,
+    // stabilize elbow position kinematically along the learned humerus vector
+    if (elbowOccluded && isConfident(sh, cleanThreshold) && prefUpperDir) {
+      const projectedElbow: SerializablePoint2D = {
+        x: Math.max(0.01, Math.min(0.99, sh.x + upperArmLen * prefUpperDir.ux)),
+        y: Math.max(0.01, Math.min(0.99, sh.y + upperArmLen * prefUpperDir.uy)),
+        z: sh.z,
+        visibility: 0.70,
+        occludedRecovered: true,
+        projectedByKinematics: true
+      };
+      out[elKey] = projectedElbow;
+      state.lastValidKeypoints[elKey] = projectedElbow;
+    }
 
     const rawWrist = rawKeypoints[wrKey];
     const wristOccluded = !isConfident(rawWrist, cleanThreshold);
-    const sh = out[shKey];
     const el = out[elKey];
 
-    if (wristOccluded && isConfident(sh, cleanThreshold) && isConfident(el, cleanThreshold)) {
-      const projected = projectWristFromShoulderElbow(sh, el, forearmLen);
+    if (wristOccluded && sh && el && isConfident(el, Math.min(0.55, cleanThreshold))) {
+      const projected = projectWristFromForearmOrHumerus(sh, el, forearmLen, prefForearmDir);
       out[wrKey] = projected;
-      out[gripKey] = projected;
+      const gDir = prefForearmDir ?? {
+        ux: Math.hypot(projected.x - el.x, projected.y - el.y) > 1e-4 ? (projected.x - el.x) / Math.max(1e-4, forearmLen) : 0,
+        uy: Math.hypot(projected.x - el.x, projected.y - el.y) > 1e-4 ? (projected.y - el.y) / Math.max(1e-4, forearmLen) : 1
+      };
+      const projectedGrip: SerializablePoint2D = {
+        ...projected,
+        x: Math.max(0.01, Math.min(0.99, projected.x + forearmLen * 0.12 * gDir.ux)),
+        y: Math.max(0.01, Math.min(0.99, projected.y + forearmLen * 0.12 * gDir.uy))
+      };
+      out[gripKey] = projectedGrip;
       state.lastValidKeypoints[wrKey] = projected;
-      state.lastValidKeypoints[gripKey] = projected;
-    } else if (!wristOccluded && !isConfident(rawKeypoints[gripKey], cleanThreshold)) {
+      state.lastValidKeypoints[gripKey] = projectedGrip;
+    } else if (!wristOccluded && !isConfident(rawKeypoints[gripKey], Math.min(0.45, cleanThreshold))) {
       out[gripKey] = out[wrKey];
     }
   }
@@ -674,9 +862,10 @@ export class KinematicAnalysisEngine {
       const vidW = workerVideo.videoWidth || 640;
       const vidH = workerVideo.videoHeight || 480;
 
-      // Optional zoomed ROI crop when viewport zoom > 1.05
+      // Optional zoomed ROI crop when viewport zoom > 1.05; otherwise locks automatically onto athlete bounds after frame 0
       let roi: NormalizedVideoRoi = { x: 0, y: 0, w: 1, h: 1 };
-      if ((options.zoom ?? 1) > 1.05 && options.viewportSize && options.panOffset) {
+      let autoAthleteRoiLocked = (options.zoom ?? 1) > 1.05;
+      if (autoAthleteRoiLocked && options.viewportSize && options.panOffset) {
         roi = computeZoomedVideoRoi(
           options.viewportSize.width,
           options.viewportSize.height,
@@ -687,18 +876,30 @@ export class KinematicAnalysisEngine {
         );
       }
 
-      const srcX = Math.round(roi.x * vidW);
-      const srcY = Math.round(roi.y * vidH);
-      const srcW = Math.max(2, Math.round(roi.w * vidW));
-      const srcH = Math.max(2, Math.round(roi.h * vidH));
+      let srcX = 0;
+      let srcY = 0;
+      let srcW = vidW;
+      let srcH = vidH;
+      let dims = { width: 480, height: 360 };
+      let surface!: OffscreenCanvas | HTMLCanvasElement;
+      let ctx!: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
 
-      const dims = computeInferenceDimensions(
-        srcW,
-        srcH,
-        this.config.maxInferenceWidth,
-        this.config.maxInferenceHeight
+      const applyInferenceRegion = (nextRoi: NormalizedVideoRoi, maxEdge: number) => {
+        roi = nextRoi;
+        srcX = Math.max(0, Math.min(vidW - 2, Math.round(roi.x * vidW)));
+        srcY = Math.max(0, Math.min(vidH - 2, Math.round(roi.y * vidH)));
+        srcW = Math.max(2, Math.min(vidW - srcX, Math.round(roi.w * vidW)));
+        srcH = Math.max(2, Math.min(vidH - srcY, Math.round(roi.h * vidH)));
+        dims = computeInferenceDimensions(srcW, srcH, maxEdge, maxEdge);
+        const surf = this.ensureInferenceSurface(dims.width, dims.height);
+        surface = surf.canvas;
+        ctx = surf.ctx;
+      };
+
+      applyInferenceRegion(
+        roi,
+        autoAthleteRoiLocked ? 540 : Math.max(this.config.maxInferenceWidth, this.config.maxInferenceHeight)
       );
-      const { canvas: surface, ctx } = this.ensureInferenceSurface(dims.width, dims.height);
 
       const rawSamples: RawClipPoseSample[] = [];
       workerVideo.pause();
@@ -780,6 +981,13 @@ export class KinematicAnalysisEngine {
                 timestampSec: mediaTime,
                 rawLandmarks: remapped.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
               });
+              if (!autoAthleteRoiLocked) {
+                autoAthleteRoiLocked = true;
+                const athleteRoi = computeAthleteBoundingRoi(remapped);
+                if (athleteRoi) {
+                  applyInferenceRegion(athleteRoi, 540);
+                }
+              }
             }
 
             nextSampleTimeSec = Math.max(nextSampleTimeSec + windowSpec.step, mediaTime + windowSpec.step * 0.85);
@@ -804,7 +1012,7 @@ export class KinematicAnalysisEngine {
           };
 
           try {
-            workerVideo.playbackRate = 2.4;
+            workerVideo.playbackRate = 3.2;
           } catch {
             // Keep default rate if unsupported
           }
@@ -856,6 +1064,13 @@ export class KinematicAnalysisEngine {
               timestampSec: targetSec,
               rawLandmarks: remapped.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
             });
+            if (!autoAthleteRoiLocked) {
+              autoAthleteRoiLocked = true;
+              const athleteRoi = computeAthleteBoundingRoi(remapped);
+              if (athleteRoi) {
+                applyInferenceRegion(athleteRoi, 540);
+              }
+            }
           }
 
           if (options.onProgress && (i === windowSpec.totalFrames - 1 || i % 3 === 0)) {
@@ -993,25 +1208,26 @@ export class KinematicAnalysisEngine {
     }
 
     const interpolatedSequence = interpolateOccludedSpans(recoveredSequence, this.config.minVisibility);
+    const despikedSequence = applyTemporalSpikeRejection(interpolatedSequence);
     const majorityFramingWarning =
       badFramingCount > rawSamples.length * 0.6 ? lastBadWarning : null;
 
-    // Pass 3: Zero-phase bidirectional smoothing (eliminates 100% of jitter with 0ms phase lag)
-    const n = interpolatedSequence.length;
+    // Pass 3: Zero-phase bidirectional smoothing (high precision stability with 0ms phase lag)
+    const n = despikedSequence.length;
     const stepMs = 1000 / Math.max(1, fps);
-    const filterParams = { minCutoff: 1.0, beta: 5.5, dCutoff: 1.0 };
+    const filterParams = { minCutoff: 0.72, beta: 1.8, dCutoff: 1.0, deadzone: 0.0022 };
     const forwardSmoother = new PoseLandmarkSmoother(filterParams);
     const backwardSmoother = new PoseLandmarkSmoother(filterParams);
 
     const forwardPass: Array<Record<string, SerializablePoint2D>> = new Array(n);
     for (let i = 0; i < n; i++) {
-      forwardPass[i] = forwardSmoother.smoothLandmarks(interpolatedSequence[i], (i + 1) * stepMs);
+      forwardPass[i] = forwardSmoother.smoothLandmarks(despikedSequence[i], (i + 1) * stepMs);
     }
 
     const backwardPass: Array<Record<string, SerializablePoint2D>> = new Array(n);
     for (let rev = 0; rev < n; rev++) {
       const idx = n - 1 - rev;
-      backwardPass[idx] = backwardSmoother.smoothLandmarks(interpolatedSequence[idx], (rev + 1) * stepMs);
+      backwardPass[idx] = backwardSmoother.smoothLandmarks(despikedSequence[idx], (rev + 1) * stepMs);
     }
 
     // Pass 4: Chronological FSM & Biomechanical Evaluation into serializable FrameKinematics[]
@@ -1050,8 +1266,8 @@ export class KinematicAnalysisEngine {
               y: (fPt.y + bPt.y) * 0.5,
               z: fPt.z !== undefined && bPt.z !== undefined ? (fPt.z + bPt.z) * 0.5 : fPt.z,
               visibility: fPt.visibility,
-              occludedRecovered: interpolatedSequence[i][k]?.occludedRecovered,
-              projectedByKinematics: interpolatedSequence[i][k]?.projectedByKinematics
+              occludedRecovered: despikedSequence[i][k]?.occludedRecovered,
+              projectedByKinematics: despikedSequence[i][k]?.projectedByKinematics
             }
           : fPt;
       }
