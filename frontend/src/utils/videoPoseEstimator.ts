@@ -320,41 +320,44 @@ export async function getPoseLandmarker(): Promise<PoseLandmarker | null> {
     return poseLandmarkerInstance;
   }
 
+  const fullModelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
+  const liteModelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+  const confidenceOpts = {
+    minPoseDetectionConfidence: 0.6,
+    minPosePresenceConfidence: 0.6,
+    minTrackingConfidence: 0.65
+  };
+
   isInitializingLandmarker = true;
   try {
     const vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
     );
 
-    poseLandmarkerInstance = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-        delegate: 'GPU'
-      },
-      runningMode: 'VIDEO',
-      numPoses: 1
-    });
+    const attempts: Array<{ modelAssetPath: string; delegate: 'GPU' | 'CPU' }> = [
+      { modelAssetPath: fullModelUrl, delegate: 'GPU' },
+      { modelAssetPath: fullModelUrl, delegate: 'CPU' },
+      { modelAssetPath: liteModelUrl, delegate: 'GPU' },
+      { modelAssetPath: liteModelUrl, delegate: 'CPU' }
+    ];
 
-    return poseLandmarkerInstance;
-  } catch (err) {
-    console.warn('GPU acceleration unavailable for MediaPipe, falling back to CPU delegate...', err);
-    try {
-      const vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-      );
-      poseLandmarkerInstance = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-          delegate: 'CPU'
-        },
-        runningMode: 'VIDEO',
-        numPoses: 1
-      });
-      return poseLandmarkerInstance;
-    } catch (fallbackErr) {
-      console.error('Failed to initialize MediaPipe PoseLandmarker:', fallbackErr);
-      return null;
+    for (const attempt of attempts) {
+      try {
+        poseLandmarkerInstance = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: attempt,
+          runningMode: 'VIDEO',
+          numPoses: 1,
+          ...confidenceOpts
+        });
+        return poseLandmarkerInstance;
+      } catch (attemptErr) {
+        console.warn(`PoseLandmarker init fallback (${attempt.delegate}):`, attemptErr);
+      }
     }
+    return null;
+  } catch (err) {
+    console.error('Failed to initialize MediaPipe PoseLandmarker:', err);
+    return null;
   } finally {
     isInitializingLandmarker = false;
   }
@@ -394,14 +397,98 @@ export function extractPoseDataFromLandmarks(
   const re = landmarks[14];
   const lw = landmarks[15];
   const rw = landmarks[16];
+  const lPinky = landmarks[17];
+  const rPinky = landmarks[18];
+  const lIndex = landmarks[19];
+  const rIndex = landmarks[20];
+  const lThumb = landmarks[21];
+  const rThumb = landmarks[22];
   const lh = landmarks[23];
   const rh = landmarks[24];
   const lk = landmarks[25];
   const rk = landmarks[26];
-  const la = landmarks[27];
-  const ra = landmarks[28];
+  const laRaw = landmarks[27];
+  const raRaw = landmarks[28];
+  const lHeel = landmarks[29];
+  const rHeel = landmarks[30];
+  const lFootIndex = landmarks[31];
+  const rFootIndex = landmarks[32];
   const lear = landmarks[7];
   const rear = landmarks[8];
+
+  // Refine ankle position using heel & foot_index consistency when ankle drifts toward toes or dips in confidence
+  const refineAnkle = (
+    ank?: typeof ls,
+    heel?: typeof ls,
+    toe?: typeof ls
+  ) => {
+    if (!ank) return { x: 0.5, y: 0.5, z: 0, visibility: 0 };
+    if (!heel || !toe) return ank;
+    const heelVis = heel.visibility ?? 0;
+    const toeVis = toe.visibility ?? 0;
+    const ankVis = ank.visibility ?? 0.7;
+    if (heelVis < 0.45 || toeVis < 0.45) return ank;
+
+    // Anatomically, the talocrural malleolus sits at ~22% along the heel->toe axis and slightly above heel level.
+    const footDx = toe.x - heel.x;
+    const footDy = toe.y - heel.y;
+    const footLen = Math.hypot(footDx, footDy);
+    if (footLen < 0.02 || footLen > 0.25) return ank;
+
+    const projT = ((ank.x - heel.x) * footDx + (ank.y - heel.y) * footDy) / (footLen * footLen);
+    // If ankle drifts anomalously forward (> 0.52 of foot length toward toes) or confidence drops, anchor back cleanly
+    if (ankVis < 0.58 || projT > 0.52 || projT < -0.25) {
+      const clampedT = Math.max(0.05, Math.min(0.32, projT));
+      const anchorX = heel.x + clampedT * footDx;
+      const anchorY = Math.min(ank.y, heel.y - footLen * 0.12);
+      const blend = ankVis < 0.58 ? 0.55 : 0.40;
+      return {
+        x: ank.x * (1 - blend) + anchorX * blend,
+        y: ank.y * (1 - blend) + anchorY * blend,
+        z: ank.z,
+        visibility: ank.visibility
+      };
+    }
+    return ank;
+  };
+
+  const la = refineAnkle(laRaw, lHeel, lFootIndex);
+  const ra = refineAnkle(raRaw, rHeel, rFootIndex);
+
+  // Estimate actual fist / dumbbell / barbell grip center inside palm rather than forearm wrist cuff
+  const computeHandGripCenter = (
+    wr?: typeof ls,
+    idx?: typeof ls,
+    pnk?: typeof ls,
+    thb?: typeof ls
+  ) => {
+    if (!wr) return { x: 0.5, y: 0.5, z: 0, visibility: 0 };
+    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.35 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.14);
+    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.35 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.14);
+    if (!idxOk && !pnkOk) return wr;
+
+    const knX = idxOk && pnkOk ? (idx!.x + pnk!.x) / 2 : (idxOk ? idx!.x : pnk!.x);
+    const knY = idxOk && pnkOk ? (idx!.y + pnk!.y) / 2 : (idxOk ? idx!.y : pnk!.y);
+    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.35 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.14);
+
+    if (thbOk) {
+      return {
+        x: knX * 0.46 + thb!.x * 0.24 + wr.x * 0.30,
+        y: knY * 0.46 + thb!.y * 0.24 + wr.y * 0.30,
+        z: wr.z,
+        visibility: wr.visibility
+      };
+    }
+    return {
+      x: knX * 0.60 + wr.x * 0.40,
+      y: knY * 0.60 + wr.y * 0.40,
+      z: wr.z,
+      visibility: wr.visibility
+    };
+  };
+
+  const leftHandGrip = computeHandGripCenter(lw, lIndex, lPinky, lThumb);
+  const rightHandGrip = computeHandGripCenter(rw, rIndex, rPinky, rThumb);
 
   const scoreUpperArm = (s: typeof ls, e: typeof ls, w: typeof ls) => {
     const sVis = s?.visibility ?? 0.7;
@@ -419,14 +506,24 @@ export function extractPoseDataFromLandmarks(
     const minSegPenalty = Math.min(upper2D, fore2D) < 0.045 ? -0.08 : 0;
     const inBoundsBonus = (s && e && w && w.x >= 0.03 && w.x <= 0.97 && e.x >= 0.03 && e.x <= 0.97) ? 0.04 : 0;
 
-    return avgVis * 0.42 + minVis * 0.34 + planarClarity * 0.24 + minSegPenalty + inBoundsBonus;
+    return {
+      score: avgVis * 0.40 + minVis * 0.35 + planarClarity * 0.25 + minSegPenalty + inBoundsBonus,
+      minVis
+    };
   };
+
+  const leftArmMetrics = scoreUpperArm(ls, le, lw);
+  const rightArmMetrics = scoreUpperArm(rs, re, rw);
 
   let leftVis: number;
   let rightVis: number;
+  let leftMinVis: number;
+  let rightMinVis: number;
   if (analysisRegion === 'upper') {
-    leftVis = scoreUpperArm(ls, le, lw);
-    rightVis = scoreUpperArm(rs, re, rw);
+    leftVis = leftArmMetrics.score;
+    rightVis = rightArmMetrics.score;
+    leftMinVis = leftArmMetrics.minVis;
+    rightMinVis = rightArmMetrics.minVis;
   } else {
     const leftLegVis = ((lh?.visibility ?? 0.7) + (lk?.visibility ?? 0.7) + (la?.visibility ?? 0.7)) / 3;
     const rightLegVis = ((rh?.visibility ?? 0.7) + (rk?.visibility ?? 0.7) + (ra?.visibility ?? 0.7)) / 3;
@@ -438,17 +535,20 @@ export function extractPoseDataFromLandmarks(
     rightVis = analysisRegion === 'lower'
       ? rightLegVis * 0.75 + rightArmVis * 0.25
       : rightLegVis * 0.55 + rightArmVis * 0.45;
+    leftMinVis = Math.min(lh?.visibility ?? 0.7, lk?.visibility ?? 0.7, la?.visibility ?? 0.7);
+    rightMinVis = Math.min(rh?.visibility ?? 0.7, rk?.visibility ?? 0.7, ra?.visibility ?? 0.7);
   }
 
-  // Hysteresis prevents rapid flip-flopping while allowing clean switch when one side is clearly easier to read
-  const switchMargin = analysisRegion === 'upper' ? 0.09 : 0.15;
+  // Strict side lock: pick clearest side initially, and NEVER flip sides mid-rep unless the active side genuinely disappears/occludes while the other side is clear
   let dominantSide: 'left' | 'right';
   if (!previousDominantSide) {
     dominantSide = rightVis >= leftVis ? 'right' : 'left';
   } else if (previousDominantSide === 'left') {
-    dominantSide = (rightVis > leftVis + switchMargin) ? 'right' : 'left';
+    const emergencySwitch = (leftMinVis < 0.38 && rightMinVis >= 0.70) || (rightVis > leftVis + 0.28);
+    dominantSide = emergencySwitch ? 'right' : 'left';
   } else {
-    dominantSide = (leftVis > rightVis + switchMargin) ? 'left' : 'right';
+    const emergencySwitch = (rightMinVis < 0.38 && leftMinVis >= 0.70) || (leftVis > rightVis + 0.28);
+    dominantSide = emergencySwitch ? 'left' : 'right';
   }
 
   // Graceful fallback if dominant landmark is heavily occluded by equipment/plates
@@ -461,6 +561,7 @@ export function extractPoseDataFromLandmarks(
   const shoulder = dominantSide === 'right' ? pickLandmark(rs, ls) : pickLandmark(ls, rs);
   const elbow = dominantSide === 'right' ? pickLandmark(re, le) : pickLandmark(le, re);
   const wrist = dominantSide === 'right' ? pickLandmark(rw, lw) : pickLandmark(lw, rw);
+  const handGrip = dominantSide === 'right' ? rightHandGrip : leftHandGrip;
   const hip = dominantSide === 'right' ? pickLandmark(rh, lh) : pickLandmark(lh, rh);
   const knee = dominantSide === 'right' ? pickLandmark(rk, lk) : pickLandmark(lk, rk);
   const ankle = dominantSide === 'right' ? pickLandmark(ra, la) : pickLandmark(la, ra);
@@ -482,6 +583,7 @@ export function extractPoseDataFromLandmarks(
     shoulder: { x: shoulder.x, y: shoulder.y, visibility: shoulder.visibility, name: 'shoulder' },
     elbow: { x: elbow.x, y: elbow.y, visibility: elbow.visibility, name: 'elbow' },
     wrist: { x: wrist.x, y: wrist.y, visibility: wrist.visibility, name: 'wrist' },
+    hand_grip: { x: handGrip.x, y: handGrip.y, visibility: handGrip.visibility, name: 'hand_grip' },
     hip: { x: hip.x, y: hip.y, visibility: hip.visibility, name: 'hip' },
     knee: { x: knee.x, y: knee.y, visibility: knee.visibility, name: 'knee' },
     ankle: { x: ankle.x, y: ankle.y, visibility: ankle.visibility, name: 'ankle' },
@@ -494,6 +596,8 @@ export function extractPoseDataFromLandmarks(
     right_elbow: { x: re.x, y: re.y, visibility: re.visibility },
     left_wrist: { x: lw.x, y: lw.y, visibility: lw.visibility },
     right_wrist: { x: rw.x, y: rw.y, visibility: rw.visibility },
+    left_hand_grip: { x: leftHandGrip.x, y: leftHandGrip.y, visibility: leftHandGrip.visibility },
+    right_hand_grip: { x: rightHandGrip.x, y: rightHandGrip.y, visibility: rightHandGrip.visibility },
     left_hip: { x: lh.x, y: lh.y, visibility: lh.visibility },
     right_hip: { x: rh.x, y: rh.y, visibility: rh.visibility },
     left_knee: { x: lk.x, y: lk.y, visibility: lk.visibility },
@@ -962,6 +1066,7 @@ export function drawBiomechanicsOverlayOnCanvas(
   const knee = keypoints['knee'] || keypoints['left_knee'] || keypoints['right_knee'];
   const ankle = keypoints['ankle'] || keypoints['left_ankle'] || keypoints['right_ankle'];
   const hand = keypoints['wrist'] || keypoints['left_wrist'] || keypoints['right_wrist'];
+  const handGrip = keypoints['hand_grip'] || keypoints['left_hand_grip'] || keypoints['right_hand_grip'] || hand;
   const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
   const elbow = keypoints['elbow'] || keypoints['left_elbow'] || keypoints['right_elbow'];
 
@@ -976,9 +1081,7 @@ export function drawBiomechanicsOverlayOnCanvas(
   // - For Hip Thrust: load is applied directly at the PELVIS / HIP where barbell or pad rests.
   // - If loadType === 'machine' or exercise is on a machine / leg press / hack (or foot on machine plate):
   //   The load/reaction force is applied at the FOOT / ANKLE on the machine.
-  // - For free-weight hinge / dumbbell: force is at the hand / wrist.
-  // - For barbell squat: force is at the shoulder/bar.
-  // - For upper body: force is at the hand / wrist.
+  // - For free-weight hinge / dumbbell / upper body: force passes through the exact fist/hand grip center (`hand_grip`).
   const isFootOnMachine = (
     loadType === 'machine' ||
     exerciseId?.includes('press') ||
@@ -989,11 +1092,11 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   const contactPoint = (isHipThrust && hip)
     ? hip
-    : (isUpperBody && hand)
-        ? hand
+    : (isUpperBody && handGrip)
+        ? handGrip
         : ((isFootOnMachine && ankle)
             ? ankle
-            : (bio.loadPosition || (hand || ankle || shoulder || { x: 0.5, y: 0.5 })));
+            : (bio.loadPosition || (handGrip || ankle || shoulder || { x: 0.5, y: 0.5 })));
 
   const loadX = contactPoint.x * width;
   const loadY = contactPoint.y * height;
@@ -1033,13 +1136,14 @@ export function drawBiomechanicsOverlayOnCanvas(
   ctx.fill();
   ctx.restore();
 
-  // Helper for drawing orthogonal moment arm segment with optional floating badge
+  // Helper for drawing orthogonal moment arm segment with non-colliding floating badge
   const drawMomentArm = (
     y: number,
     xJoint: number,
     color: string,
     label: string,
-    labelOffsetY: number = -9
+    labelOffsetY: number = -12,
+    labelOffsetX: number = 0
   ) => {
     strokeHighContrastPath(
       ctx,
@@ -1060,11 +1164,13 @@ export function drawBiomechanicsOverlayOnCanvas(
 
     if (!showCanvasText) return;
 
-    // Floating text badge
-    const midX = (loadX + xJoint) / 2;
-    const midY = y + labelOffsetY;
+    // Floating text badge anchored strictly on its own side/row without crossing sibling badges
     ctx.font = 'bold 11px monospace';
     const textWidth = ctx.measureText(label).width;
+    const minHalf = textWidth / 2 + 8;
+    const rawMidX = (loadX + xJoint) / 2 + labelOffsetX;
+    const midX = Math.max(minHalf, Math.min(width - minHalf, rawMidX));
+    const midY = Math.max(14, Math.min(height - 14, y + labelOffsetY));
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
     ctx.strokeStyle = color;
@@ -1080,37 +1186,63 @@ export function drawBiomechanicsOverlayOnCanvas(
     ctx.fillText(label, midX, midY);
   };
 
-  // 2. Direct Orthogonal Moment Arms (Exclusively two segments)
+  // 2. Direct Orthogonal Moment Arms (Exclusively two segments with dynamic vertical ordering)
   if (showLeverArms) {
     if (!isUpperBody) {
+      const lowerCloseY = Boolean(hip && knee && Math.abs(hip.y - knee.y) * height < 48);
+      const hipIsHigher = !hip || !knee || hip.y <= knee.y;
       if (hip) {
         const hipPx = Math.abs(Math.round(hip.x * width - loadX));
-        drawMomentArm(hip.y * height, hip.x * width, '#06B6D4', `d_cadera: ${hipPx}px`);
+        drawMomentArm(
+          hip.y * height,
+          hip.x * width,
+          '#06B6D4',
+          `d_cadera: ${hipPx}px`,
+          lowerCloseY ? (hipIsHigher ? -14 : 14) : -12
+        );
       }
       if (knee) {
         const kneePx = Math.abs(Math.round(knee.x * width - loadX));
-        drawMomentArm(knee.y * height, knee.x * width, '#10B981', `d_rodilla: ${kneePx}px`);
+        drawMomentArm(
+          knee.y * height,
+          knee.x * width,
+          '#10B981',
+          `d_rodilla: ${kneePx}px`,
+          lowerCloseY ? (hipIsHigher ? 14 : -14) : -12
+        );
       }
     } else {
-      const armsCloseY = shoulder && elbow && Math.abs(shoulder.y - elbow.y) * height < 34;
+      const shY = shoulder ? shoulder.y * height : 0;
+      const elY = elbow ? elbow.y * height : 0;
+      const dyUpper = shoulder && elbow ? Math.abs(shY - elY) : 999;
+      const armsCloseY = dyUpper < 50;
+      const armsVeryCloseY = dyUpper < 22;
+      const shoulderIsHigher = !shoulder || !elbow || shY <= elY;
+
       if (shoulder) {
         const shPx = Math.abs(Math.round(shoulder.x * width - loadX));
+        const shOffsetY = armsCloseY ? (shoulderIsHigher ? -15 : 15) : -12;
+        const shOffsetX = armsVeryCloseY ? -22 : 0;
         drawMomentArm(
-          shoulder.y * height,
+          shY,
           shoulder.x * width,
           '#8B5CF6',
           `d_hombro: ${shPx}px`,
-          armsCloseY ? -13 : -9
+          shOffsetY,
+          shOffsetX
         );
       }
       if (elbow) {
         const elPx = Math.abs(Math.round(elbow.x * width - loadX));
+        const elOffsetY = armsCloseY ? (shoulderIsHigher ? 15 : -15) : -12;
+        const elOffsetX = armsVeryCloseY ? 22 : 0;
         drawMomentArm(
-          elbow.y * height,
+          elY,
           elbow.x * width,
           '#EC4899',
           `d_codo: ${elPx}px`,
-          armsCloseY ? 15 : -9
+          elOffsetY,
+          elOffsetX
         );
       }
     }
@@ -1176,11 +1308,11 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (hip) drawJointDot(hip, '#06B6D4');
     if (knee) drawJointDot(knee, '#10B981');
     if (ankle) drawJointDot(ankle, isFootOnMachine ? '#EF4444' : '#38BDF8');
-    if (!isFootOnMachine && hand) drawJointDot(hand, '#EF4444');
+    if (!isFootOnMachine && handGrip) drawJointDot(handGrip, '#EF4444');
   } else {
     if (shoulder) drawJointDot(shoulder, '#8B5CF6');
     if (elbow) drawJointDot(elbow, '#EC4899');
-    if (hand) drawJointDot(hand, '#EF4444');
+    if (handGrip) drawJointDot(handGrip, '#EF4444');
 
     const isCableFly = Boolean(options.exerciseId?.includes('fly'));
     const flyEval = bio.flyEvaluation;

@@ -180,6 +180,12 @@ export class PoseLandmarkSmoother {
     for (const [name, pt] of Object.entries(keypoints)) {
       if (!pt) continue;
 
+      // Reject 1-frame low-confidence landmark spikes/dropouts if a valid prior position exists
+      if (pt.visibility !== undefined && pt.visibility < 0.35 && this.lastSmoothed[name]) {
+        smoothed[name] = { ...this.lastSmoothed[name], visibility: pt.visibility };
+        continue;
+      }
+
       let filter = this.landmarkFilters.get(name);
       if (!filter) {
         filter = new OneEuroFilter2D(this.params);

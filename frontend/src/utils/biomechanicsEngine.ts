@@ -652,8 +652,8 @@ export function evaluatePressBiomechanics(
   let footStabilityStatus: 'stable_leg_drive' | 'foot_lifted' | 'foot_shifted' | 'not_visible' = 'not_visible';
   let footStabilityLabel = 'Pies no visibles en encuadre';
 
-  const laVisible = la && (la.visibility === undefined || la.visibility >= 0.50) && la.y <= 0.96;
-  const raVisible = ra && (ra.visibility === undefined || ra.visibility >= 0.50) && ra.y <= 0.96;
+  const laVisible = la && (la.visibility === undefined || la.visibility >= 0.62) && la.y <= 0.93 && (!keypoints['left_knee'] || keypoints['left_knee'].y <= 0.88);
+  const raVisible = ra && (ra.visibility === undefined || ra.visibility >= 0.62) && ra.y <= 0.93 && (!keypoints['right_knee'] || keypoints['right_knee'].y <= 0.88);
 
   if (laVisible || raVisible) {
     if (footTracker) {
@@ -1607,13 +1607,14 @@ export function evaluateBiomechanicalFrame(
   const ankle = smoothedKeypoints['ankle'] || smoothedKeypoints['right_ankle'] || smoothedKeypoints['left_ankle'];
   const shoulder = smoothedKeypoints['shoulder'] || smoothedKeypoints['right_shoulder'] || smoothedKeypoints['left_shoulder'];
   const wrist = smoothedKeypoints['wrist'] || smoothedKeypoints['right_wrist'] || smoothedKeypoints['left_wrist'];
+  const handGrip = smoothedKeypoints['hand_grip'] || smoothedKeypoints['right_hand_grip'] || smoothedKeypoints['left_hand_grip'] || wrist;
   const elbow = smoothedKeypoints['elbow'] || smoothedKeypoints['right_elbow'] || smoothedKeypoints['left_elbow'];
 
   // Determine load / force application point:
   // - Hip Thrust: load is at the hip/pelvis.
-  // - Upper body (press/row/curl/triceps): load is strictly at the hand/grip (wrist).
+  // - Upper body (press/row/curl/triceps): load is strictly at the hand grip (center of dumbbell/barbell/cable handle) or wrist fallback.
   // - Machine lower body with foot on platform: force is at the foot/ankle.
-  // - Free-weight hinge/deadlift: load is at the hand (wrist).
+  // - Free-weight hinge/deadlift: load is at the hand grip (wrist fallback).
   // - Barbell back squat: load is at the shoulder/bar.
   const patternFamily = getPatternFamily(exerciseId);
   const isHipThrust = exerciseId.includes('hip_thrust');
@@ -1623,15 +1624,15 @@ export function evaluateBiomechanicalFrame(
 
   const loadPosition: Point2D = (isHipThrust && hip)
     ? hip
-    : (isUpperBody && wrist
-        ? wrist
+    : (isUpperBody && handGrip
+        ? handGrip
         : (isMachineFootContact && ankle
             ? ankle
-            : (isHinge && wrist
-                ? wrist
+            : (isHinge && handGrip
+                ? handGrip
                 : (shoulder
-                    ? { x: (shoulder.x + (wrist ? wrist.x : shoulder.x)) / 2, y: shoulder.y }
-                    : (wrist || ankle || shoulder || { x: 0.5, y: 0.5 })))));
+                    ? { x: (shoulder.x + (handGrip ? handGrip.x : shoulder.x)) / 2, y: shoulder.y }
+                    : (handGrip || ankle || shoulder || { x: 0.5, y: 0.5 })))));
 
   // 1. Line of Action of Force
   let lineP1: Point2D;

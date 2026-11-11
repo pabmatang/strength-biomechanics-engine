@@ -143,7 +143,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const isScrubbingRef = useRef<boolean>(false);
 
   // Adaptive OneEuroFilter smoother for all landmarks (Anti-Jitter)
-  const poseSmootherRef = useRef<PoseLandmarkSmoother>(new PoseLandmarkSmoother());
+  const poseSmootherRef = useRef<PoseLandmarkSmoother>(
+    new PoseLandmarkSmoother({ minCutoff: 0.65, beta: 0.005, dCutoff: 1.0 })
+  );
   const smoothedTibialAngleRef = useRef<number>(14);
   const dominantSideRef = useRef<'left' | 'right' | null>(null);
   const lastValidAngleRef = useRef<number>(0);
@@ -376,6 +378,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           smoothedKeypoints['shoulder'] = dom === 'right' ? (smoothedKeypoints['right_shoulder'] || smoothedKeypoints['shoulder']) : (smoothedKeypoints['left_shoulder'] || smoothedKeypoints['shoulder']);
           smoothedKeypoints['elbow'] = dom === 'right' ? (smoothedKeypoints['right_elbow'] || smoothedKeypoints['elbow']) : (smoothedKeypoints['left_elbow'] || smoothedKeypoints['elbow']);
           smoothedKeypoints['wrist'] = dom === 'right' ? (smoothedKeypoints['right_wrist'] || smoothedKeypoints['wrist']) : (smoothedKeypoints['left_wrist'] || smoothedKeypoints['wrist']);
+          smoothedKeypoints['hand_grip'] = dom === 'right'
+            ? (smoothedKeypoints['right_hand_grip'] || smoothedKeypoints['hand_grip'] || smoothedKeypoints['wrist'])
+            : (smoothedKeypoints['left_hand_grip'] || smoothedKeypoints['hand_grip'] || smoothedKeypoints['wrist']);
 
           // 2. Compute Angles strictly on smoothed coordinates
           let smoothedAngle = 160;
@@ -917,7 +922,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[auto_1fr] gap-3.5 items-start">
 
           {/* RIGHT COLUMN TOP (Desktop col-span-5 row-1 | Mobile top): Dual Mode Switcher + Config Selector */}
-          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-1 space-y-2.5">
+          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-1 space-y-2.5 min-w-0">
             {/* Dual Mode Switcher */}
             <div className="bg-slate-950/80 p-1 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1.5 shadow-inner">
               <button
@@ -1060,7 +1065,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
 
           {/* LEFT COLUMN (Desktop col-span-7 60% width): Video Toolbar + Viewport + Controls + Primary Actions */}
-          <div className="lg:col-start-1 lg:col-span-7 lg:row-start-1 lg:row-span-2 space-y-2.5">
+          <div className="lg:col-start-1 lg:col-span-7 lg:row-start-1 lg:row-span-2 space-y-2.5 min-w-0">
 
             {/* Video Sources Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
@@ -1630,7 +1635,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
 
           {/* RIGHT COLUMN BOTTOM (Desktop col-span-5 row-2 | Mobile below video): Verdict & Telemetry Cards */}
-          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-2 space-y-3">
+          <div className="lg:col-start-8 lg:col-span-5 lg:row-start-2 space-y-3 min-w-0">
 
         {/* ========================================================= */}
         {/* MODE 1: DIAGNOSTIC CARDS (CORRECCIÓN DE TÉCNICA)          */}
@@ -1945,7 +1950,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <>
                 {/* Upper Body Fly Lever Bar (Shoulder Pectoral vs Elbow Triceps) */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
                     <span className="text-violet-400 flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-violet-500" />
                       Palanca Hombro (Pectoral): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
@@ -2000,7 +2005,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <>
                 {/* Upper Body Press Lever Bar (Shoulder vs Elbow) */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
                     <span className="text-violet-400 flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-violet-500" />
                       Palanca Hombro (Pectoral): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
@@ -2083,7 +2088,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               <>
                 {/* Muscle Dominance Comparison Bar (Cadera vs Rodilla) */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
                     <span className="text-blue-400 flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-blue-500" />
                       Cadera (Glúteo): {hipShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)
