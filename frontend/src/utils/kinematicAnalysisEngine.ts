@@ -419,12 +419,7 @@ export function interpolateOccludedSpans(
 
 function yieldToMainThread(): Promise<void> {
   return new Promise(resolve => {
-    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      (window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void })
-        .requestIdleCallback(() => resolve(), { timeout: 24 });
-    } else {
-      setTimeout(resolve, 0);
-    }
+    setTimeout(resolve, 0);
   });
 }
 
@@ -548,8 +543,8 @@ export class KinematicAnalysisEngine {
       startOffsetSec: config.startOffsetSec ?? START_OFFSET_SEC,
       maxAnalysisDurationSec: config.maxAnalysisDurationSec ?? MAX_ANALYSIS_DURATION_SEC,
       targetSampleFps: config.targetSampleFps ?? TARGET_SAMPLE_FPS,
-      maxInferenceWidth: config.maxInferenceWidth ?? DEFAULT_INFERENCE_MAX_WIDTH,
-      maxInferenceHeight: config.maxInferenceHeight ?? DEFAULT_INFERENCE_MAX_HEIGHT,
+      maxInferenceWidth: config.maxInferenceWidth ?? 480,
+      maxInferenceHeight: config.maxInferenceHeight ?? 360,
       minVisibility: config.minVisibility ?? MIN_LANDMARK_VISIBILITY,
       minConfidence: config.minConfidence ?? MIN_CONFIDENCE_THRESHOLD,
       poseQuality: config.poseQuality ?? 'full'
@@ -644,6 +639,11 @@ export class KinematicAnalysisEngine {
     workerVideo.muted = true;
     workerVideo.playsInline = true;
     workerVideo.preload = 'auto';
+    // Attach off-screen in DOM so Chromium decodes via hardware rVFC at full throughput without background throttling
+    workerVideo.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0.001;pointer-events:none;';
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.appendChild(workerVideo);
+    }
 
     if (typeof File !== 'undefined' && videoSource instanceof File) {
       createdObjectUrl = URL.createObjectURL(videoSource);
@@ -703,42 +703,174 @@ export class KinematicAnalysisEngine {
       const rawSamples: RawClipPoseSample[] = [];
       workerVideo.pause();
 
-      for (let i = 0; i < windowSpec.totalFrames; i++) {
-        if (options.signal?.aborted) {
-          throw new DOMException('Kinematic analysis aborted', 'AbortError');
-        }
+      type VfcVideo = HTMLVideoElement & {
+        requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+        cancelVideoFrameCallback?: (id: number) => void;
+      };
+      const vfcVideo = workerVideo as VfcVideo;
+      const effectiveSpanSec = Math.max(0.1, windowSpec.endTime - windowSpec.startTime);
 
-        const targetSec = Math.min(Math.max(0, durationSec - 0.005), windowSpec.startTime + i * windowSpec.step);
-        await seekMonotonic(workerVideo, targetSec, options.signal);
+      // Fast sequential hardware-decoded pass via requestVideoFrameCallback @ 2.4x (0 mid-stream H.264 seeks)
+      let nextSampleTimeSec = windowSpec.startTime;
+      if (typeof vfcVideo.requestVideoFrameCallback === 'function') {
+        await seekMonotonic(workerVideo, windowSpec.startTime, options.signal);
 
-        // Downscaled blit into single reused OffscreenCanvas
-        ctx.drawImage(workerVideo, srcX, srcY, srcW, srcH, 0, 0, dims.width, dims.height);
+        const seqCompleted = await new Promise<boolean>((resolve, reject) => {
+          let settled = false;
+          let vfcId: number | null = null;
+          let watchdogId: number | null = null;
 
-        const monotonicTs = getMonotonicPoseTimestamp();
-        const detection = landmarker.detectForVideo(surface as unknown as HTMLVideoElement, monotonicTs);
-        const lm = detection?.landmarks?.[0];
+          const cleanupSeq = () => {
+            if (watchdogId !== null) window.clearTimeout(watchdogId);
+            if (vfcId !== null && vfcVideo.cancelVideoFrameCallback) {
+              vfcVideo.cancelVideoFrameCallback(vfcId);
+            }
+            options.signal?.removeEventListener('abort', onSeqAbort);
+            workerVideo.pause();
+          };
 
-        if (lm && lm.length >= 33) {
-          const remapped = remapLandmarksFromRoi(lm, roi);
-          rawSamples.push({
-            frameIndex: i,
-            timestampSec: targetSec,
-            rawLandmarks: remapped.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
+          const finishSeq = (ok: boolean) => {
+            if (settled) return;
+            settled = true;
+            cleanupSeq();
+            resolve(ok);
+          };
+
+          const onSeqAbort = () => {
+            if (settled) return;
+            settled = true;
+            cleanupSeq();
+            reject(new DOMException('Kinematic analysis aborted', 'AbortError'));
+          };
+
+          const resetWatchdog = () => {
+            if (watchdogId !== null) window.clearTimeout(watchdogId);
+            watchdogId = window.setTimeout(() => {
+              finishSeq(false);
+            }, 650);
+          };
+
+          options.signal?.addEventListener('abort', onSeqAbort);
+
+          const onFrame = (_now: number, meta: { mediaTime: number }) => {
+            if (settled) return;
+            resetWatchdog();
+            const mediaTime = meta?.mediaTime ?? workerVideo.currentTime;
+
+            if (mediaTime + 0.01 < nextSampleTimeSec && mediaTime < windowSpec.endTime - 0.015) {
+              vfcId = vfcVideo.requestVideoFrameCallback!(onFrame);
+              return;
+            }
+
+            ctx.drawImage(workerVideo, srcX, srcY, srcW, srcH, 0, 0, dims.width, dims.height);
+            const infStart = performance.now();
+            const detection = landmarker.detectForVideo(surface as unknown as HTMLVideoElement, getMonotonicPoseTimestamp());
+            const infMs = performance.now() - infStart;
+            const lm = detection?.landmarks?.[0];
+
+            // Adapt speed downward slightly on slower GPUs so 15fps sampling remains dense
+            if (infMs > 28 && workerVideo.playbackRate > 1.5) {
+              workerVideo.playbackRate = 1.5;
+            }
+
+            if (lm && lm.length >= 33) {
+              const remapped = remapLandmarksFromRoi(lm, roi);
+              rawSamples.push({
+                frameIndex: rawSamples.length,
+                timestampSec: mediaTime,
+                rawLandmarks: remapped.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
+              });
+            }
+
+            nextSampleTimeSec = Math.max(nextSampleTimeSec + windowSpec.step, mediaTime + windowSpec.step * 0.85);
+            const approxFrame = Math.min(
+              windowSpec.totalFrames,
+              Math.max(1, Math.round(((mediaTime - windowSpec.startTime) / effectiveSpanSec) * windowSpec.totalFrames))
+            );
+            if (options.onProgress) {
+              options.onProgress({
+                currentFrame: approxFrame,
+                totalFrames: windowSpec.totalFrames,
+                percent: Math.min(100, Math.round((approxFrame / windowSpec.totalFrames) * 100)),
+                elapsedMs: Math.round(performance.now() - t0)
+              });
+            }
+
+            if (mediaTime >= windowSpec.endTime - 0.015 || workerVideo.ended || rawSamples.length >= windowSpec.totalFrames) {
+              finishSeq(true);
+              return;
+            }
+            vfcId = vfcVideo.requestVideoFrameCallback!(onFrame);
+          };
+
+          try {
+            workerVideo.playbackRate = 2.4;
+          } catch {
+            // Keep default rate if unsupported
+          }
+
+          resetWatchdog();
+          vfcId = vfcVideo.requestVideoFrameCallback!(onFrame);
+          workerVideo.play().catch(() => {
+            finishSeq(false);
           });
-        }
+        });
 
-        if (options.onProgress && (i === windowSpec.totalFrames - 1 || i % 2 === 0)) {
-          options.onProgress({
-            currentFrame: i + 1,
-            totalFrames: windowSpec.totalFrames,
-            percent: Math.round(((i + 1) / windowSpec.totalFrames) * 100),
-            elapsedMs: Math.round(performance.now() - t0)
-          });
+        if (seqCompleted && rawSamples.length >= Math.max(5, Math.floor(windowSpec.totalFrames * 0.45))) {
+          if (options.onProgress) {
+            options.onProgress({
+              currentFrame: windowSpec.totalFrames,
+              totalFrames: windowSpec.totalFrames,
+              percent: 100,
+              elapsedMs: Math.round(performance.now() - t0)
+            });
+          }
+          nextSampleTimeSec = windowSpec.endTime + 1; // Skip seek fallback
         }
+      }
 
-        // Cooperative chunk yield so UI stays responsive with smooth progress updates
-        if (i % 2 === 1) {
-          await yieldToMainThread();
+      // Deterministic seek fallback (only runs when sequential rVFC is unavailable or stalled)
+      if (nextSampleTimeSec <= windowSpec.endTime - 0.01) {
+        const lastTime = rawSamples.length > 0 ? rawSamples[rawSamples.length - 1].timestampSec : -1;
+        for (let i = 0; i < windowSpec.totalFrames; i++) {
+          if (options.signal?.aborted) {
+            throw new DOMException('Kinematic analysis aborted', 'AbortError');
+          }
+
+          const targetSec = Math.min(Math.max(0, durationSec - 0.005), windowSpec.startTime + i * windowSpec.step);
+          if (targetSec <= lastTime + windowSpec.step * 0.4) continue;
+
+          await seekMonotonic(workerVideo, targetSec, options.signal);
+
+          // Downscaled blit into single reused OffscreenCanvas
+          ctx.drawImage(workerVideo, srcX, srcY, srcW, srcH, 0, 0, dims.width, dims.height);
+
+          const monotonicTs = getMonotonicPoseTimestamp();
+          const detection = landmarker.detectForVideo(surface as unknown as HTMLVideoElement, monotonicTs);
+          const lm = detection?.landmarks?.[0];
+
+          if (lm && lm.length >= 33) {
+            const remapped = remapLandmarksFromRoi(lm, roi);
+            rawSamples.push({
+              frameIndex: rawSamples.length,
+              timestampSec: targetSec,
+              rawLandmarks: remapped.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
+            });
+          }
+
+          if (options.onProgress && (i === windowSpec.totalFrames - 1 || i % 3 === 0)) {
+            options.onProgress({
+              currentFrame: i + 1,
+              totalFrames: windowSpec.totalFrames,
+              percent: Math.round(((i + 1) / windowSpec.totalFrames) * 100),
+              elapsedMs: Math.round(performance.now() - t0)
+            });
+          }
+
+          // Lightweight main-thread yield every 6 frames for responsive UI without 24ms idle stalls
+          if (i % 6 === 5) {
+            await yieldToMainThread();
+          }
         }
       }
 
@@ -760,6 +892,7 @@ export class KinematicAnalysisEngine {
       workerVideo.pause();
       workerVideo.removeAttribute('src');
       workerVideo.load();
+      workerVideo.remove();
       if (createdObjectUrl) {
         URL.revokeObjectURL(createdObjectUrl);
       }

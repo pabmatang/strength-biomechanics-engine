@@ -142,6 +142,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [isVideoPlaying, setIsVideoPlaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [videoCodecError, setVideoCodecError] = useState<string | null>(null);
+  const [trimPlaybackOnly, setTrimPlaybackOnly] = useState<boolean>(true);
 
   // References
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -180,6 +181,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     reset: resetKinematicAnalysis,
     getFrameAtTime
   } = useKinematicAnalysis();
+
+  const isAnalyzingRef = useRef<boolean>(false);
+  isAnalyzingRef.current = kinematicStatus === 'analyzing';
 
   // Finite State Machine (FSM) initialized with selected pattern
   const fsmRef = useRef<BiomechanicalFSM>(
@@ -275,10 +279,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           ? result.auditedReps[result.auditedReps.length - 1].techniqueVerdict.feedbackCues
           : []
       );
-      if (videoElementRef.current && videoElementRef.current.currentTime < result.startTimeSec) {
+      if (videoElementRef.current) {
         videoElementRef.current.currentTime = result.startTimeSec;
         setVideoCurrentTime(result.startTimeSec);
       }
+      setTimeout(() => processSingleFrame(), 30);
     }
   };
 
@@ -368,6 +373,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setVideoCurrentTime(0);
     setVideoDuration(0);
     setIsVideoPlaying(false);
+    setTrimPlaybackOnly(true);
     // Reset zoom, pan & playback speed to default whenever a new video is uploaded
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
@@ -389,6 +395,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
    * 6. Dual-Mode Canvas Rendering
    */
   const processSingleFrame = async () => {
+    if (isAnalyzingRef.current) return;
     const video = videoElementRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || video.readyState < 2) return;
@@ -778,6 +785,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const video = videoElementRef.current;
     if (!video) return;
     if (video.paused) {
+      if (trimPlaybackOnly && clipResult && clipResult.endTimeSec > clipResult.startTimeSec + 0.25) {
+        if (video.currentTime < clipResult.startTimeSec - 0.05 || video.currentTime >= clipResult.endTimeSec - 0.05) {
+          video.currentTime = clipResult.startTimeSec;
+          setVideoCurrentTime(clipResult.startTimeSec);
+        }
+      }
       video.play().then(() => {
         setIsVideoPlaying(true);
       }).catch(err => {
@@ -794,8 +807,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const video = videoElementRef.current;
     if (!video) return;
     const current = video.currentTime || 0;
-    const maxDur = video.duration || 100;
-    const newTime = Math.max(0, Math.min(maxDur, current + seconds));
+    const hasTrim = Boolean(clipResult && clipResult.endTimeSec > clipResult.startTimeSec + 0.25 && trimPlaybackOnly);
+    const minBound = hasTrim && clipResult ? clipResult.startTimeSec : 0;
+    const maxBound = hasTrim && clipResult ? clipResult.endTimeSec : (video.duration || 100);
+    const newTime = Math.max(minBound, Math.min(maxBound, current + seconds));
     if (Math.abs(newTime - current) >= 0.2) {
       poseSmootherRef.current.reset();
     }
@@ -979,9 +994,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Percentage for the scrubber progress bar
-  const scrubberProgress = videoDuration > 0
-    ? Math.min(100, Math.max(0, (videoCurrentTime / videoDuration) * 100))
+  const hasTrimmedBounds = Boolean(clipResult && clipResult.endTimeSec > clipResult.startTimeSec + 0.25);
+  const isTrimmedViewActive = Boolean(hasTrimmedBounds && trimPlaybackOnly);
+  const activeStartSec = isTrimmedViewActive && clipResult ? clipResult.startTimeSec : 0;
+  const activeEndSec = isTrimmedViewActive && clipResult ? clipResult.endTimeSec : (videoDuration > 0 ? videoDuration : 1);
+  const activeDurationSec = Math.max(0.1, activeEndSec - activeStartSec);
+  const displayCurrentSec = Math.max(0, Math.min(activeDurationSec, videoCurrentTime - activeStartSec));
+
+  // Percentage for the scrubber progress bar (scoped to active trimmed clip when active)
+  const scrubberProgress = activeDurationSec > 0
+    ? Math.min(100, Math.max(0, (displayCurrentSec / activeDurationSec) * 100))
     : 0;
 
   // Real-time camera plane & applied biomechanical verdict
@@ -1469,8 +1491,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 if (dur > 0) setVideoDuration(dur);
               }}
               onTimeUpdate={(e) => {
+                const vid = e.currentTarget;
+                if (isTrimmedViewActive && clipResult) {
+                  if (vid.currentTime < clipResult.startTimeSec - 0.06 || vid.currentTime >= clipResult.endTimeSec) {
+                    vid.currentTime = clipResult.startTimeSec;
+                    if (!isScrubbingRef.current) setVideoCurrentTime(clipResult.startTimeSec);
+                    return;
+                  }
+                }
                 if (!isScrubbingRef.current) {
-                  setVideoCurrentTime(e.currentTarget.currentTime);
+                  setVideoCurrentTime(vid.currentTime);
                 }
               }}
               onPlay={() => setIsVideoPlaying(true)}
@@ -1775,7 +1805,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* Visual Progress Scrubber Bar with Fill Indicator */}
             <div className="flex items-center gap-2.5">
               <span className="text-[11px] font-mono text-cyan-400 font-bold min-w-[38px] text-right">
-                {formatVideoTime(videoCurrentTime)}
+                {formatVideoTime(displayCurrentSec)}
               </span>
 
               {/* Custom Track with Active Fill and Overlay Slider */}
@@ -1798,10 +1828,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 {/* Functional Input Range Overlay */}
                 <input
                   type="range"
-                  min={0}
-                  max={videoDuration > 0 ? videoDuration : 1}
+                  min={activeStartSec}
+                  max={activeEndSec}
                   step={0.01}
-                  value={videoCurrentTime}
+                  value={Math.max(activeStartSec, Math.min(activeEndSec, videoCurrentTime))}
                   onMouseDown={() => { isScrubbingRef.current = true; }}
                   onTouchStart={() => { isScrubbingRef.current = true; }}
                   onChange={handleScrubChange}
@@ -1818,9 +1848,34 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               <span className="text-[11px] font-mono text-slate-400 font-medium min-w-[38px]">
-                {formatVideoTime(videoDuration)}
+                {formatVideoTime(activeDurationSec)}
               </span>
             </div>
+
+            {hasTrimmedBounds && clipResult && (
+              <div className="flex items-center justify-between gap-2 text-[10px]">
+                <span className="text-cyan-300/90 font-medium">
+                  {isTrimmedViewActive
+                    ? `Tramo analizado (${clipResult.startTimeSec.toFixed(1)}s–${clipResult.endTimeSec.toFixed(1)}s · ${clipResult.frames.length} frames @ ${clipResult.fps}fps)`
+                    : `Vídeo completo (${formatVideoTime(videoDuration)}) · Tramo cacheado: ${clipResult.startTimeSec.toFixed(1)}s–${clipResult.endTimeSec.toFixed(1)}s`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextTrim = !trimPlaybackOnly;
+                    setTrimPlaybackOnly(nextTrim);
+                    if (nextTrim && videoElementRef.current) {
+                      videoElementRef.current.currentTime = clipResult.startTimeSec;
+                      setVideoCurrentTime(clipResult.startTimeSec);
+                      setTimeout(() => processSingleFrame(), 30);
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold shrink-0 transition"
+                >
+                  {isTrimmedViewActive ? 'Ver vídeo completo' : `Acotar a ${Math.round(clipResult.endTimeSec - clipResult.startTimeSec)}s`}
+                </button>
+              </div>
+            )}
 
             {/* Playback Action Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
