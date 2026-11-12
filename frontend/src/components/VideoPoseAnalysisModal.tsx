@@ -69,6 +69,8 @@ import {
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 import { useKinematicAnalysis } from '../hooks/useKinematicAnalysis';
 
+export const MAX_ANALYSIS_CLIP_SECONDS = 30.0;
+
 interface VideoPoseAnalysisModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -778,8 +780,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const video = videoElementRef.current;
     if (!video) return;
     const current = video.currentTime || 0;
-    const maxDur = video.duration || 100;
-    const newTime = Math.max(0, Math.min(maxDur, current + seconds));
+    const effectiveMax = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
+    const newTime = Math.max(0, Math.min(effectiveMax, current + seconds));
     if (Math.abs(newTime - current) >= 0.2) {
       poseSmootherRef.current.reset();
     }
@@ -791,7 +793,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const video = videoElementRef.current;
     if (!video) return;
     const prev = video.currentTime || 0;
-    const target = parseFloat(e.target.value);
+    const effectiveMax = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
+    const target = Math.min(effectiveMax, Math.max(0, parseFloat(e.target.value)));
     if (Math.abs(target - prev) >= 0.2) {
       poseSmootherRef.current.reset();
     }
@@ -958,9 +961,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Percentage for the scrubber progress bar
-  const scrubberProgress = videoDuration > 0
-    ? Math.min(100, Math.max(0, (videoCurrentTime / videoDuration) * 100))
+  // Percentage for the scrubber progress bar clamped strictly to MAX_ANALYSIS_CLIP_SECONDS
+  const effectiveTotalDuration = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
+  const scrubberProgress = effectiveTotalDuration > 0
+    ? Math.min(100, Math.max(0, (Math.min(videoCurrentTime, effectiveTotalDuration) / effectiveTotalDuration) * 100))
     : 0;
 
   // Real-time camera plane & applied biomechanical verdict
@@ -1437,7 +1441,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               muted
               onLoadedMetadata={(e) => {
                 const vid = e.currentTarget;
-                const dur = vid.duration || 0;
+                const dur = Math.min(vid.duration || 0, MAX_ANALYSIS_CLIP_SECONDS);
                 setVideoDuration(dur);
                 setVideoCodecError(null);
                 vid.playbackRate = playbackSpeed;
@@ -1448,11 +1452,20 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               }}
               onDurationChange={(e) => {
                 const dur = e.currentTarget.duration || 0;
-                if (dur > 0) setVideoDuration(dur);
+                if (dur > 0) setVideoDuration(Math.min(dur, MAX_ANALYSIS_CLIP_SECONDS));
               }}
               onTimeUpdate={(e) => {
+                const cur = e.currentTarget.currentTime;
+                if (cur >= MAX_ANALYSIS_CLIP_SECONDS) {
+                  e.currentTarget.currentTime = 0.01;
+                  setVideoCurrentTime(0);
+                  if (!useWebcam && !isRecording) {
+                    e.currentTarget.play().catch(() => {});
+                  }
+                  return;
+                }
                 if (!isScrubbingRef.current) {
-                  setVideoCurrentTime(e.currentTarget.currentTime);
+                  setVideoCurrentTime(Math.min(cur, MAX_ANALYSIS_CLIP_SECONDS));
                 }
               }}
               onPlay={() => setIsVideoPlaying(true)}
@@ -1668,12 +1681,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
                     {isHipThrustExercise && (
                       <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                        htKneeAngle >= 80 && htKneeAngle <= 102
+                        htKneeAngle >= 76 && htKneeAngle <= 104
                           ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
                           : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
                       }`}>
                         <TrendingUp className="w-3 h-3" />
-                        Rodilla: {htKneeAngle}° (~90°)
+                        Rodilla: {htKneeAngle}° ({htKneeAngle < 76 ? '+Cuádriceps' : htKneeAngle > 104 ? '+Femoral' : 'Glúteo ~90°'})
                       </div>
                     )}
 
@@ -1749,12 +1762,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 ) : isHipThrustExercise ? (
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      htKneeAngle >= 80 && htKneeAngle <= 102
+                      htKneeAngle >= 76 && htKneeAngle <= 104
                         ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
                         : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
                     }`}>
                       <TrendingUp className="w-3 h-3" />
-                      Rodilla: {htKneeAngle}° ({htKneeAngle < 80 ? '+Cuádriceps' : htKneeAngle > 102 ? '+Femoral' : 'Glúteo ~90°'})
+                      Rodilla: {htKneeAngle}° ({htKneeAngle < 76 ? '+Cuádriceps' : htKneeAngle > 104 ? '+Femoral' : 'Glúteo ~90°'})
                     </div>
 
                     <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
@@ -1877,10 +1890,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         {/* Fixed Video Navigation Scrubber & Playback Controls Panel */}
         {uploadedVideoUrl && (
           <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-3 space-y-2.5 shadow-lg">
-            {/* Visual Progress Scrubber Bar with Fill Indicator */}
+            {/* Visual Progress Scrubber Bar with Fill Indicator (Clamped to 30s max) */}
             <div className="flex items-center gap-2.5">
               <span className="text-[11px] font-mono text-cyan-400 font-bold min-w-[38px] text-right">
-                {formatVideoTime(videoCurrentTime)}
+                {formatVideoTime(Math.min(videoCurrentTime, effectiveTotalDuration))}
               </span>
 
               {/* Custom Track with Active Fill and Overlay Slider */}
@@ -1904,9 +1917,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 <input
                   type="range"
                   min={0}
-                  max={videoDuration > 0 ? videoDuration : 1}
+                  max={effectiveTotalDuration}
                   step={0.01}
-                  value={videoCurrentTime}
+                  value={Math.min(videoCurrentTime, effectiveTotalDuration)}
                   onMouseDown={() => { isScrubbingRef.current = true; }}
                   onTouchStart={() => { isScrubbingRef.current = true; }}
                   onChange={handleScrubChange}
@@ -1923,7 +1936,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               <span className="text-[11px] font-mono text-slate-400 font-medium min-w-[38px]">
-                {formatVideoTime(videoDuration)}
+                {formatVideoTime(effectiveTotalDuration)}
               </span>
             </div>
 

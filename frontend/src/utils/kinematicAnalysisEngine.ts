@@ -32,8 +32,8 @@ export const MAX_ANALYSIS_DURATION_SEC = 30.0;
 export const TARGET_SAMPLE_FPS = 15;
 export const MIN_LANDMARK_VISIBILITY = 0.60;
 export const MIN_CONFIDENCE_THRESHOLD = 0.55;
-export const DEFAULT_INFERENCE_MAX_WIDTH = 640;
-export const DEFAULT_INFERENCE_MAX_HEIGHT = 480;
+export const DEFAULT_INFERENCE_MAX_WIDTH = 960;
+export const DEFAULT_INFERENCE_MAX_HEIGHT = 720;
 
 export interface TrimmedAnalysisWindow {
   startTime: number;
@@ -196,8 +196,15 @@ async function seekMonotonic(
     };
 
     const onSeeked = () => {
-      cleanup();
-      resolve();
+      if ('requestVideoFrameCallback' in video && typeof (video as any).requestVideoFrameCallback === 'function') {
+        (video as any).requestVideoFrameCallback(() => {
+          cleanup();
+          resolve();
+        });
+      } else {
+        cleanup();
+        resolve();
+      }
     };
 
     const onError = () => {

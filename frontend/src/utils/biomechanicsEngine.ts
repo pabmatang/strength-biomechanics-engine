@@ -441,6 +441,8 @@ export function computeJointAngle2D(a?: Point2D, vertex?: Point2D, c?: Point2D):
 export interface HipThrustAlignmentEvaluation {
   kneeAngleDegrees: number;
   kneeBias: 'optimal_glute_90' | 'quad_dominant' | 'hamstring_dominant';
+  isTibiaVertical: boolean;
+  shinAngleDeg: number;
   lumbarNeutral: boolean;
   lumbarStatusLabel: string;
   neckNeutral: boolean;
@@ -451,12 +453,13 @@ export interface HipThrustAlignmentEvaluation {
 /**
  * Evaluates Hip Thrust specific biomechanics:
  * 1) Knee angle proximity to 90° (controls Glute vs Quad/Hamstring bias)
- * 2) Lumbar neutrality (avoids hyperextension arch above shoulder-knee bridge line)
- * 3) Neck / cervical neutrality (chin-tuck vs cervical hyperextension behind bench)
+ * 2) Tibial verticality as ground-truth anchor for foot placement
+ * 3) Lumbar neutrality (avoids hyperextension arch above shoulder-knee bridge line)
+ * 4) Neck / cervical neutrality (chin-tuck vs cervical hyperextension behind bench)
  */
 export function evaluateHipThrustAlignment(
   keypoints: Record<string, Point2D>,
-  currentHipAngle: number
+  currentHipAngle: number = 160
 ): HipThrustAlignmentEvaluation {
   const ear = keypoints['ear'] || keypoints['right_ear'] || keypoints['left_ear'];
   const shoulder = keypoints['shoulder'] || keypoints['right_shoulder'] || keypoints['left_shoulder'];
@@ -477,29 +480,48 @@ export function evaluateHipThrustAlignment(
 
   let rawKneeAngle = computeJointAngle2D(hip, knee, tibiaAnchor || ankle);
 
-  // Anatomical perspective correction: at top lockout (hip extended >= 140°),
-  // when tibia is vertical and femur horizontal, calibrate for the malleolus offset so visual 90° yields ~90°.
-  if (hip && knee && ankle && currentHipAngle >= 140) {
-    const femurDy = Math.abs(knee.y - hip.y);
-    const femurDx = Math.abs(knee.x - hip.x) || 1e-4;
-    const tibiaDx = Math.abs(ankle.x - knee.x);
-    const tibiaDy = Math.abs(ankle.y - knee.y) || 1e-4;
+  // Measure tibial perpendicularity relative to vertical ground normal
+  let shinAngleDeg = 0;
+  let isTibiaVertical = true;
+  if (ankle && knee) {
+    const tDx = Math.abs((tibiaAnchor?.x ?? ankle.x) - knee.x);
+    const tDy = Math.abs((tibiaAnchor?.y ?? ankle.y) - knee.y) || 1e-4;
+    shinAngleDeg = Math.round((Math.atan2(tDx, tDy) * 180) / Math.PI);
+    isTibiaVertical = shinAngleDeg <= 16;
+  }
 
-    // Tibia substantially vertical and femur substantially horizontal
-    if (tibiaDx / tibiaDy < 0.24 && femurDy / femurDx < 0.32) {
-      if (rawKneeAngle >= 72 && rawKneeAngle < 90) {
-        rawKneeAngle = Math.min(92, Math.round(rawKneeAngle + 6));
+  // Anatomical perspective calibration:
+  // When tibia is vertical, calibrate the 2D joint angle so visual 90° reads ~90° steadily
+  // without dropping artificially during the descent.
+  if (hip && knee && ankle) {
+    if (isTibiaVertical) {
+      if (rawKneeAngle >= 70 && rawKneeAngle < 90) {
+        const factor = Math.max(0.5, Math.min(1.0, 1 - (shinAngleDeg / 24)));
+        const adjustment = Math.round(7 * factor);
+        rawKneeAngle = Math.min(92, rawKneeAngle + adjustment);
+      }
+    } else if (currentHipAngle >= 140) {
+      const femurDy = Math.abs(knee.y - hip.y);
+      const femurDx = Math.abs(knee.x - hip.x) || 1e-4;
+      if (femurDy / femurDx < 0.35 && rawKneeAngle >= 72 && rawKneeAngle < 90) {
+        rawKneeAngle = Math.min(92, Math.round(rawKneeAngle + 5));
       }
     }
   }
 
   const kneeAngleDegrees = Math.round(rawKneeAngle);
 
+  // Setup bias: if tibia is substantially vertical (<= 16°), foot placement is optimal for glutes.
+  // Only classify as quad or hamstring dominant if the athlete's shin is genuinely tilted excessively.
   let kneeBias: 'optimal_glute_90' | 'quad_dominant' | 'hamstring_dominant' = 'optimal_glute_90';
-  if (kneeAngleDegrees < 78) {
-    kneeBias = 'quad_dominant';
-  } else if (kneeAngleDegrees > 104) {
-    kneeBias = 'hamstring_dominant';
+  if (!isTibiaVertical && shinAngleDeg > 18) {
+    if (kneeAngleDegrees < 76) {
+      kneeBias = 'quad_dominant';
+    } else if (kneeAngleDegrees > 105) {
+      kneeBias = 'hamstring_dominant';
+    } else {
+      kneeBias = 'optimal_glute_90';
+    }
   } else {
     kneeBias = 'optimal_glute_90';
   }
@@ -546,6 +568,8 @@ export function evaluateHipThrustAlignment(
   return {
     kneeAngleDegrees,
     kneeBias,
+    isTibiaVertical,
+    shinAngleDeg,
     lumbarNeutral,
     lumbarStatusLabel,
     neckNeutral,

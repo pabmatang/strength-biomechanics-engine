@@ -509,7 +509,7 @@ export function extractPoseDataFromLandmarks(
   const lear = landmarks[7];
   const rear = landmarks[8];
 
-  // Refine ankle position using heel & foot_index consistency when ankle drifts toward toes or dips in confidence
+  // Refine ankle position using heel & foot_index consistency when ankle drifts toward toes or up the sock/shin
   const refineAnkle = (
     ank?: typeof ls,
     heel?: typeof ls,
@@ -520,26 +520,28 @@ export function extractPoseDataFromLandmarks(
     const heelVis = heel.visibility ?? 0;
     const toeVis = toe.visibility ?? 0;
     const ankVis = ank.visibility ?? 0.7;
-    if (heelVis < 0.45 || toeVis < 0.45) return ank;
+    if (heelVis < 0.35 || toeVis < 0.35) return ank;
 
-    // Anatomically, the talocrural malleolus sits at ~22% along the heel->toe axis and slightly above heel level.
+    // Anatomically, the talocrural malleolus sits at ~18-24% along the heel->toe axis and ~12% foot length above heel level.
     const footDx = toe.x - heel.x;
     const footDy = toe.y - heel.y;
     const footLen = Math.hypot(footDx, footDy);
-    if (footLen < 0.02 || footLen > 0.25) return ank;
+    if (footLen < 0.02 || footLen > 0.28) return ank;
 
     const projT = ((ank.x - heel.x) * footDx + (ank.y - heel.y) * footDy) / (footLen * footLen);
-    // If ankle drifts anomalously forward (> 0.52 of foot length toward toes) or confidence drops, anchor back cleanly
-    if (ankVis < 0.58 || projT > 0.52 || projT < -0.25) {
-      const clampedT = Math.max(0.05, Math.min(0.32, projT));
+    const heightAboveHeel = heel.y - ank.y;
+
+    // If ankle drifts upward onto the sock/shin (> 0.22 of foot length above heel) or forward toward toes (> 0.40)
+    if (heightAboveHeel > footLen * 0.22 || projT > 0.40 || projT < -0.15 || ankVis < 0.65) {
+      const clampedT = Math.max(0.12, Math.min(0.28, projT));
       const anchorX = heel.x + clampedT * footDx;
-      const anchorY = Math.min(ank.y, heel.y - footLen * 0.12);
-      const blend = ankVis < 0.58 ? 0.55 : 0.40;
+      const anchorY = heel.y - footLen * 0.12;
+      const blend = ankVis < 0.60 ? 0.75 : 0.50;
       return {
         x: ank.x * (1 - blend) + anchorX * blend,
         y: ank.y * (1 - blend) + anchorY * blend,
         z: ank.z,
-        visibility: ank.visibility
+        visibility: Math.max(ankVis, heelVis * 0.85)
       };
     }
     return ank;
@@ -547,6 +549,59 @@ export function extractPoseDataFromLandmarks(
 
   const la = refineAnkle(laRaw, lHeel, lFootIndex);
   const ra = refineAnkle(raRaw, rHeel, rFootIndex);
+
+  // Refine intermediate joint centers (knee or elbow) with kinematic anatomical consistency
+  const refineJointAnatomy = (
+    proximal?: typeof ls,
+    joint?: typeof ls,
+    distal?: typeof ls,
+    jointType: 'knee' | 'elbow' = 'knee'
+  ): typeof ls | undefined => {
+    if (!joint) return undefined;
+    if (!proximal || !distal) return joint;
+    const pVis = proximal.visibility ?? 0.7;
+    const jVis = joint.visibility ?? 0.7;
+    const dVis = distal.visibility ?? 0.7;
+
+    const dProx = Math.hypot(joint.x - proximal.x, joint.y - proximal.y);
+    const dDist = Math.hypot(distal.x - joint.x, distal.y - joint.y);
+    const dTotal = Math.hypot(distal.x - proximal.x, distal.y - proximal.y);
+
+    if (dProx < 0.02 || dDist < 0.02 || dTotal < 0.02) return joint;
+
+    const ratio = dDist / dProx;
+    const expectedRatio = jointType === 'knee' ? 0.95 : 0.88;
+
+    if (jVis < 0.65 || ratio < expectedRatio * 0.55 || ratio > expectedRatio * 1.70) {
+      const midX = (proximal.x + distal.x) / 2;
+      const midY = (proximal.y + distal.y) / 2;
+      const perpX = -(distal.y - proximal.y);
+      const perpY = distal.x - proximal.x;
+      const perpLen = Math.hypot(perpX, perpY) || 1e-4;
+
+      const sign = (joint.x - midX) * perpX + (joint.y - midY) * perpY >= 0 ? 1 : -1;
+      const limbSpan = Math.max(dProx, dDist);
+      const bendDepth = Math.min(limbSpan * 0.75, Math.hypot(joint.x - midX, joint.y - midY));
+
+      const stabilizedX = midX + sign * (perpX / perpLen) * bendDepth;
+      const stabilizedY = midY + sign * (perpY / perpLen) * bendDepth;
+
+      const blend = jVis < 0.50 ? 0.75 : 0.45;
+      return {
+        x: joint.x * (1 - blend) + stabilizedX * blend,
+        y: joint.y * (1 - blend) + stabilizedY * blend,
+        z: joint.z,
+        visibility: Math.max(jVis, (pVis + dVis) * 0.45)
+      };
+    }
+
+    return joint;
+  };
+
+  const refinedLk = refineJointAnatomy(lh, lk, la, 'knee');
+  const refinedRk = refineJointAnatomy(rh, rk, ra, 'knee');
+  const refinedLe = refineJointAnatomy(ls, le, lw, 'elbow');
+  const refinedRe = refineJointAnatomy(rs, re, rw, 'elbow');
 
   // Estimate true palm / fist grip center when index/pinky/thumb knuckles are near the wrist (bar/dumbbell handle)
   const computeHandGripCenter = (
@@ -652,11 +707,11 @@ export function extractPoseDataFromLandmarks(
   };
 
   const shoulder = dominantSide === 'right' ? pickLandmark(rs, ls) : pickLandmark(ls, rs);
-  const elbow = dominantSide === 'right' ? pickLandmark(re, le) : pickLandmark(le, re);
+  const elbow = dominantSide === 'right' ? pickLandmark(refinedRe, refinedLe) : pickLandmark(refinedLe, refinedRe);
   const wrist = dominantSide === 'right' ? pickLandmark(rw, lw) : pickLandmark(lw, rw);
   const handGrip = dominantSide === 'right' ? rightHandGrip : leftHandGrip;
   const hip = dominantSide === 'right' ? pickLandmark(rh, lh) : pickLandmark(lh, rh);
-  const knee = dominantSide === 'right' ? pickLandmark(rk, lk) : pickLandmark(lk, rk);
+  const knee = dominantSide === 'right' ? pickLandmark(refinedRk, refinedLk) : pickLandmark(refinedLk, refinedRk);
   const ankle = dominantSide === 'right' ? pickLandmark(ra, la) : pickLandmark(la, ra);
 
   // Pick the most confident ear, or the dominant side ear if sufficiently visible (>= 0.35).
@@ -685,16 +740,16 @@ export function extractPoseDataFromLandmarks(
     right_ear: rear ? { x: rear.x, y: rear.y, visibility: rear.visibility } : undefined as any,
     left_shoulder: { x: ls.x, y: ls.y, visibility: ls.visibility },
     right_shoulder: { x: rs.x, y: rs.y, visibility: rs.visibility },
-    left_elbow: { x: le.x, y: le.y, visibility: le.visibility },
-    right_elbow: { x: re.x, y: re.y, visibility: re.visibility },
+    left_elbow: { x: (refinedLe || le).x, y: (refinedLe || le).y, visibility: (refinedLe || le).visibility },
+    right_elbow: { x: (refinedRe || re).x, y: (refinedRe || re).y, visibility: (refinedRe || re).visibility },
     left_wrist: { x: lw.x, y: lw.y, visibility: lw.visibility },
     right_wrist: { x: rw.x, y: rw.y, visibility: rw.visibility },
     left_hand_grip: { x: leftHandGrip.x, y: leftHandGrip.y, visibility: leftHandGrip.visibility },
     right_hand_grip: { x: rightHandGrip.x, y: rightHandGrip.y, visibility: rightHandGrip.visibility },
     left_hip: { x: lh.x, y: lh.y, visibility: lh.visibility },
     right_hip: { x: rh.x, y: rh.y, visibility: rh.visibility },
-    left_knee: { x: lk.x, y: lk.y, visibility: lk.visibility },
-    right_knee: { x: rk.x, y: rk.y, visibility: rk.visibility },
+    left_knee: { x: (refinedLk || lk).x, y: (refinedLk || lk).y, visibility: (refinedLk || lk).visibility },
+    right_knee: { x: (refinedRk || rk).x, y: (refinedRk || rk).y, visibility: (refinedRk || rk).visibility },
     left_ankle: { x: la.x, y: la.y, visibility: la.visibility },
     right_ankle: { x: ra.x, y: ra.y, visibility: ra.visibility }
   };
@@ -972,8 +1027,8 @@ function drawHipThrustKneeAngle(
   const kx = knee.x * width;
   const ky = knee.y * height;
 
-  const isOptimal = kneeAngleDeg >= 80 && kneeAngleDeg <= 102;
-  const isQuads = kneeAngleDeg < 80;
+  const isOptimal = kneeAngleDeg >= 76 && kneeAngleDeg <= 104;
+  const isQuads = kneeAngleDeg < 76;
   const kneeColor = isOptimal ? '#10B981' : (isQuads ? '#F59E0B' : '#38BDF8');
 
   ctx.save();

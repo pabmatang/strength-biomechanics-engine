@@ -1083,8 +1083,20 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       expect(alignment.kneeAngleDegrees).toBeGreaterThanOrEqual(87);
       expect(alignment.kneeAngleDegrees).toBeLessThanOrEqual(93);
       expect(alignment.kneeBias).toBe('optimal_glute_90');
+      expect(alignment.isTibiaVertical).toBe(true);
       expect(alignment.lumbarNeutral).toBe(true);
       expect(alignment.neckNeutral).toBe(true);
+
+      // In descent / eccentric phase (hip lowered down to 118°), with tibia remaining vertical,
+      // kneeBias must remain solid 'optimal_glute_90' without false +Cuádriceps alarm
+      const hipThrustDescentPose = {
+        ...hipThrustLockoutPose,
+        hip: { x: 0.51, y: 0.51, visibility: 0.95 }
+      };
+      const descentAlignment = evaluateHipThrustAlignment(hipThrustDescentPose, 118);
+      expect(descentAlignment.isTibiaVertical).toBe(true);
+      expect(descentAlignment.kneeBias).toBe('optimal_glute_90');
+      expect(descentAlignment.kneeAngleDegrees).toBeGreaterThanOrEqual(76);
     });
   });
 
