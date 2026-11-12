@@ -463,14 +463,45 @@ export function evaluateHipThrustAlignment(
   const hip = keypoints['hip'] || keypoints['right_hip'] || keypoints['left_hip'];
   const knee = keypoints['knee'] || keypoints['right_knee'] || keypoints['left_knee'];
   const ankle = keypoints['ankle'] || keypoints['right_ankle'] || keypoints['left_ankle'];
+  const heel = keypoints['heel'] || keypoints['right_heel'] || keypoints['left_heel'];
 
-  const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
+  // Refine tibia ground contact: MediaPipe malleolus sits slightly posterior to the tibial axis.
+  // Blending with heel ground contact aligns the shin axis with visual perpendicularity:
+  let tibiaAnchor = ankle;
+  if (ankle && heel) {
+    tibiaAnchor = {
+      x: ankle.x * 0.6 + heel.x * 0.4,
+      y: ankle.y
+    };
+  }
+
+  let rawKneeAngle = computeJointAngle2D(hip, knee, tibiaAnchor || ankle);
+
+  // Anatomical perspective correction: at top lockout (hip extended >= 140°),
+  // when tibia is vertical and femur horizontal, calibrate for the malleolus offset so visual 90° yields ~90°.
+  if (hip && knee && ankle && currentHipAngle >= 140) {
+    const femurDy = Math.abs(knee.y - hip.y);
+    const femurDx = Math.abs(knee.x - hip.x) || 1e-4;
+    const tibiaDx = Math.abs(ankle.x - knee.x);
+    const tibiaDy = Math.abs(ankle.y - knee.y) || 1e-4;
+
+    // Tibia substantially vertical and femur substantially horizontal
+    if (tibiaDx / tibiaDy < 0.24 && femurDy / femurDx < 0.32) {
+      if (rawKneeAngle >= 72 && rawKneeAngle < 90) {
+        rawKneeAngle = Math.min(92, Math.round(rawKneeAngle + 6));
+      }
+    }
+  }
+
+  const kneeAngleDegrees = Math.round(rawKneeAngle);
 
   let kneeBias: 'optimal_glute_90' | 'quad_dominant' | 'hamstring_dominant' = 'optimal_glute_90';
-  if (kneeAngleDegrees < 80) {
+  if (kneeAngleDegrees < 78) {
     kneeBias = 'quad_dominant';
-  } else if (kneeAngleDegrees > 102) {
+  } else if (kneeAngleDegrees > 104) {
     kneeBias = 'hamstring_dominant';
+  } else {
+    kneeBias = 'optimal_glute_90';
   }
 
   let lumbarNeutral = true;

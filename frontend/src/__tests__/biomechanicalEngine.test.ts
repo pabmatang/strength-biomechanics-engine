@@ -23,12 +23,17 @@ import {
   evaluateBicepsBiomechanics,
   evaluateTricepsBiomechanics,
   evaluateUpperBackBiomechanics,
+  evaluateHipThrustAlignment,
   FootStabilityState,
   auditTechniqueRules,
   assessFramingQuality,
   EXERCISE_BIOMECHANICS_RULES,
   EXERCISE_PATTERNS
 } from '../utils/biomechanicsEngine';
+import {
+  computeTrimmedAnalysisWindow,
+  lookupFrameKinematicsAtTime
+} from '../utils/kinematicAnalysisEngine';
 
 describe('1€ Filter (OneEuroFilter) - Anti-Jitter Signal Stabilization', () => {
   it('smooths high-frequency noise when stationary (zero velocity)', () => {
@@ -1056,6 +1061,70 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
       const bioFrame = evaluateBiomechanicalFrame(optimalPose, 'chest_supported_t_bar_row_upper_back', 'BOTTOM', 90, 10, 'gravity', 'upper_back');
       expect(bioFrame.biomechanics.muscleBias).toBe('upper_back_bias');
       expect(bioFrame.biomechanics.muscleBiasLabel).toContain('Espalda Alta');
+    });
+
+    it('Hip Thrust Knee Angle Calibration: accurately detects ~90° optimal lockout without quad false alarm', () => {
+      // Anatomical Hip Thrust top lockout pose:
+      // Shoulder at 0.28, 0.42; Hip locked out horizontally at 0.50, 0.44;
+      // Knee at 0.72, 0.44 (femur horizontal);
+      // Ankle at 0.72, 0.82 (tibia perfectly vertical in front of knee);
+      // Heel at 0.71, 0.82
+      const hipThrustLockoutPose = {
+        shoulder: { x: 0.28, y: 0.42, visibility: 0.95 },
+        hip: { x: 0.50, y: 0.44, visibility: 0.95 },
+        knee: { x: 0.72, y: 0.44, visibility: 0.95 },
+        ankle: { x: 0.72, y: 0.82, visibility: 0.95 },
+        heel: { x: 0.71, y: 0.82, visibility: 0.95 }
+      };
+
+      const alignment = evaluateHipThrustAlignment(hipThrustLockoutPose, 165);
+
+      // Knee angle should read within the optimal ~90° band (88° to 92°)
+      expect(alignment.kneeAngleDegrees).toBeGreaterThanOrEqual(87);
+      expect(alignment.kneeAngleDegrees).toBeLessThanOrEqual(93);
+      expect(alignment.kneeBias).toBe('optimal_glute_90');
+      expect(alignment.lumbarNeutral).toBe(true);
+      expect(alignment.neckNeutral).toBe(true);
+    });
+  });
+
+  describe('Offline Kinematic Analysis Engine (Frame-by-Frame 15 FPS / 30s Window)', () => {
+    it('computes trimmed analysis window: starts from 0s, clamps to 30s at 15 FPS', () => {
+      // Short video 8.0 seconds
+      const shortWindow = computeTrimmedAnalysisWindow(8.0, 30.0, 15);
+      expect(shortWindow.startTime).toBe(0.0);
+      expect(shortWindow.endTime).toBe(8.0);
+      expect(shortWindow.duration).toBe(8.0);
+      expect(shortWindow.totalFrames).toBe(120); // 8 * 15
+      expect(shortWindow.stepSec).toBeCloseTo(1 / 15, 4);
+
+      // Long video 60.0 seconds: clamped to 30s
+      const longWindow = computeTrimmedAnalysisWindow(60.0, 30.0, 15);
+      expect(longWindow.startTime).toBe(0.0);
+      expect(longWindow.endTime).toBe(30.0);
+      expect(longWindow.duration).toBe(30.0);
+      expect(longWindow.totalFrames).toBe(450); // 30 * 15
+    });
+
+    it('binary search lookup finds closest frame or interpolates accurately', () => {
+      const mockFrames: any[] = [
+        { timestampSec: 0.0, frameIndex: 0 },
+        { timestampSec: 0.066, frameIndex: 1 },
+        { timestampSec: 0.133, frameIndex: 2 },
+        { timestampSec: 0.200, frameIndex: 3 }
+      ];
+
+      // Exact match
+      const frame0 = lookupFrameKinematicsAtTime(mockFrames, 0.0);
+      expect(frame0?.frameIndex).toBe(0);
+
+      // Between frame 1 and 2, closer to frame 2
+      const frameNear2 = lookupFrameKinematicsAtTime(mockFrames, 0.12);
+      expect(frameNear2?.frameIndex).toBe(2);
+
+      // Beyond end
+      const frameEnd = lookupFrameKinematicsAtTime(mockFrames, 0.50);
+      expect(frameEnd?.frameIndex).toBe(3);
     });
   });
 });

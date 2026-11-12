@@ -67,6 +67,7 @@ import {
   assessFramingQuality
 } from '../utils/biomechanicsEngine';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
+import { useKinematicAnalysis } from '../hooks/useKinematicAnalysis';
 
 interface VideoPoseAnalysisModalProps {
   isOpen: boolean;
@@ -143,11 +144,31 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const roiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadedFileRef = useRef<File | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
   const isProcessingRef = useRef<boolean>(false);
   const lastTimestampRef = useRef<number>(0);
   const isScrubbingRef = useRef<boolean>(false);
+
+  // High-precision offline frame-by-frame analysis engine (15 fps, up to 30s)
+  const {
+    status: kinematicStatus,
+    progress: kinematicProgress,
+    clipResult: kinematicClip,
+    error: kinematicError,
+    analyzeClip,
+    recomputeForPattern,
+    cancel: cancelKinematicAnalysis,
+    reset: resetKinematicAnalysis,
+    getFrameAtTime
+  } = useKinematicAnalysis({
+    maxAnalysisDurationSec: 30.0,
+    targetSampleFps: 15
+  });
+
+  const kinematicAnalyzedDuration = kinematicClip?.durationSec ?? 0;
+  const kinematicTotalFrames = kinematicProgress?.totalFrames ?? (kinematicClip?.frames.length ?? 0);
 
   // Adaptive OneEuroFilter calibrated for normalized [0..1] coordinates + 0.0028 micro-jitter deadzone:
   // holds points rock-steady when still, tracks fast movement cleanly with near-zero trailing lag
@@ -226,6 +247,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   useEffect(() => {
     if (!isOpen) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      cancelKinematicAnalysis();
+      resetKinematicAnalysis();
+      uploadedFileRef.current = null;
       setShowConfigBottomSheet(false);
       setIsRecording(false);
       setBackendDiagnosis(null);
@@ -240,6 +264,38 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   }, [isOpen]);
 
+  // Auto-trigger frame-by-frame offline kinematic scan when video file is loaded and model is ready
+  useEffect(() => {
+    if (uploadedFileRef.current && aiModelStatus === 'ready' && kinematicStatus === 'idle') {
+      analyzeClip(uploadedFileRef.current, {
+        pattern: selectedPattern,
+        loadType,
+        targetMuscle
+      });
+    }
+  }, [uploadedVideoUrl, aiModelStatus, kinematicStatus, selectedPattern, loadType, targetMuscle]);
+
+  // Instant zero-cost recomputation when user reconfigures pattern/load/muscle on pre-cached landmarks
+  useEffect(() => {
+    if (kinematicStatus === 'ready') {
+      recomputeForPattern(selectedPattern, loadType, targetMuscle);
+    }
+  }, [selectedPattern.id, loadType, targetMuscle]);
+
+  // Sync audited repetitions and alerts from offline kinematic analysis
+  useEffect(() => {
+    if (kinematicStatus === 'ready' && kinematicClip) {
+      if (kinematicClip.auditedReps.length > 0) {
+        setAuditedReps(kinematicClip.auditedReps);
+        setRepCount(kinematicClip.auditedReps.length);
+        const lastAudit = kinematicClip.auditedReps[kinematicClip.auditedReps.length - 1];
+        if (lastAudit?.techniqueVerdict?.feedbackCues) {
+          setActiveAlerts(lastAudit.techniqueVerdict.feedbackCues);
+        }
+      }
+    }
+  }, [kinematicStatus, kinematicClip]);
+
   const stopWebcam = () => {
     if (webcamStreamRef.current) {
       webcamStreamRef.current.getTracks().forEach(t => t.stop());
@@ -250,6 +306,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const handleStartWebcam = async () => {
     try {
+      cancelKinematicAnalysis();
+      resetKinematicAnalysis();
+      uploadedFileRef.current = null;
       if (uploadedVideoUrl) {
         URL.revokeObjectURL(uploadedVideoUrl);
         setUploadedVideoUrl(null);
@@ -281,7 +340,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    uploadedFileRef.current = file;
     stopWebcam();
+    resetKinematicAnalysis();
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
     }
@@ -328,6 +389,40 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     // Clear canvas before processing and drawing new frame to prevent ghosting/overlapping
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Fast-path: Check if high-precision pre-analyzed offline frame data is cached for the current timestamp
+    if (uploadedVideoUrl && !useWebcam && kinematicStatus === 'ready') {
+      const cached = getFrameAtTime(video.currentTime);
+      if (cached) {
+        setCurrentPrimaryAngle(Math.round(cached.primaryAngleDeg));
+        setCurrentTelemetry(cached.telemetry);
+        setCurrentPhase(cached.phase);
+
+        drawDualModeOverlay(
+          ctx,
+          analysisMode,
+          cached.telemetry,
+          cached.keypoints,
+          canvas.width,
+          canvas.height,
+          analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
+          {
+            showLeverArms,
+            showCanvasText,
+            zoom,
+            panOffset,
+            primaryJointKey: selectedPattern.primaryJoint,
+            patternFamily: selectedPattern.patternFamily,
+            targetMuscle: selectedPattern.targetMuscle,
+            loadType,
+            exerciseId: selectedPattern.id,
+            useInternalCanvasTransform: false
+          },
+          selectedPattern.primaryJoint
+        );
+        return;
+      }
+    }
 
     try {
       const landmarker = await getPoseLandmarker(poseQuality);
@@ -1399,6 +1494,42 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             />
           </div>
 
+          {/* High-Precision Offline Frame-by-Frame Progress Overlay */}
+          {kinematicStatus === 'analyzing' && (
+            <div className="absolute inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
+              <div className="relative w-14 h-14 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full border-4 border-cyan-500/20 border-t-cyan-400 animate-spin" />
+                <Activity className="w-6 h-6 text-cyan-400 animate-pulse" />
+              </div>
+              <div className="space-y-1 max-w-sm">
+                <h4 className="text-sm font-black text-white flex items-center justify-center gap-1.5">
+                  <span>Análisis Fotograma a Fotograma</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">15 FPS</span>
+                </h4>
+                <p className="text-xs text-slate-300">
+                  Extrayendo cinemática de alta precisión sin saltos de GPU ({kinematicProgress.percent}% completado)
+                </p>
+              </div>
+              <div className="w-full max-w-xs bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/80">
+                <div
+                  className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-150"
+                  style={{ width: `${kinematicProgress.percent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between w-full max-w-xs text-[10px] text-slate-400 font-mono">
+                <span>Ventana: 0 a {Math.round(kinematicAnalyzedDuration || 30)}s</span>
+                <span>{kinematicProgress.currentFrame} / {kinematicProgress.totalFrames || kinematicTotalFrames} frames</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => cancelKinematicAnalysis()}
+                className="mt-2 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700/60 bg-slate-900/60 transition"
+              >
+                Saltar a análisis en directo
+              </button>
+            </div>
+          )}
+
           {/* Real-Time Telemetry HUD Overlays */}
           {(isRecording || isVideoPlaying || (uploadedVideoUrl && currentTelemetry)) && (
             <>
@@ -1423,13 +1554,21 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
               {/* Real-time Status Badges */}
               <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-1.5 z-30 pointer-events-none">
-                <div className="bg-black/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-                  <span className="text-slate-300">Fase:</span>
-                  <span className={`font-bold ${
-                    currentPhase === 'BOTTOM' ? 'text-amber-400' : currentPhase === 'CONCENTRIC' ? 'text-emerald-400' : 'text-cyan-400'
-                  }`}>
-                    {formatPhaseLabel(currentPhase)}
-                  </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="bg-black/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                    <span className="text-slate-300">Fase:</span>
+                    <span className={`font-bold ${
+                      currentPhase === 'BOTTOM' ? 'text-amber-400' : currentPhase === 'CONCENTRIC' ? 'text-emerald-400' : 'text-cyan-400'
+                    }`}>
+                      {formatPhaseLabel(currentPhase)}
+                    </span>
+                  </div>
+                  {kinematicStatus === 'ready' && (
+                    <div className="bg-emerald-950/85 backdrop-blur-md border border-emerald-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-emerald-400" />
+                      <span>Offline 15 FPS (0-{Math.round(kinematicAnalyzedDuration)}s)</span>
+                    </div>
+                  )}
                 </div>
 
                 {analysisMode === 'technique' ? (
