@@ -488,11 +488,21 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           const angVelocity = fsmRef.current.getSmoothedVelocity();
 
           if (completedRep) {
+            const targetBiasParam =
+              targetMuscle === 'glutes_max' ? 'glutes' :
+              targetMuscle === 'quadriceps' ? 'quads' :
+              targetMuscle === 'hamstrings' ? 'hamstrings' :
+              targetMuscle === 'lats' ? 'lats' :
+              targetMuscle === 'upper_back' ? 'upper_back' :
+              targetMuscle === 'biceps' ? 'biceps' :
+              targetMuscle === 'triceps' ? 'triceps' :
+              'quads';
+
             const audit = auditCompletedRepetition(
               completedRep,
               fsmRef.current.getCompletedReps(),
               selectedPattern.name,
-              targetMuscle === 'glutes_max' ? 'glutes' : targetMuscle === 'quadriceps' ? 'quads' : targetMuscle === 'hamstrings' ? 'hamstrings' : 'lats'
+              targetBiasParam
             );
             setAuditedReps(prev => [...prev, audit]);
             setRepCount(c => c + 1);
@@ -511,7 +521,15 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             loadType === 'gravity' ? 'gravity' :
             loadType === 'cable' ? 'cable_mid' :
             'machine';
-          const targetBiasParam = targetMuscle === 'glutes_max' ? 'glutes' : targetMuscle === 'quadriceps' ? 'quads' : targetMuscle === 'hamstrings' ? 'hamstrings' : 'lats';
+          const targetBiasParam =
+            targetMuscle === 'glutes_max' ? 'glutes' :
+            targetMuscle === 'quadriceps' ? 'quads' :
+            targetMuscle === 'hamstrings' ? 'hamstrings' :
+            targetMuscle === 'lats' ? 'lats' :
+            targetMuscle === 'upper_back' ? 'upper_back' :
+            targetMuscle === 'biceps' ? 'biceps' :
+            targetMuscle === 'triceps' ? 'triceps' :
+            'quads';
 
           const telemetry = evaluateBiomechanicalFrame(
             smoothedKeypoints,
@@ -859,9 +877,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
   const isHipThrustExercise = selectedPattern.id.includes('hip_thrust');
   const isFlyExercise = selectedPattern.id.includes('fly');
-  const isPressExercise = selectedPattern.patternFamily === 'push_press' && !isFlyExercise;
+  const isPressExercise = selectedPattern.patternFamily === 'push_press' && !isFlyExercise && !selectedPattern.id.includes('triceps');
+  const isBicepsExercise = selectedPattern.targetMuscle === 'biceps' || selectedPattern.id.includes('biceps') || selectedPattern.id.includes('curl');
+  const isTricepsExercise = selectedPattern.targetMuscle === 'triceps' || selectedPattern.id.includes('triceps');
+  const isUpperBackExercise = selectedPattern.targetMuscle === 'upper_back' || selectedPattern.id.includes('upper_back');
+
   const pressEval = currentTelemetry?.biomechanics.pressEvaluation ?? currentTelemetry?.technique.pressEvaluation;
   const flyEval = currentTelemetry?.biomechanics.flyEvaluation ?? currentTelemetry?.technique.flyEvaluation;
+  const bEval = currentTelemetry?.biomechanics.bicepsEvaluation ?? currentTelemetry?.technique.bicepsEvaluation;
+  const tEval = currentTelemetry?.biomechanics.tricepsEvaluation ?? currentTelemetry?.technique.tricepsEvaluation;
+  const ubEval = currentTelemetry?.biomechanics.upperBackEvaluation ?? currentTelemetry?.technique.upperBackEvaluation;
 
   const htKneeAngle = Math.round(
     currentTelemetry?.biomechanics.kneeAngleDegrees ??
@@ -876,7 +901,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     currentPhase === 'LOCKOUT' &&
     !(isHipThrustExercise && currentTelemetry) &&
     !(isPressExercise && pressEval) &&
-    !(isFlyExercise && flyEval);
+    !(isFlyExercise && flyEval) &&
+    !(isBicepsExercise && bEval) &&
+    !(isTricepsExercise && tEval) &&
+    !(isUpperBackExercise && ubEval);
 
   const rawVerdict = (isFlyExercise && flyEval)
     ? evaluateFlyVerdict(flyEval)
@@ -907,7 +935,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             ? 'Mantén los brazos lo más extendidos posible sin anteriorizar los hombros.'
             : isPressExercise
               ? 'Alinea la mano con el codo (~90°), mantén el codo bajo el hombro y apoya firmes los pies en el suelo.'
-              : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
+              : isBicepsExercise
+                ? 'Mantén los codos fijos a los costados y realiza la flexión de bíceps con tempo excéntrico controlado (≥2s).'
+                : isTricepsExercise
+                  ? 'Mantén las muñecas neutras alineadas con el antebrazo y los codos fijos.'
+                  : isUpperBackExercise
+                    ? 'Apoya el pecho firmemente, mantén codos a ~90° al traccionar hacia la altura de los hombros.'
+                    : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
       }
     : rawVerdict;
 
@@ -1016,7 +1050,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
             { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
             { key: 'lats' as TargetMuscle, label: 'Dorsal' },
-            { key: 'pectorals' as TargetMuscle, label: 'Pectoral' }
+            { key: 'upper_back' as TargetMuscle, label: 'Espalda Alta' },
+            { key: 'pectorals' as TargetMuscle, label: 'Pectoral' },
+            { key: 'biceps' as TargetMuscle, label: 'Bíceps' },
+            { key: 'triceps' as TargetMuscle, label: 'Tríceps' }
           ].map(m => (
             <button
               key={m.key}
@@ -1416,6 +1453,71 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                           Hombro: {flyEval.shoulderAnteriorized ? '⚠️ Anteriorizado' : '✓ Estable'}
                         </div>
                       </>
+                    ) : isBicepsExercise && bEval ? (
+                      <>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          bEval.armAlignment === 'aligned_pivot'
+                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <Crosshair className="w-3 h-3" />
+                          {bEval.armAlignment === 'aligned_pivot' ? '✓ Codo Eje Fijo' : '⚠️ Balanceo Codo'}
+                        </div>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          bEval.tempoStatus === 'optimal_controlled'
+                            ? 'bg-cyan-950/85 border-cyan-500/50 text-cyan-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <Activity className="w-3 h-3" />
+                          {bEval.tempoStatus === 'optimal_controlled' ? 'Tempo: ≥2s' : '⚠️ Excéntrico Rápido'}
+                        </div>
+                      </>
+                    ) : isTricepsExercise && tEval ? (
+                      <>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          tEval.wristAlignment === 'aligned_neutral'
+                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <Crosshair className="w-3 h-3" />
+                          {tEval.wristAlignment === 'aligned_neutral' ? '✓ Muñeca Neutra' : '⚠️ Muñeca Quebrada'}
+                        </div>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          tEval.elbowFlare === 'stable_aligned'
+                            ? 'bg-cyan-950/85 border-cyan-500/50 text-cyan-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <ShieldCheck className="w-3 h-3" />
+                          {tEval.elbowFlare === 'stable_aligned' ? '✓ Codos Alineados' : '⚠️ Codos Abiertos'}
+                        </div>
+                      </>
+                    ) : isUpperBackExercise && ubEval ? (
+                      <>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          ubEval.elbowAngleStatus === 'optimal_90'
+                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <TrendingUp className="w-3 h-3" />
+                          Codo: {ubEval.elbowAngleDeg}° (~90°)
+                        </div>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          ubEval.tractionHeightStatus === 'optimal_shoulder_height'
+                            ? 'bg-cyan-950/85 border-cyan-500/50 text-cyan-300'
+                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
+                        }`}>
+                          <Crosshair className="w-3 h-3" />
+                          {ubEval.tractionHeightStatus === 'optimal_shoulder_height' ? '✓ Altura Hombro' : '⚠️ Tracción Baja'}
+                        </div>
+                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                          ubEval.shoulderRetractionStatus === 'optimal_retraction'
+                            ? 'bg-purple-950/85 border-purple-500/50 text-purple-300'
+                            : 'bg-rose-950/85 border-rose-500/50 text-rose-300'
+                        }`}>
+                          <ShieldCheck className="w-3 h-3" />
+                          {ubEval.shoulderRetractionStatus === 'optimal_retraction' ? '✓ Escápulas OK' : '⚠️ Hombros'}
+                        </div>
+                      </>
                     ) : (
                       <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
                         <ShieldCheck className="w-3 h-3 text-emerald-400" />
@@ -1458,6 +1560,51 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     }`}>
                       <Crosshair className="w-3 h-3" />
                       Reparto: {flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'}
+                    </div>
+                  </div>
+                ) : isBicepsExercise && bEval ? (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      bEval.armAlignment === 'aligned_pivot'
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <Crosshair className="w-3 h-3" />
+                      Codo: {bEval.armAlignment === 'aligned_pivot' ? 'Eje Estable' : 'Balanceo'}
+                    </div>
+                    <div className="bg-pink-950/90 backdrop-blur-md border border-pink-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-pink-300 flex items-center gap-1">
+                      <Scale className="w-3 h-3" />
+                      d_codo: {Math.round(elbowRaw * 640)}px ({elbowShare}%)
+                    </div>
+                  </div>
+                ) : isTricepsExercise && tEval ? (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      tEval.wristAlignment === 'aligned_neutral'
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <Crosshair className="w-3 h-3" />
+                      {tEval.wristAlignment === 'aligned_neutral' ? 'Muñeca Neutra' : '⚠️ Quebrada'}
+                    </div>
+                    <div className="bg-pink-950/90 backdrop-blur-md border border-pink-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-pink-300 flex items-center gap-1">
+                      <Scale className="w-3 h-3" />
+                      d_codo: {Math.round(elbowRaw * 640)}px ({elbowShare}%)
+                    </div>
+                  </div>
+                ) : isUpperBackExercise && ubEval ? (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
+                      ubEval.elbowAngleStatus === 'optimal_90'
+                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <TrendingUp className="w-3 h-3" />
+                      Codo: {ubEval.elbowAngleDeg}° (~90°)
+                    </div>
+                    <div className="bg-purple-950/90 backdrop-blur-md border border-purple-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-purple-300 flex items-center gap-1">
+                      <Scale className="w-3 h-3" />
+                      Hombro/Escápula: {shoulderShare}%
                     </div>
                   </div>
                 ) : isHipThrustExercise ? (
@@ -2198,6 +2345,178 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                     <span className="text-[10px] text-slate-300 block">
                       {`${pressEval.spineAngleDeg}° inclinación`}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : isBicepsExercise ? (
+              <>
+                {/* Muscle Dominance Comparison Bar (Codo vs Hombro) */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
+                    <span className="text-pink-400 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-pink-500" />
+                      Codo (Bíceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
+                    </span>
+                    <span className="text-purple-400 flex items-center gap-1">
+                      Hombro (Deltoides): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
+                    <div className="bg-purple-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Balanceo de Codo</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      bEval?.armAlignment === 'aligned_pivot' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {bEval?.armAlignment === 'aligned_pivot' ? '✓ Eje Estable' : '⚠️ Balanceo'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {`${bEval?.elbowDriftAngleDeg ?? 0}° inclinación eje`}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Tempo Excéntrico</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      bEval?.tempoStatus === 'optimal_controlled' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {bEval?.tempoStatus === 'optimal_controlled' ? '✓ Controlado' : '⚠️ Rápido'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {bEval?.tempoStatus === 'optimal_controlled' ? 'bajada ≥2s' : 'frena descenso'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Aislamiento Bíceps</span>
+                    <span className="text-xs font-black text-pink-300 font-mono block mt-0.5">
+                      {elbowShare}% palanca
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {elbowShare >= 70 ? '✓ d_codo dominante' : 'compensación'}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : isTricepsExercise ? (
+              <>
+                {/* Muscle Dominance Comparison Bar (Codo vs Hombro) */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
+                    <span className="text-pink-400 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-pink-500" />
+                      Codo (Tríceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
+                    </span>
+                    <span className="text-purple-400 flex items-center gap-1">
+                      Hombro / Estabilidad: {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
+                    <div className="bg-purple-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Muñeca vs Antebrazo</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      tEval?.wristAlignment === 'aligned_neutral' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {tEval?.wristAlignment === 'aligned_neutral' ? '✓ Neutra' : '⚠️ Quebrada'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {tEval?.wristAlignment === 'aligned_neutral' ? 'transmisión directa' : 'corrige flexión'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Alineación Codos</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      tEval?.elbowFlare === 'stable_aligned' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {tEval?.elbowFlare === 'stable_aligned' ? '✓ Alineados' : '⚠️ Abiertos'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {tEval?.elbowFlare === 'stable_aligned' ? 'plano de empuje' : 'cierra codos'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Tempo Retorno</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      tEval?.tempoStatus === 'optimal_controlled' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {tEval?.tempoStatus === 'optimal_controlled' ? '✓ Controlado' : '⚠️ Rápido'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      acompaña subida
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : isUpperBackExercise ? (
+              <>
+                {/* Muscle Dominance Comparison Bar (Hombro vs Codo) */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
+                    <span className="text-purple-400 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                      Espalda Alta / Trapecio: {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
+                    </span>
+                    <span className="text-pink-400 flex items-center gap-1">
+                      Codo (Bíceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
+                      <span className="w-2 h-2 rounded-full bg-pink-500" />
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                    <div className="bg-purple-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
+                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Ángulo de Codo</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      ubEval?.elbowAngleStatus === 'optimal_90' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {`${ubEval?.elbowAngleDeg ?? 90}°`}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {ubEval?.elbowAngleStatus === 'optimal_90' ? '✓ ~90° sin exceso bíceps' : ubEval?.elbowAngleStatus === 'too_acute_biceps' ? '<80° sesgo bíceps' : 'tirón incompleto'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Altura Tracción</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      ubEval?.tractionHeightStatus === 'optimal_shoulder_height' ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      {ubEval?.tractionHeightStatus === 'optimal_shoulder_height' ? '✓ Altura Hombro' : '⚠️ Tracción Baja'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      {ubEval?.tractionHeightStatus === 'optimal_shoulder_height' ? 'romboides y trapecio' : 'desplaza a dorsal'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Escápulas / Hombros</span>
+                    <span className={`text-xs font-black font-mono block mt-0.5 ${
+                      ubEval?.shoulderRetractionStatus === 'optimal_retraction' ? 'text-emerald-400' : 'text-rose-400'
+                    }`}>
+                      {ubEval?.shoulderRetractionStatus === 'optimal_retraction' ? '✓ Rango Seguro' : '⚠️ Desalineados'}
+                    </span>
+                    <span className="text-[10px] text-slate-300 block">
+                      pecho firme apoyado
                     </span>
                   </div>
                 </div>

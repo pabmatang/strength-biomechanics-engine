@@ -20,6 +20,9 @@ import {
   evaluatePressVerdict,
   evaluateFlyBiomechanics,
   evaluateFlyVerdict,
+  evaluateBicepsBiomechanics,
+  evaluateTricepsBiomechanics,
+  evaluateUpperBackBiomechanics,
   FootStabilityState,
   auditTechniqueRules,
   assessFramingQuality,
@@ -939,5 +942,120 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     const remapped = remapLandmarksFromRoi([{ x: 0.5, y: 0.5, z: 0, visibility: 0.9 }], roi);
     expect(remapped[0].x).toBeCloseTo(0.5, 4);
     expect(remapped[0].y).toBeCloseTo(0.5, 4);
+  });
+
+  describe('New Muscle Patterns: Bíceps, Tríceps & Espalda Alta / Trapecio', () => {
+    it('Bíceps: validates elbow as stable pivot and detects anterior elbow drift cheating', () => {
+      // 1. Stable pivot: elbow directly below shoulder
+      const stablePose = {
+        shoulder: { x: 0.5, y: 0.25, visibility: 0.95 },
+        elbow: { x: 0.505, y: 0.50, visibility: 0.95 },
+        wrist: { x: 0.51, y: 0.35, visibility: 0.95 },
+        hip: { x: 0.5, y: 0.65, visibility: 0.95 }
+      };
+      const stableEval = evaluateBicepsBiomechanics(stablePose, 60, 'CONCENTRIC', 40);
+      expect(stableEval.armAlignment).toBe('aligned_pivot');
+
+      // 2. Anterior elbow drift (elbow swung far forward to cheat with anterior deltoid)
+      const driftedPose = {
+        shoulder: { x: 0.5, y: 0.25, visibility: 0.95 },
+        elbow: { x: 0.68, y: 0.42, visibility: 0.95 },
+        wrist: { x: 0.56, y: 0.28, visibility: 0.95 },
+        hip: { x: 0.5, y: 0.65, visibility: 0.95 }
+      };
+      const driftedEval = evaluateBicepsBiomechanics(driftedPose, 55, 'CONCENTRIC', 40);
+      expect(driftedEval.armAlignment).toBe('elbow_drift_anterior');
+
+      const alerts = auditTechniqueRules('pull_row', driftedPose, 55, 'CONCENTRIC', driftedPose.wrist, 'biceps_curl_dumbbell');
+      expect(alerts.some(a => a.code === 'BICEPS_ELBOW_DRIFT')).toBe(true);
+
+      // 3. Tempo check: fast drop in eccentric phase
+      const fastDropEval = evaluateBicepsBiomechanics(stablePose, 120, 'ECCENTRIC', 170);
+      expect(fastDropEval.tempoStatus).toBe('too_fast_eccentric');
+
+      // 4. Biomechanical telemetry sets biceps_bias
+      const bioFrame = evaluateBiomechanicalFrame(stablePose, 'biceps_curl_dumbbell', 'CONCENTRIC', 65, 30, 'gravity', 'biceps');
+      expect(bioFrame.biomechanics.muscleBias).toBe('biceps_bias');
+      expect(bioFrame.biomechanics.muscleBiasLabel).toContain('Aislamiento de Bíceps');
+    });
+
+    it('Tríceps: validates neutral wrist alignment with forearm and detects broken wrists & elbow flare', () => {
+      // 1. Neutral wrist and aligned elbows
+      const neutralPose = {
+        shoulder: { x: 0.5, y: 0.25, visibility: 0.95 },
+        elbow: { x: 0.51, y: 0.45, visibility: 0.95 },
+        wrist: { x: 0.51, y: 0.65, visibility: 0.95 },
+        hand_grip: { x: 0.51, y: 0.72, visibility: 0.95 }
+      };
+      const neutralEval = evaluateTricepsBiomechanics(neutralPose, 160, 'CONCENTRIC', 30, 'sagittal');
+      expect(neutralEval.wristAlignment).toBe('aligned_neutral');
+      expect(neutralEval.elbowFlare).toBe('stable_aligned');
+
+      // 2. Broken wrist (wrist hyperextension / deviation)
+      const brokenWristPose = {
+        shoulder: { x: 0.5, y: 0.25, visibility: 0.95 },
+        elbow: { x: 0.51, y: 0.45, visibility: 0.95 },
+        wrist: { x: 0.51, y: 0.65, visibility: 0.95 },
+        hand_grip: { x: 0.65, y: 0.72, visibility: 0.95 }
+      };
+      const brokenEval = evaluateTricepsBiomechanics(brokenWristPose, 160, 'CONCENTRIC', 30, 'sagittal');
+      expect(brokenEval.wristAlignment).toBe('wrist_broken');
+
+      const alerts = auditTechniqueRules('push_press', brokenWristPose, 160, 'CONCENTRIC', brokenWristPose.hand_grip, 'triceps_pushdown_cable');
+      expect(alerts.some(a => a.code === 'TRICEPS_WRIST_BROKEN')).toBe(true);
+
+      // 3. Biomechanical telemetry sets triceps_bias
+      const bioFrame = evaluateBiomechanicalFrame(neutralPose, 'triceps_pushdown_cable', 'CONCENTRIC', 160, 30, 'cable_mid', 'triceps');
+      expect(bioFrame.biomechanics.muscleBias).toBe('triceps_bias');
+      expect(bioFrame.biomechanics.muscleBiasLabel).toContain('Aislamiento de Tríceps');
+    });
+
+    it('Espalda Alta / Trapecio: chest supported row requires ~90° elbow, shoulder-height pull & safe shoulder range', () => {
+      // 1. Optimal Chest Supported Row: elbow angle ~90° at contraction, pulled at shoulder height
+      const optimalPose = {
+        shoulder: { x: 0.45, y: 0.35, visibility: 0.95 },
+        elbow: { x: 0.32, y: 0.34, visibility: 0.95 },
+        wrist: { x: 0.40, y: 0.38, visibility: 0.95 },
+        hand_grip: { x: 0.40, y: 0.38, visibility: 0.95 },
+        hip: { x: 0.48, y: 0.68, visibility: 0.95 }
+      };
+      const optEval = evaluateUpperBackBiomechanics(optimalPose, 90, 'BOTTOM');
+      expect(optEval.elbowAngleStatus).toBe('optimal_90');
+      expect(optEval.tractionHeightStatus).toBe('optimal_shoulder_height');
+      expect(optEval.shoulderRetractionStatus).toBe('optimal_retraction');
+
+      const optAlerts = auditTechniqueRules('pull_row', optimalPose, 90, 'BOTTOM', optimalPose.hand_grip, 'chest_supported_t_bar_row_upper_back');
+      expect(optAlerts.some(a => a.code === 'UPPER_BACK_ELBOW_OPTIMAL_90')).toBe(true);
+      expect(optAlerts.some(a => a.code === 'UPPER_BACK_PULL_SHOULDER_HEIGHT')).toBe(true);
+
+      // 2. Fault: elbow angle too acute (< 80°) over-involves biceps
+      const acuteElbowPose = {
+        ...optimalPose,
+        wrist: { x: 0.34, y: 0.35, visibility: 0.95 },
+        hand_grip: { x: 0.34, y: 0.35, visibility: 0.95 }
+      };
+      const acuteEval = evaluateUpperBackBiomechanics(acuteElbowPose, 68, 'BOTTOM');
+      expect(acuteEval.elbowAngleStatus).toBe('too_acute_biceps');
+
+      const acuteAlerts = auditTechniqueRules('pull_row', acuteElbowPose, 68, 'BOTTOM', acuteElbowPose.hand_grip, 'chest_supported_t_bar_row_upper_back');
+      expect(acuteAlerts.some(a => a.code === 'UPPER_BACK_ELBOW_TOO_ACUTE')).toBe(true);
+
+      // 3. Fault: pulling too low towards the waist / belly (lat bias instead of upper back)
+      const lowPullPose = {
+        ...optimalPose,
+        wrist: { x: 0.42, y: 0.58, visibility: 0.95 },
+        hand_grip: { x: 0.42, y: 0.58, visibility: 0.95 }
+      };
+      const lowEval = evaluateUpperBackBiomechanics(lowPullPose, 90, 'BOTTOM');
+      expect(lowEval.tractionHeightStatus).toBe('too_low_lat_bias');
+
+      const lowAlerts = auditTechniqueRules('pull_row', lowPullPose, 90, 'BOTTOM', lowPullPose.hand_grip, 'chest_supported_row_wide_upper_back');
+      expect(lowAlerts.some(a => a.code === 'UPPER_BACK_PULL_TOO_LOW')).toBe(true);
+
+      // 4. Biomechanical telemetry sets upper_back_bias
+      const bioFrame = evaluateBiomechanicalFrame(optimalPose, 'chest_supported_t_bar_row_upper_back', 'BOTTOM', 90, 10, 'gravity', 'upper_back');
+      expect(bioFrame.biomechanics.muscleBias).toBe('upper_back_bias');
+      expect(bioFrame.biomechanics.muscleBiasLabel).toContain('Espalda Alta');
+    });
   });
 });

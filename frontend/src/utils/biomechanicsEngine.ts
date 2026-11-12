@@ -14,12 +14,12 @@ import { Point2D } from './oneEuroFilter';
 import { CompletedRepetition, FsmPhase } from './biomechanicalFSM';
 
 export type LoadType = 'gravity' | 'cable' | 'machine';
-export type TargetMuscle = 'quadriceps' | 'glutes_max' | 'hamstrings' | 'lats' | 'pectorals';
+export type TargetMuscle = 'quadriceps' | 'glutes_max' | 'hamstrings' | 'lats' | 'pectorals' | 'biceps' | 'triceps' | 'upper_back';
 export type CameraPlane = 'sagittal' | 'frontal' | 'oblique';
 export type PatternFamily = 'hinge_deadlift' | 'squat_knee_dominant' | 'pull_row' | 'push_press';
 
 export type ResistanceSourceType = 'gravity' | 'cable_high' | 'cable_mid' | 'cable_low' | 'machine';
-export type MuscleBiasCategory = 'hip_glute_bias' | 'knee_quad_bias' | 'balanced_hybrid' | 'lat_bias' | 'upper_back_bias';
+export type MuscleBiasCategory = 'hip_glute_bias' | 'knee_quad_bias' | 'balanced_hybrid' | 'lat_bias' | 'upper_back_bias' | 'biceps_bias' | 'triceps_bias';
 export type ResistanceCurveMatch = 'lengthened_stretch' | 'shortened_lockout' | 'mid_range_bell';
 
 export interface TechniqueFeedbackAlert {
@@ -318,12 +318,102 @@ export const EXERCISE_PATTERNS: ExercisePatternSpec[] = [
     inflectionThreshold: 85,
     description: 'Torso inclinado a 45° y codos abiertos a 45° para focalizar fibras inferiores y medias.',
     targetRatioDescription: 'Momento de flexión en hombro aumentado'
+  },
+  // Bíceps (Flexión de Codo / Eje Estable y Control de Tempo)
+  {
+    id: 'biceps_curl_dumbbell',
+    name: 'Curl de Bíceps con Mancuernas',
+    targetMuscle: 'biceps',
+    loadType: 'gravity',
+    patternFamily: 'pull_row',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 160,
+    inflectionThreshold: 55,
+    description: 'Flexión de codo estricta manteniendo el húmero como eje vertical sin balanceo de hombro y tempo controlado.',
+    targetRatioDescription: 'd_codo dominante (>80%) · Tempo excéntrico ≥2s'
+  },
+  {
+    id: 'biceps_curl_cable',
+    name: 'Curl de Bíceps en Polea Baja',
+    targetMuscle: 'biceps',
+    loadType: 'cable',
+    patternFamily: 'pull_row',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 160,
+    inflectionThreshold: 55,
+    description: 'Tensión mecánica continua en bíceps mediante polea, con codo fijo y sin inercia ni rebote.',
+    targetRatioDescription: 'Aislamiento puro de bíceps con cable'
+  },
+  // Tríceps (Extensión de Codo / Muñeca Neutra, Codos Alineados y Tempo)
+  {
+    id: 'triceps_pushdown_cable',
+    name: 'Extensión de Tríceps en Polea (Pushdown)',
+    targetMuscle: 'triceps',
+    loadType: 'cable',
+    patternFamily: 'push_press',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 80,
+    description: 'Extensión de codo en polea con muñeca neutra alineada con el antebrazo, codos estables y retorno controlado.',
+    targetRatioDescription: 'Muñeca neutra · Codos estables · Retorno controlado'
+  },
+  {
+    id: 'triceps_overhead_extension',
+    name: 'Extensión de Tríceps Sobre Cabeza en Polea',
+    targetMuscle: 'triceps',
+    loadType: 'cable',
+    patternFamily: 'push_press',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 165,
+    inflectionThreshold: 75,
+    description: 'Énfasis en la cabeza larga del tríceps en estiramiento con control de tempo y muñeca firme.',
+    targetRatioDescription: 'Estiramiento de tríceps · Control de tempo'
+  },
+  // Espalda Alta / Trapecio (Remos con Pecho Apoyado, Codo ~90°, Tracción a Altura de Hombro)
+  {
+    id: 'chest_supported_t_bar_row_upper_back',
+    name: 'Remo en T con Apoyo de Pecho (Espalda Alta / Trapecio)',
+    targetMuscle: 'upper_back',
+    loadType: 'gravity',
+    patternFamily: 'pull_row',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 160,
+    inflectionThreshold: 90,
+    description: 'Pecho firmemente apoyado; tracción amplia hacia la altura de los hombros con codos a ~90° sin hiperextender hombros.',
+    targetRatioDescription: 'Codo ~90° · Tracción a altura de hombro · Hombros seguros'
+  },
+  {
+    id: 'chest_supported_row_wide_upper_back',
+    name: 'Remo con Apoyo de Pecho Codos Abiertos (Espalda Alta / Trapecio)',
+    targetMuscle: 'upper_back',
+    loadType: 'machine',
+    patternFamily: 'pull_row',
+    primaryJoint: 'elbow',
+    trackingMode: 'descending',
+    standingThreshold: 160,
+    inflectionThreshold: 90,
+    description: 'Remo en máquina con pecho apoyado, codos a 60°-80° de abducción frenando a 90° en el codo para no usar bíceps.',
+    targetRatioDescription: 'Espalda alta y trapecios · Codos ~90°'
   }
 ];
 
 export function getPatternFamily(exerciseId: string): PatternFamily {
   const pattern = EXERCISE_PATTERNS.find(p => p.id === exerciseId);
   if (pattern) return pattern.patternFamily;
+  if (exerciseId.includes('biceps') || exerciseId.includes('curl')) {
+    return 'pull_row';
+  }
+  if (exerciseId.includes('triceps')) {
+    return 'push_press';
+  }
+  if (exerciseId.includes('upper_back')) {
+    return 'pull_row';
+  }
   if (exerciseId.includes('rdl') || exerciseId.includes('deadlift') || exerciseId.includes('thrust') || exerciseId.includes('glute') || exerciseId.includes('hinge')) {
     return 'hinge_deadlift';
   }
@@ -805,6 +895,294 @@ export function evaluateFlyBiomechanics(
   };
 }
 
+export interface BicepsBiomechanicsEvaluation {
+  elbowDriftAngleDeg: number;
+  armAlignment: 'aligned_pivot' | 'elbow_drift_anterior' | 'elbow_drift_posterior';
+  armAlignmentLabel: string;
+  tempoStatus: 'optimal_controlled' | 'too_fast_eccentric' | 'bouncing';
+  tempoLabel: string;
+  muscleFocusSummary: string;
+}
+
+export function evaluateBicepsBiomechanics(
+  keypoints: Record<string, Point2D & { visibility?: number }>,
+  currentElbowAngle: number,
+  fsmPhase: FsmPhase,
+  angularVelocity: number = 0
+): BicepsBiomechanicsEvaluation {
+  const rs = keypoints['right_shoulder'];
+  const ls = keypoints['left_shoulder'];
+  const re = keypoints['right_elbow'];
+  const le = keypoints['left_elbow'];
+  const rw = keypoints['right_wrist'];
+  const lw = keypoints['left_wrist'];
+  const rh = keypoints['right_hip'];
+  const lh = keypoints['left_hip'];
+
+  const shoulder = keypoints['shoulder'] || rs || ls;
+  const elbow = keypoints['elbow'] || re || le;
+  const wrist = keypoints['wrist'] || rw || lw;
+  const hip = keypoints['hip'] || rh || lh;
+
+  let elbowDriftAngleDeg = 0;
+  let armAlignment: 'aligned_pivot' | 'elbow_drift_anterior' | 'elbow_drift_posterior' = 'aligned_pivot';
+
+  if (shoulder && elbow) {
+    const torsoVec = hip ? { x: shoulder.x - hip.x, y: shoulder.y - hip.y } : { x: 0, y: -1 };
+    const humerusVec = { x: elbow.x - shoulder.x, y: elbow.y - shoulder.y };
+
+    const angleHumerusTorso = Math.atan2(humerusVec.y, humerusVec.x) - Math.atan2(torsoVec.y, torsoVec.x);
+    let driftDeg = Math.abs((angleHumerusTorso * 180) / Math.PI);
+    if (driftDeg > 180) driftDeg = 360 - driftDeg;
+    elbowDriftAngleDeg = Math.round(Math.abs(driftDeg - 180));
+
+    const dx = elbow.x - shoulder.x;
+    if (elbowDriftAngleDeg > 24) {
+      armAlignment = 'elbow_drift_anterior';
+    } else if (elbowDriftAngleDeg > 18 && humerusVec.y < 0.08) {
+      armAlignment = 'elbow_drift_posterior';
+    } else {
+      armAlignment = 'aligned_pivot';
+    }
+  }
+
+  const armAlignmentLabel = armAlignment === 'aligned_pivot'
+    ? '✓ Codo fijo como eje (brazo y antebrazo alineados)'
+    : armAlignment === 'elbow_drift_anterior'
+      ? '⚠️ Balanceo anterior: no adelantes los codos'
+      : '⚠️ Codos hacia atrás: mantén el codo alineado al torso';
+
+  let tempoStatus: 'optimal_controlled' | 'too_fast_eccentric' | 'bouncing' = 'optimal_controlled';
+  if (fsmPhase === 'ECCENTRIC' && angularVelocity > 140) {
+    tempoStatus = 'too_fast_eccentric';
+  } else if (fsmPhase === 'BOTTOM' && Math.abs(angularVelocity) > 160) {
+    tempoStatus = 'bouncing';
+  }
+
+  const tempoLabel = tempoStatus === 'optimal_controlled'
+    ? '✓ Tempo excéntrico controlado (≥2s)'
+    : tempoStatus === 'too_fast_eccentric'
+      ? '⚠️ Bajada rápida: frena el descenso a ≥2s'
+      : '⚠️ Rebote en el fondo: frena la inercia';
+
+  const muscleFocusSummary = armAlignment === 'aligned_pivot' && tempoStatus === 'optimal_controlled'
+    ? 'Aislamiento puro del bíceps: d_codo dominante sin balanceo deltoideo'
+    : 'Compensación: balanceo o inercia reducen la tensión mecánica en el bíceps';
+
+  return {
+    elbowDriftAngleDeg,
+    armAlignment,
+    armAlignmentLabel,
+    tempoStatus,
+    tempoLabel,
+    muscleFocusSummary
+  };
+}
+
+export interface TricepsBiomechanicsEvaluation {
+  wristForearmAngleDeg: number;
+  wristAlignment: 'aligned_neutral' | 'wrist_broken';
+  wristAlignmentLabel: string;
+  elbowFlareAngleDeg: number;
+  elbowFlare: 'stable_aligned' | 'excessive_flare';
+  elbowFlareLabel: string;
+  tempoStatus: 'optimal_controlled' | 'too_fast_eccentric' | 'bouncing';
+  tempoLabel: string;
+  muscleFocusSummary: string;
+}
+
+export function evaluateTricepsBiomechanics(
+  keypoints: Record<string, Point2D & { visibility?: number }>,
+  currentElbowAngle: number,
+  fsmPhase: FsmPhase,
+  angularVelocity: number = 0,
+  cameraPlane: CameraPlane = 'sagittal'
+): TricepsBiomechanicsEvaluation {
+  const rs = keypoints['right_shoulder'];
+  const ls = keypoints['left_shoulder'];
+  const re = keypoints['right_elbow'];
+  const le = keypoints['left_elbow'];
+  const rw = keypoints['right_wrist'];
+  const lw = keypoints['left_wrist'];
+  const rhg = keypoints['right_hand_grip'];
+  const lhg = keypoints['left_hand_grip'];
+
+  const shoulder = keypoints['shoulder'] || rs || ls;
+  const elbow = keypoints['elbow'] || re || le;
+  const wrist = keypoints['wrist'] || rw || lw;
+  const handGrip = keypoints['hand_grip'] || rhg || lhg || wrist;
+
+  let wristForearmAngleDeg = 180;
+  let wristAlignment: 'aligned_neutral' | 'wrist_broken' = 'aligned_neutral';
+
+  if (elbow && wrist && handGrip && (handGrip.x !== wrist.x || handGrip.y !== wrist.y)) {
+    wristForearmAngleDeg = computeJointAngle2D(elbow, wrist, handGrip);
+    if (Math.abs(180 - wristForearmAngleDeg) > 26) {
+      wristAlignment = 'wrist_broken';
+    }
+  }
+
+  const wristAlignmentLabel = wristAlignment === 'aligned_neutral'
+    ? '✓ Muñeca neutra en línea con el antebrazo'
+    : '⚠️ Muñeca quebrada: mantén la muñeca firme y recta';
+
+  let elbowFlareAngleDeg = 0;
+  let elbowFlare: 'stable_aligned' | 'excessive_flare' = 'stable_aligned';
+
+  if (cameraPlane === 'frontal' && re && le && rs && ls) {
+    const elbowSpan = Math.abs(re.x - le.x);
+    const shoulderSpan = Math.abs(rs.x - ls.x) || 0.2;
+    elbowFlareAngleDeg = Math.round((elbowSpan / shoulderSpan) * 100);
+    if (elbowSpan > shoulderSpan * 1.35) {
+      elbowFlare = 'excessive_flare';
+    }
+  } else if (shoulder && elbow) {
+    const latOffset = Math.abs(elbow.x - shoulder.x);
+    elbowFlareAngleDeg = Math.round(latOffset * 100);
+    if (latOffset > 0.18) {
+      elbowFlare = 'excessive_flare';
+    }
+  }
+
+  const elbowFlareLabel = elbowFlare === 'stable_aligned'
+    ? '✓ Codos estables y alineados al cuerpo'
+    : '⚠️ Codos abiertos hacia afuera: ciérralos al plano de empuje';
+
+  let tempoStatus: 'optimal_controlled' | 'too_fast_eccentric' | 'bouncing' = 'optimal_controlled';
+  if (fsmPhase === 'ECCENTRIC' && angularVelocity > 140) {
+    tempoStatus = 'too_fast_eccentric';
+  } else if (fsmPhase === 'BOTTOM' && Math.abs(angularVelocity) > 160) {
+    tempoStatus = 'bouncing';
+  }
+
+  const tempoLabel = tempoStatus === 'optimal_controlled'
+    ? '✓ Retorno excéntrico controlado y bloqueo limpio'
+    : tempoStatus === 'too_fast_eccentric'
+      ? '⚠️ Retorno muy rápido: controla la subida'
+      : '⚠️ Bloqueo brusco o rebote en la inversión';
+
+  const muscleFocusSummary = wristAlignment === 'aligned_neutral' && elbowFlare === 'stable_aligned'
+    ? 'Aislamiento puro del tríceps: transmisión directa de fuerza a lo largo del antebrazo'
+    : 'Desalineación articular: muñeca quebrada o codos abiertos reducen el estímulo en el tríceps';
+
+  return {
+    wristForearmAngleDeg,
+    wristAlignment,
+    wristAlignmentLabel,
+    elbowFlareAngleDeg,
+    elbowFlare,
+    elbowFlareLabel,
+    tempoStatus,
+    tempoLabel,
+    muscleFocusSummary
+  };
+}
+
+export interface UpperBackBiomechanicsEvaluation {
+  elbowAngleDeg: number;
+  elbowAngleStatus: 'optimal_90' | 'too_acute_biceps' | 'incomplete_traction';
+  elbowAngleLabel: string;
+  shoulderRetractionStatus: 'optimal_retraction' | 'excessive_anterior_protraction' | 'excessive_posterior_hyperextension';
+  shoulderRetractionLabel: string;
+  tractionHeightStatus: 'optimal_shoulder_height' | 'too_low_lat_bias';
+  tractionHeightLabel: string;
+  handShoulderDeltaY: number;
+  muscleFocusSummary: string;
+}
+
+export function evaluateUpperBackBiomechanics(
+  keypoints: Record<string, Point2D & { visibility?: number }>,
+  currentElbowAngle: number,
+  fsmPhase: FsmPhase
+): UpperBackBiomechanicsEvaluation {
+  const rs = keypoints['right_shoulder'];
+  const ls = keypoints['left_shoulder'];
+  const re = keypoints['right_elbow'];
+  const le = keypoints['left_elbow'];
+  const rw = keypoints['right_wrist'];
+  const lw = keypoints['left_wrist'];
+  const rhg = keypoints['right_hand_grip'];
+  const lhg = keypoints['left_hand_grip'];
+  const rh = keypoints['right_hip'];
+  const lh = keypoints['left_hip'];
+
+  const shoulder = keypoints['shoulder'] || rs || ls;
+  const elbow = keypoints['elbow'] || re || le;
+  const wrist = keypoints['wrist'] || rw || lw;
+  const handGrip = keypoints['hand_grip'] || rhg || lhg || wrist;
+  const hip = keypoints['hip'] || rh || lh;
+
+  const elbowAngleDeg = Math.round(currentElbowAngle);
+  let elbowAngleStatus: 'optimal_90' | 'too_acute_biceps' | 'incomplete_traction' = 'optimal_90';
+
+  if (elbowAngleDeg < 80) {
+    elbowAngleStatus = 'too_acute_biceps';
+  } else if (elbowAngleDeg > 108 && (fsmPhase === 'BOTTOM' || fsmPhase === 'CONCENTRIC')) {
+    elbowAngleStatus = 'incomplete_traction';
+  } else {
+    elbowAngleStatus = 'optimal_90';
+  }
+
+  const elbowAngleLabel = elbowAngleStatus === 'optimal_90'
+    ? `✓ Codo a ~90° (${elbowAngleDeg}°): máxima espalda alta sin sobrecargar bíceps`
+    : elbowAngleStatus === 'too_acute_biceps'
+      ? `⚠️ Codo muy cerrado (${elbowAngleDeg}° < 80°): excesivo trabajo de bíceps`
+      : `Tirón incompleto (${elbowAngleDeg}°): acorta el recorrido hacia ~90°`;
+
+  let handShoulderDeltaY = 0;
+  let tractionHeightStatus: 'optimal_shoulder_height' | 'too_low_lat_bias' = 'optimal_shoulder_height';
+
+  if (handGrip && shoulder) {
+    handShoulderDeltaY = Math.round((handGrip.y - shoulder.y) * 100) / 100;
+    if (handShoulderDeltaY > 0.14) {
+      tractionHeightStatus = 'too_low_lat_bias';
+    } else {
+      tractionHeightStatus = 'optimal_shoulder_height';
+    }
+  }
+
+  const tractionHeightLabel = tractionHeightStatus === 'optimal_shoulder_height'
+    ? '✓ Tracción a la altura del hombro (romboides y trapecio)'
+    : '⚠️ Tracción baja hacia la cintura: desplaza el estímulo al dorsal ancho';
+
+  let shoulderRetractionStatus: 'optimal_retraction' | 'excessive_anterior_protraction' | 'excessive_posterior_hyperextension' = 'optimal_retraction';
+
+  if (shoulder && hip && elbow) {
+    const torsoDeltaX = shoulder.x - hip.x;
+    const elbowBehindShoulder = torsoDeltaX >= 0 ? (shoulder.x - elbow.x) : (elbow.x - shoulder.x);
+
+    if (fsmPhase === 'BOTTOM' && elbowBehindShoulder > 0.14) {
+      shoulderRetractionStatus = 'excessive_posterior_hyperextension';
+    } else if (fsmPhase === 'LOCKOUT' && Math.abs(shoulder.y - hip.y) < 0.22) {
+      shoulderRetractionStatus = 'excessive_anterior_protraction';
+    } else {
+      shoulderRetractionStatus = 'optimal_retraction';
+    }
+  }
+
+  const shoulderRetractionLabel = shoulderRetractionStatus === 'optimal_retraction'
+    ? '✓ Hombros y escápulas en rango seguro con pecho apoyado'
+    : shoulderRetractionStatus === 'excessive_anterior_protraction'
+      ? '⚠️ Hombros excesivamente adelantados: no despegues el pecho del banco'
+      : '⚠️ Hombro excesivamente hacia atrás: frena al alinear escápulas para proteger la cápsula anterior';
+
+  const muscleFocusSummary = elbowAngleStatus === 'optimal_90' && tractionHeightStatus === 'optimal_shoulder_height' && shoulderRetractionStatus === 'optimal_retraction'
+    ? 'Foco perfecto en espalda alta y trapecio medio/superior: pecho apoyado, tracción a nivel de hombro y codos a 90°'
+    : 'Desviación técnica: ajusta el ángulo de codo a ~90° o tracciona a altura de hombro para aislar trapecios';
+
+  return {
+    elbowAngleDeg,
+    elbowAngleStatus,
+    elbowAngleLabel,
+    shoulderRetractionStatus,
+    shoulderRetractionLabel,
+    tractionHeightStatus,
+    tractionHeightLabel,
+    handShoulderDeltaY,
+    muscleFocusSummary
+  };
+}
+
 /**
  * Technical Fault Auditor by Movement Pattern
  */
@@ -968,7 +1346,158 @@ export function auditTechniqueRules(
     }
   }
 
-  // C) Patrón de Tracción / Remo / Espalda
+  // B2) Patrón Bíceps (Alineación húmero/antebrazo como eje + Tempo excéntrico ≥2s)
+  else if (exerciseId?.includes('biceps') || exerciseId?.includes('curl')) {
+    const bEval = evaluateBicepsBiomechanics(keypoints, currentAngle, fsmPhase, 0);
+
+    if (bEval.armAlignment === 'elbow_drift_anterior') {
+      alerts.push({
+        type: 'warning',
+        code: 'BICEPS_ELBOW_DRIFT',
+        message: 'Balanceo de codo: No adelantes los codos. Mantenlos alineados a los costados para aislar el bíceps.'
+      });
+    } else if (bEval.armAlignment === 'elbow_drift_posterior') {
+      alerts.push({
+        type: 'warning',
+        code: 'BICEPS_ELBOW_BACKWARD',
+        message: 'Codos hacia atrás: evita recortar el recorrido desplazando los codos hacia atrás.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'BICEPS_ELBOW_PIVOT_ALIGNED',
+        message: '✓ Codo estable como pivote: brazo y antebrazo alineados para máximo aislamiento'
+      });
+    }
+
+    if (bEval.tempoStatus === 'too_fast_eccentric') {
+      alerts.push({
+        type: 'warning',
+        code: 'BICEPS_TEMPO_FAST',
+        message: 'Bajada demasiado rápida: controla la fase excéntrica a ≥2 segundos para generar tensión mecánica.'
+      });
+    } else if (bEval.tempoStatus === 'bouncing') {
+      alerts.push({
+        type: 'warning',
+        code: 'BICEPS_BOTTOM_BOUNCE',
+        message: 'Rebote en la parte baja: frena suavemente en el estiramiento sin balancear el peso.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'BICEPS_TEMPO_CONTROLLED',
+        message: '✓ Tempo excéntrico controlado con tensión constante'
+      });
+    }
+  }
+
+  // B3) Patrón Tríceps (Alineación tríceps con antebrazo y mano + Codos estables + Tempo)
+  else if (exerciseId?.includes('triceps')) {
+    const camPlane = detectCameraPlane(keypoints);
+    const tEval = evaluateTricepsBiomechanics(keypoints, currentAngle, fsmPhase, 0, camPlane);
+
+    if (tEval.wristAlignment === 'wrist_broken') {
+      alerts.push({
+        type: 'warning',
+        code: 'TRICEPS_WRIST_BROKEN',
+        message: 'Muñeca quebrada: mantén la muñeca neutra y firme en línea con el antebrazo para transmitir la fuerza directa al tríceps.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'TRICEPS_WRIST_NEUTRAL',
+        message: '✓ Muñeca neutra y alineada con el antebrazo'
+      });
+    }
+
+    if (tEval.elbowFlare === 'excessive_flare') {
+      alerts.push({
+        type: 'warning',
+        code: 'TRICEPS_ELBOW_FLARE',
+        message: 'Codos abiertos hacia afuera: mantén los codos alineados y estables para aislar el tríceps.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'TRICEPS_ELBOW_ALIGNED',
+        message: '✓ Codos estables y alineados en el plano de empuje'
+      });
+    }
+
+    if (tEval.tempoStatus === 'too_fast_eccentric') {
+      alerts.push({
+        type: 'warning',
+        code: 'TRICEPS_TEMPO_FAST',
+        message: 'Retorno demasiado rápido: acompaña la subida controlada (≥1.5s-2s) sin soltar la polea.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'TRICEPS_TEMPO_OPTIMAL',
+        message: '✓ Control de tempo excéntrico y bloqueo terminal limpio'
+      });
+    }
+  }
+
+  // B4) Patrón Espalda Alta / Trapecio (Remos con pecho apoyado, Codo ~90°, Tracción a altura de hombro, Escápulas seguras)
+  else if (exerciseId?.includes('upper_back')) {
+    const ubEval = evaluateUpperBackBiomechanics(keypoints, currentAngle, fsmPhase);
+
+    // 1. Ángulo de codo cercano a los 90 grados en fondo / contracción
+    if (fsmPhase === 'BOTTOM' || currentAngle <= 100) {
+      if (ubEval.elbowAngleStatus === 'too_acute_biceps') {
+        alerts.push({
+          type: 'warning',
+          code: 'UPPER_BACK_ELBOW_TOO_ACUTE',
+          message: `Codo demasiado flexionado (${ubEval.elbowAngleDeg}° < 80°): excesivo trabajo de bíceps. Abre el agarre o frena en ~90° para que el trabajo recaiga en espalda alta.`
+        });
+      } else if (ubEval.elbowAngleStatus === 'optimal_90') {
+        alerts.push({
+          type: 'success',
+          code: 'UPPER_BACK_ELBOW_OPTIMAL_90',
+          message: `✓ Ángulo de codo óptimo (${ubEval.elbowAngleDeg}° ≈ 90°): máximo reclutamiento de espalda alta y trapecio sin sobrecargar bíceps`
+        });
+      }
+    }
+
+    // 2. Altura de tracción a la altura del hombro
+    if (ubEval.tractionHeightStatus === 'too_low_lat_bias') {
+      alerts.push({
+        type: 'warning',
+        code: 'UPPER_BACK_PULL_TOO_LOW',
+        message: 'Tracción demasiado baja hacia la cintura (sesgo dorsal): tracciona con los codos abiertos hacia la altura del hombro/pecho alto para trapecio y espalda alta.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'UPPER_BACK_PULL_SHOULDER_HEIGHT',
+        message: '✓ Tracción a la altura del hombro: trayectoria ideal para romboides y trapecio medio'
+      });
+    }
+
+    // 3. Ni adelantar hombros excesivamente hacia adelante ni hacia atrás
+    if (ubEval.shoulderRetractionStatus === 'excessive_anterior_protraction') {
+      alerts.push({
+        type: 'warning',
+        code: 'UPPER_BACK_SHOULDER_ANTERIOR',
+        message: 'Hombros excesivamente adelantados: no despegues el pecho del banco ni dejes caer los hombros hacia adelante.'
+      });
+    } else if (ubEval.shoulderRetractionStatus === 'excessive_posterior_hyperextension') {
+      alerts.push({
+        type: 'warning',
+        code: 'UPPER_BACK_SHOULDER_HYPEREXT',
+        message: 'Hombro excesivamente hacia atrás: no hiperextiendas el codo tras el torso; frena al alinear escápulas para proteger la cápsula anterior.'
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        code: 'UPPER_BACK_SHOULDER_SAFE_RANGE',
+        message: '✓ Hombros y escápulas en rango seguro: sin adelantar ni hiperextender excesivamente'
+      });
+    }
+  }
+
+  // C) Patrón de Tracción / Remo / Espalda (Dorsal General)
   else if (patternFamily === 'pull_row') {
     // 1. Alineación de Fuerza y Antebrazo:
     if (currentAngle < 70 && (fsmPhase === 'BOTTOM' || fsmPhase === 'CONCENTRIC')) {
@@ -1164,6 +1693,9 @@ export interface BiomechanicalTelemetryFrame {
     neckStatusLabel?: string;
     pressEvaluation?: PressBiomechanicsEvaluation;
     flyEvaluation?: FlyBiomechanicsEvaluation;
+    bicepsEvaluation?: BicepsBiomechanicsEvaluation;
+    tricepsEvaluation?: TricepsBiomechanicsEvaluation;
+    upperBackEvaluation?: UpperBackBiomechanicsEvaluation;
     activeCues: string[];
     alerts?: TechniqueFeedbackAlert[];
   };
@@ -1196,6 +1728,9 @@ export interface BiomechanicalTelemetryFrame {
     kneeAngleDegrees?: number;
     pressEvaluation?: PressBiomechanicsEvaluation;
     flyEvaluation?: FlyBiomechanicsEvaluation;
+    bicepsEvaluation?: BicepsBiomechanicsEvaluation;
+    tricepsEvaluation?: TricepsBiomechanicsEvaluation;
+    upperBackEvaluation?: UpperBackBiomechanicsEvaluation;
     muscleBias: MuscleBiasCategory;
     muscleBiasLabel: string;
     resistancePeakLocation: ResistanceCurveMatch;
@@ -1492,6 +2027,30 @@ export function evaluateBiomechanicalVerdict(
         verdictDescription: 'Vector perpendicular al esternón con trayectoria convergente adecuada y estiramiento profundo.'
       };
     }
+    case 'biceps': {
+      return {
+        isOptimal: true,
+        ratio: 1.5,
+        verdictTitle: 'Aislamiento Óptimo de Bíceps',
+        verdictDescription: 'Codo estabilizado como eje de giro con brazo de momento directo en flexión de codo y tempo excéntrico controlado.'
+      };
+    }
+    case 'triceps': {
+      return {
+        isOptimal: true,
+        ratio: 1.5,
+        verdictTitle: 'Extensión Pura de Tríceps',
+        verdictDescription: 'Muñeca alineada de forma neutra con el antebrazo y codos estables, concentrando la palanca en el tríceps.'
+      };
+    }
+    case 'upper_back': {
+      return {
+        isOptimal: true,
+        ratio: 1.4,
+        verdictTitle: 'Reclutamiento Óptimo de Espalda Alta y Trapecio',
+        verdictDescription: 'Pecho apoyado, codo formando ~90° para evitar involucrar bíceps y tracción a nivel del hombro con escápulas en rango seguro.'
+      };
+    }
   }
 }
 
@@ -1599,7 +2158,7 @@ export function evaluateBiomechanicalFrame(
   currentAngle: number,
   angularVelocity: number,
   resistanceType: ResistanceSourceType = 'gravity',
-  targetMuscleGroup: 'quads' | 'glutes' | 'hamstrings' | 'lats' | 'chest' | 'triceps' | 'biceps' = 'quads',
+  targetMuscleGroup: 'quads' | 'glutes' | 'hamstrings' | 'lats' | 'chest' | 'triceps' | 'biceps' | 'upper_back' = 'quads',
   timestampMs: number = performance.now(),
   smoothedTibialAngle?: number,
   footTracker?: FootStabilityState
@@ -1761,9 +2320,17 @@ export function evaluateBiomechanicalFrame(
   const kneeAngleDegrees = Math.round(computeJointAngle2D(hip, knee, ankle));
   const htEval = isHipThrust ? evaluateHipThrustAlignment(smoothedKeypoints, currentAngle) : null;
   const isCableFly = exerciseId.includes('fly');
-  const isChestPress = patternFamily === 'push_press' && !isCableFly;
+  const isChestPress = patternFamily === 'push_press' && !isCableFly && !exerciseId.includes('triceps');
   const flyEval = isCableFly ? evaluateFlyBiomechanics(smoothedKeypoints, cameraPlane) : undefined;
   const pressEval = isChestPress ? evaluatePressBiomechanics(smoothedKeypoints, cameraPlane, footTracker, currentAngle, exerciseId) : undefined;
+
+  const isBiceps = targetMuscleGroup === 'biceps' || exerciseId.includes('biceps') || exerciseId.includes('curl');
+  const isTriceps = targetMuscleGroup === 'triceps' || exerciseId.includes('triceps');
+  const isUpperBack = targetMuscleGroup === 'upper_back' || exerciseId.includes('upper_back');
+
+  const bicepsEval = isBiceps ? evaluateBicepsBiomechanics(smoothedKeypoints, currentAngle, phase, angularVelocity) : undefined;
+  const tricepsEval = isTriceps ? evaluateTricepsBiomechanics(smoothedKeypoints, currentAngle, phase, angularVelocity, cameraPlane) : undefined;
+  const upperBackEval = isUpperBack ? evaluateUpperBackBiomechanics(smoothedKeypoints, currentAngle, phase) : undefined;
 
   // Spinal neutrality:
   // - Cable Fly: spine check disabled (user focus strictly on arm extension + shoulder retraction)
@@ -1791,7 +2358,16 @@ export function evaluateBiomechanicalFrame(
     }
   }
 
-  if (isHipThrust && htEval) {
+  if (isBiceps) {
+    muscleBias = 'biceps_bias';
+    muscleBiasLabel = 'Aislamiento de Bíceps (d_codo Dominante)';
+  } else if (isTriceps) {
+    muscleBias = 'triceps_bias';
+    muscleBiasLabel = 'Aislamiento de Tríceps (Extensión Pura)';
+  } else if (isUpperBack) {
+    muscleBias = 'upper_back_bias';
+    muscleBiasLabel = 'Sesgo Espalda Alta y Trapecio (Codos ~90°, Tracción Alta)';
+  } else if (isHipThrust && htEval) {
     if (htEval.kneeBias === 'quad_dominant') {
       muscleBias = 'knee_quad_bias';
       muscleBiasLabel = `Sesgo hacia Cuádriceps (Rodilla ${htEval.kneeAngleDegrees}° < 80°)`;
@@ -1887,6 +2463,9 @@ export function evaluateBiomechanicalFrame(
       neckStatusLabel: htEval ? htEval.neckStatusLabel : (isSpineNeutral ? '✓ Cuello Neutro' : '⚡ Desalineado'),
       pressEvaluation: pressEval,
       flyEvaluation: flyEval,
+      bicepsEvaluation: bicepsEval,
+      tricepsEvaluation: tricepsEval,
+      upperBackEvaluation: upperBackEval,
       activeCues,
       alerts: techniqueAlerts
     },
@@ -1912,6 +2491,9 @@ export function evaluateBiomechanicalFrame(
       kneeAngleDegrees,
       pressEvaluation: pressEval,
       flyEvaluation: flyEval,
+      bicepsEvaluation: bicepsEval,
+      tricepsEvaluation: tricepsEval,
+      upperBackEvaluation: upperBackEval,
       muscleBias,
       muscleBiasLabel,
       resistancePeakLocation,
@@ -1927,7 +2509,7 @@ export function auditCompletedRepetition(
   rep: CompletedRepetition,
   allReps: CompletedRepetition[],
   exerciseProfileName: string,
-  targetBias: 'quads' | 'glutes' | 'hamstrings' | 'lats' = 'quads'
+  targetBias: 'quads' | 'glutes' | 'hamstrings' | 'lats' | 'biceps' | 'triceps' | 'upper_back' = 'quads'
 ): RepetitionBiomechanicalAudit {
   // ROM Consistency calculation across all reps
   const allRomExcursions = allReps.map(r => r.romExcursion);
@@ -1949,12 +2531,29 @@ export function auditCompletedRepetition(
   }
 
   const isQuadTarget = targetBias === 'quads';
-  const biasCategory: MuscleBiasCategory = isQuadTarget ? 'knee_quad_bias' : 'hip_glute_bias';
-  const biasLabel = isQuadTarget ? 'Dominancia de Rodilla (Cuádriceps)' : 'Dominancia de Cadera (Glúteo)';
+  const isBicepsTarget = targetBias === 'biceps';
+  const isTricepsTarget = targetBias === 'triceps';
+  const isUpperBackTarget = targetBias === 'upper_back';
 
-  const scientificAssessment = isQuadTarget
+  let biasCategory: MuscleBiasCategory = isQuadTarget ? 'knee_quad_bias' : 'hip_glute_bias';
+  let biasLabel = isQuadTarget ? 'Dominancia de Rodilla (Cuádriceps)' : 'Dominancia de Cadera (Glúteo)';
+  let scientificAssessment = isQuadTarget
     ? 'El avance tibial y el momento de flexión de rodilla maximizan el reclutamiento del recto femoral y vastos con elongación profunda.'
     : 'La bisagra de cadera incrementa el brazo de palanca horizontal respecto a la línea de gravedad, sobrecargando glúteo mayor e isquiosurales.';
+
+  if (isBicepsTarget) {
+    biasCategory = 'biceps_bias';
+    biasLabel = 'Aislamiento de Bíceps (Flexión de Codo Pura)';
+    scientificAssessment = 'El codo fijo como eje elimina el balanceo de hombro y concentra el momento en flexión de codo con tempo excéntrico controlado.';
+  } else if (isTricepsTarget) {
+    biasCategory = 'triceps_bias';
+    biasLabel = 'Aislamiento de Tríceps (Extensión Terminal)';
+    scientificAssessment = 'La muñeca neutra alineada con el antebrazo transmite la fuerza a las cabezas del tríceps braquial sin fugas articulares.';
+  } else if (isUpperBackTarget) {
+    biasCategory = 'upper_back_bias';
+    biasLabel = 'Dominancia de Espalda Alta y Trapecio Medio/Superior';
+    scientificAssessment = 'El ángulo de codo de ~90° y la tracción a nivel de hombro maximizan el reclutamiento de romboides y trapecio sin sobrecargar bíceps.';
+  }
 
   return {
     repIndex: rep.repIndex,

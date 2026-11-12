@@ -1167,7 +1167,10 @@ export function drawBiomechanicsOverlayOnCanvas(
   const isUpperBody = patternFamily === 'push_press' ||
     patternFamily === 'pull_row' ||
     targetMuscle === 'pectorals' ||
-    targetMuscle === 'lats';
+    targetMuscle === 'lats' ||
+    targetMuscle === 'biceps' ||
+    targetMuscle === 'triceps' ||
+    targetMuscle === 'upper_back';
 
   const isHipThrust = exerciseId?.includes('hip_thrust');
 
@@ -1418,6 +1421,45 @@ export function drawBiomechanicsOverlayOnCanvas(
         `Codo: ${flyEval.elbowAngleDeg}° (${flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'})`,
         flyEval.areArmsExtended ? '#10B981' : '#F59E0B',
         flyEval.areArmsExtended ? '#A7F3D0' : '#FDE68A'
+      );
+    }
+
+    const isBiceps = Boolean(options.exerciseId?.includes('biceps') || options.exerciseId?.includes('curl') || targetMuscle === 'biceps');
+    const bEval = bio.bicepsEvaluation;
+    if (showCanvasText && isBiceps && elbow && bEval) {
+      drawCanvasBadge(
+        ctx,
+        elbow.x * width,
+        elbow.y * height - 20,
+        bEval.armAlignment === 'aligned_pivot' ? '✓ Codo Eje Fijo' : '⚠️ Balanceo Codo',
+        bEval.armAlignment === 'aligned_pivot' ? '#10B981' : '#F59E0B',
+        bEval.armAlignment === 'aligned_pivot' ? '#A7F3D0' : '#FDE68A'
+      );
+    }
+
+    const isTriceps = Boolean(options.exerciseId?.includes('triceps') || targetMuscle === 'triceps');
+    const tEval = bio.tricepsEvaluation;
+    if (showCanvasText && isTriceps && handGrip && tEval) {
+      drawCanvasBadge(
+        ctx,
+        handGrip.x * width,
+        handGrip.y * height - 20,
+        tEval.wristAlignment === 'aligned_neutral' ? '✓ Muñeca Neutra' : '⚠️ Muñeca Quebrada',
+        tEval.wristAlignment === 'aligned_neutral' ? '#10B981' : '#F59E0B',
+        tEval.wristAlignment === 'aligned_neutral' ? '#A7F3D0' : '#FDE68A'
+      );
+    }
+
+    const isUpperBack = Boolean(options.exerciseId?.includes('upper_back') || targetMuscle === 'upper_back');
+    const ubEval = bio.upperBackEvaluation;
+    if (showCanvasText && isUpperBack && elbow && ubEval) {
+      drawCanvasBadge(
+        ctx,
+        elbow.x * width,
+        elbow.y * height - 20,
+        `Codo: ${ubEval.elbowAngleDeg}° (${ubEval.elbowAngleStatus === 'optimal_90' ? '~90° Espalda Alta' : ubEval.elbowAngleStatus === 'too_acute_biceps' ? '<80° +Bíceps' : 'Tirón'})`,
+        ubEval.elbowAngleStatus === 'optimal_90' ? '#10B981' : '#F59E0B',
+        ubEval.elbowAngleStatus === 'optimal_90' ? '#A7F3D0' : '#FDE68A'
       );
     }
 
