@@ -548,57 +548,40 @@ export function extractPoseDataFromLandmarks(
   const la = refineAnkle(laRaw, lHeel, lFootIndex);
   const ra = refineAnkle(raRaw, rHeel, rFootIndex);
 
-  // Estimate true palm / fist grip center where load force is physically applied (barbell/dumbbell/handle)
+  // Estimate true palm / fist grip center when index/pinky/thumb knuckles are near the wrist (bar/dumbbell handle)
   const computeHandGripCenter = (
-    el?: typeof ls,
     wr?: typeof ls,
     idx?: typeof ls,
     pnk?: typeof ls,
     thb?: typeof ls
   ) => {
     if (!wr) return { x: 0.5, y: 0.5, z: 0, visibility: 0 };
-    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.30 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.11);
-    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.30 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.11);
-    if (!idxOk && !pnkOk) {
-      // Distal palm projection along forearm axis (+12% forearm length) when fingers are occluded in dark clothes/grips
-      if (el && (el.visibility ?? 0) >= 0.45 && (wr.visibility ?? 0) >= 0.45) {
-        const fx = wr.x - el.x;
-        const fy = wr.y - el.y;
-        const fLen = Math.hypot(fx, fy);
-        if (fLen >= 0.03 && fLen <= 0.45) {
-          return {
-            x: Math.max(0.01, Math.min(0.99, wr.x + fx * 0.12)),
-            y: Math.max(0.01, Math.min(0.99, wr.y + fy * 0.12)),
-            z: wr.z,
-            visibility: wr.visibility
-          };
-        }
-      }
-      return wr;
-    }
+    const idxOk = Boolean(idx && (idx.visibility ?? 0) >= 0.42 && Math.hypot(idx.x - wr.x, idx.y - wr.y) < 0.11);
+    const pnkOk = Boolean(pnk && (pnk.visibility ?? 0) >= 0.42 && Math.hypot(pnk.x - wr.x, pnk.y - wr.y) < 0.11);
+    if (!idxOk && !pnkOk) return wr;
 
     const knX = idxOk && pnkOk ? (idx!.x + pnk!.x) / 2 : (idxOk ? idx!.x : pnk!.x);
     const knY = idxOk && pnkOk ? (idx!.y + pnk!.y) / 2 : (idxOk ? idx!.y : pnk!.y);
-    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.30 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.11);
+    const thbOk = Boolean(thb && (thb.visibility ?? 0) >= 0.42 && Math.hypot(thb.x - wr.x, thb.y - wr.y) < 0.11);
 
     if (thbOk) {
       return {
-        x: knX * 0.56 + thb!.x * 0.24 + wr.x * 0.20,
-        y: knY * 0.56 + thb!.y * 0.24 + wr.y * 0.20,
+        x: knX * 0.48 + thb!.x * 0.22 + wr.x * 0.30,
+        y: knY * 0.48 + thb!.y * 0.22 + wr.y * 0.30,
         z: wr.z,
         visibility: wr.visibility
       };
     }
     return {
-      x: knX * 0.72 + wr.x * 0.28,
-      y: knY * 0.72 + wr.y * 0.28,
+      x: knX * 0.62 + wr.x * 0.38,
+      y: knY * 0.62 + wr.y * 0.38,
       z: wr.z,
       visibility: wr.visibility
     };
   };
 
-  const leftHandGrip = computeHandGripCenter(le, lw, lIndex, lPinky, lThumb);
-  const rightHandGrip = computeHandGripCenter(re, rw, rIndex, rPinky, rThumb);
+  const leftHandGrip = computeHandGripCenter(lw, lIndex, lPinky, lThumb);
+  const rightHandGrip = computeHandGripCenter(rw, rIndex, rPinky, rThumb);
 
   const scoreUpperArm = (s: typeof ls, e: typeof ls, w: typeof ls) => {
     const sVis = s?.visibility ?? 0.7;
