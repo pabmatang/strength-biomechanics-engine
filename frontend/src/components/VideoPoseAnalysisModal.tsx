@@ -1538,17 +1538,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                       </div>
                     )}
 
-                    {isHipThrustExercise && (
-                      <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                        htKneeAngle >= 76 && htKneeAngle <= 104
-                          ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
-                          : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                      }`}>
-                        <TrendingUp className="w-3 h-3" />
-                        Rodilla: {htKneeAngle}° ({htKneeAngle < 76 ? '+Cuádriceps' : htKneeAngle > 104 ? '+Femoral' : 'Glúteo ~90°'})
-                      </div>
-                    )}
-
                     <div className="bg-blue-950/80 backdrop-blur-md border border-blue-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-blue-300 flex items-center gap-1">
                       <Activity className="w-3 h-3 text-blue-400" />
                       ROM: {currentTelemetry?.technique.romPercentage ?? 90}%
@@ -1620,22 +1609,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                 ) : isHipThrustExercise ? (
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      htKneeAngle >= 76 && htKneeAngle <= 104
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <TrendingUp className="w-3 h-3" />
-                      Rodilla: {htKneeAngle}° ({htKneeAngle < 76 ? '+Cuádriceps' : htKneeAngle > 104 ? '+Femoral' : 'Glúteo ~90°'})
-                    </div>
-
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      htLumbarOk && htNeckOk
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-rose-950/90 border-rose-500/50 text-rose-300'
-                    }`}>
-                      <ShieldCheck className="w-3 h-3" />
-                      Lumbar: {htLumbarOk ? '✓' : '⚠️'} · Cuello: {htNeckOk ? '✓' : '⚠️'}
+                    <div className="bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                      MODO LIMPIO ACTIVO
                     </div>
                   </div>
                 ) : isPressExercise && pressEval ? (

@@ -964,18 +964,13 @@ function drawHipThrustKneeAngle(
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
   ctx.lineWidth = 1.2;
   ctx.stroke();
-
-  if (showCanvasText) {
-    const tag = isOptimal ? 'Glúteo ~90°' : (isQuads ? '+Cuádriceps' : '+Femoral');
-    drawCanvasBadge(ctx, kx, ky + 35, `Rodilla: ${Math.round(kneeAngleDeg)}° (${tag})`, kneeColor);
-  }
   ctx.restore();
 }
 
 /**
  * Mode 2 dedicated Hip Thrust Optimization Overlay:
- * No moment arms / gravity force line — renders strictly Knee Angle (Glute vs Quads/Femoral)
- * and Lumbar + Neck Neutrality (Ear -> Shoulder -> Hip).
+ * MODO LIMPIO ACTIVO: renders strictly raw direct MediaPipe landmarks with 3px radius.
+ * No canvas text badges, no synthetic calculations, no orange circles.
  */
 function drawHipThrustOptimizationOverlay(
   ctx: CanvasRenderingContext2D,
@@ -988,82 +983,66 @@ function drawHipThrustOptimizationOverlay(
   manualOffsets?: Record<string | number, { dx: number; dy: number }>
 ) {
   const rect = renderedRect || { offsetX: 0, offsetY: 0, renderW: width, renderH: height };
-  const toX = (p: Keypoint2D, k?: string | number) => rect.offsetX + p.x * rect.renderW + ((k !== undefined && manualOffsets?.[k]?.dx) || 0);
-  const toY = (p: Keypoint2D, k?: string | number) => rect.offsetY + p.y * rect.renderH + ((k !== undefined && manualOffsets?.[k]?.dy) || 0);
+  const getOffset = (k?: string | number) => (k !== undefined && manualOffsets?.[k]) || { dx: 0, dy: 0 };
+  const toX = (p: Keypoint2D, k?: string | number) => rect.offsetX + p.x * rect.renderW + (getOffset(k).dx || 0);
+  const toY = (p: Keypoint2D, k?: string | number) => rect.offsetY + p.y * rect.renderH + (getOffset(k).dy || 0);
 
-  const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
-  const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
-  const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
-  const knee = keypoints['knee'] || keypoints['left_knee'] || keypoints['right_knee'];
-  const ankle = keypoints['ankle'] || keypoints['left_ankle'] || keypoints['right_ankle'];
+  ctx.save();
 
-  const kneeAngle = Math.round(
-    frame.biomechanics?.kneeAngleDegrees ??
-    (hip && knee && ankle ? calculateJointAngle(hip, knee, ankle) : 90)
-  );
+  // 1. Texto verde superior de confirmacion visual
+  ctx.font = 'bold 16px monospace';
+  ctx.fillStyle = '#10B981';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('MODO LIMPIO ACTIVO', rect.offsetX + 20, rect.offsetY + 20);
 
-  // 1. Knee Angle (Femur - Knee - Tibia) for Quads vs Femoral vs Glute (~90°)
-  if (hip && knee && ankle) {
-    drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, true, showCanvasText, rect);
-  }
+  const isVisible = (p?: Keypoint2D) => p && (p.visibility === undefined || p.visibility >= 0.25);
 
-  // 2. Lumbar & Neck Neutrality (Shoulder -> Hip and Ear -> Shoulder)
-  const lumbarOk = frame.technique.lumbarNeutral !== false;
-  const neckOk = frame.technique.neckNeutral !== false;
-  const lumbarColor = lumbarOk ? '#10B981' : '#EF4444';
-  const neckColor = neckOk ? '#10B981' : '#EF4444';
-
-  if (shoulder && hip) {
+  const drawPureDot = (p?: Keypoint2D, color = '#38BDF8', k?: string | number) => {
+    if (!isVisible(p)) return;
+    const x = toX(p!, k);
+    const y = toY(p!, k);
     ctx.save();
-
-    // Lumbar segment (shoulder -> hip)
-    strokeHighContrastPath(
-      ctx,
-      () => {
-        ctx.moveTo(toX(shoulder, 11), toY(shoulder, 11));
-        ctx.lineTo(toX(hip, 23), toY(hip, 23));
-      },
-      lumbarColor,
-      2.2,
-      !lumbarOk ? [6, 4] : []
-    );
-
-    // Neck segment (ear -> shoulder)
-    const hasValidEar = ear && (ear.visibility === undefined || ear.visibility >= 0.35);
-    if (hasValidEar) {
-      strokeHighContrastPath(
-        ctx,
-        () => {
-          ctx.moveTo(toX(ear!), toY(ear!));
-          ctx.lineTo(toX(shoulder, 11), toY(shoulder, 11));
-        },
-        neckColor,
-        2.2,
-        !neckOk ? [6, 4] : []
-      );
-    }
-
-    const drawNode = (p: Keypoint2D, color: string, k?: string | number) => {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(toX(p, k), toY(p, k), 3, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-    };
-    if (hasValidEar) drawNode(ear!, neckColor);
-    drawNode(shoulder, neckOk && lumbarOk ? '#10B981' : '#F59E0B', 11);
-    drawNode(hip, lumbarColor, 23);
-
-    if (showCanvasText) {
-      const midX = (toX(shoulder) + toX(hip)) / 2;
-      const midY = (toY(shoulder) + toY(hip)) / 2 - 18;
-      const statusText = `Lumbar: ${lumbarOk ? '✓' : '⚠️'} · Cuello: ${neckOk ? '✓' : '⚠️'}`;
-      drawCanvasBadge(ctx, midX, midY, statusText, lumbarOk && neckOk ? '#10B981' : '#EF4444');
-    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
     ctx.restore();
-  }
+  };
+
+  const drawPureSegment = (p1?: Keypoint2D, p2?: Keypoint2D, color = 'rgba(56, 189, 248, 0.7)', k1?: string | number, k2?: string | number) => {
+    if (!isVisible(p1) || !isVisible(p2)) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(toX(p1!, k1), toY(p1!, k1));
+    ctx.lineTo(toX(p2!, k2), toY(p2!, k2));
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const sh = keypoints['shoulder'] || keypoints['right_shoulder'] || keypoints['left_shoulder'];
+  const hp = keypoints['hip'] || keypoints['right_hip'] || keypoints['left_hip'];
+  const kn = keypoints['knee'] || keypoints['right_knee'] || keypoints['left_knee'];
+  const an = keypoints['ankle'] || keypoints['right_ankle'] || keypoints['left_ankle'];
+
+  // Segmentos directos entre las 4 articulaciones
+  drawPureSegment(sh, hp, 'rgba(56, 189, 248, 0.7)', 11, 23);
+  drawPureSegment(hp, kn, 'rgba(56, 189, 248, 0.7)', 23, 25);
+  drawPureSegment(kn, an, 'rgba(56, 189, 248, 0.7)', 25, 27);
+
+  // 4 articulaciones directas MediaPipe con radio 3px
+  drawPureDot(sh, '#38BDF8', 11);
+  drawPureDot(hp, '#38BDF8', 23);
+  drawPureDot(kn, '#10B981', 25);
+  drawPureDot(an, '#38BDF8', 27);
+
+  ctx.restore();
 }
 
 /**
@@ -1537,12 +1516,15 @@ export function drawDualModeOverlay(
     const isHipThrust = mergedOptions.exerciseId?.includes('hip_thrust');
     const isCableFly = Boolean(mergedOptions.exerciseId?.includes('fly'));
 
-    // In Hip Thrust Mode 1, render the Knee Angle (~90° check) cleanly at the knee vertex
-    if (isHipThrust && hip && knee && ankle) {
-      const kneeAngle = Math.round(
-        frame.technique.kneeAngleDegrees ?? calculateJointAngle(hip, knee, ankle)
-      );
-      drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false, showCanvasText, mergedOptions.renderedRect);
+    // En Hip Thrust: Confirmacion visual MODO LIMPIO ACTIVO (sin badges ni recálculos)
+    if (isHipThrust) {
+      ctx.save();
+      ctx.font = 'bold 16px monospace';
+      ctx.fillStyle = '#10B981';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('MODO LIMPIO ACTIVO', rect.offsetX + 20, rect.offsetY + 20);
+      ctx.restore();
     }
 
     const ls = keypoints['left_shoulder'];
@@ -1620,18 +1602,14 @@ export function drawDualModeOverlay(
       drawSpinalNode(spineShoulder, spineColor, 11);
       drawSpinalNode(spineHip, spineColor, 23);
 
-      if (showCanvasText) {
+      if (showCanvasText && !isHipThrust) {
         // Dedicated spinal alignment status badge
         const midX = (toX(spineShoulder) + toX(spineHip)) / 2;
         const midY = (toY(spineShoulder) + toY(spineHip)) / 2;
         ctx.font = 'bold 11px monospace';
-        const label = isHipThrust
-          ? (spineNeutral
-              ? '✓ LUMBAR Y CUELLO NEUTROS'
-              : (!lumbarOk ? '⚠️ HIPEREXTENSIÓN LUMBAR' : '⚠️ REVISAR CUELLO'))
-          : (spineNeutral
-              ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
-              : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`);
+        const label = spineNeutral
+          ? `✓ COLUMNA NEUTRA (${frame.technique.spinalAngleDegrees}°)`
+          : `⚠️ ALERTA: FLEXIÓN ESPINAL (${frame.technique.spinalAngleDegrees}°)`;
         const tWidth = ctx.measureText(label).width;
 
         ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
