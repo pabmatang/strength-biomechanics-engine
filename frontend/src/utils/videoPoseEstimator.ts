@@ -1072,7 +1072,7 @@ function drawHipThrustKneeAngle(
 
   if (showCanvasText) {
     const tag = isOptimal ? 'Glúteo ~90°' : (isQuads ? '+Cuádriceps' : '+Femoral');
-    drawCanvasBadge(ctx, kx, ky - 24, `Rodilla: ${Math.round(kneeAngleDeg)}° (${tag})`, kneeColor);
+    drawCanvasBadge(ctx, kx, ky + 35, `Rodilla: ${Math.round(kneeAngleDeg)}° (${tag})`, kneeColor);
   }
   ctx.restore();
 }
@@ -1350,7 +1350,7 @@ export function drawBiomechanicsOverlayOnCanvas(
           hip.x * width,
           '#06B6D4',
           `d_cadera: ${hipPx}px`,
-          lowerCloseY ? (hipIsHigher ? -14 : 14) : -12
+          lowerCloseY ? (hipIsHigher ? -35 : 35) : -35
         );
       }
       if (knee) {
@@ -1360,7 +1360,7 @@ export function drawBiomechanicsOverlayOnCanvas(
           knee.x * width,
           '#10B981',
           `d_rodilla: ${kneePx}px`,
-          lowerCloseY ? (hipIsHigher ? 14 : -14) : -12
+          lowerCloseY ? (hipIsHigher ? 35 : -35) : 35
         );
       }
     } else {

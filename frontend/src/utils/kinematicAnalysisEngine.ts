@@ -1,5 +1,6 @@
 import { PoseLandmarkSmoother, OneEuroFilter } from './oneEuroFilter';
-import { BiomechanicalFSM, FsmPhase } from './biomechanicalFSM';
+import { BiomechanicalFSM, FsmPhase, CompletedRepetition } from './biomechanicalFSM';
+import { detectRepetitionsFromAngleSignal, assignRepetitionPhasesAndCounts } from './kinematicPipeline';
 import {
   Keypoint2D,
   PoseModelQuality,
@@ -571,6 +572,20 @@ export class KinematicAnalysisEngine {
     const footTracker: FootStabilityState = {};
     let smoothedTibial = 14;
 
+    interface PreFrameSample {
+      rawIndex: number;
+      tsSec: number;
+      tsMs: number;
+      merged: Record<string, Keypoint2D>;
+      primaryAngle: number;
+      elbowAngleDeg: number;
+      kneeAngleDeg: number;
+      hipAngleDeg: number;
+      rawTibial: number;
+    }
+
+    const preSamples: PreFrameSample[] = [];
+
     for (let i = 0; i < n; i++) {
       const tsSec = rawSamples[i].timestampSec;
       const tsMs = Math.round(tsSec * 1000);
@@ -581,7 +596,6 @@ export class KinematicAnalysisEngine {
       const smoothed = poseSmoother.smoothLandmarks(extracted.keypoints, tsMs);
       const merged: Record<string, Keypoint2D> = { ...extracted.keypoints, ...smoothed };
 
-      // Compute primary joint angle
       let primaryAngle = 90;
       if (pattern.primaryJoint === 'hip') {
         primaryAngle = calculateJointAngle(merged['shoulder'], merged['hip'], merged['knee']);
@@ -593,49 +607,124 @@ export class KinematicAnalysisEngine {
         primaryAngle = calculateJointAngle(merged['hip'], merged['shoulder'], merged['elbow']);
       }
 
-      const completedRep = fsm.update(primaryAngle, tsMs);
-      const phase = fsm.getPhase();
-      const angVelocity = fsm.getSmoothedVelocity();
+      const elbowAngleDeg = Math.round(calculateJointAngle(merged['shoulder'], merged['elbow'], merged['wrist']));
+      const kneeAngleDeg = Math.round(calculateJointAngle(merged['hip'], merged['knee'], merged['ankle']));
+      const hipAngleDeg = Math.round(calculateJointAngle(merged['shoulder'], merged['hip'], merged['knee']));
+      const rawTibial = merged['ankle'] && merged['knee'] ? calculateTibialAngle(merged['ankle'], merged['knee']) : 14;
 
-      if (completedRep) {
+      preSamples.push({
+        rawIndex: rawSamples[i].frameIndex,
+        tsSec,
+        tsMs,
+        merged,
+        primaryAngle,
+        elbowAngleDeg,
+        kneeAngleDeg,
+        hipAngleDeg,
+        rawTibial
+      });
+    }
+
+    // Bug 3: Detector Matemático de Valles y Picos sobre el array completo de ángulos
+    const allAngles = preSamples.map(p => p.primaryAngle);
+    const detectedReps = detectRepetitionsFromAngleSignal(allAngles, 25, 20, 12);
+    const repAssignments = assignRepetitionPhasesAndCounts(
+      preSamples.length,
+      detectedReps,
+      preSamples.map(p => p.tsSec)
+    );
+
+    const completedRepsList: CompletedRepetition[] = [];
+    if (detectedReps.length > 0) {
+      for (const dr of detectedReps) {
+        const startSample = preSamples[dr.peakStartIndex];
+        const bottomSample = preSamples[dr.bottomIndex];
+        const endSample = preSamples[dr.peakEndIndex];
+
+        const durationSec = Math.max(0.2, (endSample?.tsSec ?? 0) - (startSample?.tsSec ?? 0));
+        const eccSec = Math.max(0.1, (bottomSample?.tsSec ?? 0) - (startSample?.tsSec ?? 0));
+        const conSec = Math.max(0.1, (endSample?.tsSec ?? 0) - (bottomSample?.tsSec ?? 0));
+
+        const compRep: CompletedRepetition = {
+          repIndex: dr.repNumber,
+          isValid: true,
+          tempo: {
+            eccentricDurationSeconds: Number(eccSec.toFixed(2)),
+            bottomPauseDurationSeconds: 0.1,
+            concentricDurationSeconds: Number(conSec.toFixed(2)),
+            totalDurationSeconds: Number(durationSec.toFixed(2)),
+            tempoString: `${eccSec.toFixed(1)}s - 0.1s - ${conSec.toFixed(1)}s`
+          },
+          minAngle: dr.bottomAngle,
+          maxAngle: Math.max(dr.peakStartAngle, dr.peakEndAngle),
+          romExcursion: dr.romDeg,
+          startAngle: dr.peakStartAngle,
+          endAngle: dr.peakEndAngle,
+          peakEccentricVelocityDegPerSec: Math.round(dr.romDeg / eccSec),
+          peakConcentricVelocityDegPerSec: Math.round(dr.romDeg / conSec),
+          bottomBounceDetected: false,
+          completionTimestamp: endSample?.tsMs ?? Date.now()
+        };
+
+        completedRepsList.push(compRep);
         auditedReps.push(
-          auditCompletedRepetition(completedRep, fsm.getCompletedReps(), pattern.name, targetBias)
+          auditCompletedRepetition(compRep, completedRepsList, pattern.name, targetBias)
         );
       }
+    }
 
-      const rawTibial = merged['ankle'] && merged['knee'] ? calculateTibialAngle(merged['ankle'], merged['knee']) : 14;
-      smoothedTibial = Math.round((0.84 * smoothedTibial + 0.16 * rawTibial) * 10) / 10;
+    for (let i = 0; i < preSamples.length; i++) {
+      const ps = preSamples[i];
+      let phase: FsmPhase = 'LOCKOUT';
+      let repCount = auditedReps.length;
+
+      if (detectedReps.length > 0) {
+        const asg = repAssignments[i];
+        repCount = asg.repCount;
+        if (asg.phase === 'Excéntrica') phase = 'ECCENTRIC';
+        else if (asg.phase === 'Fondo') phase = 'BOTTOM';
+        else if (asg.phase === 'Concéntrica') phase = 'CONCENTRIC';
+        else phase = 'LOCKOUT';
+      } else {
+        const completedFsmRep = fsm.update(ps.primaryAngle, ps.tsMs);
+        phase = fsm.getPhase();
+        if (completedFsmRep) {
+          auditedReps.push(
+            auditCompletedRepetition(completedFsmRep, fsm.getCompletedReps(), pattern.name, targetBias)
+          );
+        }
+        repCount = auditedReps.length;
+      }
+
+      smoothedTibial = Math.round((0.84 * smoothedTibial + 0.16 * ps.rawTibial) * 10) / 10;
+      const angVelocity = 0;
 
       const telemetry = evaluateBiomechanicalFrame(
-        merged,
+        ps.merged,
         pattern.id,
         phase,
-        primaryAngle,
+        ps.primaryAngle,
         angVelocity,
         resistanceParam,
         targetBias,
-        tsMs,
+        ps.tsMs,
         smoothedTibial,
         footTracker
       );
 
-      const elbowAngleDeg = Math.round(calculateJointAngle(merged['shoulder'], merged['elbow'], merged['wrist']));
-      const kneeAngleDeg = Math.round(calculateJointAngle(merged['hip'], merged['knee'], merged['ankle']));
-      const hipAngleDeg = Math.round(calculateJointAngle(merged['shoulder'], merged['hip'], merged['knee']));
-
       frames.push({
-        frameIndex: rawSamples[i].frameIndex,
-        timestampSec: tsSec,
-        primaryAngleDeg: Math.round(primaryAngle),
-        elbowAngleDeg,
-        kneeAngleDeg,
-        hipAngleDeg,
+        frameIndex: ps.rawIndex,
+        timestampSec: ps.tsSec,
+        primaryAngleDeg: Math.round(ps.primaryAngle),
+        elbowAngleDeg: ps.elbowAngleDeg,
+        kneeAngleDeg: ps.kneeAngleDeg,
+        hipAngleDeg: ps.hipAngleDeg,
         spinalAngleDeg: Math.round(telemetry.technique.spinalAngleDegrees * 10) / 10,
         tibialAngleDeg: telemetry.biomechanics.tibialAngleDegrees,
         phase,
-        completedRepsCount: auditedReps.length,
+        completedRepsCount: repCount,
         dominantSide: globalDominantSide,
-        keypoints: merged,
+        keypoints: ps.merged,
         momentArms: {
           hip: telemetry.biomechanics.momentArms.hip,
           knee: telemetry.biomechanics.momentArms.knee,
