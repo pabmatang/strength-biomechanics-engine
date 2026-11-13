@@ -4,8 +4,8 @@ import {
   euclideanDistance2D,
   calculateAngleDegrees,
   buildSamplingTimeline,
-  computeAthleteRoi,
-  remapPointFromRoi,
+  getRenderedVideoRect,
+  projectLandmarkToCanvas,
   determineDominantSide,
   extractUnilateralJoints,
   interpolateLowVisibilityLandmarks,
@@ -251,7 +251,7 @@ describe('kinematicPipeline - Pipeline Refactorizado para Alta Velocidad y Preci
           knee: { x: 0.12, y: 0.42 },
           ankle: { x: 0.12, y: 0.54 }
         },
-        rawJointsPx: {
+        rawJoints: {
           shoulder: { x: 100, y: 100 },
           elbow: { x: 100, y: 180 },
           wrist: { x: 100, y: 260 },
@@ -268,34 +268,55 @@ describe('kinematicPipeline - Pipeline Refactorizado para Alta Velocidad y Preci
         mainAngle: 88,
         phase: 'Fondo',
         repCount: 1,
-        roi: {
-          minX: 0, minY: 0, maxX: 1, maxY: 1, width: 1, height: 1,
-          pixelRect: { x: 0, y: 0, width: 640, height: 480 }
-        },
         visibility: { shoulder: 1, elbow: 1, wrist: 1, hip: 1, knee: 1, ankle: 1 }
       };
 
-      drawKinematicFrameOverlay(mockCtx, dummyFrame, 640, 480, { showAnglesInCorner: true });
+      drawKinematicFrameOverlay(mockCtx, dummyFrame, { width: 640, height: 480 }, { videoWidth: 640, videoHeight: 480 }, { showAnglesInCorner: true });
       expect(calls).toContain('save');
       expect(calls).toContain('restore');
       expect(calls).toContain('roundRect'); // Panel HUD en esquina
     });
   });
 
-  describe('Regla 2 & 3: ROI Crop y Bloqueo Unilateral', () => {
-    it('agrega un margen de 25% por lado en el bounding box', () => {
-      const landmarks: Point[] = [
-        { x: 0.4, y: 0.2, visibility: 0.9 },
-        { x: 0.6, y: 0.8, visibility: 0.9 }
-      ];
-      const roi = computeAthleteRoi(landmarks, 1000, 1000, 0.25);
-      expect(roi.minX).toBeCloseTo(0.35, 3);
-      expect(roi.maxX).toBeCloseTo(0.65, 3);
-      expect(roi.minY).toBeCloseTo(0.05, 3);
-      expect(roi.maxY).toBeCloseTo(0.95, 3);
+  describe('Regla 3: Aspect Ratio Containment y Proyección 1:1 en Canvas', () => {
+    it('calcula pillarboxing con vídeo vertical 9:16 en contenedor horizontal 16:9', () => {
+      const video = { videoWidth: 1080, videoHeight: 1920 };
+      const canvas = { width: 1600, height: 900 };
+      const rect = getRenderedVideoRect(video, canvas);
+
+      // El vídeo vertical ocupará la altura completa (900px) y estará centrado horizontalmente
+      expect(rect.renderH).toBe(900);
+      expect(rect.offsetY).toBe(0);
+      // Ancho renderizado: 900 * (1080 / 1920) = 506.25px
+      expect(rect.renderW).toBeCloseTo(506.25, 1);
+      // Offset horizontal: (1600 - 506.25) / 2 = 546.875px
+      expect(rect.offsetX).toBeCloseTo(546.875, 1);
     });
 
-    it('selecciona el lado con mayor visibilidad en primeros 15 frames', () => {
+    it('calcula letterboxing con vídeo panorámico 16:9 en contenedor 4:3', () => {
+      const video = { videoWidth: 1920, videoHeight: 1080 };
+      const canvas = { width: 800, height: 600 };
+      const rect = getRenderedVideoRect(video, canvas);
+
+      // El vídeo panorámico ocupará el ancho completo (800px) y estará centrado verticalmente
+      expect(rect.renderW).toBe(800);
+      expect(rect.offsetX).toBe(0);
+      // Altura renderizada: 800 / (1920 / 1080) = 450px
+      expect(rect.renderH).toBe(450);
+      // Offset vertical: (600 - 450) / 2 = 75px
+      expect(rect.offsetY).toBe(75);
+    });
+
+    it('proyecta coordenadas normalizadas [0..1] sobre el rectángulo real renderizado sin deformación', () => {
+      const rect = { offsetX: 100, offsetY: 50, renderW: 500, renderH: 800 };
+      const landmark: Point = { x: 0.5, y: 0.25 };
+      const projected = projectLandmarkToCanvas(landmark, rect);
+
+      expect(projected.x).toBe(100 + 0.5 * 500); // 350
+      expect(projected.y).toBe(50 + 0.25 * 800); // 250
+    });
+
+    it('selecciona el lado con mayor visibilidad en primeros 15 frames (Side-Locking)', () => {
       const frames: Point[][] = [];
       for (let i = 0; i < 15; i++) {
         const frameLms: Point[] = Array(33).fill({ x: 0, y: 0, visibility: 0 });

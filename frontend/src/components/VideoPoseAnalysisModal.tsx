@@ -41,10 +41,9 @@ import {
   drawDualModeOverlay,
   RenderOverlayOptions,
   getMonotonicPoseTimestamp,
-  PoseModelQuality,
-  computeZoomedVideoRoi,
-  remapLandmarksFromRoi
+  PoseModelQuality
 } from '../utils/videoPoseEstimator';
+import { getRenderedVideoRect } from '../utils/kinematicPipeline';
 import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
 import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
 import {
@@ -144,7 +143,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const roiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadedFileRef = useRef<File | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -389,6 +387,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       canvas.height = video.videoHeight;
     }
 
+    const renderedRect = getRenderedVideoRect(video, canvas);
+
     // Clear canvas before processing and drawing new frame to prevent ghosting/overlapping
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -418,7 +418,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             targetMuscle: selectedPattern.targetMuscle,
             loadType,
             exerciseId: selectedPattern.id,
-            useInternalCanvasTransform: false
+            useInternalCanvasTransform: false,
+            renderedRect
           },
           selectedPattern.primaryJoint
         );
@@ -433,61 +434,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       const monotonicTime = getMonotonicPoseTimestamp();
       lastTimestampRef.current = monotonicTime;
 
-      let detectedLandmarks: Array<{ x: number; y: number; z: number; visibility?: number }> | undefined;
-
-      // When user zooms (>1x) on the athlete, feed the zoomed ROI crop to MediaPipe so joints get 1.5x-2x higher pixel density
-      const vp = viewportRef.current;
-      if (zoom > 1.05 && vp && video.videoWidth > 0 && video.videoHeight > 0) {
-        const roi = computeZoomedVideoRoi(
-          vp.clientWidth,
-          vp.clientHeight,
-          video.videoWidth,
-          video.videoHeight,
-          zoom,
-          panOffset
-        );
-        if (roi.w < 0.92 || roi.h < 0.92) {
-          if (!roiCanvasRef.current && typeof document !== 'undefined') {
-            roiCanvasRef.current = document.createElement('canvas');
-          }
-          const roiCanvas = roiCanvasRef.current;
-          const roiCtx = roiCanvas?.getContext('2d');
-          if (roiCanvas && roiCtx) {
-            const srcW = Math.max(1, Math.round(roi.w * video.videoWidth));
-            const srcH = Math.max(1, Math.round(roi.h * video.videoHeight));
-            const maxDim = 640;
-            const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
-            const dstW = Math.max(2, Math.round(srcW * scale));
-            const dstH = Math.max(2, Math.round(srcH * scale));
-            if (roiCanvas.width !== dstW) roiCanvas.width = dstW;
-            if (roiCanvas.height !== dstH) roiCanvas.height = dstH;
-
-            roiCtx.drawImage(
-              video,
-              Math.round(roi.x * video.videoWidth),
-              Math.round(roi.y * video.videoHeight),
-              srcW,
-              srcH,
-              0,
-              0,
-              dstW,
-              dstH
-            );
-            const roiResults = landmarker.detectForVideo(roiCanvas, monotonicTime);
-            if (roiResults?.landmarks?.[0]?.length >= 33) {
-              detectedLandmarks = remapLandmarksFromRoi(roiResults.landmarks[0], roi);
-            }
-          }
-        }
-      }
-
-      if (!detectedLandmarks) {
-        const fullTime = detectedLandmarks ? monotonicTime : getMonotonicPoseTimestamp();
-        const results = landmarker.detectForVideo(video, fullTime);
-        if (results?.landmarks?.[0]?.length >= 33) {
-          detectedLandmarks = results.landmarks[0];
-        }
-      }
+      // Direct inference on <video> element with native MediaPipe aspect ratio & tracking
+      const results = landmarker.detectForVideo(video, monotonicTime);
+      const detectedLandmarks: Array<{ x: number; y: number; z: number; visibility?: number }> | undefined = results?.landmarks?.[0];
 
       if (detectedLandmarks && detectedLandmarks.length >= 33) {
         const analysisRegion = (selectedPattern.primaryJoint === 'elbow' || selectedPattern.primaryJoint === 'shoulder')
@@ -664,7 +613,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               targetMuscle: selectedPattern.targetMuscle,
               loadType,
               exerciseId: selectedPattern.id,
-              useInternalCanvasTransform: false // Handled synchronously by parent DOM transform
+              useInternalCanvasTransform: false, // Handled synchronously by parent DOM transform
+              renderedRect
             },
             selectedPattern.primaryJoint
           );

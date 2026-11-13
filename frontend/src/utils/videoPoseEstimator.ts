@@ -785,13 +785,18 @@ export function drawSkeletonOnCanvas(
   height: number,
   feedbackColor: string = '#10B981',
   activeAngleBadge?: { angle: number; label: string; x?: number; y?: number },
-  primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder'
+  primaryJointKey?: 'hip' | 'knee' | 'elbow' | 'shoulder',
+  renderedRect?: { offsetX: number; offsetY: number; renderW: number; renderH: number }
 ) {
   ctx.clearRect(0, 0, width, height);
 
   ctx.lineWidth = 3.5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+  const rect = renderedRect || { offsetX: 0, offsetY: 0, renderW: width, renderH: height };
+  const toX = (p: Keypoint2D) => rect.offsetX + p.x * rect.renderW;
+  const toY = (p: Keypoint2D) => rect.offsetY + p.y * rect.renderH;
 
   const isVisible = (p?: Keypoint2D) => {
     if (!p) return false;
@@ -807,15 +812,15 @@ export function drawSkeletonOnCanvas(
     ctx.strokeStyle = 'rgba(2, 6, 23, 0.6)';
     ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.moveTo(p1!.x * width, p1!.y * height);
-    ctx.lineTo(p2!.x * width, p2!.y * height);
+    ctx.moveTo(toX(p1!), toY(p1!));
+    ctx.lineTo(toX(p2!), toY(p2!));
     ctx.stroke();
 
     ctx.strokeStyle = color;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(p1!.x * width, p1!.y * height);
-    ctx.lineTo(p2!.x * width, p2!.y * height);
+    ctx.moveTo(toX(p1!), toY(p1!));
+    ctx.lineTo(toX(p2!), toY(p2!));
     ctx.stroke();
     ctx.restore();
   };
@@ -825,7 +830,7 @@ export function drawSkeletonOnCanvas(
     ctx.save();
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(p!.x * width, p!.y * height, radius, 0, 2 * Math.PI);
+    ctx.arc(toX(p!), toY(p!), radius, 0, 2 * Math.PI);
     ctx.fill();
     ctx.restore();
   };
@@ -901,15 +906,15 @@ export function drawSkeletonOnCanvas(
     ctx.strokeStyle = feedbackColor;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(trackedJoint.x * width, trackedJoint.y * height, 22, -0.6 * Math.PI, 0.4 * Math.PI);
+    ctx.arc(toX(trackedJoint), toY(trackedJoint), 22, -0.6 * Math.PI, 0.4 * Math.PI);
     ctx.stroke();
     ctx.restore();
   }
 
   // Draw Floating Angle Badge anchored directly adjacent to the primary vertex
   if (activeAngleBadge && trackedJoint && isVisible(trackedJoint)) {
-    const badgeX = (activeAngleBadge.x ?? trackedJoint.x) * width;
-    const badgeY = ((activeAngleBadge.y ?? trackedJoint.y) * height) - 24;
+    const badgeX = toX(trackedJoint);
+    const badgeY = toY(trackedJoint) - 24;
 
     ctx.save();
     ctx.font = 'bold 12px monospace';
@@ -928,7 +933,7 @@ export function drawSkeletonOnCanvas(
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, badgeX, badgeY - 3);
+    ctx.fillText(text, badgeX, badgeY - 2);
     ctx.restore();
   }
 }
@@ -944,6 +949,7 @@ export interface RenderOverlayOptions {
   loadType?: LoadType;
   exerciseId?: string;
   useInternalCanvasTransform?: boolean;
+  renderedRect?: { offsetX: number; offsetY: number; renderW: number; renderH: number };
 }
 
 /**
@@ -1022,10 +1028,16 @@ function drawHipThrustKneeAngle(
   height: number,
   kneeAngleDeg: number,
   includeSegments: boolean,
-  showCanvasText = true
+  showCanvasText = true,
+  renderedRect?: { offsetX: number; offsetY: number; renderW: number; renderH: number }
 ) {
-  const kx = knee.x * width;
-  const ky = knee.y * height;
+  const rect = renderedRect || { offsetX: 0, offsetY: 0, renderW: width, renderH: height };
+  const kx = rect.offsetX + knee.x * rect.renderW;
+  const ky = rect.offsetY + knee.y * rect.renderH;
+  const hx = rect.offsetX + hip.x * rect.renderW;
+  const hy = rect.offsetY + hip.y * rect.renderH;
+  const ax = rect.offsetX + ankle.x * rect.renderW;
+  const ay = rect.offsetY + ankle.y * rect.renderH;
 
   const isOptimal = kneeAngleDeg >= 76 && kneeAngleDeg <= 104;
   const isQuads = kneeAngleDeg < 76;
@@ -1036,9 +1048,9 @@ function drawHipThrustKneeAngle(
     strokeHighContrastPath(
       ctx,
       () => {
-        ctx.moveTo(hip.x * width, hip.y * height);
+        ctx.moveTo(hx, hy);
         ctx.lineTo(kx, ky);
-        ctx.lineTo(ankle.x * width, ankle.y * height);
+        ctx.lineTo(ax, ay);
       },
       'rgba(226, 232, 240, 0.90)',
       3
@@ -1046,8 +1058,8 @@ function drawHipThrustKneeAngle(
   }
 
   // Draw true geometric arc between femur (knee->hip) and tibia (knee->ankle)
-  const aHip = Math.atan2(hip.y * height - ky, hip.x * width - kx);
-  const aAnkle = Math.atan2(ankle.y * height - ky, ankle.x * width - kx);
+  const aHip = Math.atan2(hy - ky, hx - kx);
+  const aAnkle = Math.atan2(ay - ky, ax - kx);
   let diff = aAnkle - aHip;
   while (diff > Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
@@ -1088,8 +1100,13 @@ function drawHipThrustOptimizationOverlay(
   keypoints: Record<string, Keypoint2D>,
   width: number,
   height: number,
-  showCanvasText = true
+  showCanvasText = true,
+  renderedRect?: { offsetX: number; offsetY: number; renderW: number; renderH: number }
 ) {
+  const rect = renderedRect || { offsetX: 0, offsetY: 0, renderW: width, renderH: height };
+  const toX = (p: Keypoint2D) => rect.offsetX + p.x * rect.renderW;
+  const toY = (p: Keypoint2D) => rect.offsetY + p.y * rect.renderH;
+
   const ear = keypoints['ear'] || keypoints['left_ear'] || keypoints['right_ear'];
   const shoulder = keypoints['shoulder'] || keypoints['left_shoulder'] || keypoints['right_shoulder'];
   const hip = keypoints['hip'] || keypoints['left_hip'] || keypoints['right_hip'];
@@ -1103,7 +1120,7 @@ function drawHipThrustOptimizationOverlay(
 
   // 1. Knee Angle (Femur - Knee - Tibia) for Quads vs Femoral vs Glute (~90°)
   if (hip && knee && ankle) {
-    drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, true, showCanvasText);
+    drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, true, showCanvasText, rect);
   }
 
   // 2. Lumbar & Neck Neutrality (Shoulder -> Hip and Ear -> Shoulder)
@@ -1119,8 +1136,8 @@ function drawHipThrustOptimizationOverlay(
     strokeHighContrastPath(
       ctx,
       () => {
-        ctx.moveTo(shoulder.x * width, shoulder.y * height);
-        ctx.lineTo(hip.x * width, hip.y * height);
+        ctx.moveTo(toX(shoulder), toY(shoulder));
+        ctx.lineTo(toX(hip), toY(hip));
       },
       lumbarColor,
       3.5,
@@ -1133,8 +1150,8 @@ function drawHipThrustOptimizationOverlay(
       strokeHighContrastPath(
         ctx,
         () => {
-          ctx.moveTo(ear!.x * width, ear!.y * height);
-          ctx.lineTo(shoulder.x * width, shoulder.y * height);
+          ctx.moveTo(toX(ear!), toY(ear!));
+          ctx.lineTo(toX(shoulder), toY(shoulder));
         },
         neckColor,
         3.5,
@@ -1145,7 +1162,7 @@ function drawHipThrustOptimizationOverlay(
     const drawNode = (p: Keypoint2D, color: string) => {
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(p.x * width, p.y * height, 5, 0, 2 * Math.PI);
+      ctx.arc(toX(p), toY(p), 5, 0, 2 * Math.PI);
       ctx.fill();
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 1.5;
@@ -1156,8 +1173,8 @@ function drawHipThrustOptimizationOverlay(
     drawNode(hip, lumbarColor);
 
     if (showCanvasText) {
-      const midX = (shoulder.x + hip.x) * width / 2;
-      const midY = (shoulder.y + hip.y) * height / 2 - 18;
+      const midX = (toX(shoulder) + toX(hip)) / 2;
+      const midY = (toY(shoulder) + toY(hip)) / 2 - 18;
       const statusText = `Lumbar: ${lumbarOk ? '✓' : '⚠️'} · Cuello: ${neckOk ? '✓' : '⚠️'}`;
       drawCanvasBadge(ctx, midX, midY, statusText, lumbarOk && neckOk ? '#10B981' : '#EF4444');
     }
@@ -1188,8 +1205,13 @@ export function drawBiomechanicsOverlayOnCanvas(
     targetMuscle,
     loadType,
     exerciseId,
-    useInternalCanvasTransform = false
+    useInternalCanvasTransform = false,
+    renderedRect
   } = options;
+
+  const rect = renderedRect || { offsetX: 0, offsetY: 0, renderW: width, renderH: height };
+  const toX = (p: Keypoint2D | { x: number; y: number }) => rect.offsetX + p.x * rect.renderW;
+  const toY = (p: Keypoint2D | { x: number; y: number }) => rect.offsetY + p.y * rect.renderH;
 
   ctx.save();
   if (useInternalCanvasTransform && (zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0)) {
@@ -1205,7 +1227,7 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   // Dedicated Hip Thrust Mode 2: No moment arms; analyze Knee Angle + Lumbar & Neck neutrality
   if (exerciseId?.includes('hip_thrust')) {
-    drawHipThrustOptimizationOverlay(ctx, frame, keypoints, width, height, showCanvasText);
+    drawHipThrustOptimizationOverlay(ctx, frame, keypoints, width, height, showCanvasText, rect);
     ctx.restore();
     return;
   }
@@ -1250,15 +1272,15 @@ export function drawBiomechanicsOverlayOnCanvas(
             ? ankle
             : (bio.loadPosition || (handGrip || ankle || shoulder || { x: 0.5, y: 0.5 })));
 
-  const loadX = contactPoint.x * width;
-  const loadY = contactPoint.y * height;
+  const loadX = toX(contactPoint);
+  const loadY = toY(contactPoint);
 
   // 1. Force Line of Action of Force (with dark outline for visibility over gym backgrounds)
   strokeHighContrastPath(
     ctx,
     () => {
-      ctx.moveTo(loadX, 0);
-      ctx.lineTo(loadX, height);
+      ctx.moveTo(loadX, rect.offsetY);
+      ctx.lineTo(loadX, rect.offsetY + rect.renderH);
     },
     '#EF4444',
     2.2
@@ -1275,7 +1297,7 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   // Directional arrowhead
   const headLen = 8;
-  const arrowY = Math.min(height - 12, loadY + 40);
+  const arrowY = Math.min(rect.offsetY + rect.renderH - 12, loadY + 40);
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
   ctx.shadowBlur = 3;
@@ -1321,8 +1343,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     const textWidth = ctx.measureText(label).width;
     const minHalf = textWidth / 2 + 8;
     const rawMidX = (loadX + xJoint) / 2 + labelOffsetX;
-    const midX = Math.max(minHalf, Math.min(width - minHalf, rawMidX));
-    const midY = Math.max(14, Math.min(height - 14, y + labelOffsetY));
+    const midX = Math.max(rect.offsetX + minHalf, Math.min(rect.offsetX + rect.renderW - minHalf, rawMidX));
+    const midY = Math.max(rect.offsetY + 14, Math.min(rect.offsetY + rect.renderH - 14, y + labelOffsetY));
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
     ctx.strokeStyle = color;
@@ -1341,43 +1363,43 @@ export function drawBiomechanicsOverlayOnCanvas(
   // 2. Direct Orthogonal Moment Arms (Exclusively two segments with dynamic vertical ordering)
   if (showLeverArms) {
     if (!isUpperBody) {
-      const lowerCloseY = Boolean(hip && knee && Math.abs(hip.y - knee.y) * height < 48);
-      const hipIsHigher = !hip || !knee || hip.y <= knee.y;
+      const lowerCloseY = Boolean(hip && knee && Math.abs(toY(hip) - toY(knee)) < 48);
+      const hipIsHigher = !hip || !knee || toY(hip) <= toY(knee);
       if (hip) {
-        const hipPx = Math.abs(Math.round(hip.x * width - loadX));
+        const hipPx = Math.abs(Math.round(toX(hip) - loadX));
         drawMomentArm(
-          hip.y * height,
-          hip.x * width,
+          toY(hip),
+          toX(hip),
           '#06B6D4',
           `d_cadera: ${hipPx}px`,
           lowerCloseY ? (hipIsHigher ? -35 : 35) : -35
         );
       }
       if (knee) {
-        const kneePx = Math.abs(Math.round(knee.x * width - loadX));
+        const kneePx = Math.abs(Math.round(toX(knee) - loadX));
         drawMomentArm(
-          knee.y * height,
-          knee.x * width,
+          toY(knee),
+          toX(knee),
           '#10B981',
           `d_rodilla: ${kneePx}px`,
           lowerCloseY ? (hipIsHigher ? 35 : -35) : 35
         );
       }
     } else {
-      const shY = shoulder ? shoulder.y * height : 0;
-      const elY = elbow ? elbow.y * height : 0;
+      const shY = shoulder ? toY(shoulder) : 0;
+      const elY = elbow ? toY(elbow) : 0;
       const dyUpper = shoulder && elbow ? Math.abs(shY - elY) : 999;
       const armsCloseY = dyUpper < 50;
       const armsVeryCloseY = dyUpper < 22;
       const shoulderIsHigher = !shoulder || !elbow || shY <= elY;
 
       if (shoulder) {
-        const shPx = Math.abs(Math.round(shoulder.x * width - loadX));
+        const shPx = Math.abs(Math.round(toX(shoulder) - loadX));
         const shOffsetY = armsCloseY ? (shoulderIsHigher ? -15 : 15) : -12;
         const shOffsetX = armsVeryCloseY ? -22 : 0;
         drawMomentArm(
           shY,
-          shoulder.x * width,
+          toX(shoulder),
           '#8B5CF6',
           `d_hombro: ${shPx}px`,
           shOffsetY,
@@ -1385,12 +1407,12 @@ export function drawBiomechanicsOverlayOnCanvas(
         );
       }
       if (elbow) {
-        const elPx = Math.abs(Math.round(elbow.x * width - loadX));
+        const elPx = Math.abs(Math.round(toX(elbow) - loadX));
         const elOffsetY = armsCloseY ? (shoulderIsHigher ? 15 : -15) : -12;
         const elOffsetX = armsVeryCloseY ? 22 : 0;
         drawMomentArm(
           elY,
-          elbow.x * width,
+          toX(elbow),
           '#EC4899',
           `d_codo: ${elPx}px`,
           elOffsetY,
@@ -1402,10 +1424,10 @@ export function drawBiomechanicsOverlayOnCanvas(
 
   // 3. Subtle Tibia Segment (Rodilla -> Tobillo) with Non-Intrusive Stabilized Tibial Angle θ_tibia
   if (knee && ankle && !isUpperBody) {
-    const kx = knee.x * width;
-    const ky = knee.y * height;
-    const ax = ankle.x * width;
-    const ay = ankle.y * height;
+    const kx = toX(knee);
+    const ky = toY(knee);
+    const ax = toX(ankle);
+    const ay = toY(ankle);
 
     // Thin, subtle dashed guide line with dark shadow so it stays visible over equipment
     strokeHighContrastPath(
@@ -1449,7 +1471,7 @@ export function drawBiomechanicsOverlayOnCanvas(
   const drawJointDot = (pt: { x: number; y: number }, color: string) => {
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(pt.x * width, pt.y * height, 5, 0, 2 * Math.PI);
+    ctx.arc(toX(pt), toY(pt), 5, 0, 2 * Math.PI);
     ctx.fill();
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 1.5;
@@ -1471,8 +1493,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (showCanvasText && isCableFly && elbow && flyEval) {
       drawCanvasBadge(
         ctx,
-        elbow.x * width,
-        elbow.y * height - 20,
+        toX(elbow),
+        toY(elbow) - 20,
         `Codo: ${flyEval.elbowAngleDeg}° (${flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'})`,
         flyEval.areArmsExtended ? '#10B981' : '#F59E0B',
         flyEval.areArmsExtended ? '#A7F3D0' : '#FDE68A'
@@ -1484,8 +1506,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (showCanvasText && isBiceps && elbow && bEval) {
       drawCanvasBadge(
         ctx,
-        elbow.x * width,
-        elbow.y * height - 20,
+        toX(elbow),
+        toY(elbow) - 20,
         bEval.armAlignment === 'aligned_pivot' ? '✓ Codo Eje Fijo' : '⚠️ Balanceo Codo',
         bEval.armAlignment === 'aligned_pivot' ? '#10B981' : '#F59E0B',
         bEval.armAlignment === 'aligned_pivot' ? '#A7F3D0' : '#FDE68A'
@@ -1497,8 +1519,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (showCanvasText && isTriceps && handGrip && tEval) {
       drawCanvasBadge(
         ctx,
-        handGrip.x * width,
-        handGrip.y * height - 20,
+        toX(handGrip),
+        toY(handGrip) - 20,
         tEval.wristAlignment === 'aligned_neutral' ? '✓ Muñeca Neutra' : '⚠️ Muñeca Quebrada',
         tEval.wristAlignment === 'aligned_neutral' ? '#10B981' : '#F59E0B',
         tEval.wristAlignment === 'aligned_neutral' ? '#A7F3D0' : '#FDE68A'
@@ -1510,8 +1532,8 @@ export function drawBiomechanicsOverlayOnCanvas(
     if (showCanvasText && isUpperBack && elbow && ubEval) {
       drawCanvasBadge(
         ctx,
-        elbow.x * width,
-        elbow.y * height - 20,
+        toX(elbow),
+        toY(elbow) - 20,
         `Codo: ${ubEval.elbowAngleDeg}° (${ubEval.elbowAngleStatus === 'optimal_90' ? '~90° Espalda Alta' : ubEval.elbowAngleStatus === 'too_acute_biceps' ? '<80° +Bíceps' : 'Tirón'})`,
         ubEval.elbowAngleStatus === 'optimal_90' ? '#10B981' : '#F59E0B',
         ubEval.elbowAngleStatus === 'optimal_90' ? '#A7F3D0' : '#FDE68A'
@@ -1539,8 +1561,8 @@ export function drawBiomechanicsOverlayOnCanvas(
 
     ctx.font = 'bold 11px monospace';
     const bannerWidth = ctx.measureText(biasText).width + 24;
-    const bannerX = width / 2;
-    const bannerY = 24;
+    const bannerX = rect.offsetX + rect.renderW / 2;
+    const bannerY = Math.max(24, rect.offsetY + 24);
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
     ctx.strokeStyle = isSetupOrLockout ? '#64748B' : (bio.muscleBias === 'hip_glute_bias' ? '#06B6D4' : '#10B981');
@@ -1581,6 +1603,10 @@ export function drawDualModeOverlay(
     primaryJointKey: primaryJointKey || options.primaryJointKey
   };
 
+  const rect = mergedOptions.renderedRect || { offsetX: 0, offsetY: 0, renderW: width, renderH: height };
+  const toX = (p: Keypoint2D | { x: number; y: number }) => rect.offsetX + p.x * rect.renderW;
+  const toY = (p: Keypoint2D | { x: number; y: number }) => rect.offsetY + p.y * rect.renderH;
+
   if (mode === 'biomechanics') {
     // Mode 2: Biomechanical optimization - pure load vector, moment arms, zero skeleton clutter
     drawBiomechanicsOverlayOnCanvas(ctx, frame, keypoints, width, height, mergedOptions);
@@ -1605,7 +1631,8 @@ export function drawDualModeOverlay(
             label: 'Ángulo'
           }
         : undefined,
-      mergedOptions.primaryJointKey
+      mergedOptions.primaryJointKey,
+      mergedOptions.renderedRect
     );
 
     // Spinal Alignment (Oreja -> Hombro -> Cadera)
@@ -1625,7 +1652,7 @@ export function drawDualModeOverlay(
       const kneeAngle = Math.round(
         frame.technique.kneeAngleDegrees ?? calculateJointAngle(hip, knee, ankle)
       );
-      drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false, showCanvasText);
+      drawHipThrustKneeAngle(ctx, hip, knee, ankle, width, height, kneeAngle, false, showCanvasText, mergedOptions.renderedRect);
     }
 
     const ls = keypoints['left_shoulder'];
@@ -1645,8 +1672,8 @@ export function drawDualModeOverlay(
       if (elbow) {
         drawCanvasBadge(
           ctx,
-          elbow.x * width,
-          elbow.y * height - 18,
+          toX(elbow),
+          toY(elbow) - 18,
           `Codo: ${flyEval.elbowAngleDeg}° · ${flyEval.areArmsExtended ? 'Extendido' : 'Más recto'}`,
           flyEval.areArmsExtended ? '#10B981' : '#EF4444',
           flyEval.areArmsExtended ? '#6EE7B7' : '#FCA5A5'
@@ -1655,8 +1682,8 @@ export function drawDualModeOverlay(
       if (spineShoulder) {
         drawCanvasBadge(
           ctx,
-          spineShoulder.x * width,
-          spineShoulder.y * height - 22,
+          toX(spineShoulder),
+          toY(spineShoulder) - 22,
           flyEval.shoulderAnteriorized ? '⚠️ Hombro anteriorizado' : '✓ Hombro atrás',
           flyEval.shoulderAnteriorized ? '#EF4444' : '#10B981',
           flyEval.shoulderAnteriorized ? '#FCA5A5' : '#6EE7B7'
@@ -1676,12 +1703,12 @@ export function drawDualModeOverlay(
         ctx,
         () => {
           if (hasValidHead) {
-            ctx.moveTo(spineHead.x * width, spineHead.y * height);
-            ctx.lineTo(spineShoulder.x * width, spineShoulder.y * height);
+            ctx.moveTo(toX(spineHead!), toY(spineHead!));
+            ctx.lineTo(toX(spineShoulder), toY(spineShoulder));
           } else {
-            ctx.moveTo(spineShoulder.x * width, spineShoulder.y * height);
+            ctx.moveTo(toX(spineShoulder), toY(spineShoulder));
           }
-          ctx.lineTo(spineHip.x * width, spineHip.y * height);
+          ctx.lineTo(toX(spineHip), toY(spineHip));
         },
         spineColor,
         3.5,
@@ -1692,7 +1719,7 @@ export function drawDualModeOverlay(
       const drawSpinalNode = (p: Keypoint2D, color: string) => {
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(p.x * width, p.y * height, 5.5, 0, 2 * Math.PI);
+        ctx.arc(toX(p), toY(p), 5.5, 0, 2 * Math.PI);
         ctx.fill();
         ctx.strokeStyle = '#FFFFFF';
         ctx.lineWidth = 1.5;
@@ -1705,8 +1732,8 @@ export function drawDualModeOverlay(
 
       if (showCanvasText) {
         // Dedicated spinal alignment status badge
-        const midX = (spineShoulder.x + spineHip.x) * width / 2;
-        const midY = (spineShoulder.y + spineHip.y) * height / 2;
+        const midX = (toX(spineShoulder) + toX(spineHip)) / 2;
+        const midY = (toY(spineShoulder) + toY(spineHip)) / 2;
         ctx.font = 'bold 11px monospace';
         const label = isHipThrust
           ? (spineNeutral

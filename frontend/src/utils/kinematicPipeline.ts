@@ -2,17 +2,15 @@
  * kinematicPipeline.ts
  * 
  * Pipeline de Visión por Computador y Cinemática Pura 100% en cliente (Navegador/Local).
- * Refactorizado para alta velocidad, exactitud sub-píxel y conteo determinista de repeticiones:
+ * Refactorizado para exactitud anatómica 1:1 sobre el vídeo real:
  * 
- * 1. Aceleración x10: Modelo MediaPipe Pose FULL (no heavy), captura con requestVideoFrameCallback
- *    a playbackRate = 3.0x (15 FPS), y fallback a 12 FPS / 12s / 384x384 si se usa currentTime.
- * 2. Sin deformación ósea: ELIMINADO enforceBoneLength. Sustituido por interpolación de baja visibilidad
- *    (< 0.5) y suavizado bidireccional zeroPhaseSmooth sin desfase de fase (lag = 0).
- * 3. Detector matemático de repeticiones por valles y picos sobre el array completo (mínimo -25° caída,
- *    +20° subida, separación >= 12 frames), asignando 'Inicio', 'Excéntrica', 'Fondo', 'Concéntrica'
- *    y repCount acumulativo.
- * 4. Desplazamiento limpio de etiquetas en canvas: líneas limpias de 3px y badges con offset de ±35px
- *    o panel HUD en esquina para evitar solapamientos en cadera.
+ * 1. Detección Directa sobre el elemento <video> (ELIMINADO cropToAthlete y OffscreenCanvas intermedio).
+ *    MediaPipe gestiona internamente el tracking en modo VIDEO sin deformación de Aspect Ratio.
+ * 2. Sin deformación ósea: ELIMINADO enforceBoneLength. Coordenadas [0..1] reales preservadas
+ *    con interpolación de baja visibilidad (< 0.5) y suavizado temporal zeroPhaseSmooth (lag = 0).
+ * 3. Renderizado 1:1 en Canvas con alineación para 'object-fit: contain' mediante getRenderedVideoRect.
+ * 4. Detector matemático de repeticiones por picos y valles sobre array completo (-25° / +20° / 12 frames).
+ * 5. Visualización limpia con trazos de 3px y offsets sin solapamiento (±35px) o panel HUD.
  */
 
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
@@ -34,19 +32,11 @@ export type BodySide = 'left' | 'right';
 
 export type MovementPhase = 'Inicio' | 'Excéntrica' | 'Fondo' | 'Concéntrica';
 
-export interface AthleteRoi {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  width: number;
-  height: number;
-  pixelRect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+export interface RenderedVideoRect {
+  offsetX: number;
+  offsetY: number;
+  renderW: number;
+  renderH: number;
 }
 
 export interface RepetitionInterval {
@@ -65,12 +55,12 @@ export interface ProcessedKinematicFrame {
   frameIndex: number;
   timestampSec: number;
   lockedSide: BodySide;
-  /** Coordenadas globales en píxeles del vídeo original tras zeroPhaseSmooth */
-  joints: Record<JointName, Point>;
-  /** Coordenadas normalizadas [0, 1] en el espacio global del vídeo original */
+  /** Coordenadas normalizadas directas [0..1] de MediaPipe tras zeroPhaseSmooth */
   normalizedJoints: Record<JointName, Point>;
-  /** Coordenadas originales sin filtro para auditoría/diagnóstico */
-  rawJointsPx: Record<JointName, Point>;
+  /** Coordenadas en píxeles del vídeo original (normalized * videoWidth/Height) */
+  joints: Record<JointName, Point>;
+  /** Coordenadas sin filtro temporal para auditoría/diagnóstico */
+  rawJoints: Record<JointName, Point>;
   /** Ángulos articulares calculados en grados */
   anglesDeg: {
     elbow: number;     // Flexión de codo (Hombro - Codo - Muñeca)
@@ -84,8 +74,6 @@ export interface ProcessedKinematicFrame {
   phase: MovementPhase;
   /** Contador acumulado de repeticiones completadas */
   repCount: number;
-  /** Región de interés (ROI) utilizada para la inferencia */
-  roi: AthleteRoi;
   /** Visibilidad registrada por articulación */
   visibility: Record<JointName, number>;
 }
@@ -103,10 +91,6 @@ export interface KinematicPipelineConfig {
   wasmLoaderPath?: string;
   /** Delegado de inferencia: GPU preferente con fallback a CPU */
   delegate?: 'GPU' | 'CPU';
-  /** Margen por cada lado para el recorte dinámico. Defecto: 25% */
-  roiMarginRatio?: number;
-  /** Dimensión del lienzo auxiliar en píxeles. Defecto: 512 en modo rápido, 384 en fallback */
-  roiCanvasSize?: number;
   /** Número de fotogramas iniciales para decidir el lado bloqueado. Defecto: 15 frames */
   sideLockingFramesCount?: number;
   /** Velocidad de reproducción para captura rápida con requestVideoFrameCallback. Defecto: 3.0 */
@@ -148,7 +132,6 @@ export const RIGHT_SIDE_INDICES = [12, 14, 16, 24, 26, 28] as const;
 
 export const ALL_JOINTS: JointName[] = ['shoulder', 'elbow', 'wrist', 'hip', 'knee', 'ankle'];
 
-// Parámetros por defecto optimizados (Bug 1: Modelo FULL)
 export const DEFAULT_PIPELINE_CONFIG: Required<KinematicPipelineConfig> = {
   startOffsetSec: 2.0,
   maxAnalysisDurationSec: 20.0,
@@ -156,8 +139,6 @@ export const DEFAULT_PIPELINE_CONFIG: Required<KinematicPipelineConfig> = {
   modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
   wasmLoaderPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
   delegate: 'GPU',
-  roiMarginRatio: 0.25,
-  roiCanvasSize: 512,
   sideLockingFramesCount: 15,
   fastPlaybackRate: 3.0,
   minDropDeg: 25,
@@ -166,7 +147,7 @@ export const DEFAULT_PIPELINE_CONFIG: Required<KinematicPipelineConfig> = {
 };
 
 // ============================================================================
-// Funciones Matemáticas Puras y Procesamiento de Señal
+// Funciones Matemáticas Puras y Proyección Geométrica
 // ============================================================================
 
 /**
@@ -207,9 +188,54 @@ export function calculateAngleDegrees(a: Point, b: Point, c: Point): number {
 }
 
 /**
- * Bug 2: Interpolación de fotogramas con baja visibilidad (visibility < 0.5).
- * Rellena las articulaciones ocluidas interpolando linealmente entre el último y
- * el próximo fotograma fiables.
+ * Regla 3: Calcula el rectángulo real renderizado del vídeo dentro del contenedor/canvas
+ * para compensar barras negras de 'object-fit: contain' (Aspect Ratio Alignment 1:1).
+ */
+export function getRenderedVideoRect(
+  video: { videoWidth: number; videoHeight: number },
+  canvas: { width: number; height: number }
+): RenderedVideoRect {
+  const vW = video.videoWidth || 640;
+  const vH = video.videoHeight || 480;
+  const cW = canvas.width || 640;
+  const cH = canvas.height || 480;
+
+  const videoRatio = vW / vH;
+  const canvasRatio = cW / cH;
+  let renderW = cW;
+  let renderH = cH;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (videoRatio > canvasRatio) {
+    renderH = cW / videoRatio;
+    offsetY = (cH - renderH) / 2;
+  } else {
+    renderW = cH * videoRatio;
+    offsetX = (cW - renderW) / 2;
+  }
+
+  return { offsetX, offsetY, renderW, renderH };
+}
+
+/**
+ * Convierte un punto normalizado [0..1] a coordenadas en píxeles del canvas
+ * respetando el encuadre exacto del vídeo ('object-fit: contain').
+ */
+export function projectLandmarkToCanvas(
+  normalizedPoint: Point,
+  rect: RenderedVideoRect
+): Point {
+  return {
+    x: rect.offsetX + normalizedPoint.x * rect.renderW,
+    y: rect.offsetY + normalizedPoint.y * rect.renderH,
+    z: normalizedPoint.z,
+    visibility: normalizedPoint.visibility
+  };
+}
+
+/**
+ * Interpolación lineal de fotogramas con baja visibilidad (< 0.5).
  */
 export function interpolateLowVisibilityLandmarks(
   framesJoints: Array<Record<JointName, Point>>,
@@ -231,7 +257,6 @@ export function interpolateLowVisibilityLandmarks(
     for (let i = 0; i < n; i++) {
       const curVis = result[i][joint].visibility ?? 0;
       if (curVis < minVisibility) {
-        // Buscar frame anterior fiable
         let prevIdx = -1;
         for (let p = i - 1; p >= 0; p--) {
           if ((result[p][joint].visibility ?? 0) >= minVisibility) {
@@ -240,7 +265,6 @@ export function interpolateLowVisibilityLandmarks(
           }
         }
 
-        // Buscar frame posterior fiable
         let nextIdx = -1;
         for (let q = i + 1; q < n; q++) {
           if ((result[q][joint].visibility ?? 0) >= minVisibility) {
@@ -276,23 +300,19 @@ export function interpolateLowVisibilityLandmarks(
 }
 
 /**
- * Bug 2: Suavizado bidireccional de fase cero (zeroPhaseSmooth).
- * Aplica un filtro hacia adelante y hacia atrás que elimina el temblor de alta frecuencia
- * sin introducir retraso temporal (desfase = 0), manteniendo los puntos exactamente
- * en las articulaciones anatómicas reales sin deformación esquelética.
+ * Suavizado bidireccional de fase cero (zeroPhaseSmooth).
+ * Elimina vibraciones sin introducir retraso temporal (desfase = 0).
  */
 export function zeroPhaseSmooth(values: number[], alpha = 0.38): number[] {
   const n = values.length;
   if (n <= 2) return [...values];
 
-  // Paso 1: Filtro IIR hacia adelante
   const forward: number[] = new Array(n);
   forward[0] = values[0];
   for (let i = 1; i < n; i++) {
     forward[i] = alpha * values[i] + (1 - alpha) * forward[i - 1];
   }
 
-  // Paso 2: Filtro IIR hacia atrás (cancela el desfase de fase)
   const backward: number[] = new Array(n);
   backward[n - 1] = forward[n - 1];
   for (let i = n - 2; i >= 0; i--) {
@@ -303,7 +323,7 @@ export function zeroPhaseSmooth(values: number[], alpha = 0.38): number[] {
 }
 
 /**
- * Aplica zeroPhaseSmooth sobre las coordenadas X e Y de todas las articulaciones.
+ * Aplica zeroPhaseSmooth sobre las coordenadas X e Y directas [0..1] de todas las articulaciones.
  */
 export function smoothJointsTrajectoryZeroPhase(
   framesJoints: Array<Record<JointName, Point>>,
@@ -338,14 +358,7 @@ export function smoothJointsTrajectoryZeroPhase(
 }
 
 /**
- * Bug 3: Detector Matemático de Valles y Picos sobre el array completo de ángulos.
- * No utiliza una FSM en vivo frame a frame, garantizando que el contador de repeticiones
- * nunca se quede en 0 si la curva angular desciende y asciende.
- * 
- * Reglas:
- * 1. Mínimo local (valle / Fondo) donde el ángulo baje al menos minDropDeg (25°) respecto al pico previo.
- * 2. El ángulo sube al menos minRiseDeg (20°) tras el valle (fase concéntrica completada).
- * 3. Separación mínima de minValleySeparationFrames (12 frames) entre valles consecutivos.
+ * Detector Matemático de Valles y Picos sobre el array completo de ángulos.
  */
 export function detectRepetitionsFromAngleSignal(
   angles: number[],
@@ -356,7 +369,6 @@ export function detectRepetitionsFromAngleSignal(
   const n = angles.length;
   if (n < minValleySeparationFrames) return [];
 
-  // 1. Detectar candidatos a mínimos locales (valles)
   const candidateValleys: number[] = [];
   for (let i = 1; i < n - 1; i++) {
     if (angles[i] <= angles[i - 1] && angles[i] <= angles[i + 1]) {
@@ -368,13 +380,10 @@ export function detectRepetitionsFromAngleSignal(
   let lastAcceptedValley = -999;
 
   for (const valleyIdx of candidateValleys) {
-    // Verificar separación mínima respecto al último valle aceptado
     if (valleyIdx - lastAcceptedValley < minValleySeparationFrames) {
-      // Si está demasiado cerca, comprobar si este nuevo valle es aún más profundo
       if (validatedReps.length > 0) {
         const lastRep = validatedReps[validatedReps.length - 1];
         if (angles[valleyIdx] < lastRep.bottomAngle) {
-          // Reemplazar por el valle más profundo
           validatedReps.pop();
         } else {
           continue;
@@ -395,14 +404,13 @@ export function detectRepetitionsFromAngleSignal(
         maxBefore = angles[j];
         peakStartIdx = j;
       } else if (maxBefore - angles[j] >= 10) {
-        // Fin del ascenso previo al retroceder
         break;
       }
     }
 
     const drop = maxBefore - valleyAngle;
     if (drop < minDropDeg) {
-      continue; // No cumple la bajada mínima de 25°
+      continue;
     }
 
     // Buscar pico posterior más alto (fin de la subida concéntrica)
@@ -414,14 +422,13 @@ export function detectRepetitionsFromAngleSignal(
         maxAfter = angles[k];
         peakEndIdx = k;
       } else if (maxAfter - angles[k] >= 10) {
-        // Cima alcanzada y caída posterior detectada
         break;
       }
     }
 
     const rise = maxAfter - valleyAngle;
     if (rise < minRiseDeg) {
-      continue; // No cumple la subida mínima de 20°
+      continue;
     }
 
     lastAcceptedValley = valleyIdx;
@@ -442,8 +449,7 @@ export function detectRepetitionsFromAngleSignal(
 }
 
 /**
- * Bug 3: Asigna fases ('Inicio', 'Excéntrica', 'Fondo', 'Concéntrica') y el repCount
- * acumulativo a cada fotograma a partir de los intervalos de repetición validados.
+ * Asigna fases y repCount acumulativo a cada fotograma.
  */
 export function assignRepetitionPhasesAndCounts(
   totalFrames: number,
@@ -478,7 +484,6 @@ export function assignRepetitionPhasesAndCounts(
     result.push({ phase: assignedPhase, repCount: count });
   }
 
-  // Calcular duración en segundos de cada repetición si se suministran timestamps
   if (timestampsSec && timestampsSec.length === totalFrames) {
     for (const rep of reps) {
       const startT = timestampsSec[rep.peakStartIndex] ?? 0;
@@ -491,7 +496,7 @@ export function assignRepetitionPhasesAndCounts(
 }
 
 /**
- * Regla 1: Ventana de Muestreo Temporal
+ * Ventana de Muestreo Temporal
  */
 export function buildSamplingTimeline(
   videoDurationSec: number,
@@ -538,109 +543,7 @@ export function buildSamplingTimeline(
 }
 
 /**
- * Regla 2: Recorte Dinámico alrededor del Atleta (ROI Crop 25% margen)
- */
-export function computeAthleteRoi(
-  landmarks: Point[],
-  videoWidth: number,
-  videoHeight: number,
-  marginRatio = DEFAULT_PIPELINE_CONFIG.roiMarginRatio
-): AthleteRoi {
-  if (!landmarks || landmarks.length === 0) {
-    return {
-      minX: 0,
-      minY: 0,
-      maxX: 1,
-      maxY: 1,
-      width: 1,
-      height: 1,
-      pixelRect: { x: 0, y: 0, width: videoWidth, height: videoHeight }
-    };
-  }
-
-  let minX = 1;
-  let minY = 1;
-  let maxX = 0;
-  let maxY = 0;
-  let validCount = 0;
-
-  for (const lm of landmarks) {
-    if (!lm) continue;
-    if (lm.visibility !== undefined && lm.visibility < 0.20) continue;
-    if (lm.x < minX) minX = lm.x;
-    if (lm.x > maxX) maxX = lm.x;
-    if (lm.y < minY) minY = lm.y;
-    if (lm.y > maxY) maxY = lm.y;
-    validCount++;
-  }
-
-  if (validCount === 0 || minX >= maxX || minY >= maxY) {
-    minX = 0;
-    minY = 0;
-    maxX = 1;
-    maxY = 1;
-  }
-
-  const rawW = maxX - minX;
-  const rawH = maxY - minY;
-  const marginW = rawW * marginRatio;
-  const marginH = rawH * marginRatio;
-
-  const cropMinX = Math.max(0, minX - marginW);
-  const cropMinY = Math.max(0, minY - marginH);
-  const cropMaxX = Math.min(1, maxX + marginW);
-  const cropMaxY = Math.min(1, maxY + marginH);
-
-  const cropW = Math.max(0.05, cropMaxX - cropMinX);
-  const cropH = Math.max(0.05, cropMaxY - cropMinY);
-
-  return {
-    minX: cropMinX,
-    minY: cropMinY,
-    maxX: cropMaxX,
-    maxY: cropMaxY,
-    width: cropW,
-    height: cropH,
-    pixelRect: {
-      x: Math.round(cropMinX * videoWidth),
-      y: Math.round(cropMinY * videoHeight),
-      width: Math.round(cropW * videoWidth),
-      height: Math.round(cropH * videoHeight)
-    }
-  };
-}
-
-/**
- * Regla 2: Reconversión de coordenadas normalizadas del ROI al sistema global del vídeo.
- */
-export function remapPointFromRoi(
-  roiPoint: Point,
-  roi: AthleteRoi,
-  videoWidth: number,
-  videoHeight: number
-): { globalNormalized: Point; globalPixels: Point } {
-  const globalNormX = roi.minX + roiPoint.x * roi.width;
-  const globalNormY = roi.minY + roiPoint.y * roi.height;
-
-  const globalNormalized: Point = {
-    x: globalNormX,
-    y: globalNormY,
-    z: roiPoint.z,
-    visibility: roiPoint.visibility
-  };
-
-  const globalPixels: Point = {
-    x: globalNormX * videoWidth,
-    y: globalNormY * videoHeight,
-    z: roiPoint.z,
-    visibility: roiPoint.visibility
-  };
-
-  return { globalNormalized, globalPixels };
-}
-
-/**
- * Regla 3: Bloqueo Unilateral (Side-Locking) en primeros 15 frames
+ * Bloqueo Unilateral (Side-Locking) en primeros 15 frames
  */
 export function determineDominantSide(
   initialFramesLandmarks: Point[][]
@@ -666,7 +569,7 @@ export function determineDominantSide(
 }
 
 /**
- * Extrae las 6 articulaciones maestras del lado dominante.
+ * Extrae las 6 articulaciones maestras del lado dominante con coordenadas directas [0..1].
  */
 export function extractUnilateralJoints(
   landmarks: Point[],
@@ -686,7 +589,7 @@ export function extractUnilateralJoints(
 }
 
 // ============================================================================
-// Bug 4: Renderizado Limpio en Canvas con Grosor 3px y Offsets sin Solapamiento
+// Renderizado Limpio en Canvas con Alineación 1:1 a 'object-fit: contain'
 // ============================================================================
 
 export interface CanvasOverlayOptions {
@@ -697,15 +600,13 @@ export interface CanvasOverlayOptions {
 }
 
 /**
- * Bug 4: Dibuja las articulaciones y los segmentos con grosor de 3px y coloca las
- * etiquetas con un offset vertical de ±35px o en un panel HUD en la esquina para
- * evitar que se pisen en el centro de la cadera.
+ * Renderizado de articulaciones alineado 1:1 al vídeo real proyectando el aspecto contain.
  */
 export function drawKinematicFrameOverlay(
   ctx: CanvasRenderingContext2D,
   frame: ProcessedKinematicFrame,
-  canvasWidth: number,
-  canvasHeight: number,
+  canvas: { width: number; height: number },
+  video?: { videoWidth: number; videoHeight: number },
   options: CanvasOverlayOptions = {}
 ): void {
   const lineWidth = options.skeletonLineWidth ?? 3;
@@ -713,7 +614,18 @@ export function drawKinematicFrameOverlay(
   const showInCorner = options.showAnglesInCorner ?? true;
   const vOffset = options.badgeVerticalOffset ?? 35;
 
-  const { shoulder, elbow, wrist, hip, knee, ankle } = frame.joints;
+  const vInfo = video || { videoWidth: canvas.width, videoHeight: canvas.height };
+  const rect = getRenderedVideoRect(vInfo, canvas);
+
+  // Proyectar coordenadas normalizadas [0..1] a píxeles exactos del vídeo dentro del canvas
+  const project = (p: Point): Point => projectLandmarkToCanvas(p, rect);
+
+  const shoulder = project(frame.normalizedJoints.shoulder);
+  const elbow = project(frame.normalizedJoints.elbow);
+  const wrist = project(frame.normalizedJoints.wrist);
+  const hip = project(frame.normalizedJoints.hip);
+  const knee = project(frame.normalizedJoints.knee);
+  const ankle = project(frame.normalizedJoints.ankle);
 
   ctx.save();
 
@@ -745,14 +657,14 @@ export function drawKinematicFrameOverlay(
     ctx.stroke();
   };
 
-  // Segmentos esqueléticos: Húmero y Antebrazo
+  // Segmentos esqueléticos: Miembro superior
   drawBoneSegment(shoulder, elbow, '#8B5CF6'); // Violeta
   drawBoneSegment(elbow, wrist, '#EC4899');    // Rosa
 
-  // Tronco y Cadera
+  // Tronco
   drawBoneSegment(shoulder, hip, '#38BDF8');   // Azul claro
 
-  // Segmentos de pierna: Fémur y Tibia
+  // Segmentos: Miembro inferior
   drawBoneSegment(hip, knee, '#06B6D4');       // Cian
   drawBoneSegment(knee, ankle, '#10B981');     // Esmeralda
 
@@ -765,10 +677,9 @@ export function drawKinematicFrameOverlay(
   drawJointNode(ankle, '#38BDF8');
 
   if (showInCorner) {
-    // HUD limpio en esquina superior para que jamás se solape con el cuerpo
     const hudW = 160;
     const hudH = 110;
-    const hudX = canvasWidth - hudW - 12;
+    const hudX = canvas.width - hudW - 12;
     const hudY = 12;
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
@@ -794,7 +705,6 @@ export function drawKinematicFrameOverlay(
     ctx.fillText(`Cadera:  ${Math.round(frame.anglesDeg.hip)}°`, hudX + 10, hudY + 56);
     ctx.fillText(`Codo:    ${Math.round(frame.anglesDeg.elbow)}°`, hudX + 10, hudY + 78);
   } else {
-    // Badges sobre el cuerpo con offset vertical estricto de ±35px para no pisarse
     const drawBadge = (x: number, y: number, text: string, color: string) => {
       ctx.font = 'bold 11px monospace';
       const tw = ctx.measureText(text).width;
@@ -811,7 +721,6 @@ export function drawKinematicFrameOverlay(
       ctx.fillText(text, x, y);
     };
 
-    // Cadera hacia arriba (-35px), Rodilla hacia abajo (+35px)
     drawBadge(hip.x, hip.y - vOffset, `Cadera: ${Math.round(frame.anglesDeg.hip)}°`, '#06B6D4');
     drawBadge(knee.x, knee.y + vOffset, `Rodilla: ${Math.round(frame.anglesDeg.knee)}°`, '#10B981');
     drawBadge(elbow.x, elbow.y - vOffset, `Codo: ${Math.round(frame.anglesDeg.elbow)}°`, '#EC4899');
@@ -837,8 +746,7 @@ export class KinematicPipeline {
   }
 
   /**
-   * Bug 1: Inicializa MediaPipe Tasks-Vision con pose_landmarker_full.task (no heavy)
-   * y GPU en modo VIDEO.
+   * Inicializa MediaPipe Tasks-Vision con pose_landmarker_full.task (GPU en modo VIDEO).
    */
   async initialize(): Promise<void> {
     if (this.isInitialized && this.landmarker) return;
@@ -875,7 +783,7 @@ export class KinematicPipeline {
   }
 
   /**
-   * Ejecuta el pipeline completo de análisis cinemático sobre un vídeo HTML o archivo.
+   * Ejecuta el análisis cinemático directamente sobre el vídeo sin lienzos intermedios.
    */
   async processClip(
     videoSource: HTMLVideoElement | File | Blob,
@@ -917,8 +825,8 @@ export class KinematicPipeline {
   }
 
   /**
-   * Bug 1: Bucle de extracción x10 con requestVideoFrameCallback a 3.0x de velocidad
-   * o fallback a 12 FPS / 12s / 384px si se requiere currentTime.
+   * Bucle de extracción directo: pasa el elemento <video> DIRECTAMENTE a MediaPipe
+   * (sin cropToAthlete ni OffscreenCanvas intermedio que alteren el Aspect Ratio).
    */
   private async executeExtractionLoop(
     video: HTMLVideoElement,
@@ -928,11 +836,8 @@ export class KinematicPipeline {
     const videoHeight = video.videoHeight || 480;
 
     const hasRvfc = typeof (video as any).requestVideoFrameCallback === 'function';
-
-    // Parámetros adaptativos según disponibilidad de requestVideoFrameCallback (Bug 1)
     const effectiveFps = hasRvfc ? this.config.targetSampleFps : 12;
     const effectiveMaxDuration = hasRvfc ? this.config.maxAnalysisDurationSec : 12.0;
-    const canvasSize = hasRvfc ? this.config.roiCanvasSize : 384;
 
     const timeline = buildSamplingTimeline(video.duration, {
       startOffsetSec: this.config.startOffsetSec,
@@ -943,35 +848,16 @@ export class KinematicPipeline {
     const totalExpectedFrames = timeline.timestampsSec.length;
     if (totalExpectedFrames === 0) return [];
 
-    let offCanvas: HTMLCanvasElement | OffscreenCanvas;
-    let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-
-    if (typeof OffscreenCanvas !== 'undefined') {
-      offCanvas = new OffscreenCanvas(canvasSize, canvasSize);
-      ctx = offCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
-    } else {
-      offCanvas = document.createElement('canvas');
-      offCanvas.width = canvasSize;
-      offCanvas.height = canvasSize;
-      ctx = offCanvas.getContext('2d');
-    }
-
-    if (!ctx) {
-      throw new Error('No se pudo inicializar el contexto 2D del canvas auxiliar.');
-    }
-
     interface RawFrameRecord {
       frameIndex: number;
       timestampSec: number;
       allLandmarks: Point[];
-      roi: AthleteRoi;
     }
 
     const rawRecords: RawFrameRecord[] = [];
-    let athleteRoi: AthleteRoi | null = null;
 
     if (hasRvfc) {
-      // --- MODO RÁPIDO X10: Reproducción nativa a 3.0x de velocidad con requestVideoFrameCallback ---
+      // --- MODO RÁPIDO: Captura continua a 3.0x de velocidad con requestVideoFrameCallback ---
       video.muted = true;
       video.playbackRate = this.config.fastPlaybackRate;
       video.currentTime = timeline.startTimeSec;
@@ -1011,67 +897,23 @@ export class KinematicPipeline {
           if (mediaTime >= timeline.startTimeSec && (mediaTime - lastSampleTime >= stepSec - 0.006 || lastSampleTime < 0)) {
             lastSampleTime = mediaTime;
 
-            // Inferencia con ROI Crop (Regla 2)
-            if (!athleteRoi) {
-              ctx!.clearRect(0, 0, canvasSize, canvasSize);
-              ctx!.drawImage(video, 0, 0, videoWidth, videoHeight, 0, 0, canvasSize, canvasSize);
-              const tsMs = Math.round(mediaTime * 1000);
-              const det = this.landmarker!.detectForVideo(offCanvas as any, tsMs);
+            // Inferencia Directa sobre el elemento <video>
+            const tsMs = Math.round(mediaTime * 1000);
+            const det = this.landmarker!.detectForVideo(video, tsMs);
 
-              if (det.landmarks && det.landmarks.length > 0 && det.landmarks[0].length >= 29) {
-                const firstLms: Point[] = det.landmarks[0].map(lm => ({
-                  x: lm.x,
-                  y: lm.y,
-                  z: lm.z,
-                  visibility: lm.visibility
-                }));
-                athleteRoi = computeAthleteRoi(firstLms, videoWidth, videoHeight, this.config.roiMarginRatio);
-                rawRecords.push({
-                  frameIndex: rawRecords.length,
-                  timestampSec: mediaTime,
-                  allLandmarks: firstLms,
-                  roi: athleteRoi
-                });
-              }
-            } else {
-              const { pixelRect } = athleteRoi;
-              ctx!.clearRect(0, 0, canvasSize, canvasSize);
-              ctx!.drawImage(
-                video,
-                pixelRect.x,
-                pixelRect.y,
-                pixelRect.width,
-                pixelRect.height,
-                0,
-                0,
-                canvasSize,
-                canvasSize
-              );
-              const tsMs = Math.round(mediaTime * 1000);
-              const det = this.landmarker!.detectForVideo(offCanvas as any, tsMs);
+            if (det.landmarks && det.landmarks.length > 0 && det.landmarks[0].length >= 29) {
+              const directLandmarks: Point[] = det.landmarks[0].map(lm => ({
+                x: lm.x,
+                y: lm.y,
+                z: lm.z,
+                visibility: lm.visibility
+              }));
 
-              if (det.landmarks && det.landmarks.length > 0) {
-                const globalLandmarks: Point[] = det.landmarks[0].map(lm => {
-                  const remapped = remapPointFromRoi(
-                    { x: lm.x, y: lm.y, z: lm.z, visibility: lm.visibility },
-                    athleteRoi!,
-                    videoWidth,
-                    videoHeight
-                  );
-                  return {
-                    x: remapped.globalNormalized.x,
-                    y: remapped.globalNormalized.y,
-                    z: lm.z,
-                    visibility: lm.visibility
-                  };
-                });
-                rawRecords.push({
-                  frameIndex: rawRecords.length,
-                  timestampSec: mediaTime,
-                  allLandmarks: globalLandmarks,
-                  roi: athleteRoi
-                });
-              }
+              rawRecords.push({
+                frameIndex: rawRecords.length,
+                timestampSec: mediaTime,
+                allLandmarks: directLandmarks
+              });
             }
 
             if (onProgress) {
@@ -1090,13 +932,12 @@ export class KinematicPipeline {
         video.play().then(() => {
           (video as any).requestVideoFrameCallback(onFrame);
         }).catch(() => {
-          // Si el autoplay falla, recurrir al método de seek
           finish();
         });
       });
     }
 
-    // --- MODO FALLBACK (Si RVFC no extrajo fotogramas o no está soportado) ---
+    // --- MODO FALLBACK (si RVFC no extrajo fotogramas o no está soportado) ---
     if (rawRecords.length === 0) {
       for (let i = 0; i < totalExpectedFrames; i++) {
         const timestampSec = timeline.timestampsSec[i];
@@ -1109,66 +950,22 @@ export class KinematicPipeline {
           video.currentTime = timestampSec;
         });
 
-        if (!athleteRoi) {
-          ctx.clearRect(0, 0, canvasSize, canvasSize);
-          ctx.drawImage(video, 0, 0, videoWidth, videoHeight, 0, 0, canvasSize, canvasSize);
-          const tsMs = Math.round(timestampSec * 1000);
-          const det = this.landmarker!.detectForVideo(offCanvas as any, tsMs);
-
-          if (det.landmarks && det.landmarks.length > 0 && det.landmarks[0].length >= 29) {
-            const firstLms: Point[] = det.landmarks[0].map(lm => ({
-              x: lm.x,
-              y: lm.y,
-              z: lm.z,
-              visibility: lm.visibility
-            }));
-            athleteRoi = computeAthleteRoi(firstLms, videoWidth, videoHeight, this.config.roiMarginRatio);
-            rawRecords.push({
-              frameIndex: i,
-              timestampSec,
-              allLandmarks: firstLms,
-              roi: athleteRoi
-            });
-          }
-          continue;
-        }
-
-        const { pixelRect } = athleteRoi;
-        ctx.clearRect(0, 0, canvasSize, canvasSize);
-        ctx.drawImage(
-          video,
-          pixelRect.x,
-          pixelRect.y,
-          pixelRect.width,
-          pixelRect.height,
-          0,
-          0,
-          canvasSize,
-          canvasSize
-        );
+        // Inferencia Directa sobre el elemento <video>
         const tsMs = Math.round(timestampSec * 1000);
-        const det = this.landmarker!.detectForVideo(offCanvas as any, tsMs);
+        const det = this.landmarker!.detectForVideo(video, tsMs);
 
-        if (det.landmarks && det.landmarks.length > 0) {
-          const globalLandmarks: Point[] = det.landmarks[0].map(lm => {
-            const remapped = remapPointFromRoi(
-              { x: lm.x, y: lm.y, z: lm.z, visibility: lm.visibility },
-              athleteRoi!,
-              videoWidth,
-              videoHeight
-            );
-            return {
-              x: remapped.globalNormalized.x,
-              y: remapped.globalNormalized.y,
-              z: lm.z,
-              visibility: lm.visibility
-            };
-          });
+        if (det.landmarks && det.landmarks.length > 0 && det.landmarks[0].length >= 29) {
+          const directLandmarks: Point[] = det.landmarks[0].map(lm => ({
+            x: lm.x,
+            y: lm.y,
+            z: lm.z,
+            visibility: lm.visibility
+          }));
+
           rawRecords.push({
             frameIndex: i,
             timestampSec,
-            allLandmarks: globalLandmarks,
-            roi: athleteRoi
+            allLandmarks: directLandmarks
           });
         }
 
@@ -1183,25 +980,25 @@ export class KinematicPipeline {
       return [];
     }
 
-    // --- FASE 2: Bloqueo Unilateral (Regla 3) ---
+    // --- FASE 2: Bloqueo Unilateral ---
     const initialSubset = rawRecords
       .slice(0, this.config.sideLockingFramesCount)
       .map(r => r.allLandmarks);
     const dominantSide = determineDominantSide(initialSubset);
 
-    // Extraer articulaciones en píxeles del vídeo original
-    const rawFramesJointsPx: Array<Record<JointName, Point>> = [];
+    // Extraer coordenadas directas normalizadas [0..1]
+    const rawFramesNormalized: Array<Record<JointName, Point>> = [];
     const framesVisibility: Array<Record<JointName, number>> = [];
 
     for (const record of rawRecords) {
       const unilateral = extractUnilateralJoints(record.allLandmarks, dominantSide);
-      rawFramesJointsPx.push({
-        shoulder: { x: unilateral.shoulder.x * videoWidth, y: unilateral.shoulder.y * videoHeight, z: unilateral.shoulder.z, visibility: unilateral.shoulder.visibility },
-        elbow: { x: unilateral.elbow.x * videoWidth, y: unilateral.elbow.y * videoHeight, z: unilateral.elbow.z, visibility: unilateral.elbow.visibility },
-        wrist: { x: unilateral.wrist.x * videoWidth, y: unilateral.wrist.y * videoHeight, z: unilateral.wrist.z, visibility: unilateral.wrist.visibility },
-        hip: { x: unilateral.hip.x * videoWidth, y: unilateral.hip.y * videoHeight, z: unilateral.hip.z, visibility: unilateral.hip.visibility },
-        knee: { x: unilateral.knee.x * videoWidth, y: unilateral.knee.y * videoHeight, z: unilateral.knee.z, visibility: unilateral.knee.visibility },
-        ankle: { x: unilateral.ankle.x * videoWidth, y: unilateral.ankle.y * videoHeight, z: unilateral.ankle.z, visibility: unilateral.ankle.visibility },
+      rawFramesNormalized.push({
+        shoulder: { x: unilateral.shoulder.x, y: unilateral.shoulder.y, z: unilateral.shoulder.z, visibility: unilateral.shoulder.visibility },
+        elbow: { x: unilateral.elbow.x, y: unilateral.elbow.y, z: unilateral.elbow.z, visibility: unilateral.elbow.visibility },
+        wrist: { x: unilateral.wrist.x, y: unilateral.wrist.y, z: unilateral.wrist.z, visibility: unilateral.wrist.visibility },
+        hip: { x: unilateral.hip.x, y: unilateral.hip.y, z: unilateral.hip.z, visibility: unilateral.hip.visibility },
+        knee: { x: unilateral.knee.x, y: unilateral.knee.y, z: unilateral.knee.z, visibility: unilateral.knee.visibility },
+        ankle: { x: unilateral.ankle.x, y: unilateral.ankle.y, z: unilateral.ankle.z, visibility: unilateral.ankle.visibility },
       });
 
       framesVisibility.push({
@@ -1214,46 +1011,55 @@ export class KinematicPipeline {
       });
     }
 
-    // --- FASE 3: Interpolación (< 0.5) y Suavizado Bidireccional zeroPhaseSmooth (Bug 2) ---
-    // (ELIMINADO enforceBoneLength que encogía el esqueleto con discos grandes)
-    const interpolatedJoints = interpolateLowVisibilityLandmarks(rawFramesJointsPx, 0.5);
-    const smoothedJointsPx = smoothJointsTrajectoryZeroPhase(interpolatedJoints, 0.38);
+    // --- FASE 3: Interpolación (< 0.5) y Suavizado Bidireccional zeroPhaseSmooth ---
+    // (SIN enforceBoneLength para evitar deformaciones en discos/máquinas)
+    const interpolatedNorm = interpolateLowVisibilityLandmarks(rawFramesNormalized, 0.5);
+    const smoothedNorm = smoothJointsTrajectoryZeroPhase(interpolatedNorm, 0.38);
 
     // --- FASE 4: Cálculo de Ángulos Articulares y Señal Principal ---
     const primaryAngles: number[] = [];
     const intermediateFrames: Array<Omit<ProcessedKinematicFrame, 'phase' | 'repCount'>> = [];
 
-    for (let i = 0; i < smoothedJointsPx.length; i++) {
-      const jointsPx = smoothedJointsPx[i];
-      const rawPx = rawFramesJointsPx[i];
+    for (let i = 0; i < smoothedNorm.length; i++) {
+      const norm = smoothedNorm[i];
+      const rawNorm = rawFramesNormalized[i];
       const vis = framesVisibility[i];
       const record = rawRecords[i];
+
+      // Convertir a píxeles nativos del vídeo original para cálculos angulares y cinemáticos
+      const jointsPx: Record<JointName, Point> = {
+        shoulder: { x: norm.shoulder.x * videoWidth, y: norm.shoulder.y * videoHeight, z: norm.shoulder.z, visibility: vis.shoulder },
+        elbow: { x: norm.elbow.x * videoWidth, y: norm.elbow.y * videoHeight, z: norm.elbow.z, visibility: vis.elbow },
+        wrist: { x: norm.wrist.x * videoWidth, y: norm.wrist.y * videoHeight, z: norm.wrist.z, visibility: vis.wrist },
+        hip: { x: norm.hip.x * videoWidth, y: norm.hip.y * videoHeight, z: norm.hip.z, visibility: vis.hip },
+        knee: { x: norm.knee.x * videoWidth, y: norm.knee.y * videoHeight, z: norm.knee.z, visibility: vis.knee },
+        ankle: { x: norm.ankle.x * videoWidth, y: norm.ankle.y * videoHeight, z: norm.ankle.z, visibility: vis.ankle },
+      };
+
+      const rawJointsPx: Record<JointName, Point> = {
+        shoulder: { x: rawNorm.shoulder.x * videoWidth, y: rawNorm.shoulder.y * videoHeight, z: rawNorm.shoulder.z, visibility: vis.shoulder },
+        elbow: { x: rawNorm.elbow.x * videoWidth, y: rawNorm.elbow.y * videoHeight, z: rawNorm.elbow.z, visibility: vis.elbow },
+        wrist: { x: rawNorm.wrist.x * videoWidth, y: rawNorm.wrist.y * videoHeight, z: rawNorm.wrist.z, visibility: vis.wrist },
+        hip: { x: rawNorm.hip.x * videoWidth, y: rawNorm.hip.y * videoHeight, z: rawNorm.hip.z, visibility: vis.hip },
+        knee: { x: rawNorm.knee.x * videoWidth, y: rawNorm.knee.y * videoHeight, z: rawNorm.knee.z, visibility: vis.knee },
+        ankle: { x: rawNorm.ankle.x * videoWidth, y: rawNorm.ankle.y * videoHeight, z: rawNorm.ankle.z, visibility: vis.ankle },
+      };
 
       const elbowAngle = calculateAngleDegrees(jointsPx.shoulder, jointsPx.elbow, jointsPx.wrist);
       const kneeAngle = calculateAngleDegrees(jointsPx.hip, jointsPx.knee, jointsPx.ankle);
       const shoulderAngle = calculateAngleDegrees(jointsPx.hip, jointsPx.shoulder, jointsPx.elbow);
       const hipAngle = calculateAngleDegrees(jointsPx.shoulder, jointsPx.hip, jointsPx.knee);
 
-      // Usar rodilla o codo según el mayor rango dinámico para el detector de repeticiones
       const mainAngle = kneeAngle;
       primaryAngles.push(mainAngle);
-
-      const normalizedJoints: Record<JointName, Point> = {
-        shoulder: { x: jointsPx.shoulder.x / videoWidth, y: jointsPx.shoulder.y / videoHeight, z: jointsPx.shoulder.z, visibility: vis.shoulder },
-        elbow: { x: jointsPx.elbow.x / videoWidth, y: jointsPx.elbow.y / videoHeight, z: jointsPx.elbow.z, visibility: vis.elbow },
-        wrist: { x: jointsPx.wrist.x / videoWidth, y: jointsPx.wrist.y / videoHeight, z: jointsPx.wrist.z, visibility: vis.wrist },
-        hip: { x: jointsPx.hip.x / videoWidth, y: jointsPx.hip.y / videoHeight, z: jointsPx.hip.z, visibility: vis.hip },
-        knee: { x: jointsPx.knee.x / videoWidth, y: jointsPx.knee.y / videoHeight, z: jointsPx.knee.z, visibility: vis.knee },
-        ankle: { x: jointsPx.ankle.x / videoWidth, y: jointsPx.ankle.y / videoHeight, z: jointsPx.ankle.z, visibility: vis.ankle },
-      };
 
       intermediateFrames.push({
         frameIndex: record.frameIndex,
         timestampSec: record.timestampSec,
         lockedSide: dominantSide,
+        normalizedJoints: norm,
         joints: jointsPx,
-        normalizedJoints,
-        rawJointsPx: rawPx,
+        rawJoints: rawJointsPx,
         anglesDeg: {
           elbow: Number(elbowAngle.toFixed(1)),
           knee: Number(kneeAngle.toFixed(1)),
@@ -1261,13 +1067,11 @@ export class KinematicPipeline {
           hip: Number(hipAngle.toFixed(1))
         },
         mainAngle: Number(mainAngle.toFixed(1)),
-        roi: record.roi,
         visibility: vis
       });
     }
 
-    // --- FASE 5: Detector Matemático de Valles y Picos sobre el Array Completo (Bug 3) ---
-    // (NO FSM frame a frame)
+    // --- FASE 5: Detector Matemático de Valles y Picos sobre Array Completo ---
     const validatedReps = detectRepetitionsFromAngleSignal(
       primaryAngles,
       this.config.minDropDeg,
@@ -1295,14 +1099,14 @@ export class KinematicPipeline {
   }
 
   /**
-   * Cierra las instancias de MediaPipe para liberar recursos de GPU/WASM.
+   * Cierra las instancias de MediaPipe para liberar recursos.
    */
   dispose(): void {
     if (this.landmarker) {
       try {
         this.landmarker.close();
       } catch {
-        // Ignorar errores al cerrar
+        // Ignorar errores
       }
       this.landmarker = null;
     }
