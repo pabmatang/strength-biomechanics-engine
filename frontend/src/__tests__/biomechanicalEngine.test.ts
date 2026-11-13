@@ -866,9 +866,9 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     expect(pressNoFeetEval.footStabilityStatus).toBe('not_visible');
   });
 
-  it('extracts palm hand_grip for load line, refines drifted ankle using heel/toe, and locks dominant side against mid-rep flip-flopping', () => {
+  it('extracts raw landmarks for load line and ankle preservation, and locks dominant side against mid-rep flip-flopping', () => {
     const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.85 }));
-    // Right arm with visible hand knuckles (grip higher/inside palm than forearm wrist)
+    // Right arm
     landmarks[12] = { x: 0.42, y: 0.46, z: 0.0, visibility: 0.92 };
     landmarks[14] = { x: 0.34, y: 0.50, z: 0.0, visibility: 0.92 };
     landmarks[16] = { x: 0.38, y: 0.30, z: 0.0, visibility: 0.92 }; // right_wrist
@@ -881,8 +881,8 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     landmarks[13] = { x: 0.68, y: 0.46, z: 0.0, visibility: 0.95 };
     landmarks[15] = { x: 0.65, y: 0.24, z: 0.0, visibility: 0.95 };
 
-    // Right ankle drifted forward onto toes (> 0.52 of foot vector) with heel & foot_index visible
-    landmarks[28] = { x: 0.38, y: 0.86, z: 0.0, visibility: 0.52 }; // noisy drifted right_ankle
+    // Right ankle
+    landmarks[28] = { x: 0.38, y: 0.86, z: 0.0, visibility: 0.52 }; // right_ankle
     landmarks[30] = { x: 0.30, y: 0.88, z: 0.0, visibility: 0.92 }; // right_heel
     landmarks[32] = { x: 0.42, y: 0.88, z: 0.0, visibility: 0.92 }; // right_foot_index
 
@@ -890,13 +890,11 @@ describe('Biomechanical Physics & Moment Arm Calculations', () => {
     const lockedFrame = extractPoseDataFromLandmarks(landmarks, 'right', 'upper');
     expect(lockedFrame?.dominantSide).toBe('right');
 
-    // 2. Palm grip center moves toward fist knuckles (y < wrist.y = 0.30)
-    expect(lockedFrame!.keypoints.hand_grip.y).toBeLessThan(landmarks[16].y);
+    // 2. Pure raw ankle coordinates preserved directly without artificial freezing anchors
+    expect(lockedFrame!.keypoints.right_ankle.x).toBe(landmarks[28].x);
+    expect(lockedFrame!.keypoints.right_ankle.y).toBe(landmarks[28].y);
 
-    // 3. Refined ankle pulls drifted x (0.38) cleanly back toward malleolus (between heel 0.30 and 0.34)
-    expect(lockedFrame!.keypoints.right_ankle.x).toBeLessThan(0.36);
-
-    // 4. Biomechanical frame anchors red vertical load vector strictly at hand_grip instead of wrist
+    // 3. Biomechanical frame anchors load vector at hand_grip
     const bioFrame = evaluateBiomechanicalFrame(
       lockedFrame!.keypoints,
       'incline_dumbbell_press',

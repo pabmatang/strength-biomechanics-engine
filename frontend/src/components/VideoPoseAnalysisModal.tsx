@@ -110,6 +110,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [showCanvasText, setShowCanvasText] = useState<boolean>(true);
   const [showEngineSettings, setShowEngineSettings] = useState<boolean>(false);
   const [showConfigBottomSheet, setShowConfigBottomSheet] = useState<boolean>(false);
+  const [manualOffsets, setManualOffsets] = useState<Record<string | number, { dx: number; dy: number }>>({});
 
   // AI MediaPipe Vision Model Status
   const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
@@ -150,8 +151,9 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const lastTimestampRef = useRef<number>(0);
   const isScrubbingRef = useRef<boolean>(false);
 
-  // Adaptive OneEuroFilter calibrated for normalized [0..1] coordinates + 0.0028 micro-jitter deadzone:
-  // holds points rock-steady when still, tracks fast movement cleanly with near-zero trailing lag
+  // Lightweight EMA filter (alpha = 0.35) for pure raw MediaPipe landmarks
+  // Zero deadzone, zero synthetic anchors (anchorX/stabilizedX), no trailing lag
+  const emaKeypointsRef = useRef<Record<string, Keypoint2D>>({});
   const poseSmootherRef = useRef<PoseLandmarkSmoother>(
     new PoseLandmarkSmoother({ minCutoff: 1.0, beta: 5.5, dCutoff: 1.0, deadzone: 0.0028 })
   );
@@ -214,6 +216,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       minRepExcursionDeg: 35
     });
     poseSmootherRef.current.reset();
+    emaKeypointsRef.current = {};
     dominantSideRef.current = null;
     lastValidAngleRef.current = 0;
     lastValidAngleTimeRef.current = 0;
@@ -233,6 +236,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       setBackendDiagnosis(null);
       setAuditedReps([]);
       setRepCount(0);
+      emaKeypointsRef.current = {};
       stopWebcam();
       if (uploadedVideoUrl) {
         URL.revokeObjectURL(uploadedVideoUrl);
@@ -393,12 +397,30 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             }
           }
 
-          // 1. STABILIZE KEYPOINTS WITH ONE-EURO FILTER (ANTI-JITTER)
-          // No calculation is ever performed on raw keypoints
-          const smoothedKeypoints = poseSmootherRef.current.smoothLandmarks(
-            frame.keypoints,
-            monotonicTime
-          );
+          // 1. STABILIZE KEYPOINTS WITH LIGHTWEIGHT EMA FILTER (alpha = 0.35)
+          // Strictly raw MediaPipe landmarks smoothed exclusively with EMA (alpha = 0.35)
+          // No synthetic reconstruction, no frozen anchors, no trailing lag
+          const smoothedKeypoints: Record<string, Keypoint2D> = {};
+          const alpha = 0.35;
+          for (const key of Object.keys(frame.keypoints)) {
+            const raw = frame.keypoints[key];
+            if (!raw) continue;
+            const prev = emaKeypointsRef.current[key];
+            if (!prev) {
+              emaKeypointsRef.current[key] = { ...raw };
+              smoothedKeypoints[key] = { ...raw };
+            } else {
+              const smoothed: Keypoint2D = {
+                ...raw,
+                x: alpha * raw.x + (1 - alpha) * prev.x,
+                y: alpha * raw.y + (1 - alpha) * prev.y,
+                z: raw.z !== undefined && prev.z !== undefined ? alpha * raw.z + (1 - alpha) * prev.z : raw.z,
+                visibility: raw.visibility
+              };
+              emaKeypointsRef.current[key] = smoothed;
+              smoothedKeypoints[key] = smoothed;
+            }
+          }
 
           // Map active tracking landmarks strictly from side-isolated smoothed coordinates
           const dom = frame.dominantSide;
@@ -539,7 +561,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               loadType,
               exerciseId: selectedPattern.id,
               useInternalCanvasTransform: false, // Handled synchronously by parent DOM transform
-              renderedRect
+              renderedRect,
+              manualOffsets
             },
             selectedPattern.primaryJoint
           );
@@ -757,6 +780,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     isProcessingRef.current = false;
     lastTimestampRef.current = 0;
     poseSmootherRef.current.reset();
+    emaKeypointsRef.current = {};
     dominantSideRef.current = null;
     lastValidAngleRef.current = 0;
     lastValidAngleTimeRef.current = 0;
