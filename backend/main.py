@@ -271,50 +271,64 @@ def process_kinematics(
     if n_frames == 0:
         return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
     
-    # 1. Determine Locked Side (Profile Lock) using initial frames
-    eval_window = min(15, n_frames)
+    # 1. Determine Locked Side (Profile Lock) using all frames for maximum robustness
     left_score_sum = 0.0
     right_score_sum = 0.0
     
-    left_joints = ["left_shoulder", "left_elbow", "left_wrist", "left_hip", "left_knee", "left_ankle"]
-    right_joints = ["right_shoulder", "right_elbow", "right_wrist", "right_hip", "right_knee", "right_ankle"]
+    left_joints = ["left_shoulder", "left_hip", "left_knee", "left_ankle"]
+    right_joints = ["right_shoulder", "right_hip", "right_knee", "right_ankle"]
     
-    for f in range(eval_window):
+    for f in range(n_frames):
         left_score_sum += sum(raw_keypoints[f][j]["score"] for j in left_joints)
         right_score_sum += sum(raw_keypoints[f][j]["score"] for j in right_joints)
         
     locked_side = "left" if left_score_sum >= right_score_sum else "right"
     prefix = "left_" if locked_side == "left" else "right_"
+    alt_prefix = "right_" if locked_side == "left" else "left_"
     
-    tracked_keys = {
-        "shoulder": prefix + "shoulder",
-        "elbow": prefix + "elbow",
-        "wrist": prefix + "wrist",
-        "hip": prefix + "hip",
-        "knee": prefix + "knee",
-        "ankle": prefix + "ankle",
-        "head": prefix + "ear" if (prefix + "ear") in raw_keypoints[0] else "nose"
-    }
-    
-    # 2. Extract series & perform linear interpolation over occlusions (score < 0.4)
+    # 2. Extract series & perform linear interpolation over occlusions with opposite-joint borrowing
     smoothed_joints = {}
-    for canonical, actual_key in tracked_keys.items():
-        x_arr = np.array([raw_keypoints[f][actual_key]["x"] for f in range(n_frames)], dtype=np.float64)
-        y_arr = np.array([raw_keypoints[f][actual_key]["y"] for f in range(n_frames)], dtype=np.float64)
-        s_arr = np.array([raw_keypoints[f][actual_key]["score"] for f in range(n_frames)], dtype=np.float64)
+    for canonical in ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]:
+        actual_key = prefix + canonical
+        alt_key = alt_prefix + canonical
         
-        x_interp = interpolate_series_1d(x_arr, s_arr, min_score=0.4)
-        y_interp = interpolate_series_1d(y_arr, s_arr, min_score=0.4)
+        x_arr = np.zeros(n_frames, dtype=np.float64)
+        y_arr = np.zeros(n_frames, dtype=np.float64)
+        s_arr = np.zeros(n_frames, dtype=np.float64)
         
-        # 3. Apply Zero-Phase Butterworth Filter
-        x_clean = apply_zero_phase_butterworth(x_interp, fs=15.0, cutoff=3.5)
-        y_clean = apply_zero_phase_butterworth(y_interp, fs=15.0, cutoff=3.5)
+        for f in range(n_frames):
+            p_joint = raw_keypoints[f][actual_key]
+            a_joint = raw_keypoints[f][alt_key]
+            
+            # Borrow opposite if primary is severely occluded by barbell or bench
+            if p_joint["score"] < 0.35 and a_joint["score"] >= 0.55:
+                x_arr[f] = a_joint["x"]
+                y_arr[f] = a_joint["y"]
+                s_arr[f] = a_joint["score"] * 0.85
+            else:
+                x_arr[f] = p_joint["x"]
+                y_arr[f] = p_joint["y"]
+                s_arr[f] = p_joint["score"]
+                
+        x_interp = interpolate_series_1d(x_arr, s_arr, min_score=0.35)
+        y_interp = interpolate_series_1d(y_arr, s_arr, min_score=0.35)
         
         smoothed_joints[canonical] = {
-            "x": x_clean,
-            "y": y_clean,
+            "x": apply_zero_phase_butterworth(x_interp, fs=15.0, cutoff=3.5),
+            "y": apply_zero_phase_butterworth(y_interp, fs=15.0, cutoff=3.5),
             "score": s_arr
         }
+        
+    # Head tracking (ear or nose)
+    head_key = prefix + "ear" if (prefix + "ear") in raw_keypoints[0] and raw_keypoints[0][prefix + "ear"]["score"] > 0.4 else "nose"
+    hx_arr = np.array([raw_keypoints[f].get(head_key, raw_keypoints[f]["nose"])["x"] for f in range(n_frames)], dtype=np.float64)
+    hy_arr = np.array([raw_keypoints[f].get(head_key, raw_keypoints[f]["nose"])["y"] for f in range(n_frames)], dtype=np.float64)
+    hs_arr = np.array([raw_keypoints[f].get(head_key, raw_keypoints[f]["nose"])["score"] for f in range(n_frames)], dtype=np.float64)
+    smoothed_joints["head"] = {
+        "x": apply_zero_phase_butterworth(interpolate_series_1d(hx_arr, hs_arr, min_score=0.35), fs=15.0, cutoff=3.5),
+        "y": apply_zero_phase_butterworth(interpolate_series_1d(hy_arr, hs_arr, min_score=0.35), fs=15.0, cutoff=3.5),
+        "score": hs_arr
+    }
         
     # 4. Compute Angular Kinematics per Frame
     primary_angles = []

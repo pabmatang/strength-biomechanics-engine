@@ -390,38 +390,80 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.setLineDash([]);
     };
 
-    if (mode === 'technique') {
-      // CAPA 1: TECNICA - Esqueleto anatómico completo y alineación espinal
-      drawSegment(pHd, pSh, '#34D399');
-      drawSegment(pSh, pHp, '#10B981'); // Spinal trunk
-      drawSegment(pSh, pEl, '#6EE7B7');
-      drawSegment(pEl, pWr, '#6EE7B7');
-      drawSegment(pHp, pKn, '#10B981');
-      drawSegment(pKn, pAk, '#10B981');
+    const isLowerBody = options.exerciseId.includes('hip_thrust') ||
+      options.exerciseId.includes('squat') ||
+      options.exerciseId.includes('rdl') ||
+      options.exerciseId.includes('bulgarian');
 
-      drawPoint(pHd, '#34D399');
-      drawPoint(pSh, '#10B981');
-      drawPoint(pEl, '#6EE7B7');
-      drawPoint(pWr, '#6EE7B7');
-      drawPoint(pHp, '#10B981');
-      drawPoint(pKn, '#10B981');
-      drawPoint(pAk, '#10B981');
+    if (mode === 'technique') {
+      if (isLowerBody) {
+        // Lower-body clean kinetic chain: Shoulder -> Hip -> Knee -> Ankle
+        drawSegment(pSh, pHp, '#10B981'); // Spinal trunk
+        drawSegment(pHp, pKn, '#10B981'); // Thigh
+        drawSegment(pKn, pAk, '#10B981'); // Shin
+
+        drawPoint(pSh, '#10B981');
+        drawPoint(pHp, '#10B981');
+        drawPoint(pKn, '#10B981');
+        drawPoint(pAk, '#10B981');
+        drawPoint(pHd, '#34D399');
+      } else {
+        // Upper-body kinetic chain
+        drawSegment(pHd, pSh, '#34D399');
+        drawSegment(pSh, pHp, '#10B981');
+        drawSegment(pSh, pEl, '#6EE7B7');
+        drawSegment(pEl, pWr, '#6EE7B7');
+
+        drawPoint(pHd, '#34D399');
+        drawPoint(pSh, '#10B981');
+        drawPoint(pEl, '#6EE7B7');
+        drawPoint(pWr, '#6EE7B7');
+        drawPoint(pHp, '#10B981');
+      }
 
       // Joint Angle badge at primary inflection joint
       if (options.showCanvasText) {
         const isHT = options.exerciseId.includes('hip_thrust');
-        const targetPt = isHT ? pHp : (options.exerciseId.includes('bench') || options.exerciseId.includes('row') ? pEl : pKn);
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.beginPath();
-        ctx.roundRect(targetPt.x + 10, targetPt.y - 12, 54, 20, 6);
-        ctx.fill();
-        ctx.strokeStyle = '#10B981';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
+        if (isHT) {
+          // Hip extension angle badge
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(pHp.x + 8, pHp.y - 12, 54, 20, 6);
+          ctx.fill();
+          ctx.strokeStyle = '#10B981';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
 
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
-        ctx.fillText(`${Math.round(frame.main_angle)}°`, targetPt.x + 16, targetPt.y + 2);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
+          ctx.fillText(`${Math.round(frame.main_angle)}°`, pHp.x + 14, pHp.y + 2);
+
+          // Knee angle badge
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(pKn.x - 62, pKn.y - 12, 54, 20, 6);
+          ctx.fill();
+          ctx.strokeStyle = '#38BDF8';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
+          ctx.fillText(`${Math.round(frame.secondary_angle)}°`, pKn.x - 56, pKn.y + 2);
+        } else {
+          const targetPt = options.exerciseId.includes('bench') || options.exerciseId.includes('row') ? pEl : pKn;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(targetPt.x + 10, targetPt.y - 12, 54, 20, 6);
+          ctx.fill();
+          ctx.strokeStyle = '#10B981';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
+          ctx.fillText(`${Math.round(frame.main_angle)}°`, targetPt.x + 16, targetPt.y + 2);
+        }
       }
     } else {
       // CAPA 2: BIOMECANICA - Oculta esqueleto secundario, muestra exclusivamente vector de fuerza y cotas ortogonales
@@ -436,6 +478,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
       drawPoint(pHp, '#38BDF8');
       drawPoint(pKn, '#38BDF8');
+      drawPoint(pAk, '#38BDF8');
       drawPoint(pWr, '#F59E0B');
 
       // Vertical gravity force vector through resistance point (wrist/load)
@@ -710,15 +753,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         </div>
 
         {/* Main 2-Column Responsive Layout */}
-        <div className="flex-1 min-h-0 flex flex-col landscape:grid landscape:grid-cols-12 landscape:gap-3 lg:grid lg:grid-cols-12 lg:gap-4 items-stretch overflow-hidden landscape:overflow-y-auto lg:overflow-y-auto">
-
-          {/* RIGHT COLUMN TOP (Desktop/Landscape) */}
-          <div className="hidden landscape:block lg:block landscape:col-start-8 landscape:col-span-5 lg:col-start-8 lg:col-span-5 space-y-2.5 min-w-0">
-            {modeSwitcherButtons}
-          </div>
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 items-start overflow-y-auto">
 
           {/* LEFT COLUMN: Video Viewport & Playback Bar */}
-          <div className="shrink-0 flex flex-col gap-1.5 sm:gap-2 min-w-0 landscape:col-start-1 landscape:col-span-7 lg:col-start-1 lg:col-span-7">
+          <div className="flex flex-col gap-2 min-w-0 lg:col-span-7">
 
             {/* Video File Input Bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
@@ -772,7 +810,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
             {/* Video Viewport Container */}
             <div
-              className="relative w-full aspect-[4/3] sm:aspect-video bg-black rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none"
+              className="relative w-full h-[380px] sm:h-[460px] lg:h-[500px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none"
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -846,10 +884,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               {pipelineState === 'ready' && (
                 <div className="absolute top-2 left-2 flex flex-wrap gap-1.5 pointer-events-none z-10">
                   <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold">
-                    REP: #{repCount > 0 ? repCount : 1}
+                    {currentFrame && currentFrame.rep_number > 0 ? `REP: #${currentFrame.rep_number}` : 'PREPARACIÓN'}
                   </span>
                   <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold">
-                    {currentPhase}
+                    {currentFrame?.phase || 'IDLE'}
                   </span>
                   <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-mono font-bold">
                     Ángulo: {Math.round(currentPrimaryAngle)}°
@@ -917,8 +955,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
           </div>
 
-          {/* RIGHT COLUMN: Biomechanical Diagnosis & Verdict Card */}
-          <div className="space-y-3 landscape:col-start-8 landscape:col-span-5 lg:col-start-8 lg:col-span-5 min-w-0">
+          {/* RIGHT COLUMN: Mode Switcher, Exercise Selector & Biomechanical Diagnosis */}
+          <div className="flex flex-col gap-3 min-w-0 lg:col-span-5">
+            <div className="hidden lg:block">
+              {modeSwitcherButtons}
+            </div>
 
             {/* Exercise Selector */}
             <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-2">

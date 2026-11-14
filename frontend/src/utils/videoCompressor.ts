@@ -24,7 +24,7 @@ export async function prepareVideoForAnalysis(
     targetFps = 15,
     bitrate = 1_200_000,
     maxDurationSec = 15.0,
-    trimStartSec = 1.5,
+    trimStartSec = 0,
   } = options;
 
   // Fallback for non-browser / test / SSR environments
@@ -76,14 +76,9 @@ export async function prepareVideoForAnalysis(
           return resolve(file);
         }
 
-        // Determine window
-        let startTime = 0;
-        let endTime = duration;
-
-        if (duration > maxDurationSec) {
-          startTime = trimStartSec;
-          endTime = Math.min(duration, trimStartSec + maxDurationSec);
-        }
+        // Determine window - always start at 0 to guarantee 1:1 timeline synchronization
+        const startTime = 0;
+        const endTime = Math.min(duration, maxDurationSec);
 
         // Calculate aspect-ratio bounds (must be even for video codecs)
         const srcW = video.videoWidth || 640;
