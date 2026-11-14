@@ -23,7 +23,7 @@ import requests
 # ---------------------------------------------------------------------------
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-torch_dtype = torch.float16 if device == "cuda" else torch.float32
+torch_dtype = torch.float32  # Float32 ensures strict precision matching with HuggingFace processors and zero underflow
 
 print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()} ({torch_dtype})...")
 
@@ -177,10 +177,19 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
         
         # Step B: ViTPose-Large 17 Keypoints
         pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
-        with torch.no_grad():
-            pose_outputs = pose_model(**pose_inputs)
+        num_boxes = pose_inputs["pixel_values"].shape[0]
+        dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
         
-        pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
+        with torch.no_grad():
+            try:
+                pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
+            except (TypeError, ValueError):
+                pose_outputs = pose_model(**pose_inputs)
+        
+        try:
+            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
+        except TypeError:
+            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes, dataset_index=0)
         
         for p_res in pose_results:
             kps = p_res[0]["keypoints"].detach().cpu().numpy()
