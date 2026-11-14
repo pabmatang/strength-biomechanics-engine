@@ -113,10 +113,10 @@ export async function prepareVideoForAnalysis(
 
         // Determine supported MIME type
         const preferredMimes = [
-          'video/webm;codecs=vp8',
-          'video/webm',
           'video/mp4;codecs=avc1',
-          'video/mp4'
+          'video/mp4',
+          'video/webm;codecs=vp8',
+          'video/webm'
         ];
         let chosenMime = preferredMimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 

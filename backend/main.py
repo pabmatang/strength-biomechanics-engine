@@ -99,37 +99,87 @@ def apply_zero_phase_butterworth(series: np.ndarray, fs: float = 15.0, cutoff: f
     return np.clip(filtered, 0.0, 1.0)
 
 def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: int = 225):
-    """Read video, sample at target_fps up to max_frames (15s at 15 FPS)."""
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise ValueError(f"Unable to open video: {video_path}")
-    
-    native_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    total_native_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total_native_frames / native_fps if native_fps > 0 else 0.0
-    
+    """
+    Read video sequentially, sampling strictly at target_fps up to max_frames (15s at 15 FPS).
+    Robust against WebM (MediaRecorder), variable framerate, missing metadata, and seek-disabled streams.
+    """
     frames_rgb = []
     timestamps = []
-    
     step_dt = 1.0 / target_fps
-    current_t = 0.0
     
-    while len(frames_rgb) < max_frames:
-        target_native_idx = int(round(current_t * native_fps))
-        if target_native_idx >= total_native_frames:
-            break
+    # Strategy 1: PyAV (zero-fail demuxer for browser-fragmented WebM and MP4)
+    try:
+        import av
+        container = av.open(video_path)
+        stream = container.streams.video[0]
+        stream.thread_type = "AUTO"
         
-        cap.set(cv2.CAP_PROP_POS_FRAMES, target_native_idx)
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            break
+        next_sample_time = 0.0
+        frame_idx = 0
+        fps = float(stream.average_rate or 30.0) if stream.average_rate else 30.0
         
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames_rgb.append(frame_rgb)
-        timestamps.append(round(current_t, 3))
-        current_t += step_dt
+        for packet in container.demux(stream):
+            for frame in packet.decode():
+                if frame.pts is not None and stream.time_base:
+                    t = float(frame.pts * stream.time_base)
+                else:
+                    t = frame_idx / fps
+                    
+                if t >= next_sample_time - 1e-4:
+                    frames_rgb.append(frame.to_ndarray(format="rgb24"))
+                    timestamps.append(round(t, 3))
+                    next_sample_time += step_dt
+                    if len(frames_rgb) >= max_frames:
+                        break
+                frame_idx += 1
+            if len(frames_rgb) >= max_frames:
+                break
+                
+        container.close()
+        if frames_rgb:
+            return frames_rgb, timestamps, timestamps[-1] if timestamps else 0.0
+    except Exception as e:
+        print(f"[Decoder] PyAV demux skipped or not available ({e}), trying OpenCV...")
+
+    # Strategy 2: OpenCV Sequential Read (no seek, no frame_count dependency)
+    cap = cv2.VideoCapture(video_path)
+    if cap.isOpened():
+        native_fps = cap.get(cv2.CAP_PROP_FPS)
+        if not native_fps or native_fps <= 0 or math.isnan(native_fps):
+            native_fps = 30.0
+            
+        frame_idx = 0
+        next_sample_time = 0.0
         
-    cap.release()
+        while len(frames_rgb) < max_frames:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                break
+                
+            current_time = frame_idx / native_fps
+            if current_time >= next_sample_time - 1e-4:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames_rgb.append(frame_rgb)
+                timestamps.append(round(current_time, 3))
+                next_sample_time += step_dt
+                
+            frame_idx += 1
+            
+        cap.release()
+        
+    # Strategy 3: Direct fallback (read every frame until max_frames)
+    if not frames_rgb:
+        cap = cv2.VideoCapture(video_path)
+        while len(frames_rgb) < max_frames:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                break
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frames_rgb.append(frame_rgb)
+            timestamps.append(round(len(frames_rgb) * step_dt, 3))
+        cap.release()
+
+    duration = timestamps[-1] if timestamps else 0.0
     return frames_rgb, timestamps, duration
 
 def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
@@ -503,19 +553,25 @@ def _extract_video_to_tempfile(
     if not raw_data:
         raise ValueError("Missing required video input ('video_base64', 'video_url', or 'video').")
     
+    suffix = ".mp4"
+    if "webm" in str(raw_data[:60]).lower():
+        suffix = ".webm"
+        
     # URL download
-    if raw_data.startswith("http://") or raw_data.startswith("https://"):
+    if str(raw_data).startswith("http://") or str(raw_data).startswith("https://"):
         resp = requests.get(raw_data, timeout=30)
         resp.raise_for_status()
         content = resp.content
+        if "webm" in resp.headers.get("Content-Type", "").lower():
+            suffix = ".webm"
     else:
         # Base64 string decoding (strip data URI header if present)
-        b64_str = raw_data
+        b64_str = str(raw_data)
         if "," in b64_str:
             b64_str = b64_str.split(",", 1)[1]
         content = base64.b64decode(b64_str)
         
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(content)
     tmp.close()
     return tmp.name
