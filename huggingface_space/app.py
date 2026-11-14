@@ -2,12 +2,17 @@ import os
 # 1. Disable Gradio internal SSR proxy to prevent port 7860 binding collisions
 os.environ["GRADIO_SSR_MODE"] = "false"
 
-# 2. Obligatory ZeroGPU spaces import before torch / transformers
+# 2. Obligatory ZeroGPU spaces import on line 1 before torch / transformers
 try:
     import spaces
-    has_spaces = True
 except ImportError:
-    has_spaces = False
+    class _MockSpaces:
+        @staticmethod
+        def GPU(duration=30):
+            def decorator(fn):
+                return fn
+            return decorator
+    spaces = _MockSpaces()
 
 import tempfile
 import math
@@ -26,40 +31,23 @@ import gradio as gr
 import uvicorn
 
 # ---------------------------------------------------------------------------
-# 3. Hardware Detection & Dynamic Model Loading
+# 3. Model Loading on CPU during Startup (ZeroGPU Standard Architecture)
 # ---------------------------------------------------------------------------
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-torch_dtype = torch.float16 if device == "cuda" else torch.float32
-
-print(f"[Startup] Initializing Biomechanics Pipeline on {device.upper()} ({torch_dtype})...")
-
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
-# Dynamic selection: vitpose-base-simple on CPU to finish in seconds without exceeding free 16GB RAM;
-# vitpose-plus-large on GPU for maximum heavy inference throughput.
-POSE_MODEL_NAME = (
-    "usyd-community/vitpose-plus-large"
-    if device == "cuda"
-    else "usyd-community/vitpose-base-simple"
-)
+POSE_MODEL_NAME = "usyd-community/vitpose-plus-large"
 
-print(f"[Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
-det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
-det_model = AutoModelForObjectDetection.from_pretrained(
-    DET_MODEL_NAME,
-    torch_dtype=torch_dtype
-).to(device)
-det_model.eval()
+print("[Startup] Loading models in CPU memory (ZeroGPU compliance, no CUDA calls at startup)...")
 
-print(f"[Startup] Loading ViTPose ({POSE_MODEL_NAME})...")
-pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
-pose_model = VitPoseForPoseEstimation.from_pretrained(
-    POSE_MODEL_NAME,
-    torch_dtype=torch_dtype
-).to(device)
-pose_model.eval()
+rtdetr_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
+rtdetr_model = AutoModelForObjectDetection.from_pretrained(DET_MODEL_NAME)
+rtdetr_model.eval()
 
-print("[Startup] All models loaded successfully.")
+vitpose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
+vitpose_model = VitPoseForPoseEstimation.from_pretrained(POSE_MODEL_NAME)
+vitpose_model.eval()
+
+print("[Startup] RT-DETR and ViTPose-Large successfully loaded in CPU.")
 
 COCO_KEYPOINTS = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -67,12 +55,6 @@ COCO_KEYPOINTS = [
     "left_wrist", "right_wrist", "left_hip", "right_hip",
     "left_knee", "right_knee", "left_ankle", "right_ankle"
 ]
-
-def gpu_inference(func):
-    """ZeroGPU decorator wrapper: uses spaces.GPU if available, otherwise no-op."""
-    if has_spaces:
-        return spaces.GPU(func)
-    return func
 
 # ---------------------------------------------------------------------------
 # 4. Kinematic & Biomechanical Helper Functions
@@ -151,11 +133,24 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
     cap.release()
     return frames_rgb, timestamps, duration
 
-@gpu_inference
-def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
-    """Top-Down detection: RT-DETR athlete box + ViTPose keypoints."""
+# ---------------------------------------------------------------------------
+# 5. ZeroGPU-Decorated Inference Function (@spaces.GPU(duration=30))
+# ---------------------------------------------------------------------------
+
+@spaces.GPU(duration=30)
+def run_gpu_inference(frames_rgb: List[np.ndarray], batch_size: int = 16) -> List[Dict[str, Dict[str, float]]]:
+    """
+    ZeroGPU-managed inference: dynamically allocates GPU on-demand,
+    moves models to CUDA (float16), executes batch inference and returns keypoints.
+    """
+    target_device = "cuda" if torch.cuda.is_available() else "cpu"
+    target_dtype = torch.float16 if target_device == "cuda" else torch.float32
+    
+    print(f"[Inference] Running on {target_device.upper()} ({target_dtype})...")
+    rtdetr_model.to(target_device, dtype=target_dtype)
+    vitpose_model.to(target_device, dtype=target_dtype)
+    
     all_raw_keypoints = []
-    current_device = "cuda" if torch.cuda.is_available() else "cpu"
     
     for i in range(0, len(frames_rgb), batch_size):
         batch_np = frames_rgb[i : i + batch_size]
@@ -163,12 +158,12 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
         h, w = batch_np[0].shape[:2]
         
         # Step A: RT-DETR Athlete Box Detection
-        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(current_device)
+        det_inputs = rtdetr_processor(images=batch_pil, return_tensors="pt").to(target_device)
         with torch.no_grad():
-            det_outputs = det_model(**det_inputs)
+            det_outputs = rtdetr_model(**det_inputs)
         
-        target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(current_device)
-        det_results = det_processor.post_process_object_detection(
+        target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(target_device)
+        det_results = rtdetr_processor.post_process_object_detection(
             det_outputs, target_sizes=target_sizes, threshold=0.25
         )
         
@@ -195,12 +190,12 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
             else:
                 batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
         
-        # Step B: ViTPose 17 Keypoints
-        pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(current_device)
+        # Step B: ViTPose-Large 17 Keypoints
+        pose_inputs = vitpose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(target_device)
         with torch.no_grad():
-            pose_outputs = pose_model(**pose_inputs)
+            pose_outputs = vitpose_model(**pose_inputs)
         
-        pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
+        pose_results = vitpose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
         
         for p_res in pose_results:
             kps = p_res[0]["keypoints"].detach().cpu().numpy()
@@ -219,6 +214,10 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
             all_raw_keypoints.append(frame_kps)
             
     return all_raw_keypoints
+
+# ---------------------------------------------------------------------------
+# 6. Biomechanical Signal Processing & Repetition Audit
+# ---------------------------------------------------------------------------
 
 def process_kinematics(
     raw_keypoints: List[Dict[str, Dict[str, float]]],
@@ -501,7 +500,7 @@ def process_kinematics(
     }
 
 # ---------------------------------------------------------------------------
-# 5. FastAPI App & Mounting with Gradio
+# 7. FastAPI App & Mounting with Gradio
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Biomechanics API Active", version="1.0.0")
@@ -539,7 +538,7 @@ async def analyze_video(
         if not frames_rgb:
             raise HTTPException(status_code=422, detail="Failed to decode video frames.")
             
-        raw_keypoints = run_inference_batches(frames_rgb, batch_size=16)
+        raw_keypoints = run_gpu_inference(frames_rgb)
         
         result = process_kinematics(
             raw_keypoints=raw_keypoints,
@@ -561,16 +560,15 @@ async def analyze_video(
 
 with gr.Blocks(title="Biomechanics API Active") as demo:
     gr.Markdown(
-        f"""
-        # 🏋️ Biomechanics Analysis API
+        """
+        # 🏋️ Biomechanics Analysis API (ZeroGPU)
         ### Status: **Active & Ready**
         
-        This Hugging Face Space hosts the clinical biomechanics analysis engine.
+        This Hugging Face Space hosts the clinical biomechanics analysis engine on ZeroGPU.
         
-        - **Hardware Device:** `{device.upper()}`
-        - **Model Precision:** `{torch_dtype}`
-        - **Athlete Detection:** `{DET_MODEL_NAME}`
-        - **Pose Estimation:** `{POSE_MODEL_NAME}`
+        - **Athlete Detection:** `PekingU/rtdetr_r50vd_coco_o365`
+        - **Pose Estimation:** `usyd-community/vitpose-plus-large`
+        - **Acceleration:** Dynamic `@spaces.GPU(duration=30)` on-demand CUDA allocation
         - **Filtering & Signal:** `SciPy Butterworth (Zero-Phase)` + `find_peaks`
         
         ---
@@ -585,7 +583,7 @@ with gr.Blocks(title="Biomechanics API Active") as demo:
         - `load_type`: `free_weight`, `cable`, `machine`
         
         #### Response Format:
-        JSON with `{{"fps", "duration", "total_reps", "locked_side", "repetitions_summary", "frames"}}`.
+        JSON with `{"fps", "duration", "total_reps", "locked_side", "repetitions_summary", "frames"}`.
         """
     )
 
