@@ -192,7 +192,9 @@ export async function analyzeVideoWithModal(
           video: base64Data,
           exercise_type: config.exerciseType,
           target_muscle: config.targetMuscle,
-          load_type: config.loadType
+          load_type: config.loadType,
+          start_time: range?.startTime ?? 0.0,
+          end_time: range?.endTime ?? 30.0
         })
       });
     } else {

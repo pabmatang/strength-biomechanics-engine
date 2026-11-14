@@ -65,37 +65,58 @@ export interface MuscleGroup {
 
 export const MUSCLE_GROUPS: MuscleGroup[] = [
   {
+    id: 'back',
+    name: 'Espalda',
+    exercises: [
+      { id: 'machine_row', name: 'Remo en Máquina', exerciseType: 'machine_row', targetMuscle: 'lats', loadType: 'machine', patternId: 'chest_supported_lat_row' },
+      { id: 'barbell_row', name: 'Remo con Barra', exerciseType: 'barbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
+      { id: 'cable_row', name: 'Remo Gironda en Polea', exerciseType: 'cable_row', targetMuscle: 'lats', loadType: 'cable', patternId: 'chest_supported_lat_row' },
+      { id: 'dumbbell_row', name: 'Remo Unilateral con Mancuerna', exerciseType: 'dumbbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
+      { id: 't_bar_row', name: 'Remo en Punta / Barra T', exerciseType: 't_bar_row', targetMuscle: 'upper_back', loadType: 'gravity', patternId: 'chest_supported_t_bar_row_upper_back' },
+      { id: 'lat_pulldown', name: 'Jalón al Pecho', exerciseType: 'lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' },
+      { id: 'single_lat_pulldown', name: 'Jalón Unilateral en Polea', exerciseType: 'single_lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' },
+      { id: 'pullup', name: 'Dominadas', exerciseType: 'pullup', targetMuscle: 'lats', loadType: 'gravity', patternId: 'lat_pulldown_unilateral' },
+      { id: 'pullover', name: 'Pullover en Polea', exerciseType: 'pullover', targetMuscle: 'lats', loadType: 'cable', patternId: 'straight_arm_cable_pulldown' }
+    ]
+  },
+  {
     id: 'glutes_hamstrings',
     name: 'Glúteo e Isquios',
     exercises: [
-      { id: 'hip_thrust', name: 'Hip Thrust', exerciseType: 'hip_thrust', targetMuscle: 'glutes_max', loadType: 'gravity', patternId: 'hip_thrust_barbell' },
-      { id: 'rdl', name: 'Peso Muerto Rumano', exerciseType: 'rdl', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
-      { id: 'hamstring_curl', name: 'Curl Femoral', exerciseType: 'hamstring_curl', targetMuscle: 'hamstrings', loadType: 'machine', patternId: 'seated_leg_curl_machine' }
+      { id: 'hip_thrust', name: 'Hip Thrust con Barra', exerciseType: 'hip_thrust', targetMuscle: 'glutes_max', loadType: 'gravity', patternId: 'hip_thrust_barbell' },
+      { id: 'machine_hip_thrust', name: 'Hip Thrust en Máquina', exerciseType: 'machine_hip_thrust', targetMuscle: 'glutes_max', loadType: 'machine', patternId: 'hip_thrust_barbell' },
+      { id: 'kas_glute_bridge', name: 'Kas Glute Bridge', exerciseType: 'kas_glute_bridge', targetMuscle: 'glutes_max', loadType: 'gravity', patternId: 'hip_thrust_barbell' },
+      { id: 'rdl', name: 'Peso Muerto Rumano (RDL)', exerciseType: 'rdl', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
+      { id: 'deadlift', name: 'Peso Muerto Convencional', exerciseType: 'deadlift', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
+      { id: 'seated_leg_curl', name: 'Curl Femoral Sentado', exerciseType: 'seated_leg_curl', targetMuscle: 'hamstrings', loadType: 'machine', patternId: 'seated_leg_curl_machine' },
+      { id: 'lying_leg_curl', name: 'Curl Femoral Tumbado', exerciseType: 'lying_leg_curl', targetMuscle: 'hamstrings', loadType: 'machine', patternId: 'lying_leg_curl_machine' },
+      { id: 'cable_kickback', name: 'Patada de Glúteo en Polea', exerciseType: 'cable_kickback', targetMuscle: 'glutes_max', loadType: 'cable', patternId: 'cable_kickback_glute' },
+      { id: 'hip_abduction', name: 'Abducción en Máquina', exerciseType: 'hip_abduction', targetMuscle: 'glutes_max', loadType: 'machine', patternId: 'cable_kickback_glute' }
     ]
   },
   {
     id: 'quads',
     name: 'Cuádriceps',
     exercises: [
-      { id: 'squat', name: 'Sentadilla Libre', exerciseType: 'squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
-      { id: 'leg_press', name: 'Prensa', exerciseType: 'leg_press', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'leg_press_high_feet' },
-      { id: 'bulgarian_squat', name: 'Zancada Búlgara', exerciseType: 'bulgarian_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'bulgarian_split_squat_glute' }
-    ]
-  },
-  {
-    id: 'back',
-    name: 'Espalda',
-    exercises: [
-      { id: 'barbell_row', name: 'Remo con Barra', exerciseType: 'barbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
-      { id: 'lat_pulldown', name: 'Jalón al Pecho', exerciseType: 'lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' }
+      { id: 'squat', name: 'Sentadilla Libre con Barra', exerciseType: 'squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
+      { id: 'hack_squat', name: 'Sentadilla Hack en Máquina', exerciseType: 'hack_squat', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'hack_squat_machine' },
+      { id: 'leg_press', name: 'Prensa Inclinada 45°', exerciseType: 'leg_press', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'leg_press_high_feet' },
+      { id: 'leg_extension', name: 'Extensión de Cuádriceps', exerciseType: 'leg_extension', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'leg_extension_machine' },
+      { id: 'bulgarian_squat', name: 'Zancada Búlgara', exerciseType: 'bulgarian_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'bulgarian_split_squat_glute' },
+      { id: 'front_squat', name: 'Sentadilla Frontal', exerciseType: 'front_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
+      { id: 'sissy_squat', name: 'Sissy Squat', exerciseType: 'sissy_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'sissy_squat_bodyweight' }
     ]
   },
   {
     id: 'chest',
     name: 'Pecho',
     exercises: [
-      { id: 'bench_press', name: 'Press Banca', exerciseType: 'bench_press', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'converging_chest_press_machine' },
-      { id: 'cable_fly', name: 'Aperturas en Polea', exerciseType: 'cable_fly', targetMuscle: 'pectorals', loadType: 'cable', patternId: 'cable_fly_mid_sternal' }
+      { id: 'bench_press', name: 'Press Banca Plano con Barra', exerciseType: 'bench_press', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'converging_chest_press_machine' },
+      { id: 'incline_press', name: 'Press Inclinado con Mancuernas', exerciseType: 'incline_press', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'incline_dumbbell_press' },
+      { id: 'machine_chest_press', name: 'Press en Máquina Convergente', exerciseType: 'machine_chest_press', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'converging_chest_press_machine' },
+      { id: 'cable_fly', name: 'Aperturas / Cruces en Polea', exerciseType: 'cable_fly', targetMuscle: 'pectorals', loadType: 'cable', patternId: 'cable_fly_mid_sternal' },
+      { id: 'pec_deck', name: 'Pec Deck / Contractora', exerciseType: 'pec_deck', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'cable_fly_mid_sternal' },
+      { id: 'chest_dips', name: 'Fondos en Paralelas para Pecho', exerciseType: 'chest_dips', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'dips_chest_lean' }
     ]
   },
   {
@@ -103,15 +124,25 @@ export const MUSCLE_GROUPS: MuscleGroup[] = [
     name: 'Hombro',
     exercises: [
       { id: 'overhead_press', name: 'Press Militar', exerciseType: 'overhead_press', targetMuscle: 'upper_back', loadType: 'gravity', patternId: 'incline_dumbbell_press' },
-      { id: 'lateral_raise', name: 'Elevaciones Laterales', exerciseType: 'lateral_raise', targetMuscle: 'upper_back', loadType: 'cable', patternId: 'straight_arm_cable_pulldown' }
+      { id: 'shoulder_press_machine', name: 'Press de Hombro en Máquina', exerciseType: 'shoulder_press_machine', targetMuscle: 'upper_back', loadType: 'machine', patternId: 'incline_dumbbell_press' },
+      { id: 'lateral_raise', name: 'Elevaciones Laterales con Mancuernas', exerciseType: 'lateral_raise', targetMuscle: 'upper_back', loadType: 'gravity', patternId: 'straight_arm_cable_pulldown' },
+      { id: 'cable_lateral_raise', name: 'Elevaciones Laterales en Polea', exerciseType: 'cable_lateral_raise', targetMuscle: 'upper_back', loadType: 'cable', patternId: 'straight_arm_cable_pulldown' },
+      { id: 'rear_delt_fly', name: 'Pájaros / Deltoides Posterior', exerciseType: 'rear_delt_fly', targetMuscle: 'upper_back', loadType: 'machine', patternId: 'chest_supported_row_wide_upper_back' },
+      { id: 'face_pull', name: 'Face Pull en Polea', exerciseType: 'face_pull', targetMuscle: 'upper_back', loadType: 'cable', patternId: 'chest_supported_row_wide_upper_back' }
     ]
   },
   {
     id: 'arms',
     name: 'Brazos',
     exercises: [
-      { id: 'biceps_curl', name: 'Curl Bíceps', exerciseType: 'biceps_curl', targetMuscle: 'biceps', loadType: 'cable', patternId: 'biceps_curl_cable' },
-      { id: 'triceps_extension', name: 'Extensión Tríceps', exerciseType: 'triceps_extension', targetMuscle: 'triceps', loadType: 'cable', patternId: 'triceps_pushdown_cable' }
+      { id: 'biceps_curl', name: 'Curl Bíceps con Barra / Mancuernas', exerciseType: 'biceps_curl', targetMuscle: 'biceps', loadType: 'gravity', patternId: 'biceps_curl_dumbbell' },
+      { id: 'preacher_curl', name: 'Curl en Banco Scott / Predicador', exerciseType: 'preacher_curl', targetMuscle: 'biceps', loadType: 'machine', patternId: 'biceps_curl_dumbbell' },
+      { id: 'cable_biceps_curl', name: 'Curl de Bíceps en Polea', exerciseType: 'cable_biceps_curl', targetMuscle: 'biceps', loadType: 'cable', patternId: 'biceps_curl_cable' },
+      { id: 'hammer_curl', name: 'Curl Martillo', exerciseType: 'hammer_curl', targetMuscle: 'biceps', loadType: 'gravity', patternId: 'biceps_curl_dumbbell' },
+      { id: 'triceps_extension', name: 'Extensión Tríceps en Polea Alta', exerciseType: 'triceps_extension', targetMuscle: 'triceps', loadType: 'cable', patternId: 'triceps_pushdown_cable' },
+      { id: 'skull_crushers', name: 'Press Francés con Barra / Mancuernas', exerciseType: 'skull_crushers', targetMuscle: 'triceps', loadType: 'gravity', patternId: 'triceps_overhead_extension' },
+      { id: 'overhead_triceps_extension', name: 'Extensión Tríceps Trasnuca en Polea', exerciseType: 'overhead_triceps_extension', targetMuscle: 'triceps', loadType: 'cable', patternId: 'triceps_overhead_extension' },
+      { id: 'triceps_dips', name: 'Fondos para Tríceps', exerciseType: 'triceps_dips', targetMuscle: 'triceps', loadType: 'gravity', patternId: 'dips_chest_lean' }
     ]
   }
 ];
@@ -139,9 +170,15 @@ function findClosestFrame(frames: BiomechanicsFrame[], currentTime: number): Bio
   }
   const i1 = Math.max(0, Math.min(frames.length - 1, low));
   const i2 = Math.max(0, Math.min(frames.length - 1, high));
-  return Math.abs(frames[i1].time - currentTime) < Math.abs(frames[i2].time - currentTime)
+  const closest = Math.abs(frames[i1].time - currentTime) < Math.abs(frames[i2].time - currentTime)
     ? frames[i1]
     : frames[i2];
+  
+  // Return null if playback time is outside the analyzed frame window
+  if (Math.abs(closest.time - currentTime) > 0.45) {
+    return null;
+  }
+  return closest;
 }
 
 export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
@@ -275,8 +312,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   }, []);
 
-  // Video File Upload Handler
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Video File Upload Handler - Loads video preview and shows Trimmer before analyzing
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -297,62 +334,48 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setPanOffset({ x: 0, y: 0 });
     setPlaybackSpeed(1.0);
     setShowConfigBottomSheet(false);
+    setShowTrimmer(true);
+    setAnalysisData(null);
+    setCurrentFrame(null);
+    setPipelineState('idle');
+    setPipelineMessage('');
 
     const fileId = `${file.name}_${file.size}_${file.lastModified}`;
     fileCacheIdRef.current = fileId;
+  };
 
+  // Launch Analysis on the chosen trimmed range
+  const handleStartAnalysis = async () => {
+    if (!uploadedFileRef.current) return;
     try {
       setPipelineState('compressing');
-      setPipelineMessage('Comprimiendo vídeo a 15 FPS (ventana de análisis optimizada)...');
-      const compressedBlob = await prepareVideoForAnalysis(file);
-      compressedBlobRef.current = compressedBlob;
+      setPipelineMessage(`Preparando tramo (${trimStart.toFixed(1)}s - ${trimEnd.toFixed(1)}s)...`);
+
+      const file = uploadedFileRef.current;
+      const fileId = fileCacheIdRef.current || `${file.name}_${file.size}_${file.lastModified}`;
+
+      const range = { startTime: trimStart, endTime: trimEnd };
+      const preparedBlob = await prepareVideoForAnalysis(file, { range });
+      compressedBlobRef.current = preparedBlob;
 
       await runPipelineAnalysis(
-        compressedBlob,
+        preparedBlob,
         fileId,
         activeExercise.exerciseType,
         activeExercise.targetMuscle,
-        activeExercise.loadType
+        activeExercise.loadType,
+        range
       );
 
       if (videoElementRef.current) {
+        videoElementRef.current.currentTime = trimStart;
         videoElementRef.current.playbackRate = 1.0;
         videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
       setPipelineState('error');
-      setPipelineMessage('Error en compresión de vídeo.');
-    }
-  };
-
-  // Analyze trimmed range
-  const handleAnalyzeTrimmedRange = async () => {
-    if (!uploadedFileRef.current) return;
-    try {
-      setPipelineState('compressing');
-      setPipelineMessage(`Recortando y preparando tramo (${trimStart.toFixed(1)}s - ${trimEnd.toFixed(1)}s)...`);
-
-      const file = uploadedFileRef.current;
-      const fileId = fileCacheIdRef.current || `${file.name}_${file.size}_${file.lastModified}`;
-
-      const compressedBlob = await prepareVideoForAnalysis(file, {
-        range: { startTime: trimStart, endTime: trimEnd }
-      });
-      compressedBlobRef.current = compressedBlob;
-
-      await runPipelineAnalysis(
-        compressedBlob,
-        fileId,
-        activeExercise.exerciseType,
-        activeExercise.targetMuscle,
-        activeExercise.loadType,
-        { startTime: trimStart, endTime: trimEnd }
-      );
-    } catch (err: any) {
-      if (err?.name === 'AbortError') return;
-      setPipelineState('error');
-      setPipelineMessage('Error al recortar y procesar tramo seleccionado.');
+      setPipelineMessage('Error al preparar o analizar el vídeo.');
     }
   };
 
@@ -362,10 +385,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setTargetMuscle(item.targetMuscle);
     setLoadType(item.loadType);
 
-    if (compressedBlobRef.current && fileCacheIdRef.current) {
-      const range = showTrimmer ? { startTime: trimStart, endTime: trimEnd } : undefined;
+    if (analysisData && uploadedFileRef.current && fileCacheIdRef.current) {
+      const range = { startTime: trimStart, endTime: trimEnd };
+      const blob = compressedBlobRef.current || uploadedFileRef.current;
       runPipelineAnalysis(
-        compressedBlobRef.current,
+        blob,
         fileCacheIdRef.current,
         item.exerciseType,
         item.targetMuscle,
@@ -1023,6 +1047,29 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               )}
 
+              {/* Ready to Analyze Overlay / Call to Action */}
+              {uploadedVideoUrl && pipelineState === 'idle' && !analysisData && (
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
+                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shadow-lg shadow-cyan-500/20">
+                    <Sliders className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1 max-w-sm">
+                    <p className="text-sm font-black text-white">Recorte Previo y Configuración</p>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Ajusta los deslizadores de inicio ({trimStart.toFixed(1)}s) y fin ({trimEnd.toFixed(1)}s) en el panel inferior para delimitar la serie de trabajo. Selecciona el ejercicio a la derecha y pulsa iniciar.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleStartAnalysis}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <Sparkles className="w-4 h-4 text-cyan-200" />
+                    <span>Iniciar Análisis Biomecánico</span>
+                  </button>
+                </div>
+              )}
+
               {/* HUD Telemetry Badges */}
               {pipelineState === 'ready' && (
                 <div className="absolute top-2 left-2 flex flex-wrap gap-1.5 pointer-events-none z-10">
@@ -1175,12 +1222,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={handleAnalyzeTrimmedRange}
+                        onClick={handleStartAnalysis}
                         disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
-                        className="px-3 py-1 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/30 transition"
+                        className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/30 transition"
                       >
-                        <RefreshCw className={`w-3.5 h-3.5 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
-                        <span>Analizar tramo seleccionado</span>
+                        <Sparkles className={`w-3.5 h-3.5 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
+                        <span>{analysisData ? 'Re-analizar tramo' : 'Iniciar Análisis Biomecánico'}</span>
                       </button>
                     </div>
                   </div>

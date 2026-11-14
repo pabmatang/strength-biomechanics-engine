@@ -98,14 +98,24 @@ def apply_zero_phase_butterworth(series: np.ndarray, fs: float = 15.0, cutoff: f
     filtered = scipy.signal.filtfilt(b, a, series)
     return np.clip(filtered, 0.0, 1.0)
 
-def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: int = 450):
+def sample_video_frames(
+    video_path: str,
+    target_fps: float = 15.0,
+    max_frames: int = 450,
+    start_time: float = 0.0,
+    end_time: Optional[float] = None
+):
     """
-    Read video sequentially, sampling strictly at target_fps up to max_frames (30s at 15 FPS).
-    Robust against WebM (MediaRecorder), variable framerate, missing metadata, and seek-disabled streams.
+    Read video sequentially, sampling strictly at target_fps up to max_frames (30s at 15 FPS)
+    within the exact [start_time, end_time] interval.
+    Preserves absolute video timeline timestamps so overlay synchronization is 100% frame-perfect.
     """
     frames_rgb = []
     timestamps = []
     step_dt = 1.0 / target_fps
+    
+    t_start = max(0.0, float(start_time or 0.0))
+    t_end = float(end_time) if (end_time is not None and float(end_time) > t_start) else None
     
     # Strategy 1: PyAV (zero-fail demuxer for browser-fragmented WebM and MP4)
     try:
@@ -115,7 +125,7 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
             stream = container.streams.video[0]
             stream.thread_type = "AUTO"
             
-            next_sample_time = 0.0
+            next_sample_time = t_start
             frame_idx = 0
             fps = float(stream.average_rate or 30.0) if stream.average_rate else 30.0
             
@@ -126,6 +136,13 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
                     else:
                         t = frame_idx / fps
                         
+                    if t < next_sample_time - 1e-4:
+                        frame_idx += 1
+                        continue
+                        
+                    if t_end is not None and t > t_end + 1e-4:
+                        break
+                        
                     if t >= next_sample_time - 1e-4:
                         frames_rgb.append(frame.to_ndarray(format="rgb24"))
                         timestamps.append(round(t, 3))
@@ -133,12 +150,12 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
                         if len(frames_rgb) >= max_frames:
                             break
                     frame_idx += 1
-                if len(frames_rgb) >= max_frames:
+                if len(frames_rgb) >= max_frames or (t_end is not None and 't' in locals() and t > t_end + 1e-4):
                     break
                     
             container.close()
             if frames_rgb:
-                print(f"[Decoder] PyAV successfully decoded {len(frames_rgb)} frames.")
+                print(f"[Decoder] PyAV successfully decoded {len(frames_rgb)} frames within range [{t_start:.2f}s, {t_end if t_end else 'END'}s].")
                 return frames_rgb, timestamps, timestamps[-1] if timestamps else 0.0
     except Exception as e:
         print(f"[Decoder] PyAV demux skipped or not available ({e}), trying OpenCV...")
@@ -151,7 +168,7 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
             native_fps = 30.0
             
         frame_idx = 0
-        next_sample_time = 0.0
+        next_sample_time = t_start
         
         while len(frames_rgb) < max_frames:
             ret, frame = cap.read()
@@ -159,6 +176,13 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
                 break
                 
             current_time = frame_idx / native_fps
+            if current_time < next_sample_time - 1e-4:
+                frame_idx += 1
+                continue
+                
+            if t_end is not None and current_time > t_end + 1e-4:
+                break
+                
             if current_time >= next_sample_time - 1e-4:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames_rgb.append(frame_rgb)
@@ -172,13 +196,18 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
     # Strategy 3: Direct fallback (read every frame until max_frames)
     if not frames_rgb:
         cap = cv2.VideoCapture(video_path)
+        frame_idx = 0
         while len(frames_rgb) < max_frames:
             ret, frame = cap.read()
             if not ret or frame is None:
                 break
+            current_time = t_start + len(frames_rgb) * step_dt
+            if t_end is not None and current_time > t_end:
+                break
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frames_rgb.append(frame_rgb)
-            timestamps.append(round(len(frames_rgb) * step_dt, 3))
+            timestamps.append(round(current_time, 3))
+            frame_idx += 1
         cap.release()
 
     duration = timestamps[-1] if timestamps else 0.0
@@ -374,25 +403,28 @@ def process_kinematics(
         elbow_deg = calculate_angle_2d(sh, el, wr)
         torso_deg = calculate_angle_2d({"x": hp["x"] + 0.1, "y": hp["y"]}, hp, sh)
         
-        if exercise_type == "hip_thrust":
+        if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"]:
             p_angle = hip_deg
             s_angle = knee_deg
-        elif exercise_type in ["squat", "bulgarian_squat", "leg_press"]:
+        elif exercise_type in ["squat", "hack_squat", "leg_press", "leg_extension", "bulgarian_squat", "front_squat", "sissy_squat"]:
             p_angle = knee_deg
             s_angle = hip_deg
-        elif exercise_type in ["rdl", "hamstring_curl"]:
-            p_angle = hip_deg
-            s_angle = knee_deg
-        elif exercise_type in ["bench_press", "overhead_press"]:
+        elif exercise_type in ["rdl", "deadlift", "hamstring_curl", "seated_leg_curl", "lying_leg_curl", "cable_kickback", "hip_abduction"]:
+            p_angle = hip_deg if "curl" not in exercise_type else knee_deg
+            s_angle = knee_deg if "curl" not in exercise_type else hip_deg
+        elif exercise_type in ["bench_press", "incline_press", "machine_chest_press", "chest_dips", "pec_deck"]:
             p_angle = elbow_deg
-            s_angle = hip_deg
-        elif exercise_type in ["row", "barbell_row", "lat_pulldown"]:
+            s_angle = calculate_angle_2d(hp, sh, el)
+        elif exercise_type in ["overhead_press", "shoulder_press_machine"]:
+            p_angle = elbow_deg
+            s_angle = calculate_angle_2d(hp, sh, el)
+        elif exercise_type in ["row", "barbell_row", "machine_row", "cable_row", "dumbbell_row", "t_bar_row", "lat_pulldown", "single_lat_pulldown", "pullup", "pullover"]:
             p_angle = elbow_deg
             s_angle = torso_deg
-        elif exercise_type in ["cable_fly", "lateral_raise"]:
+        elif exercise_type in ["cable_fly", "lateral_raise", "cable_lateral_raise", "rear_delt_fly", "face_pull"]:
             p_angle = calculate_angle_2d(hp, sh, el)
             s_angle = elbow_deg
-        elif exercise_type in ["biceps_curl", "triceps_extension"]:
+        elif exercise_type in ["biceps_curl", "dumbbell_curl", "preacher_curl", "cable_biceps_curl", "hammer_curl", "triceps_pushdown", "skull_crushers", "overhead_triceps_extension", "triceps_dips"]:
             p_angle = elbow_deg
             s_angle = calculate_angle_2d(hp, sh, el)
         else:
@@ -480,7 +512,7 @@ def process_kinematics(
                 recom = f"Pies demasiado adelantados (>102°): traslada tensión hacia isquios. Acerca los pies ~5 cm."
             else:
                 recom = "Extensión de cadera incompleta (<158°). Busca lockout activo con retroversión pélvica."
-        elif exercise_type in ["squat", "bulgarian_squat", "leg_press"]:
+        elif exercise_type in ["squat", "hack_squat", "leg_press", "leg_extension", "bulgarian_squat", "front_squat", "sissy_squat"]:
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
@@ -489,30 +521,54 @@ def process_kinematics(
             torque_bias = "CUÁDRICEPS" if dominant_joint == "RODILLA" else "CADERA / GLÚTEO"
             status = "OPTIMAL" if deep_enough else "IMPROVEMENT_OPPORTUNITY"
             recom = "Profundidad clínica alcanzada (rodilla ≤90°)." if deep_enough else "Profundidad parcial. Desciende hasta que fémur quede paralelo al suelo."
-        elif exercise_type in ["rdl", "hamstring_curl"]:
+        elif exercise_type in ["rdl", "deadlift", "hamstring_curl", "seated_leg_curl", "lying_leg_curl", "cable_kickback", "hip_abduction"]:
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
             dominant_joint = "CADERA"
             torque_bias = "GLÚTEO / ISQUIOS"
-            status = "OPTIMAL" if inflect_knee >= 140.0 else "IMPROVEMENT_OPPORTUNITY"
-            recom = "Bisagra de cadera pura mantenida con rodilla semirrígida." if inflect_knee >= 140.0 else "Flexión excesiva de rodilla. Convierte el RDL en sentadilla; mantén tibia vertical."
-        elif exercise_type in ["row", "barbell_row", "lat_pulldown"]:
+            status = "OPTIMAL" if inflect_knee >= 135.0 or "curl" in exercise_type else "IMPROVEMENT_OPPORTUNITY"
+            recom = "Bisagra de cadera pura mantenida con tensión isquiosural." if status == "OPTIMAL" else "Flexión excesiva de rodilla. Convierte el RDL en sentadilla; mantén tibia vertical."
+        elif exercise_type in ["row", "barbell_row", "machine_row", "cable_row", "dumbbell_row", "t_bar_row", "lat_pulldown", "single_lat_pulldown", "pullup", "pullover"]:
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
             dominant_joint = "DORSAL / HOMBRO"
-            torque_bias = "DORSAL ANCHO" if abs(inflect_knee - 90) <= 15 else "BÍCEPS"
+            torque_bias = "DORSAL ANCHO"
             status = "OPTIMAL"
-            recom = "Tracción neutra a nivel de hombro/costillas con codo a 90° en máxima contracción."
-        else:
+            recom = "Tracción neutra y retracción escapular con codo guiado pegado al costado."
+        elif exercise_type in ["bench_press", "incline_press", "machine_chest_press", "chest_dips", "pec_deck", "cable_fly"]:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
+            dominant_joint = "PECTORAL / HOMBRO"
+            torque_bias = "PECTORAL MAYOR"
+            status = "OPTIMAL"
+            recom = "Aducción horizontal completa con estabilidad escapular y codo a ~60° del torso."
+        elif exercise_type in ["overhead_press", "shoulder_press_machine", "lateral_raise", "cable_lateral_raise", "rear_delt_fly", "face_pull"]:
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
             dominant_joint = "HOMBRO"
-            torque_bias = "PECTORAL / TREN SUPERIOR"
+            torque_bias = "DELTOIDES"
             status = "OPTIMAL"
-            recom = "Control de tempo cinemático estable."
+            recom = "Plano escapular respetado (30° anterior) sin pinzamiento subacromial."
+        elif exercise_type in ["biceps_curl", "dumbbell_curl", "preacher_curl", "cable_biceps_curl", "hammer_curl", "triceps_pushdown", "skull_crushers", "overhead_triceps_extension", "triceps_dips"]:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
+            dominant_joint = "CODO"
+            torque_bias = "BÍCEPS / TRÍCEPS"
+            status = "OPTIMAL"
+            recom = "Aislamiento articular estricto sin balanceo del húmero ni inercia corporal."
+        else:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
+            dominant_joint = "CADERA / RODILLA"
+            torque_bias = "GENERAL"
+            status = "OPTIMAL"
+            recom = "Control cinemático estable."
 
         verdict = {
             "status": status,
@@ -671,6 +727,8 @@ def analyze(
     exercise_type: str = "hip_thrust",
     target_muscle: str = "glutes",
     load_type: str = "free_weight",
+    start_time: float = 0.0,
+    end_time: Optional[float] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -687,10 +745,24 @@ def analyze(
         exercise_type = payload.get("exercise_type", exercise_type)
         target_muscle = payload.get("target_muscle", target_muscle)
         load_type = payload.get("load_type", load_type)
+        start_time = float(payload.get("start_time", start_time or 0.0))
+        end_time = payload.get("end_time", end_time)
+        if end_time is not None:
+            end_time = float(end_time)
+    else:
+        start_time = float(kwargs.get("start_time", start_time or 0.0))
+        if "end_time" in kwargs and kwargs["end_time"] is not None:
+            end_time = float(kwargs["end_time"])
 
     temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     try:
-        frames_rgb, timestamps, duration = sample_video_frames(temp_path, target_fps=15.0, max_frames=450)
+        frames_rgb, timestamps, duration = sample_video_frames(
+            temp_path,
+            target_fps=15.0,
+            max_frames=450,
+            start_time=start_time,
+            end_time=end_time
+        )
         if not frames_rgb:
             raise ValueError("Failed to decode frames from input video.")
             

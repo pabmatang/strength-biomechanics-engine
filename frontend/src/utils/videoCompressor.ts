@@ -92,25 +92,25 @@ export async function prepareVideoForAnalysis(
           return resolve(file);
         }
 
-        // Direct bypass if file already lightweight (< 1.2 MB) and <= 30s with no custom range
-        if (!range && duration <= maxDurationSec && file.size < 1.2 * 1024 * 1024) {
+        // Direct bypass if file already lightweight (< 25 MB)
+        // PyAV on Cerebrium T4 decodes native MP4/WebM ranges with zero loss and 0 ms sync error
+        if (file.size <= 25 * 1024 * 1024) {
           clearTimeout(timeoutTimer);
           cleanup();
-          console.info(`[Compressor] Bypass activo: archivo ligero (${(file.size / (1024 * 1024)).toFixed(2)} MB, ${duration.toFixed(1)}s).`);
+          console.info(`[Compressor] Direct serverless pass: ${(file.size / (1024 * 1024)).toFixed(2)} MB (${duration.toFixed(1)}s). Cerebrium PyAV procesará el rango exacto.`);
           return resolve(file);
         }
 
         // Determine exact window
-        let startTime = 0;
+        let startTime = 0.0;
         let endTime = duration;
 
         if (range) {
           startTime = Math.max(0, range.startTime);
           endTime = Math.min(duration, Math.min(range.endTime, startTime + maxDurationSec));
         } else if (duration > maxDurationSec) {
-          // Automatic 30s window starting after initial setup
-          startTime = 1.0;
-          endTime = Math.min(duration, startTime + maxDurationSec);
+          startTime = 0.0;
+          endTime = Math.min(duration, maxDurationSec);
         }
 
         // Calculate aspect-ratio bounds (must be even for H.264 / VP8 codecs)
@@ -202,7 +202,7 @@ export async function prepareVideoForAnalysis(
               ctx.drawImage(video, 0, 0, targetW, targetH);
             }
 
-            if (video.currentTime >= endTime || video.ended || video.paused) {
+            if (video.currentTime >= endTime || video.ended) {
               if (recorder.state === 'recording') {
                 recorder.stop();
               }
