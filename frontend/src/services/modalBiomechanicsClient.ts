@@ -152,32 +152,36 @@ export async function analyzeVideoWithModal(
   const currentController = new AbortController();
   activeAbortController = currentController;
 
-  const endpointUrl =
-    import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL ||
-    import.meta.env.VITE_MODAL_ENDPOINT_URL ||
+  const rawEndpoint =
+    (import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_MODAL_ENDPOINT_URL as string | undefined)?.trim() ||
     'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
 
-  const apiKey =
-    import.meta.env.VITE_CEREBRIUM_API_KEY ||
-    import.meta.env.VITE_CEREBRIUM_TOKEN ||
-    '';
+  const endpointUrl = rawEndpoint && rawEndpoint.length > 0
+    ? rawEndpoint
+    : 'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
 
-  if (!endpointUrl || endpointUrl.trim() === '') {
-    const errorMsg =
-      'No se ha configurado VITE_CEREBRIUM_ENDPOINT_URL ni VITE_MODAL_ENDPOINT_URL en el archivo .env. Despliega el backend ("cerebrium deploy") y añade la URL a tu entorno.';
-    console.error(`[BiomechanicsClient] ${errorMsg}`);
-    throw new Error(errorMsg);
-  }
+  const apiKey =
+    (import.meta.env.VITE_CEREBRIUM_API_KEY as string | undefined)?.trim() ||
+    (import.meta.env.VITE_CEREBRIUM_TOKEN as string | undefined)?.trim() ||
+    '';
 
   const isCerebrium = endpointUrl.toLowerCase().includes('cerebrium');
   const headers: Record<string, string> = {};
 
-  if (apiKey && apiKey.trim() !== '') {
-    headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+  if (apiKey && apiKey.length > 0) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
   try {
     let response: Response;
+
+    const startTime = typeof range?.startTime === 'number' && !isNaN(range.startTime)
+      ? Number(range.startTime.toFixed(2))
+      : 0.0;
+    const endTime = typeof range?.endTime === 'number' && !isNaN(range.endTime) && range.endTime > startTime
+      ? Number(range.endTime.toFixed(2))
+      : null;
 
     if (isCerebrium) {
       headers['Content-Type'] = 'application/json';
@@ -190,19 +194,23 @@ export async function analyzeVideoWithModal(
         body: JSON.stringify({
           video_base64: base64Data,
           video: base64Data,
-          exercise_type: config.exerciseType,
-          target_muscle: config.targetMuscle,
-          load_type: config.loadType,
-          start_time: range?.startTime ?? 0.0,
-          end_time: range?.endTime ?? 30.0
+          exercise_type: String(config.exerciseType),
+          target_muscle: String(config.targetMuscle),
+          load_type: String(config.loadType),
+          start_time: startTime,
+          end_time: endTime
         })
       });
     } else {
       const formData = new FormData();
       formData.append('video', videoBlob, 'input_video.webm');
-      formData.append('exercise_type', config.exerciseType);
-      formData.append('target_muscle', config.targetMuscle);
-      formData.append('load_type', config.loadType);
+      formData.append('exercise_type', String(config.exerciseType));
+      formData.append('target_muscle', String(config.targetMuscle));
+      formData.append('load_type', String(config.loadType));
+      formData.append('start_time', String(startTime));
+      if (endTime !== null) {
+        formData.append('end_time', String(endTime));
+      }
 
       response = await fetch(endpointUrl, {
         method: 'POST',

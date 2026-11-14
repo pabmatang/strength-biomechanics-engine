@@ -114,8 +114,15 @@ def sample_video_frames(
     timestamps = []
     step_dt = 1.0 / target_fps
     
-    t_start = max(0.0, float(start_time or 0.0))
-    t_end = float(end_time) if (end_time is not None and float(end_time) > t_start) else None
+    try:
+        t_start = max(0.0, float(start_time or 0.0))
+    except (ValueError, TypeError):
+        t_start = 0.0
+
+    try:
+        t_end = float(end_time) if (end_time is not None and float(end_time) > t_start) else None
+    except (ValueError, TypeError):
+        t_end = None
     
     # Strategy 1: PyAV (zero-fail demuxer for browser-fragmented WebM and MP4)
     try:
@@ -128,14 +135,22 @@ def sample_video_frames(
             next_sample_time = t_start
             frame_idx = 0
             fps = float(stream.average_rate or 30.0) if stream.average_rate else 30.0
+            first_time = None
             
             for packet in container.demux(stream):
                 for frame in packet.decode():
-                    if frame.pts is not None and stream.time_base:
-                        t = float(frame.pts * stream.time_base)
+                    if frame.time is not None:
+                        raw_t = float(frame.time)
+                    elif frame.pts is not None and stream.time_base:
+                        raw_t = float(frame.pts * stream.time_base)
                     else:
-                        t = frame_idx / fps
+                        raw_t = frame_idx / fps
                         
+                    if first_time is None:
+                        first_time = raw_t
+                        
+                    t = max(0.0, raw_t - first_time)
+                    
                     if t < next_sample_time - 1e-4:
                         frame_idx += 1
                         continue
@@ -161,57 +176,86 @@ def sample_video_frames(
         print(f"[Decoder] PyAV demux skipped or not available ({e}), trying OpenCV...")
 
     # Strategy 2: OpenCV Sequential Read (no seek, no frame_count dependency)
-    cap = cv2.VideoCapture(video_path)
-    if cap.isOpened():
-        native_fps = cap.get(cv2.CAP_PROP_FPS)
-        if not native_fps or native_fps <= 0 or math.isnan(native_fps):
-            native_fps = 30.0
-            
-        frame_idx = 0
-        next_sample_time = t_start
-        
-        while len(frames_rgb) < max_frames:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                break
-                
-            current_time = frame_idx / native_fps
-            if current_time < next_sample_time - 1e-4:
-                frame_idx += 1
-                continue
-                
-            if t_end is not None and current_time > t_end + 1e-4:
-                break
-                
-            if current_time >= next_sample_time - 1e-4:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frames_rgb.append(frame_rgb)
-                timestamps.append(round(current_time, 3))
-                next_sample_time += step_dt
-                
-            frame_idx += 1
-            
-        cap.release()
-        
-    # Strategy 3: Direct fallback (read every frame until max_frames)
-    if not frames_rgb:
+    try:
         cap = cv2.VideoCapture(video_path)
-        frame_idx = 0
-        while len(frames_rgb) < max_frames:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                break
-            current_time = t_start + len(frames_rgb) * step_dt
-            if t_end is not None and current_time > t_end:
-                break
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frames_rgb.append(frame_rgb)
-            timestamps.append(round(current_time, 3))
-            frame_idx += 1
-        cap.release()
+        if cap.isOpened():
+            native_fps = cap.get(cv2.CAP_PROP_FPS)
+            if not native_fps or native_fps <= 0 or math.isnan(native_fps):
+                native_fps = 30.0
+                
+            frame_idx = 0
+            next_sample_time = t_start
+            
+            while len(frames_rgb) < max_frames:
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    break
+                    
+                current_time = frame_idx / native_fps
+                if current_time < next_sample_time - 1e-4:
+                    frame_idx += 1
+                    continue
+                    
+                if t_end is not None and current_time > t_end + 1e-4:
+                    break
+                    
+                if current_time >= next_sample_time - 1e-4:
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frames_rgb.append(frame_rgb)
+                    timestamps.append(round(current_time, 3))
+                    next_sample_time += step_dt
+                    
+                frame_idx += 1
+                
+            cap.release()
+    except Exception as e:
+        print(f"[Decoder] OpenCV read failed ({e})")
+        
+    # Strategy 3: Universal Fallback without time range bounding (guarantees frames are decoded)
+    if not frames_rgb:
+        print("[Decoder] Range-bounded decode was empty; executing universal sequential fallback...")
+        try:
+            import av
+            container = av.open(video_path)
+            if len(container.streams.video) > 0:
+                stream = container.streams.video[0]
+                fps = float(stream.average_rate or 30.0) if stream.average_rate else 30.0
+                step = max(1, int(round(fps / target_fps)))
+                f_idx = 0
+                for packet in container.demux(stream):
+                    for frame in packet.decode():
+                        if f_idx % step == 0:
+                            frames_rgb.append(frame.to_ndarray(format="rgb24"))
+                            timestamps.append(round(f_idx / fps, 3))
+                            if len(frames_rgb) >= max_frames:
+                                break
+                        f_idx += 1
+                    if len(frames_rgb) >= max_frames:
+                        break
+                container.close()
+        except Exception as e:
+            print(f"[Decoder] PyAV universal fallback failed: {e}")
+
+    if not frames_rgb:
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if cap.isOpened():
+                f_idx = 0
+                while len(frames_rgb) < max_frames:
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
+                        break
+                    if f_idx % 2 == 0:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frames_rgb.append(frame_rgb)
+                        timestamps.append(round(f_idx / 30.0, 3))
+                    f_idx += 1
+                cap.release()
+        except Exception as e:
+            print(f"[Decoder] OpenCV universal fallback failed: {e}")
 
     duration = timestamps[-1] if timestamps else 0.0
-    print(f"[Decoder] OpenCV decoded {len(frames_rgb)} frames.")
+    print(f"[Decoder] Decoded total of {len(frames_rgb)} frames.")
     return frames_rgb, timestamps, duration
 
 def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
@@ -452,11 +496,19 @@ def process_kinematics(
     frame_rep_map = [0] * n_frames
     frame_phase_map = ["IDLE"] * n_frames
     
-    peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=18, distance=12)
+    # User requirement: minimum prominence 32 degrees (demanding true clinical ROM)
+    peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=32, distance=14)
     if len(peaks) == 0:
-        peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=12, distance=10)
+        peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=24, distance=12)
             
-    for rep_idx, bottom_frame in enumerate(peaks, start=1):
+    # Discard peaks within first and last 1.0s of the clip (setup and racking movements)
+    t_min_bound = timestamps[0] + 1.0
+    t_max_bound = timestamps[-1] - 1.0
+    valid_peaks = [p for p in peaks if t_min_bound <= timestamps[p] <= t_max_bound]
+    if len(valid_peaks) == 0 and len(peaks) > 0:
+        valid_peaks = peaks # fallback if clip is tightly trimmed
+
+    for rep_idx, bottom_frame in enumerate(valid_peaks, start=1):
         search_back = max(0, bottom_frame - 25)
         if exercise_type == "hip_thrust":
             start_frame = search_back + int(np.argmin(primary_angles[search_back:bottom_frame])) if bottom_frame > search_back else search_back
@@ -721,16 +773,16 @@ def _extract_video_to_tempfile(
     return tmp.name
 
 def analyze(
-    video_base64: Optional[str] = None,
-    video_url: Optional[str] = None,
-    video: Optional[str] = None,
-    exercise_type: str = "hip_thrust",
-    target_muscle: str = "glutes",
-    load_type: str = "free_weight",
-    start_time: float = 0.0,
-    end_time: Optional[float] = None,
+    video_base64=None,
+    video_url=None,
+    video=None,
+    exercise_type="hip_thrust",
+    target_muscle="glutes",
+    load_type="free_weight",
+    start_time=0.0,
+    end_time=None,
     **kwargs
-) -> Dict[str, Any]:
+):
     """
     Primary Cerebrium endpoint handler.
     Receives JSON payload with video (base64 or URL) and biomechanics configuration.
@@ -742,17 +794,31 @@ def analyze(
         video_base64 = payload.get("video_base64")
         video_url = payload.get("video_url")
         video = payload.get("video")
-        exercise_type = payload.get("exercise_type", exercise_type)
-        target_muscle = payload.get("target_muscle", target_muscle)
-        load_type = payload.get("load_type", load_type)
-        start_time = float(payload.get("start_time", start_time or 0.0))
-        end_time = payload.get("end_time", end_time)
-        if end_time is not None:
-            end_time = float(end_time)
+        exercise_type = payload.get("exercise_type", exercise_type or "hip_thrust")
+        target_muscle = payload.get("target_muscle", target_muscle or "glutes")
+        load_type = payload.get("load_type", load_type or "free_weight")
+        start_time_val = payload.get("start_time", 0.0)
+        end_time_val = payload.get("end_time", None)
     else:
-        start_time = float(kwargs.get("start_time", start_time or 0.0))
-        if "end_time" in kwargs and kwargs["end_time"] is not None:
-            end_time = float(kwargs["end_time"])
+        exercise_type = exercise_type or kwargs.get("exercise_type", "hip_thrust")
+        target_muscle = target_muscle or kwargs.get("target_muscle", "glutes")
+        load_type = load_type or kwargs.get("load_type", "free_weight")
+        start_time_val = kwargs.get("start_time", start_time if start_time is not None else 0.0)
+        end_time_val = kwargs.get("end_time", end_time)
+
+    exercise_type = str(exercise_type)
+    target_muscle = str(target_muscle)
+    load_type = str(load_type)
+
+    try:
+        start_time = float(start_time_val) if start_time_val is not None else 0.0
+    except (ValueError, TypeError):
+        start_time = 0.0
+
+    try:
+        end_time = float(end_time_val) if (end_time_val is not None and str(end_time_val).strip() != "") else None
+    except (ValueError, TypeError):
+        end_time = None
 
     temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     try:
@@ -786,14 +852,16 @@ def analyze(
 
 # Alias for generic prediction endpoints
 def predict(
-    video_base64: Optional[str] = None,
-    video_url: Optional[str] = None,
-    video: Optional[str] = None,
-    exercise_type: str = "hip_thrust",
-    target_muscle: str = "glutes",
-    load_type: str = "free_weight",
+    video_base64=None,
+    video_url=None,
+    video=None,
+    exercise_type="hip_thrust",
+    target_muscle="glutes",
+    load_type="free_weight",
+    start_time=0.0,
+    end_time=None,
     **kwargs
-) -> Dict[str, Any]:
+):
     return analyze(
         video_base64=video_base64,
         video_url=video_url,
@@ -801,5 +869,7 @@ def predict(
         exercise_type=exercise_type,
         target_muscle=target_muscle,
         load_type=load_type,
+        start_time=start_time,
+        end_time=end_time,
         **kwargs
     )

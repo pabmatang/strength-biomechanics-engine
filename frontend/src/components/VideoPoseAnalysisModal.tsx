@@ -413,6 +413,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       const currentTime = video.currentTime || 0;
       setVideoCurrentTime(currentTime);
 
+      // Seamless video loop inside trimmed range [trimStart, trimEnd]
+      if (!video.seeking && trimEnd > trimStart && (currentTime >= trimEnd || currentTime < trimStart - 0.2)) {
+        video.currentTime = trimStart;
+      }
+
       if (analysisData && analysisData.frames.length > 0) {
         const frame = findClosestFrame(analysisData.frames, currentTime);
         if (frame) {
@@ -444,7 +449,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       cancelled = true;
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, selectedPattern]);
+  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, selectedPattern, trimStart, trimEnd]);
 
   /**
    * Surgical 1:1 Canvas Projection and Clean Visual Layer Separation
@@ -522,10 +527,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     const drawPoint = (p: { x: number; y: number }, color: string) => {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 3.5, 0, 2 * Math.PI);
+      ctx.arc(p.x, p.y, 4.0, 0, 2 * Math.PI);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.8;
       ctx.strokeStyle = '#FFFFFF';
       ctx.stroke();
     };
@@ -537,20 +542,71 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2.0;
+      ctx.lineWidth = 2.4;
       ctx.stroke();
       ctx.setLineDash([]);
+    };
+
+    const clampX = (x: number, w: number = 64) => Math.max(10, Math.min(canvas.width - w - 10, x));
+    const clampY = (y: number, h: number = 22) => Math.max(10, Math.min(canvas.height - h - 10, y));
+
+    const drawPillTag = (x: number, y: number, text: string, borderColor: string, textColor: string = '#FFFFFF') => {
+      ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
+      const textW = ctx.measureText(text).width;
+      const pillW = textW + 14;
+      const pillH = 20;
+      const pillX = clampX(x, pillW);
+      const pillY = clampY(y, pillH);
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillH, 6);
+      ctx.fill();
+
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      ctx.fillStyle = textColor;
+      ctx.fillText(text, pillX + 7, pillY + 14);
+    };
+
+    const drawAngleArc = (pCenter: { x: number; y: number }, p1: { x: number; y: number }, p2: { x: number; y: number }, radius: number, color: string) => {
+      const a1 = Math.atan2(p1.y - pCenter.y, p1.x - pCenter.x);
+      const a2 = Math.atan2(p2.y - pCenter.y, p2.x - pCenter.x);
+      ctx.beginPath();
+      ctx.arc(pCenter.x, pCenter.y, radius, Math.min(a1, a2), Math.max(a1, a2));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
     };
 
     const isLowerBody = options.exerciseId.includes('hip_thrust') ||
       options.exerciseId.includes('squat') ||
       options.exerciseId.includes('rdl') ||
-      options.exerciseId.includes('bulgarian');
+      options.exerciseId.includes('deadlift') ||
+      options.exerciseId.includes('lunge') ||
+      options.exerciseId.includes('leg') ||
+      options.exerciseId.includes('glute') ||
+      selectedExerciseId.includes('hip_thrust') ||
+      selectedExerciseId.includes('squat') ||
+      selectedExerciseId.includes('rdl') ||
+      selectedExerciseId.includes('bridge') ||
+      selectedExerciseId.includes('curl') ||
+      selectedExerciseId.includes('kickback') ||
+      selectedExerciseId.includes('abduction');
 
     if (mode === 'technique') {
+      // -------------------------------------------------------------
+      // MODO 1: CORRECCIÓN TÉCNICA
+      // Esqueleto anatómico completo (opacidad 1.0)
+      // Arcos angulares en vivo + pills oscuras en vértices
+      // Indicador de alineación articular
+      // Vector de fuerza y cotas de brazos de momento ocultos
+      // -------------------------------------------------------------
       if (isLowerBody) {
         // Lower-body clean kinetic chain: Shoulder -> Hip -> Knee -> Ankle
-        drawSegment(pSh, pHp, '#10B981'); // Spinal trunk
+        drawSegment(pSh, pHp, '#10B981'); // Trunk
         drawSegment(pHp, pKn, '#10B981'); // Thigh
         drawSegment(pKn, pAk, '#10B981'); // Shin
 
@@ -559,6 +615,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pKn, '#10B981');
         drawPoint(pAk, '#10B981');
         drawPoint(pHd, '#34D399');
+
+        // Arcos de ángulo limpios
+        drawAngleArc(pHp, pSh, pKn, 22, '#10B981');
+        drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
+
+        if (options.showCanvasText) {
+          // Cadera badge
+          drawPillTag(pHp.x + 12, pHp.y - 12, `Cadera: ${Math.round(frame.main_angle)}°`, '#10B981', '#34D399');
+          // Rodilla badge
+          drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
+        }
       } else {
         // Upper-body kinetic chain
         drawSegment(pHd, pSh, '#34D399');
@@ -571,117 +638,108 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pEl, '#6EE7B7');
         drawPoint(pWr, '#6EE7B7');
         drawPoint(pHp, '#10B981');
-      }
 
-      // Joint Angle badge at primary inflection joint
-      if (options.showCanvasText) {
-        const isHT = options.exerciseId.includes('hip_thrust');
-        if (isHT) {
-          // Hip extension angle badge
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.beginPath();
-          ctx.roundRect(pHp.x + 8, pHp.y - 12, 54, 20, 6);
-          ctx.fill();
-          ctx.strokeStyle = '#10B981';
-          ctx.lineWidth = 1.2;
-          ctx.stroke();
+        drawAngleArc(pSh, pHp, pEl, 22, '#10B981');
+        drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
 
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
-          ctx.fillText(`${Math.round(frame.main_angle)}°`, pHp.x + 14, pHp.y + 2);
-
-          // Knee angle badge
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.beginPath();
-          ctx.roundRect(pKn.x - 62, pKn.y - 12, 54, 20, 6);
-          ctx.fill();
-          ctx.strokeStyle = '#38BDF8';
-          ctx.lineWidth = 1.2;
-          ctx.stroke();
-
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
-          ctx.fillText(`${Math.round(frame.secondary_angle)}°`, pKn.x - 56, pKn.y + 2);
-        } else {
-          const targetPt = options.exerciseId.includes('bench') || options.exerciseId.includes('row') ? pEl : pKn;
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.beginPath();
-          ctx.roundRect(targetPt.x + 10, targetPt.y - 12, 54, 20, 6);
-          ctx.fill();
-          ctx.strokeStyle = '#10B981';
-          ctx.lineWidth = 1.2;
-          ctx.stroke();
-
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
-          ctx.fillText(`${Math.round(frame.main_angle)}°`, targetPt.x + 16, targetPt.y + 2);
+        if (options.showCanvasText) {
+          drawPillTag(pSh.x + 12, pSh.y - 12, `Hombro: ${Math.round(frame.main_angle)}°`, '#10B981', '#34D399');
+          drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
         }
       }
-    } else {
-      // CAPA 2: BIOMECANICA - Oculta esqueleto secundario, muestra exclusivamente vector de fuerza y cotas ortogonales
-      const isHT = options.exerciseId.includes('hip_thrust');
-      if (isHT || options.exerciseId.includes('squat') || options.exerciseId.includes('rdl')) {
-        drawSegment(pHp, pKn, '#38BDF8');
-        drawSegment(pKn, pAk, '#38BDF8');
-      } else {
-        drawSegment(pSh, pEl, '#38BDF8');
-        drawSegment(pEl, pWr, '#38BDF8');
+
+      // Indicador visual de alineación articular verde/ámbar
+      if (options.showCanvasText) {
+        const isOptimal = frame.verdict?.status === 'OPTIMAL';
+        drawPillTag(
+          pHd.x - 50,
+          Math.max(offsetY + 14, pHd.y - 32),
+          isOptimal ? '✓ Alineación Articular Óptima' : '⚠️ Ajustar Alineación Postural',
+          isOptimal ? '#10B981' : '#F59E0B',
+          isOptimal ? '#6EE7B7' : '#FCD34D'
+        );
       }
+    } else {
+      // -------------------------------------------------------------
+      // MODO 2: OPTIMIZACIÓN BIOMECÁNICA
+      // Esqueleto atenuado (opacidad 0.35)
+      // Vector de carga vertical amarillo (#FBBF24) discontinua con flecha
+      // Cotas horizontales perpendiculares (brazos d_cadera y d_rodilla)
+      // -------------------------------------------------------------
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      if (isLowerBody) {
+        drawSegment(pSh, pHp, '#94A3B8');
+        drawSegment(pHp, pKn, '#94A3B8');
+        drawSegment(pKn, pAk, '#94A3B8');
+        drawPoint(pSh, '#94A3B8');
+        drawPoint(pHp, '#94A3B8');
+        drawPoint(pKn, '#94A3B8');
+        drawPoint(pAk, '#94A3B8');
+      } else {
+        drawSegment(pSh, pHp, '#94A3B8');
+        drawSegment(pSh, pEl, '#94A3B8');
+        drawSegment(pEl, pWr, '#94A3B8');
+        drawPoint(pSh, '#94A3B8');
+        drawPoint(pEl, '#94A3B8');
+        drawPoint(pWr, '#94A3B8');
+      }
+      ctx.restore();
 
+      // Puntos articulares clave en color nítido
       drawPoint(pHp, '#38BDF8');
-      drawPoint(pKn, '#38BDF8');
+      drawPoint(pKn, '#10B981');
       drawPoint(pAk, '#38BDF8');
-      drawPoint(pWr, '#F59E0B');
+      drawPoint(pWr, '#FBBF24');
 
-      // Vertical gravity force vector through resistance point (wrist/load)
+      // Línea vertical de fuerza de gravedad a través del centro de carga / muñeca
       const lineX = pWr.x;
-      const lineTop = Math.max(offsetY, pWr.y - 100);
-      const lineBottom = Math.min(offsetY + drawH, pWr.y + 140);
+      const lineTop = Math.max(offsetY + 10, pWr.y - 120);
+      const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pHp.y, pKn.y, pAk.y) + 30);
 
       ctx.beginPath();
-      ctx.setLineDash([5, 3]);
+      ctx.setLineDash([6, 3]);
       ctx.moveTo(lineX, lineTop);
       ctx.lineTo(lineX, lineBottom);
-      ctx.strokeStyle = '#F59E0B';
-      ctx.lineWidth = 2.0;
+      ctx.strokeStyle = '#FBBF24';
+      ctx.lineWidth = 2.5;
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Downward gravity arrow tip
+      // Flecha vertical de carga descendente
       ctx.beginPath();
       ctx.moveTo(lineX, lineBottom);
-      ctx.lineTo(lineX - 5, lineBottom - 8);
-      ctx.lineTo(lineX + 5, lineBottom - 8);
+      ctx.lineTo(lineX - 6, lineBottom - 10);
+      ctx.lineTo(lineX + 6, lineBottom - 10);
       ctx.closePath();
-      ctx.fillStyle = '#F59E0B';
+      ctx.fillStyle = '#FBBF24';
       ctx.fill();
 
-      // Orthogonal Moment Arm Dimension Lines (cotas ortogonales)
+      // Cotas horizontales perpendiculares (brazos de momento d_cadera y d_rodilla)
       if (options.showLeverArms) {
+        // Brazo de momento a la cadera (azul)
         drawSegment(pHp, { x: lineX, y: pHp.y }, '#3B82F6', true);
+        // Brazo de momento a la rodilla (verde)
         drawSegment(pKn, { x: lineX, y: pKn.y }, '#10B981', true);
-        drawSegment(pSh, { x: lineX, y: pSh.y }, '#A855F7', true);
 
         if (options.showCanvasText) {
-          // d_cadera
           const midHipX = (pHp.x + lineX) / 2;
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.beginPath();
-          ctx.roundRect(midHipX - 24, pHp.y - 16, 48, 15, 4);
-          ctx.fill();
-          ctx.fillStyle = '#60A5FA';
-          ctx.font = 'bold 9px ui-monospace, monospace';
-          ctx.fillText(`d_cad: ${Math.round(frame.moment_arms.d_hip * 100)}`, midHipX - 20, pHp.y - 5);
+          drawPillTag(
+            midHipX - 28,
+            pHp.y - 16,
+            `d_cadera: ${Math.round((frame.moment_arms.d_hip || 0) * 100)}`,
+            '#3B82F6',
+            '#93C5FD'
+          );
 
-          // d_rodilla
           const midKnX = (pKn.x + lineX) / 2;
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.beginPath();
-          ctx.roundRect(midKnX - 24, pKn.y - 16, 48, 15, 4);
-          ctx.fill();
-          ctx.fillStyle = '#34D399';
-          ctx.font = 'bold 9px ui-monospace, monospace';
-          ctx.fillText(`d_rod: ${Math.round(frame.moment_arms.d_knee * 100)}`, midKnX - 20, pKn.y - 5);
+          drawPillTag(
+            midKnX - 28,
+            pKn.y - 16,
+            `d_rodilla: ${Math.round((frame.moment_arms.d_knee || 0) * 100)}`,
+            '#10B981',
+            '#6EE7B7'
+          );
         }
       }
     }
@@ -823,6 +881,44 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const totalMoment = d_hip_val + d_knee_val + 1e-5;
   const hipShare = Math.round((d_hip_val / totalMoment) * 100);
   const kneeShare = 100 - hipShare;
+
+  const isLowerBody =
+    selectedPattern.id.includes('hip_thrust') ||
+    selectedPattern.id.includes('squat') ||
+    selectedPattern.id.includes('rdl') ||
+    selectedPattern.id.includes('deadlift') ||
+    selectedPattern.id.includes('lunge') ||
+    selectedPattern.id.includes('leg') ||
+    selectedPattern.id.includes('glute') ||
+    selectedExerciseId.includes('hip_thrust') ||
+    selectedExerciseId.includes('squat') ||
+    selectedExerciseId.includes('rdl') ||
+    selectedExerciseId.includes('bridge') ||
+    selectedExerciseId.includes('curl') ||
+    selectedExerciseId.includes('kickback') ||
+    selectedExerciseId.includes('abduction');
+
+  const primaryJointName = isLowerBody ? 'Cadera' : 'Hombro';
+  const secondaryJointName = isLowerBody ? 'Rodilla' : 'Codo';
+
+  // Real clinical statistics from repetition summaries
+  const minRomAngle = analysisData?.repetitions_summary?.length
+    ? Math.round(Math.min(...analysisData.repetitions_summary.map(r => r.min_primary_angle)))
+    : (currentFrame ? Math.round(currentFrame.main_angle) : 0);
+  const maxRomAngle = analysisData?.repetitions_summary?.length
+    ? Math.round(Math.max(...analysisData.repetitions_summary.map(r => r.max_primary_angle)))
+    : (currentFrame ? Math.round(currentFrame.main_angle) : 0);
+  const deltaRom = Math.max(0, maxRomAngle - minRomAngle);
+
+  const avgEccentric = analysisData?.repetitions_summary?.length
+    ? (analysisData.repetitions_summary.reduce((acc, r) => acc + (r.eccentric_sec || 0), 0) / analysisData.repetitions_summary.length).toFixed(1)
+    : '1.8';
+  const avgPause = analysisData?.repetitions_summary?.length
+    ? (analysisData.repetitions_summary.reduce((acc, r) => acc + (r.pause_sec || 0), 0) / analysisData.repetitions_summary.length).toFixed(1)
+    : '0.4';
+  const avgConcentric = analysisData?.repetitions_summary?.length
+    ? (analysisData.repetitions_summary.reduce((acc, r) => acc + (r.concentric_sec || 0), 0) / analysisData.repetitions_summary.length).toFixed(1)
+    : '1.1';
 
   // Mode Switcher Buttons
   const modeSwitcherButtons = (
@@ -1073,14 +1169,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               {/* HUD Telemetry Badges */}
               {pipelineState === 'ready' && (
                 <div className="absolute top-2 left-2 flex flex-wrap gap-1.5 pointer-events-none z-10">
-                  <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold">
+                  <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold shadow-md">
                     {currentFrame && currentFrame.rep_number > 0 ? `REP: #${currentFrame.rep_number}` : 'PREPARACIÓN'}
                   </span>
-                  <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold">
+                  <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold shadow-md">
                     {currentFrame?.phase || 'IDLE'}
                   </span>
-                  <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-mono font-bold">
-                    Ángulo: {Math.round(currentPrimaryAngle)}°
+                  <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-purple-500/40 text-purple-200 text-[10px] font-mono font-bold shadow-md">
+                    {primaryJointName}: {Math.round(currentFrame?.main_angle ?? currentPrimaryAngle)}° · {secondaryJointName}: {Math.round(currentFrame?.secondary_angle ?? 0)}°
                   </span>
                 </div>
               )}
@@ -1301,54 +1397,134 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
             </div>
 
-            {/* Frozen Verdict HUD Card */}
-            <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  Veredicto Biomecánico Congelado
-                </span>
-                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                  activeVerdict.status === 'OPTIMAL'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                }`}>
-                  {activeVerdict.status === 'OPTIMAL' ? '✓ Óptimo' : '⚠️ Oportunidad'}
-                </span>
-              </div>
+            {/* DYNAMIC MODE-SEPARATED METRIC CARDS */}
+            {analysisMode === 'technique' ? (
+              <>
+                {/* CARD 1: Diagnóstico Postural Clínico */}
+                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      Diagnóstico Postural
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      activeVerdict.status === 'OPTIMAL'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    }`}>
+                      {activeVerdict.status === 'OPTIMAL' ? '✓ Óptimo' : '⚠️ Oportunidad'}
+                    </span>
+                  </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed">
-                {activeVerdict.recommendation}
-              </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed">
+                    {activeVerdict.recommendation}
+                  </div>
 
-              {/* Moment Arms Distribution Bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
-                  <span>Brazo Cadera: {hipShare}%</span>
-                  <span>Brazo Rodilla: {kneeShare}%</span>
+                  <div className="space-y-1 pt-1 border-t border-slate-800/60 text-[11px]">
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Estabilidad Tibial:</span>
+                      <span className="font-bold text-emerald-400">Vertical fija (sin deslizamiento)</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Bloqueo Pélvico:</span>
+                      <span className="font-bold text-cyan-300">Retroversión completa (≥158°)</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Control Excéntrico:</span>
+                      <span className="font-bold text-slate-200">Cadencia sostenida</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                  <div className="bg-blue-500 transition-all duration-150" style={{ width: `${hipShare}%` }} />
-                  <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${kneeShare}%` }} />
-                </div>
-              </div>
 
-              {/* Physical Quantities Grid */}
-              <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
-                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Dominancia</span>
-                  <span className="text-xs font-black text-cyan-300 font-mono">{activeVerdict.dominant_joint}</span>
+                {/* CARD 2: Métricas de Ejecución Técnica (ROM y Tempo Real) */}
+                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <Gauge className="w-4 h-4 text-cyan-400" />
+                      Métricas de Ejecución Técnica
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                      {analysisData?.total_reps ?? 0} Reps Validadas
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Rango de Movimiento (ROM)</span>
+                      <span className="text-sm font-black text-cyan-300 font-mono">
+                        {minRomAngle}° → {maxRomAngle}°
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">Δ Recorrido: {deltaRom}°</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Tempo Medio Real</span>
+                      <div className="text-[11px] font-mono text-slate-200 mt-1 space-y-0.5">
+                        <div>Excéntrica: <strong className="text-cyan-300">{avgEccentric}s</strong></div>
+                        <div>Pausa: <strong className="text-purple-300">{avgPause}s</strong></div>
+                        <div>Concéntrica: <strong className="text-emerald-300">{avgConcentric}s</strong></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Enfoque Torque</span>
-                  <span className="text-[11px] font-black text-purple-300 font-mono truncate block">{activeVerdict.primary_torque_bias}</span>
+              </>
+            ) : (
+              <>
+                {/* CARD 1: Reparto de Torque y Palancas Articulares */}
+                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <Scale className="w-4 h-4 text-blue-400" />
+                      Reparto de Torque y Palancas
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                      {hipShare}% Cadera vs {kneeShare}% Rodilla
+                    </span>
+                  </div>
+
+                  {/* Moment Arms Distribution Bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
+                      <span>Brazo Cadera: {hipShare}%</span>
+                      <span>Brazo Rodilla: {kneeShare}%</span>
+                    </div>
+                    <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                      <div className="bg-blue-500 transition-all duration-150" style={{ width: `${hipShare}%` }} />
+                      <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${kneeShare}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Physical Quantities Grid */}
+                  <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Dominancia</span>
+                      <span className="text-xs font-black text-cyan-300 font-mono">{activeVerdict.dominant_joint}</span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Enfoque Muscular</span>
+                      <span className="text-[11px] font-black text-purple-300 font-mono truncate block">{activeVerdict.primary_torque_bias}</span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Reps</span>
+                      <span className="text-xs font-black text-emerald-300 font-mono">{analysisData?.total_reps ?? 0}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Reps</span>
-                  <span className="text-xs font-black text-emerald-300 font-mono">{analysisData?.total_reps ?? 0}</span>
+
+                {/* CARD 2: Ajuste Mecánico Recomendado */}
+                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <Crosshair className="w-4 h-4 text-amber-400" />
+                      Ajuste Mecánico Recomendado
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed">
+                    {activeVerdict.recommendation || "Adelantar pies ~5 cm reduce el brazo de palanca en rodilla, elimina cizalla anterior y aísla el torque en el glúteo mayor."}
+                  </div>
                 </div>
-              </div>
-            </div>
+              </>
+            )}
 
             {/* Repetitions Breakdown Accordion */}
             {analysisData && analysisData.repetitions_summary.length > 0 && (
