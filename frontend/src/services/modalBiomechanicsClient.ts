@@ -1,9 +1,10 @@
 /**
- * Modal Biomechanics Client & Memory Cache
+ * Unified Biomechanics Client & Memory Cache (Cerebrium / Modal / HuggingFace)
  * 
- * Communicates with the Serverless backend on Modal (RT-DETR + ViTPose-Base + SciPy).
- * Implements an in-memory Map cache keyed by file fingerprint + workout configuration,
- * providing 0 ms and €0 cost switches between Analysis Views.
+ * Supports Cerebrium Serverless T4 GPU JSON invocation (Base64) as well as
+ * standard multipart/form-data backends.
+ * In-memory Map cache keyed by file fingerprint + workout configuration
+ * guarantees 0 ms and €0 cost switches between Analysis Views.
  */
 
 export interface ExerciseConfig {
@@ -94,10 +95,20 @@ export function clearBiomechanicsCache(): void {
   analysisCache.clear();
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      resolve(reader.result as string);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 /**
- * Dispatches video to Modal Labs Serverless Backend.
+ * Dispatches video to Cerebrium or Modal/Hugging Face Serverless Backend.
  * Uses cached result if identical video & exercise configuration was already evaluated.
- * Throws real network and server errors without any synthetic mock fallback.
  */
 export async function analyzeVideoWithModal(
   videoBlob: Blob,
@@ -110,38 +121,79 @@ export async function analyzeVideoWithModal(
     return cached;
   }
 
-  const endpointUrl = import.meta.env.VITE_MODAL_ENDPOINT_URL;
+  const endpointUrl =
+    import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL ||
+    import.meta.env.VITE_MODAL_ENDPOINT_URL;
+
+  const apiKey =
+    import.meta.env.VITE_CEREBRIUM_API_KEY ||
+    import.meta.env.VITE_CEREBRIUM_TOKEN ||
+    '';
 
   if (!endpointUrl || endpointUrl.trim() === '') {
-    const errorMsg = 'No se ha configurado VITE_MODAL_ENDPOINT_URL en el entorno (.env). Despliega el backend en Modal con "modal deploy backend/modal_biomechanics.py" y añade la URL asignada a tu .env.';
-    console.error(`[ModalBiomechanicsClient] ${errorMsg}`);
+    const errorMsg =
+      'No se ha configurado VITE_CEREBRIUM_ENDPOINT_URL ni VITE_MODAL_ENDPOINT_URL en el archivo .env. Despliega el backend ("cerebrium deploy") y añade la URL a tu entorno.';
+    console.error(`[BiomechanicsClient] ${errorMsg}`);
     throw new Error(errorMsg);
   }
 
-  const formData = new FormData();
-  formData.append('video', videoBlob, 'input_video.webm');
-  formData.append('exercise_type', config.exerciseType);
-  formData.append('target_muscle', config.targetMuscle);
-  formData.append('load_type', config.loadType);
+  const isCerebrium = endpointUrl.toLowerCase().includes('cerebrium');
+  const headers: Record<string, string> = {};
+
+  if (apiKey && apiKey.trim() !== '') {
+    headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+  }
 
   try {
-    const response = await fetch(endpointUrl, {
-      method: 'POST',
-      body: formData,
-    });
+    let response: Response;
+
+    if (isCerebrium) {
+      headers['Content-Type'] = 'application/json';
+      const base64Data = await blobToBase64(videoBlob);
+
+      response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          video_base64: base64Data,
+          exercise_type: config.exerciseType,
+          target_muscle: config.targetMuscle,
+          load_type: config.loadType
+        })
+      });
+    } else {
+      const formData = new FormData();
+      formData.append('video', videoBlob, 'input_video.webm');
+      formData.append('exercise_type', config.exerciseType);
+      formData.append('target_muscle', config.targetMuscle);
+      formData.append('load_type', config.loadType);
+
+      response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers,
+        body: formData
+      });
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      const message = `Error en el servidor de biomecánica Modal (${response.status}): ${errorText || response.statusText}`;
-      console.error(`[ModalBiomechanicsClient] ${message}`);
+      const message = `Error en el microservicio biomecánico (${response.status}): ${errorText || response.statusText}`;
+      console.error(`[BiomechanicsClient] ${message}`);
       throw new Error(message);
     }
 
-    const data = (await response.json()) as BiomechanicsAnalysisResponse;
+    const rawJson = await response.json();
+    // Cerebrium wraps output in { result: ... } if deployed as standard handler
+    const data: BiomechanicsAnalysisResponse = (rawJson.result || rawJson.data || rawJson) as BiomechanicsAnalysisResponse;
+
+    if (!data.frames || !Array.isArray(data.frames)) {
+      throw new Error('La respuesta del microservicio no contiene el array de frames cinemáticos esperado.');
+    }
+
     analysisCache.set(cacheKey, data);
     return data;
   } catch (err: any) {
-    console.error('[ModalBiomechanicsClient] Fallo en la comunicación con Modal Backend:', err);
+    console.error('[BiomechanicsClient] Fallo en la comunicación con el microservicio:', err);
     throw err;
   }
 }

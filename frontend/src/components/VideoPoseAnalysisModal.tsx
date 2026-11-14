@@ -161,7 +161,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const runPipelineAnalysis = useCallback(async (blob: Blob, fileId: string, pattern: ExercisePatternSpec, muscle: string, load: string) => {
     try {
       setPipelineState('analyzing');
-      setPipelineMessage('Procesando cinemática clínica en Modal Serverless (RT-DETR + ViTPose CPU)...');
+      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose-Large)...');
 
       let exType = 'squat';
       if (pattern.id.includes('hip_thrust')) exType = 'hip_thrust';
@@ -684,12 +684,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${pipelineState === 'ready' ? 'bg-emerald-400' : pipelineState === 'error' ? 'bg-rose-400' : 'bg-cyan-400 animate-ping'}`} />
                   <span>
-                    {pipelineState === 'ready' ? 'Modal Serverless CPU Activo' : pipelineState === 'analyzing' ? 'Inferencia CPU...' : pipelineState === 'compressing' ? 'Comprimiendo...' : pipelineState === 'error' ? 'Error' : 'Listo'}
+                    {pipelineState === 'ready' ? 'Cerebrium GPU T4 Activo' : pipelineState === 'analyzing' ? 'Inferencia GPU...' : pipelineState === 'compressing' ? 'Comprimiendo...' : pipelineState === 'error' ? 'Error' : 'Listo'}
                   </span>
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden lg:block">
-                RT-DETR + ViTPose-Base + SciPy Butterworth Fase-Cero (Serverless CPU)
+                RT-DETR + ViTPose-Large + SciPy Butterworth Fase-Cero (Cerebrium T4 GPU)
               </p>
             </div>
           </div>
@@ -802,7 +802,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
                   <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
                   <p className="text-sm font-bold text-slate-200">{pipelineMessage}</p>
-                  <span className="text-xs text-slate-400">Zero cold-start • RT-DETR + ViTPose-Base (CPU 4.0 cores)</span>
+                  <span className="text-xs text-slate-400">Zero cold-start • RT-DETR + ViTPose-Large (Cerebrium T4 GPU)</span>
                 </div>
               )}
 
