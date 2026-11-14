@@ -1,0 +1,11 @@
+gradio>=4.44.0
+fastapi
+uvicorn
+python-multipart
+opencv-python-headless
+torch
+torchvision
+transformers>=4.48.0
+scipy
+numpy
+pillow
