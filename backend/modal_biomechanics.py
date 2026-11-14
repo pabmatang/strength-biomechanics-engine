@@ -1,7 +1,8 @@
 """
-Clinical Biomechanics Pipeline - Modal Labs Serverless Backend
-Powered by: RT-DETR (PekingU/rtdetr_r50vd_coco_o365) + ViTPose-Large (usyd-community/vitpose-plus-large) + SciPy Signal Processing
-Zero-latency cold start with cached weights, Butterworth zero-phase filtering, and peak-segmented repetition audits.
+Clinical Biomechanics Pipeline - Modal Labs Serverless Backend (CPU Mode)
+Powered by: RT-DETR (PekingU/rtdetr_r50vd_coco_o365) + ViTPose-Base (usyd-community/vitpose-base-simple) + SciPy Signal Processing
+Zero cold-start penalty with cached weights, Butterworth zero-phase filtering, and peak-segmented repetition audits.
+Runs 100% on Modal free CPU tier (cpu=4.0, memory=4096) with float32 precision.
 """
 
 import os
@@ -25,9 +26,9 @@ def download_models():
     AutoImageProcessor.from_pretrained("PekingU/rtdetr_r50vd_coco_o365")
     AutoModelForObjectDetection.from_pretrained("PekingU/rtdetr_r50vd_coco_o365")
 
-    print("[Docker Build] Downloading ViTPose-Large weights...")
-    AutoImageProcessor.from_pretrained("usyd-community/vitpose-plus-large")
-    VitPoseForPoseEstimation.from_pretrained("usyd-community/vitpose-plus-large")
+    print("[Docker Build] Downloading ViTPose-Base weights...")
+    AutoImageProcessor.from_pretrained("usyd-community/vitpose-base-simple")
+    VitPoseForPoseEstimation.from_pretrained("usyd-community/vitpose-base-simple")
     print("[Docker Build] Weights cached successfully.")
 
 
@@ -104,7 +105,7 @@ def apply_zero_phase_butterworth(series: np.ndarray, fs: float = 15.0, cutoff: f
 # 3. Modal GPU Pipeline Class
 # ---------------------------------------------------------------------------
 
-@app.cls(gpu="T4", scaledown_window=60, image=image)
+@app.cls(cpu=4.0, memory=4096, scaledown_window=60, image=image)
 class BiomechanicsPipeline:
     
     @modal.enter()
@@ -112,9 +113,9 @@ class BiomechanicsPipeline:
         import torch
         from transformers import AutoImageProcessor, AutoModelForObjectDetection, VitPoseForPoseEstimation
         
-        print("[GPU Startup] Loading models into VRAM (CUDA fp16)...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
+        print("[Startup] Loading models on CPU (float32)...")
+        self.device = "cpu"
+        self.torch_dtype = torch.float32
         
         self.det_processor = AutoImageProcessor.from_pretrained("PekingU/rtdetr_r50vd_coco_o365")
         self.det_model = AutoModelForObjectDetection.from_pretrained(
@@ -123,13 +124,13 @@ class BiomechanicsPipeline:
         ).to(self.device)
         self.det_model.eval()
         
-        self.pose_processor = AutoImageProcessor.from_pretrained("usyd-community/vitpose-plus-large")
+        self.pose_processor = AutoImageProcessor.from_pretrained("usyd-community/vitpose-base-simple")
         self.pose_model = VitPoseForPoseEstimation.from_pretrained(
-            "usyd-community/vitpose-plus-large",
+            "usyd-community/vitpose-base-simple",
             torch_dtype=self.torch_dtype
         ).to(self.device)
         self.pose_model.eval()
-        print("[GPU Startup] Pipeline ready on:", self.device)
+        print("[Startup] Pipeline ready on:", self.device)
 
     def extract_frames(self, video_path: str, target_fps: float = 15.0, max_frames: int = 225):
         """Read video, sample strictly at target_fps up to max_frames (15s at 15 FPS)."""

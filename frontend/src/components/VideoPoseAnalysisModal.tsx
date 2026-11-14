@@ -161,7 +161,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const runPipelineAnalysis = useCallback(async (blob: Blob, fileId: string, pattern: ExercisePatternSpec, muscle: string, load: string) => {
     try {
       setPipelineState('analyzing');
-      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose-Large)...');
+      setPipelineMessage('Procesando cinemática clínica en Modal Serverless (RT-DETR + ViTPose CPU)...');
 
       let exType = 'squat';
       if (pattern.id.includes('hip_thrust')) exType = 'hip_thrust';
@@ -678,16 +678,18 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                     : pipelineState === 'analyzing' || pipelineState === 'compressing'
                     ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30 animate-pulse'
+                    : pipelineState === 'error'
+                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
                     : 'bg-slate-800 text-slate-300 border-slate-700'
                 }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${pipelineState === 'ready' ? 'bg-emerald-400' : 'bg-cyan-400 animate-ping'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${pipelineState === 'ready' ? 'bg-emerald-400' : pipelineState === 'error' ? 'bg-rose-400' : 'bg-cyan-400 animate-ping'}`} />
                   <span>
-                    {pipelineState === 'ready' ? 'GPU Modal Labs Activo' : pipelineState === 'analyzing' ? 'Inferencia GPU...' : pipelineState === 'compressing' ? 'Comprimiendo...' : 'Listo'}
+                    {pipelineState === 'ready' ? 'Modal Serverless CPU Activo' : pipelineState === 'analyzing' ? 'Inferencia CPU...' : pipelineState === 'compressing' ? 'Comprimiendo...' : pipelineState === 'error' ? 'Error' : 'Listo'}
                   </span>
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden lg:block">
-                RT-DETR + ViTPose-Large + SciPy Butterworth Fase-Cero (Serverless GPU)
+                RT-DETR + ViTPose-Base + SciPy Butterworth Fase-Cero (Serverless CPU)
               </p>
             </div>
           </div>
@@ -800,7 +802,35 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
                   <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
                   <p className="text-sm font-bold text-slate-200">{pipelineMessage}</p>
-                  <span className="text-xs text-slate-400">Zero cold-start penalty • RT-DETR + ViTPose-Large</span>
+                  <span className="text-xs text-slate-400">Zero cold-start • RT-DETR + ViTPose-Base (CPU 4.0 cores)</span>
+                </div>
+              )}
+
+              {/* Error State Overlay with real error details */}
+              {pipelineState === 'error' && (
+                <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-6 text-center z-20">
+                  <div className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1.5 max-w-md">
+                    <p className="text-sm font-black text-rose-300">Error en Análisis Biomecánico</p>
+                    <p className="text-xs text-slate-200 leading-relaxed font-mono bg-slate-950/80 p-3 rounded-xl border border-rose-500/30 text-left whitespace-pre-wrap break-words max-h-36 overflow-y-auto">
+                      {pipelineMessage}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (compressedBlobRef.current && fileCacheIdRef.current) {
+                        runPipelineAnalysis(compressedBlobRef.current, fileCacheIdRef.current, selectedPattern, targetMuscle, loadType);
+                      } else {
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white border border-slate-700 transition"
+                  >
+                    Reintentar Análisis
+                  </button>
                 </div>
               )}
 
