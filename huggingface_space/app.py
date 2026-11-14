@@ -31,7 +31,13 @@ torch_dtype = torch.float16 if device == "cuda" else torch.float32
 print(f"[Startup] Initializing Biomechanics Pipeline on {device.upper()} ({torch_dtype})...")
 
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
-POSE_MODEL_NAME = "usyd-community/vitpose-plus-large"
+# Use lightweight vitpose-base-simple when running on CPU to prevent OOM and analyze in seconds;
+# Use vitpose-plus-large when running on GPU.
+POSE_MODEL_NAME = (
+    "usyd-community/vitpose-plus-large"
+    if device == "cuda"
+    else "usyd-community/vitpose-base-simple"
+)
 
 print(f"[Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
 det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
@@ -41,7 +47,7 @@ det_model = AutoModelForObjectDetection.from_pretrained(
 ).to(device)
 det_model.eval()
 
-print(f"[Startup] Loading ViTPose-Large ({POSE_MODEL_NAME})...")
+print(f"[Startup] Loading ViTPose ({POSE_MODEL_NAME})...")
 pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
 pose_model = VitPoseForPoseEstimation.from_pretrained(
     POSE_MODEL_NAME,
@@ -489,20 +495,9 @@ def process_kinematics(
     }
 
 # ---------------------------------------------------------------------------
-# 3. FastAPI App & Endpoint Definition
+# 3. Biomechanics REST API Handler & Gradio Launch
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Biomechanics API Active", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.post("/analyze")
 async def analyze_video(
     video: UploadFile = File(...),
     exercise_type: str = Form("hip_thrust"),
@@ -546,9 +541,6 @@ async def analyze_video(
             except OSError:
                 pass
 
-# ---------------------------------------------------------------------------
-# 4. Gradio Interface Definition & Mounting
-# ---------------------------------------------------------------------------
 
 with gr.Blocks(title="Biomechanics API Active") as demo:
     gr.Markdown(
@@ -580,7 +572,17 @@ with gr.Blocks(title="Biomechanics API Active") as demo:
         """
     )
 
-app = gr.mount_gradio_app(app, demo, path="/")
+# Add CORS Middleware to Gradio's underlying FastAPI application
+demo.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register REST endpoint directly onto Gradio's FastAPI application
+demo.app.add_api_route("/analyze", analyze_video, methods=["POST"])
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    demo.launch(server_name="0.0.0.0", server_port=7860)
