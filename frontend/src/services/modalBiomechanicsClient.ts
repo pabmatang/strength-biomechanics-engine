@@ -123,7 +123,8 @@ export async function analyzeVideoWithModal(
 
   const endpointUrl =
     import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL ||
-    import.meta.env.VITE_MODAL_ENDPOINT_URL;
+    import.meta.env.VITE_MODAL_ENDPOINT_URL ||
+    'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
 
   const apiKey =
     import.meta.env.VITE_CEREBRIUM_API_KEY ||
@@ -156,6 +157,7 @@ export async function analyzeVideoWithModal(
         headers,
         body: JSON.stringify({
           video_base64: base64Data,
+          video: base64Data,
           exercise_type: config.exerciseType,
           target_muscle: config.targetMuscle,
           load_type: config.loadType
