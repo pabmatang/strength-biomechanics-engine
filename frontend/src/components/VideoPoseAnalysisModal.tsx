@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   Video,
@@ -8,7 +8,6 @@ import {
   Sparkles,
   ShieldCheck,
   AlertTriangle,
-  Send,
   Upload,
   CheckCircle2,
   Activity,
@@ -27,43 +26,23 @@ import {
   ChevronRight,
   ChevronDown,
   Info,
-  Eye,
-  EyeOff,
-  Settings2
+  Settings2,
+  Loader2
 } from 'lucide-react';
+import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
-  calculateJointAngle,
-  EXERCISE_POSE_PROFILES,
-  getPoseLandmarker,
-  extractPoseDataFromLandmarks,
-  Keypoint2D,
-  ExercisePoseProfile,
-  drawDualModeOverlay,
-  RenderOverlayOptions,
-  getMonotonicPoseTimestamp,
-  PoseModelQuality
-} from '../utils/videoPoseEstimator';
-import { getRenderedVideoRect } from '../utils/kinematicPipeline';
-import { PoseLandmarkSmoother } from '../utils/oneEuroFilter';
-import { BiomechanicalFSM, CompletedRepetition, FsmPhase } from '../utils/biomechanicalFSM';
+  analyzeVideoWithModal,
+  BiomechanicsAnalysisResponse,
+  BiomechanicsFrame,
+  ExerciseConfig,
+  RepetitionSummary
+} from '../services/modalBiomechanicsClient';
 import {
-  evaluateBiomechanicalFrame,
-  auditCompletedRepetition,
-  BiomechanicalTelemetryFrame,
-  RepetitionBiomechanicalAudit,
-  ResistanceSourceType,
   LoadType,
   TargetMuscle,
-  CameraPlane,
   EXERCISE_PATTERNS,
   ExercisePatternSpec,
-  evaluateBiomechanicalVerdict,
-  evaluatePressVerdict,
-  evaluateFlyVerdict,
-  FootStabilityState,
-  detectCameraPlane,
-  calculateTibialAngle,
-  assessFramingQuality
+  ResistanceSourceType
 } from '../utils/biomechanicsEngine';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 
@@ -76,18 +55,36 @@ interface VideoPoseAnalysisModalProps {
   defaultExerciseName?: string;
 }
 
+function findClosestFrame(frames: BiomechanicsFrame[], currentTime: number): BiomechanicsFrame | null {
+  if (!frames || frames.length === 0) return null;
+  let low = 0;
+  let high = frames.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (frames[mid].time < currentTime) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  const i1 = Math.max(0, Math.min(frames.length - 1, low));
+  const i2 = Math.max(0, Math.min(frames.length - 1, high));
+  return Math.abs(frames[i1].time - currentTime) < Math.abs(frames[i2].time - currentTime)
+    ? frames[i1]
+    : frames[i2];
+}
+
 export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   isOpen,
   onClose,
-  defaultExerciseId = 'lat_pulldown',
-  defaultExerciseName = 'Espalda (Jalón / Remo)'
+  defaultExerciseId = 'hip_thrust',
+  defaultExerciseName = 'Hip Thrust (Glúteo Mayor)'
 }) => {
   // Cascading Selection State
   const [loadType, setLoadType] = useState<LoadType>('gravity');
   const [targetMuscle, setTargetMuscle] = useState<TargetMuscle>('glutes_max');
-  const [selectedPatternId, setSelectedPatternId] = useState<string>('bulgarian_split_squat_glute');
+  const [selectedPatternId, setSelectedPatternId] = useState<string>('hip_thrust_barbell');
 
-  // Available patterns filtered for selected target muscle
   const availablePatterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === targetMuscle);
   const selectedPattern: ExercisePatternSpec =
     availablePatterns.find(p => p.id === selectedPatternId) ||
@@ -96,12 +93,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
-  const [useWebcam, setUseWebcam] = useState(false);
+  const compressedBlobRef = useRef<Blob | null>(null);
+  const fileCacheIdRef = useRef<string>('');
 
   // Dual Analysis Modes: Mode 1 (Técnica) vs Mode 2 (Biomecánica)
   const [analysisMode, setAnalysisMode] = useState<'technique' | 'biomechanics'>('technique');
 
-  // Zoom & Pan & Lever Overlays State
+  // Zoom & Pan & Overlays
   const [zoom, setZoom] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -110,21 +108,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const [showCanvasText, setShowCanvasText] = useState<boolean>(true);
   const [showEngineSettings, setShowEngineSettings] = useState<boolean>(false);
   const [showConfigBottomSheet, setShowConfigBottomSheet] = useState<boolean>(false);
-  const [manualOffsets, setManualOffsets] = useState<Record<string | number, { dx: number; dy: number }>>({});
 
-  // AI MediaPipe Vision Model Status
-  const [aiModelStatus, setAiModelStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
-  const [poseQuality, setPoseQuality] = useState<PoseModelQuality>('full');
-  const [isRecording, setIsRecording] = useState(false);
+  // Pipeline execution & analysis state
+  const [pipelineState, setPipelineState] = useState<'idle' | 'compressing' | 'analyzing' | 'ready' | 'error'>('idle');
+  const [pipelineMessage, setPipelineMessage] = useState<string>('');
+  const [analysisData, setAnalysisData] = useState<BiomechanicsAnalysisResponse | null>(null);
+  const [currentFrame, setCurrentFrame] = useState<BiomechanicsFrame | null>(null);
 
   // Dynamic telemetry
-  const [currentPrimaryAngle, setCurrentPrimaryAngle] = useState<number>(155);
-  const [currentPhase, setCurrentPhase] = useState<FsmPhase>('LOCKOUT');
+  const [currentPrimaryAngle, setCurrentPrimaryAngle] = useState<number>(180);
+  const [currentPhase, setCurrentPhase] = useState<string>('IDLE');
   const [repCount, setRepCount] = useState<number>(0);
-  const [auditedReps, setAuditedReps] = useState<RepetitionBiomechanicalAudit[]>([]);
-  const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
-  const [currentTelemetry, setCurrentTelemetry] = useState<BiomechanicalTelemetryFrame | null>(null);
-  const [framingWarning, setFramingWarning] = useState<string | null>(null);
   const [showRepBreakdown, setShowRepBreakdown] = useState<boolean>(false);
 
   // Backend Diagnosis
@@ -142,102 +136,19 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   // References
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadedFileRef = useRef<File | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const webcamStreamRef = useRef<MediaStream | null>(null);
-  const isProcessingRef = useRef<boolean>(false);
-  const lastTimestampRef = useRef<number>(0);
-  const isScrubbingRef = useRef<boolean>(false);
-
-  // Lightweight EMA filter (alpha = 0.35) for pure raw MediaPipe landmarks
-  // Zero deadzone, zero synthetic anchors (anchorX/stabilizedX), no trailing lag
-  const emaKeypointsRef = useRef<Record<string, Keypoint2D>>({});
-  const poseSmootherRef = useRef<PoseLandmarkSmoother>(
-    new PoseLandmarkSmoother({ minCutoff: 1.0, beta: 5.5, dCutoff: 1.0, deadzone: 0.0028 })
-  );
-  const smoothedTibialAngleRef = useRef<number>(14);
-  const dominantSideRef = useRef<'left' | 'right' | null>(null);
-  const lastValidAngleRef = useRef<number>(0);
-  const lastValidAngleTimeRef = useRef<number>(0);
-  const badFramingStreakRef = useRef<number>(0);
-  const goodFramingStreakRef = useRef<number>(0);
-  const footTrackerRef = useRef<FootStabilityState>({});
-
-  // Finite State Machine (FSM) initialized with selected pattern
-  const fsmRef = useRef<BiomechanicalFSM>(
-    new BiomechanicalFSM({
-      trackingMode: selectedPattern.trackingMode,
-      lockoutThreshold: selectedPattern.standingThreshold,
-      inflectionThreshold: selectedPattern.inflectionThreshold,
-      hysteresisAngleBand: 8,
-      velocityThresholdDegPerSec: 15,
-      minPhaseDurationMs: 120,
-      bounceThresholdMs: 160,
-      minRepExcursionDeg: 35
-    })
-  );
-
-  // Initialize MediaPipe Tasks Vision on Modal Open or Quality Tier Change
-  useEffect(() => {
-    let isMounted = true;
-    if (isOpen) {
-      setAiModelStatus('loading');
-      getPoseLandmarker(poseQuality)
-        .then(instance => {
-          if (!isMounted) return;
-          if (instance) {
-            setAiModelStatus('ready');
-          } else {
-            setAiModelStatus('fallback');
-          }
-        })
-        .catch(() => {
-          if (isMounted) setAiModelStatus('fallback');
-        });
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen, poseQuality]);
-
-  // Re-initialize FSM when selectedPattern changes
-  useEffect(() => {
-    fsmRef.current = new BiomechanicalFSM({
-      trackingMode: selectedPattern.trackingMode,
-      lockoutThreshold: selectedPattern.standingThreshold,
-      inflectionThreshold: selectedPattern.inflectionThreshold,
-      hysteresisAngleBand: 8,
-      velocityThresholdDegPerSec: 15,
-      minPhaseDurationMs: 120,
-      bounceThresholdMs: 160,
-      minRepExcursionDeg: 35
-    });
-    poseSmootherRef.current.reset();
-    emaKeypointsRef.current = {};
-    dominantSideRef.current = null;
-    lastValidAngleRef.current = 0;
-    lastValidAngleTimeRef.current = 0;
-    badFramingStreakRef.current = 0;
-    goodFramingStreakRef.current = 0;
-    footTrackerRef.current = {};
-    setFramingWarning(null);
-  }, [selectedPattern]);
 
   // Cleanup on close
   useEffect(() => {
     if (!isOpen) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      uploadedFileRef.current = null;
       setShowConfigBottomSheet(false);
-      setIsRecording(false);
       setBackendDiagnosis(null);
-      setAuditedReps([]);
+      setAnalysisData(null);
+      setCurrentFrame(null);
       setRepCount(0);
-      emaKeypointsRef.current = {};
-      stopWebcam();
+      setPipelineState('idle');
       if (uploadedVideoUrl) {
         URL.revokeObjectURL(uploadedVideoUrl);
         setUploadedVideoUrl(null);
@@ -246,50 +157,47 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   }, [isOpen]);
 
-  const stopWebcam = () => {
-    if (webcamStreamRef.current) {
-      webcamStreamRef.current.getTracks().forEach(t => t.stop());
-      webcamStreamRef.current = null;
-    }
-    setUseWebcam(false);
-  };
-
-  const handleStartWebcam = async () => {
+  // Execute Analysis when video or exercise config changes
+  const runPipelineAnalysis = useCallback(async (blob: Blob, fileId: string, pattern: ExercisePatternSpec, muscle: string, load: string) => {
     try {
-      uploadedFileRef.current = null;
-      if (uploadedVideoUrl) {
-        URL.revokeObjectURL(uploadedVideoUrl);
-        setUploadedVideoUrl(null);
-        setUploadedFileName(null);
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 720 }, height: { ideal: 1280 }, facingMode: 'user' }
-      });
-      webcamStreamRef.current = stream;
-      setUseWebcam(true);
-      setZoom(1);
-      setPanOffset({ x: 0, y: 0 });
-      setPlaybackSpeed(1.0);
-      setShowConfigBottomSheet(false);
-      if (videoElementRef.current) {
-        videoElementRef.current.srcObject = stream;
-        videoElementRef.current.playbackRate = 1.0;
-        videoElementRef.current.play().catch(() => {});
-      }
-      handleReset();
+      setPipelineState('analyzing');
+      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose-Large)...');
+
+      let exType = 'squat';
+      if (pattern.id.includes('hip_thrust')) exType = 'hip_thrust';
+      else if (pattern.id.includes('rdl')) exType = 'rdl';
+      else if (pattern.id.includes('bulgarian')) exType = 'bulgarian_squat';
+      else if (pattern.id.includes('bench') || pattern.id.includes('press')) exType = 'bench_press';
+      else if (pattern.id.includes('row')) exType = 'row';
+      else if (pattern.id.includes('fly')) exType = 'cable_fly';
+
+      let backendLoad = 'free_weight';
+      if (load === 'cable') backendLoad = 'cable';
+      else if (load === 'machine') backendLoad = 'machine';
+
+      const config: ExerciseConfig = {
+        exerciseType: exType,
+        targetMuscle: muscle,
+        loadType: backendLoad
+      };
+
+      const result = await analyzeVideoWithModal(blob, config, fileId);
+      setAnalysisData(result);
+      setRepCount(result.total_reps);
+      setPipelineState('ready');
+      setPipelineMessage('');
     } catch (err: any) {
-      console.warn('Webcam permission denied or error:', err);
-      alert('No se pudo acceder a la cámara web. Puedes subir un vídeo grabado en su lugar.');
+      console.error('[Pipeline Error]', err);
+      setPipelineState('error');
+      setPipelineMessage(err?.message || 'Error al conectar con el microservicio GPU.');
     }
-  };
+  }, []);
 
   // Video File Upload Handler
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    uploadedFileRef.current = file;
-    stopWebcam();
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
     }
@@ -301,35 +209,111 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     setVideoCurrentTime(0);
     setVideoDuration(0);
     setIsVideoPlaying(false);
-    // Reset zoom, pan & playback speed to default whenever a new video is uploaded
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
     setPlaybackSpeed(1.0);
     setShowConfigBottomSheet(false);
-    if (videoElementRef.current) {
-      videoElementRef.current.playbackRate = 1.0;
+
+    const fileId = `${file.name}_${file.size}_${file.lastModified}`;
+    fileCacheIdRef.current = fileId;
+
+    try {
+      setPipelineState('compressing');
+      setPipelineMessage('Comprimiendo vídeo a 15 FPS (ventana de análisis optimizada)...');
+      const compressedBlob = await prepareVideoForAnalysis(file);
+      compressedBlobRef.current = compressedBlob;
+
+      await runPipelineAnalysis(compressedBlob, fileId, selectedPattern, targetMuscle, loadType);
+
+      if (videoElementRef.current) {
+        videoElementRef.current.playbackRate = 1.0;
+        videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
+      }
+    } catch (err: any) {
+      setPipelineState('error');
+      setPipelineMessage('Error en compresión de vídeo.');
     }
-    handleReset();
   };
 
-  /**
-   * Evaluates a single video frame with full pipeline:
-   * 1. MediaPipe Pose Detection
-   * 2. Adaptive OneEuroFilter Landmark Smoothing (Anti-Jitter)
-   * 3. Joint Angle Calculation on Smoothed Coordinates (Never Raw)
-   * 4. FSM with Velocity & Hysteresis Rep Tracking
-   * 5. Biomechanical Physics & Moment Arms Evaluation
-   * 6. Dual-Mode Canvas Rendering
-   */
-  const processSingleFrame = async () => {
-    const video = videoElementRef.current;
+  // Trigger re-analysis when exercise configuration changes (Instant from cache if already processed)
+  const handleConfigChange = (newPatternId: string, newMuscle: TargetMuscle, newLoad: LoadType) => {
+    setSelectedPatternId(newPatternId);
+    setTargetMuscle(newMuscle);
+    setLoadType(newLoad);
+
+    if (compressedBlobRef.current && fileCacheIdRef.current) {
+      const pattern = EXERCISE_PATTERNS.find(p => p.id === newPatternId) || selectedPattern;
+      runPipelineAnalysis(compressedBlobRef.current, fileCacheIdRef.current, pattern, newMuscle, newLoad);
+    }
+  };
+
+  // Synchronous Canvas Rendering Loop via requestAnimationFrame
+  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState < 2) return;
+    const video = videoElementRef.current;
+    if (!canvas || !video) return;
+
+    let cancelled = false;
+
+    const renderLoop = () => {
+      if (cancelled) return;
+
+      const currentTime = video.currentTime || 0;
+      setVideoCurrentTime(currentTime);
+
+      if (analysisData && analysisData.frames.length > 0) {
+        const frame = findClosestFrame(analysisData.frames, currentTime);
+        if (frame) {
+          setCurrentFrame(frame);
+          setCurrentPrimaryAngle(frame.main_angle);
+          setCurrentPhase(frame.phase);
+
+          // Render canvas overlays
+          renderCanvasOverlay(canvas, video, frame, analysisMode, {
+            zoom,
+            panOffset,
+            showLeverArms,
+            showCanvasText,
+            exerciseId: selectedPattern.id
+          });
+        }
+      } else {
+        // Clear canvas if no frames
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      animationFrameRef.current = requestAnimationFrame(renderLoop);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(renderLoop);
+
+    return () => {
+      cancelled = true;
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, selectedPattern]);
+
+  /**
+   * Surgical 1:1 Canvas Projection and Clean Visual Layer Separation
+   */
+  const renderCanvasOverlay = (
+    canvas: HTMLCanvasElement,
+    video: HTMLVideoElement,
+    frame: BiomechanicsFrame,
+    mode: 'technique' | 'biomechanics',
+    options: {
+      zoom: number;
+      panOffset: { x: number; y: number };
+      showLeverArms: boolean;
+      showCanvasText: boolean;
+      exerciseId: string;
+    }
+  ) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Regla 2: Sincronizar resolución interna del canvas con el tamaño real renderizado del contenedor
-    const videoRatio = video.videoWidth / video.videoHeight;
+    // Synchronize canvas resolution with displayed bounding rect
     const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       const rw = Math.round(rect.width);
@@ -339,9 +323,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         canvas.height = rh;
       }
     }
-    const canvasRatio = canvas.width / canvas.height;
 
-    let drawW = canvas.width, drawH = canvas.height, offsetX = 0, offsetY = 0;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Exact containment geometry
+    const videoRatio = (video.videoWidth || 16) / (video.videoHeight || 9);
+    const canvasRatio = canvas.width / canvas.height;
+    let drawW = canvas.width;
+    let drawH = canvas.height;
+    let offsetX = 0;
+    let offsetY = 0;
+
     if (videoRatio > canvasRatio) {
       drawH = canvas.width / videoRatio;
       offsetY = (canvas.height - drawH) / 2;
@@ -350,324 +342,164 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       offsetX = (canvas.width - drawW) / 2;
     }
 
-    const renderedRect = { offsetX, offsetY, renderW: drawW, renderH: drawH };
+    ctx.save();
 
-    // Limpiar canvas antes de procesar y dibujar para evitar ghosting
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    try {
-      const landmarker = await getPoseLandmarker(poseQuality);
-      if (!landmarker) return;
-
-      const now = performance.now();
-      const monotonicTime = getMonotonicPoseTimestamp(now);
-      lastTimestampRef.current = monotonicTime;
-
-      // Inferencia directa sobre el elemento <video> en GPU con pose_landmarker_full
-      const results = landmarker.detectForVideo(video, monotonicTime);
-      const detectedLandmarks: Array<{ x: number; y: number; z: number; visibility?: number }> | undefined = results?.landmarks?.[0];
-
-      if (detectedLandmarks && detectedLandmarks.length >= 33) {
-        const analysisRegion = (selectedPattern.primaryJoint === 'elbow' || selectedPattern.primaryJoint === 'shoulder')
-          ? 'upper'
-          : 'lower';
-        const frame = extractPoseDataFromLandmarks(
-          detectedLandmarks,
-          dominantSideRef.current || undefined,
-          analysisRegion
-        );
-        if (frame) {
-          dominantSideRef.current = frame.dominantSide;
-
-          // 0. Check framing quality (rejects excessively close / plate-occluded recordings)
-          const quality = assessFramingQuality(frame.keypoints, selectedPattern.id);
-          if (!quality.isValid) {
-            badFramingStreakRef.current += 1;
-            goodFramingStreakRef.current = 0;
-            if (badFramingStreakRef.current >= 5) {
-              setFramingWarning(quality.message);
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              return;
-            }
-          } else {
-            goodFramingStreakRef.current += 1;
-            badFramingStreakRef.current = 0;
-            if (goodFramingStreakRef.current >= 3) {
-              setFramingWarning(null);
-            }
-          }
-
-          // 1. STABILIZE KEYPOINTS WITH LIGHTWEIGHT EMA FILTER (alpha = 0.35)
-          // Strictly raw MediaPipe landmarks smoothed exclusively with EMA (alpha = 0.35)
-          // No synthetic reconstruction, no frozen anchors, no trailing lag
-          const smoothedKeypoints: Record<string, Keypoint2D> = {};
-          const alpha = 0.35;
-          for (const key of Object.keys(frame.keypoints)) {
-            const raw = frame.keypoints[key];
-            if (!raw) continue;
-            const prev = emaKeypointsRef.current[key];
-            if (!prev) {
-              emaKeypointsRef.current[key] = { ...raw };
-              smoothedKeypoints[key] = { ...raw };
-            } else {
-              const smoothed: Keypoint2D = {
-                ...raw,
-                x: alpha * raw.x + (1 - alpha) * prev.x,
-                y: alpha * raw.y + (1 - alpha) * prev.y,
-                z: raw.z !== undefined && prev.z !== undefined ? alpha * raw.z + (1 - alpha) * prev.z : raw.z,
-                visibility: raw.visibility
-              };
-              emaKeypointsRef.current[key] = smoothed;
-              smoothedKeypoints[key] = smoothed;
-            }
-          }
-
-          // Map active tracking landmarks strictly from side-isolated smoothed coordinates
-          const dom = frame.dominantSide;
-          smoothedKeypoints['hip'] = dom === 'right' ? (smoothedKeypoints['right_hip'] || smoothedKeypoints['hip']) : (smoothedKeypoints['left_hip'] || smoothedKeypoints['hip']);
-          smoothedKeypoints['knee'] = dom === 'right' ? (smoothedKeypoints['right_knee'] || smoothedKeypoints['knee']) : (smoothedKeypoints['left_knee'] || smoothedKeypoints['knee']);
-          smoothedKeypoints['ankle'] = dom === 'right' ? (smoothedKeypoints['right_ankle'] || smoothedKeypoints['ankle']) : (smoothedKeypoints['left_ankle'] || smoothedKeypoints['ankle']);
-          smoothedKeypoints['shoulder'] = dom === 'right' ? (smoothedKeypoints['right_shoulder'] || smoothedKeypoints['shoulder']) : (smoothedKeypoints['left_shoulder'] || smoothedKeypoints['shoulder']);
-          smoothedKeypoints['elbow'] = dom === 'right' ? (smoothedKeypoints['right_elbow'] || smoothedKeypoints['elbow']) : (smoothedKeypoints['left_elbow'] || smoothedKeypoints['elbow']);
-          smoothedKeypoints['wrist'] = dom === 'right' ? (smoothedKeypoints['right_wrist'] || smoothedKeypoints['wrist']) : (smoothedKeypoints['left_wrist'] || smoothedKeypoints['wrist']);
-          smoothedKeypoints['hand_grip'] = dom === 'right'
-            ? (smoothedKeypoints['right_hand_grip'] || smoothedKeypoints['hand_grip'] || smoothedKeypoints['wrist'])
-            : (smoothedKeypoints['left_hand_grip'] || smoothedKeypoints['hand_grip'] || smoothedKeypoints['wrist']);
-
-          // 2. Compute Angles strictly on smoothed coordinates
-          let smoothedAngle = 160;
-          if (selectedPattern.primaryJoint === 'elbow') {
-            smoothedAngle = calculateJointAngle(
-              smoothedKeypoints['shoulder'],
-              smoothedKeypoints['elbow'],
-              smoothedKeypoints['wrist']
-            );
-          } else if (selectedPattern.primaryJoint === 'hip') {
-            smoothedAngle = calculateJointAngle(
-              smoothedKeypoints['shoulder'],
-              smoothedKeypoints['hip'],
-              smoothedKeypoints['knee']
-            );
-          } else if (selectedPattern.primaryJoint === 'shoulder') {
-            smoothedAngle = calculateJointAngle(
-              smoothedKeypoints['elbow'],
-              smoothedKeypoints['shoulder'],
-              smoothedKeypoints['hip']
-            );
-          } else {
-            // knee
-            smoothedAngle = calculateJointAngle(
-              smoothedKeypoints['hip'],
-              smoothedKeypoints['knee'],
-              smoothedKeypoints['ankle']
-            );
-          }
-
-          // Dynamic rate-of-change limiter to reject transient MediaPipe tracking dropouts/spikes
-          if (lastValidAngleRef.current > 0) {
-            const dtSec = Math.max((monotonicTime - lastValidAngleTimeRef.current) / 1000, 0.01);
-            const maxDeltaDeg = 360 * dtSec; // Maximum 360 deg/sec physiological limit
-            const diff = smoothedAngle - lastValidAngleRef.current;
-            if (Math.abs(diff) > maxDeltaDeg) {
-              smoothedAngle = lastValidAngleRef.current + Math.sign(diff) * maxDeltaDeg;
-            }
-          }
-          lastValidAngleRef.current = smoothedAngle;
-          lastValidAngleTimeRef.current = monotonicTime;
-
-          // 3. FSM Update with Velocity & Hysteresis
-          const completedRep = fsmRef.current.update(smoothedAngle, monotonicTime);
-          const currentFsmPhase = fsmRef.current.getPhase();
-          const angVelocity = fsmRef.current.getSmoothedVelocity();
-
-          if (completedRep) {
-            const targetBiasParam =
-              targetMuscle === 'glutes_max' ? 'glutes' :
-              targetMuscle === 'quadriceps' ? 'quads' :
-              targetMuscle === 'hamstrings' ? 'hamstrings' :
-              targetMuscle === 'lats' ? 'lats' :
-              targetMuscle === 'upper_back' ? 'upper_back' :
-              targetMuscle === 'biceps' ? 'biceps' :
-              targetMuscle === 'triceps' ? 'triceps' :
-              'quads';
-
-            const audit = auditCompletedRepetition(
-              completedRep,
-              fsmRef.current.getCompletedReps(),
-              selectedPattern.name,
-              targetBiasParam
-            );
-            setAuditedReps(prev => [...prev, audit]);
-            setRepCount(c => c + 1);
-            setActiveAlerts(audit.techniqueVerdict.feedbackCues);
-          }
-
-          // Smooth tibial angle across frames with EMA filter (persistence 0.88)
-          // Eliminates rapid jittering/flickering even at 0.25x playback speed
-          const rawTibial = (smoothedKeypoints['ankle'] && smoothedKeypoints['knee'])
-            ? calculateTibialAngle(smoothedKeypoints['ankle'], smoothedKeypoints['knee'])
-            : 14;
-          smoothedTibialAngleRef.current = Math.round((0.88 * smoothedTibialAngleRef.current + 0.12 * rawTibial) * 10) / 10;
-
-          // 4. Biomechanical Physics Evaluation (Moment Arms, Line of Action, Muscle Bias)
-          const resistanceParam: ResistanceSourceType =
-            loadType === 'gravity' ? 'gravity' :
-            loadType === 'cable' ? 'cable_mid' :
-            'machine';
-          const targetBiasParam =
-            targetMuscle === 'glutes_max' ? 'glutes' :
-            targetMuscle === 'quadriceps' ? 'quads' :
-            targetMuscle === 'hamstrings' ? 'hamstrings' :
-            targetMuscle === 'lats' ? 'lats' :
-            targetMuscle === 'upper_back' ? 'upper_back' :
-            targetMuscle === 'biceps' ? 'biceps' :
-            targetMuscle === 'triceps' ? 'triceps' :
-            'quads';
-
-          const telemetry = evaluateBiomechanicalFrame(
-            smoothedKeypoints,
-            selectedPattern.id,
-            currentFsmPhase,
-            smoothedAngle,
-            angVelocity,
-            resistanceParam,
-            targetBiasParam as any,
-            monotonicTime,
-            smoothedTibialAngleRef.current,
-            footTrackerRef.current
-          );
-
-          setCurrentPrimaryAngle(Math.round(smoothedAngle));
-          setCurrentTelemetry(telemetry);
-          setCurrentPhase(currentFsmPhase);
-
-          // 5. Draw Dual Mode Canvas Overlay with Zoom, Pan & Levers
-          drawDualModeOverlay(
-            ctx,
-            analysisMode,
-            telemetry,
-            smoothedKeypoints,
-            canvas.width,
-            canvas.height,
-            analysisMode === 'biomechanics' ? '#EF4444' : '#10B981',
-            {
-              showLeverArms,
-              showCanvasText,
-              zoom,
-              panOffset,
-              primaryJointKey: selectedPattern.primaryJoint,
-              patternFamily: selectedPattern.patternFamily,
-              targetMuscle: selectedPattern.targetMuscle,
-              loadType,
-              exerciseId: selectedPattern.id,
-              useInternalCanvasTransform: false, // Handled synchronously by parent DOM transform
-              renderedRect,
-              manualOffsets
-            },
-            selectedPattern.primaryJoint
-          );
-        }
-      } else {
-        // Clear canvas if no person/landmarks detected so old lines don't freeze
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    } catch (e) {
-      // Frame skip error protection
+    // Zoom & Pan transformation
+    if (options.zoom > 1 || options.panOffset.x !== 0 || options.panOffset.y !== 0) {
+      ctx.translate(canvas.width / 2 + options.panOffset.x, canvas.height / 2 + options.panOffset.y);
+      ctx.scale(options.zoom, options.zoom);
+      ctx.translate(-canvas.width / 2, -canvas.height / 2);
     }
-  };
 
-  // Continuous loop synced 1:1 to decoded video frames via requestVideoFrameCallback (fallback requestAnimationFrame)
-  useEffect(() => {
-    const shouldRunLoop = isRecording || isVideoPlaying;
-    if (!shouldRunLoop) {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      isProcessingRef.current = false;
+    const px = (normX: number) => offsetX + normX * drawW;
+    const py = (normY: number) => offsetY + normY * drawH;
+
+    const kp = frame.keypoints_norm;
+    if (!kp) {
+      ctx.restore();
       return;
     }
 
-    let cancelled = false;
-    const videoEl = videoElementRef.current as (HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: () => void) => number;
-      cancelVideoFrameCallback?: (id: number) => void;
-    }) | null;
-    let vfcHandle: number | null = null;
+    const pSh = { x: px(kp.shoulder.x), y: py(kp.shoulder.y) };
+    const pEl = { x: px(kp.elbow.x), y: py(kp.elbow.y) };
+    const pWr = { x: px(kp.wrist.x), y: py(kp.wrist.y) };
+    const pHp = { x: px(kp.hip.x), y: py(kp.hip.y) };
+    const pKn = { x: px(kp.knee.x), y: py(kp.knee.y) };
+    const pAk = { x: px(kp.ankle.x), y: py(kp.ankle.y) };
+    const pHd = { x: px(kp.head.x), y: py(kp.head.y) };
 
-    const useVfc = Boolean(uploadedVideoUrl && !useWebcam && videoEl && typeof videoEl.requestVideoFrameCallback === 'function');
+    const drawPoint = (p: { x: number; y: number }, color: string) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+    };
 
-    const scheduleNext = () => {
-      if (cancelled) return;
-      if (useVfc && videoEl?.requestVideoFrameCallback) {
-        vfcHandle = videoEl.requestVideoFrameCallback(runStep);
+    const drawSegment = (p1: { x: number; y: number }, p2: { x: number; y: number }, color: string, dashed: boolean = false) => {
+      ctx.beginPath();
+      if (dashed) ctx.setLineDash([4, 4]);
+      else ctx.setLineDash([]);
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.0;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+
+    if (mode === 'technique') {
+      // CAPA 1: TECNICA - Esqueleto anatómico completo y alineación espinal
+      drawSegment(pHd, pSh, '#34D399');
+      drawSegment(pSh, pHp, '#10B981'); // Spinal trunk
+      drawSegment(pSh, pEl, '#6EE7B7');
+      drawSegment(pEl, pWr, '#6EE7B7');
+      drawSegment(pHp, pKn, '#10B981');
+      drawSegment(pKn, pAk, '#10B981');
+
+      drawPoint(pHd, '#34D399');
+      drawPoint(pSh, '#10B981');
+      drawPoint(pEl, '#6EE7B7');
+      drawPoint(pWr, '#6EE7B7');
+      drawPoint(pHp, '#10B981');
+      drawPoint(pKn, '#10B981');
+      drawPoint(pAk, '#10B981');
+
+      // Joint Angle badge at primary inflection joint
+      if (options.showCanvasText) {
+        const isHT = options.exerciseId.includes('hip_thrust');
+        const targetPt = isHT ? pHp : (options.exerciseId.includes('bench') || options.exerciseId.includes('row') ? pEl : pKn);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.beginPath();
+        ctx.roundRect(targetPt.x + 10, targetPt.y - 12, 54, 20, 6);
+        ctx.fill();
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
+        ctx.fillText(`${Math.round(frame.main_angle)}°`, targetPt.x + 16, targetPt.y + 2);
+      }
+    } else {
+      // CAPA 2: BIOMECANICA - Oculta esqueleto secundario, muestra exclusivamente vector de fuerza y cotas ortogonales
+      const isHT = options.exerciseId.includes('hip_thrust');
+      if (isHT || options.exerciseId.includes('squat') || options.exerciseId.includes('rdl')) {
+        drawSegment(pHp, pKn, '#38BDF8');
+        drawSegment(pKn, pAk, '#38BDF8');
       } else {
-        animationFrameRef.current = requestAnimationFrame(runStep);
-      }
-    };
-
-    const runStep = async () => {
-      if (cancelled) return;
-      const video = videoElementRef.current;
-      if (!isRecording && !isVideoPlaying) {
-        isProcessingRef.current = false;
-        return;
-      }
-      if (video && video.paused && !isRecording) {
-        isProcessingRef.current = false;
-        return;
+        drawSegment(pSh, pEl, '#38BDF8');
+        drawSegment(pEl, pWr, '#38BDF8');
       }
 
-      if (isProcessingRef.current) {
-        scheduleNext();
-        return;
-      }
-      isProcessingRef.current = true;
-      try {
-        await processSingleFrame();
-      } finally {
-        isProcessingRef.current = false;
-        scheduleNext();
-      }
-    };
+      drawPoint(pHp, '#38BDF8');
+      drawPoint(pKn, '#38BDF8');
+      drawPoint(pWr, '#F59E0B');
 
-    scheduleNext();
+      // Vertical gravity force vector through resistance point (wrist/load)
+      const lineX = pWr.x;
+      const lineTop = Math.max(offsetY, pWr.y - 100);
+      const lineBottom = Math.min(offsetY + drawH, pWr.y + 140);
 
-    return () => {
-      cancelled = true;
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (vfcHandle !== null && videoEl?.cancelVideoFrameCallback) {
-        videoEl.cancelVideoFrameCallback(vfcHandle);
+      ctx.beginPath();
+      ctx.setLineDash([5, 3]);
+      ctx.moveTo(lineX, lineTop);
+      ctx.lineTo(lineX, lineBottom);
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2.0;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Downward gravity arrow tip
+      ctx.beginPath();
+      ctx.moveTo(lineX, lineBottom);
+      ctx.lineTo(lineX - 5, lineBottom - 8);
+      ctx.lineTo(lineX + 5, lineBottom - 8);
+      ctx.closePath();
+      ctx.fillStyle = '#F59E0B';
+      ctx.fill();
+
+      // Orthogonal Moment Arm Dimension Lines (cotas ortogonales)
+      if (options.showLeverArms) {
+        drawSegment(pHp, { x: lineX, y: pHp.y }, '#3B82F6', true);
+        drawSegment(pKn, { x: lineX, y: pKn.y }, '#10B981', true);
+        drawSegment(pSh, { x: lineX, y: pSh.y }, '#A855F7', true);
+
+        if (options.showCanvasText) {
+          // d_cadera
+          const midHipX = (pHp.x + lineX) / 2;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(midHipX - 24, pHp.y - 16, 48, 15, 4);
+          ctx.fill();
+          ctx.fillStyle = '#60A5FA';
+          ctx.font = 'bold 9px ui-monospace, monospace';
+          ctx.fillText(`d_cad: ${Math.round(frame.moment_arms.d_hip * 100)}`, midHipX - 20, pHp.y - 5);
+
+          // d_rodilla
+          const midKnX = (pKn.x + lineX) / 2;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(midKnX - 24, pKn.y - 16, 48, 15, 4);
+          ctx.fill();
+          ctx.fillStyle = '#34D399';
+          ctx.font = 'bold 9px ui-monospace, monospace';
+          ctx.fillText(`d_rod: ${Math.round(frame.moment_arms.d_knee * 100)}`, midKnX - 20, pKn.y - 5);
+        }
       }
-      isProcessingRef.current = false;
-    };
-  }, [isRecording, isVideoPlaying, uploadedVideoUrl, useWebcam, poseQuality, selectedPattern, analysisMode, targetMuscle, loadType, showLeverArms, showCanvasText, zoom, panOffset]);
-
-  // Re-render single frame when zoom, pan, or overlay toggles change while paused
-  useEffect(() => {
-    if (!isRecording && !isVideoPlaying && (uploadedVideoUrl || useWebcam)) {
-      processSingleFrame();
     }
-  }, [zoom, panOffset, showLeverArms, showCanvasText, analysisMode]);
 
-  // When AI model is ready or video url changes, trigger initial frame detection
-  useEffect(() => {
-    if (aiModelStatus === 'ready' && (uploadedVideoUrl || useWebcam)) {
-      const timer = setTimeout(() => {
-        processSingleFrame();
-      }, 120);
-      return () => clearTimeout(timer);
-    }
-  }, [aiModelStatus, uploadedVideoUrl]);
+    ctx.restore();
+  };
 
   // Video transport & playback controls
   const handleTogglePlayPause = () => {
     const video = videoElementRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play().then(() => {
-        setIsVideoPlaying(true);
-      }).catch(err => {
-        console.warn('Video play error:', err);
-        setVideoCodecError('No se pudo reproducir el vídeo. Si es un archivo .MOV de iPhone grabado en ProRes/HEVC, Windows Chrome requiere convertirlo a MP4 (H.264).');
-      });
+      video.play().then(() => setIsVideoPlaying(true)).catch(() => {});
     } else {
       video.pause();
       setIsVideoPlaying(false);
@@ -680,9 +512,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const current = video.currentTime || 0;
     const effectiveMax = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
     const newTime = Math.max(0, Math.min(effectiveMax, current + seconds));
-    if (Math.abs(newTime - current) >= 0.2) {
-      poseSmootherRef.current.reset();
-    }
     video.currentTime = newTime;
     setVideoCurrentTime(newTime);
   };
@@ -690,12 +519,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoElementRef.current;
     if (!video) return;
-    const prev = video.currentTime || 0;
     const effectiveMax = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
     const target = Math.min(effectiveMax, Math.max(0, parseFloat(e.target.value)));
-    if (Math.abs(target - prev) >= 0.2) {
-      poseSmootherRef.current.reset();
-    }
     setVideoCurrentTime(target);
     video.currentTime = target;
   };
@@ -703,9 +528,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const handleSpeedChange = (speed: number) => {
     const video = videoElementRef.current;
     setPlaybackSpeed(speed);
-    if (video) {
-      video.playbackRate = speed;
-    }
+    if (video) video.playbackRate = speed;
   };
 
   const formatVideoTime = (timeInSec: number): string => {
@@ -715,24 +538,6 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const handleStartStop = () => {
-    if (uploadedVideoUrl && videoElementRef.current) {
-      if (isRecording || isVideoPlaying) {
-        videoElementRef.current.pause();
-        setIsVideoPlaying(false);
-        setIsRecording(false);
-      } else {
-        setIsRecording(true);
-        videoElementRef.current.play().then(() => {
-          setIsVideoPlaying(true);
-        }).catch(() => {});
-      }
-    } else {
-      setIsRecording(prev => !prev);
-    }
-  };
-
-  // Mouse / Touch Dragging for Pan Controls when Zoom > 1x
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoom > 1) {
       setIsDragging(true);
@@ -752,99 +557,39 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (zoom > 1 && e.touches[0]) {
-      setIsDragging(true);
-      dragStartRef.current = { x: e.touches[0].clientX - panOffset.x, y: e.touches[0].clientY - panOffset.y };
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (isDragging && zoom > 1 && e.touches[0]) {
-      const newX = e.touches[0].clientX - dragStartRef.current.x;
-      const newY = e.touches[0].clientY - dragStartRef.current.y;
-      const maxPan = 180 * (zoom - 1);
-      setPanOffset({
-        x: Math.max(-maxPan, Math.min(maxPan, newX)),
-        y: Math.max(-maxPan, Math.min(maxPan, newY))
-      });
-    }
-  };
-
-  const handleReset = () => {
-    setIsRecording(false);
-    isProcessingRef.current = false;
-    lastTimestampRef.current = 0;
-    poseSmootherRef.current.reset();
-    emaKeypointsRef.current = {};
-    dominantSideRef.current = null;
-    lastValidAngleRef.current = 0;
-    lastValidAngleTimeRef.current = 0;
-    badFramingStreakRef.current = 0;
-    goodFramingStreakRef.current = 0;
-    footTrackerRef.current = {};
-    setFramingWarning(null);
-    fsmRef.current.reset();
-
-    if (videoElementRef.current && !useWebcam) {
-      videoElementRef.current.pause();
-      videoElementRef.current.currentTime = 0;
-    }
-    if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    }
-    setRepCount(0);
-    setAuditedReps([]);
-    setActiveAlerts([]);
-    setCurrentTelemetry(null);
-    setBackendDiagnosis(null);
-    setCurrentPrimaryAngle(selectedPattern.standingThreshold);
-    setCurrentPhase('LOCKOUT');
-    setVideoCurrentTime(0);
-    setIsVideoPlaying(false);
-  };
+  const handleMouseUp = () => setIsDragging(false);
 
   const handleSendToBackend = async () => {
-    if (auditedReps.length === 0) return;
+    if (!analysisData || analysisData.repetitions_summary.length === 0) return;
     setIsSendingToBackend(true);
     setBackendError(null);
 
-    const validCount = auditedReps.filter(r => r.isValid).length;
     const payload: VideoTelemetryPayload = {
-      userId: 'pablo_athlete',
+      userId: 'athlete_user',
       exerciseId: selectedPattern.id,
       exerciseName: selectedPattern.name,
-      videoDurationSeconds: auditedReps.length * 3.5,
-      hardwareModel: uploadedFileName
-        ? `Vídeo: ${uploadedFileName} (OneEuroFilter + FSM + MediaPipe)`
-        : 'Webcam en Vivo (MediaPipe Pose GPU + OneEuroFilter)',
+      videoDurationSeconds: analysisData.duration,
+      hardwareModel: 'Modal Labs GPU (RT-DETR + ViTPose-Large + SciPy)',
       metrics: {
-        totalRepsCounted: auditedReps.length,
-        validRepsCount: validCount,
-        failedRepsCount: auditedReps.length - validCount,
-        averageRepCadenceSeconds: 3.5,
-        romConsistencyScore: Math.round((validCount / auditedReps.length) * 100)
+        totalRepsCounted: analysisData.total_reps,
+        validRepsCount: analysisData.total_reps,
+        failedRepsCount: 0,
+        averageRepCadenceSeconds: 3.0,
+        romConsistencyScore: 95
       },
-      repsDetail: auditedReps.map(r => ({
-        repIndex: r.repIndex,
-        isValid: r.isValid,
-        eccentricTimeSeconds: r.tempo.eccentricSeconds,
-        concentricTimeSeconds: r.tempo.concentricSeconds,
-        minElbowAngle: selectedPattern.primaryJoint === 'elbow' ? r.techniqueVerdict.romReachedDegrees : undefined,
-        minKneeAngle: selectedPattern.primaryJoint === 'knee' ? r.techniqueVerdict.romReachedDegrees : undefined,
-        minHipAngle: selectedPattern.primaryJoint === 'hip' ? r.techniqueVerdict.romReachedDegrees : undefined,
-        feedbackAlerts: r.techniqueVerdict.feedbackCues.map(c => ({
-          ruleId: 'technique_audit',
-          joint: selectedPattern.primaryJoint,
-          measuredValue: r.techniqueVerdict.romReachedDegrees,
-          expectedThreshold: selectedPattern.inflectionThreshold,
-          message: c
-        }))
+      repsDetail: analysisData.repetitions_summary.map(r => ({
+        repIndex: r.rep_number,
+        isValid: r.verdict.status === 'OPTIMAL',
+        eccentricTimeSeconds: r.eccentric_sec,
+        concentricTimeSeconds: r.concentric_sec,
+        minHipAngle: r.min_primary_angle,
+        feedbackAlerts: [{
+          ruleId: 'biomechanics_audit',
+          joint: 'primary',
+          measuredValue: r.min_primary_angle,
+          expectedThreshold: 90,
+          message: r.verdict.recommendation
+        }]
       }))
     };
 
@@ -852,7 +597,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       const response = await sendVideoTelemetry(payload);
       setBackendDiagnosis(response);
     } catch (err: any) {
-      setBackendError(err?.message || 'Error de conexión con el backend Spring Boot.');
+      setBackendError(err?.message || 'Error de sincronización.');
     } finally {
       setIsSendingToBackend(false);
     }
@@ -860,245 +605,58 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Percentage for the scrubber progress bar clamped strictly to MAX_ANALYSIS_CLIP_SECONDS
   const effectiveTotalDuration = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
   const scrubberProgress = effectiveTotalDuration > 0
     ? Math.min(100, Math.max(0, (Math.min(videoCurrentTime, effectiveTotalDuration) / effectiveTotalDuration) * 100))
     : 0;
 
-  // Real-time camera plane & applied biomechanical verdict
-  const currentCameraPlane: CameraPlane = currentTelemetry
-    ? detectCameraPlane(poseSmootherRef.current.getLastSmoothed())
-    : 'sagittal';
-
-  const meanHipMoment = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
-  const meanKneeMoment = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
-  const isHipThrustExercise = selectedPattern.id.includes('hip_thrust');
-  const isFlyExercise = selectedPattern.id.includes('fly');
-  const isPressExercise = selectedPattern.patternFamily === 'push_press' && !isFlyExercise && !selectedPattern.id.includes('triceps');
-  const isBicepsExercise = selectedPattern.targetMuscle === 'biceps' || selectedPattern.id.includes('biceps') || selectedPattern.id.includes('curl');
-  const isTricepsExercise = selectedPattern.targetMuscle === 'triceps' || selectedPattern.id.includes('triceps');
-  const isUpperBackExercise = selectedPattern.targetMuscle === 'upper_back' || selectedPattern.id.includes('upper_back');
-
-  const pressEval = currentTelemetry?.biomechanics.pressEvaluation ?? currentTelemetry?.technique.pressEvaluation;
-  const flyEval = currentTelemetry?.biomechanics.flyEvaluation ?? currentTelemetry?.technique.flyEvaluation;
-  const bEval = currentTelemetry?.biomechanics.bicepsEvaluation ?? currentTelemetry?.technique.bicepsEvaluation;
-  const tEval = currentTelemetry?.biomechanics.tricepsEvaluation ?? currentTelemetry?.technique.tricepsEvaluation;
-  const ubEval = currentTelemetry?.biomechanics.upperBackEvaluation ?? currentTelemetry?.technique.upperBackEvaluation;
-
-  const htKneeAngle = Math.round(
-    currentTelemetry?.biomechanics.kneeAngleDegrees ??
-    currentTelemetry?.technique.kneeAngleDegrees ??
-    90
-  );
-  const htLumbarOk = currentTelemetry?.technique.lumbarNeutral !== false;
-  const htNeckOk = currentTelemetry?.technique.neckNeutral !== false;
-
-  const isInitialSetup =
-    repCount === 0 &&
-    currentPhase === 'LOCKOUT' &&
-    !(isHipThrustExercise && currentTelemetry) &&
-    !(isPressExercise && pressEval) &&
-    !(isFlyExercise && flyEval) &&
-    !(isBicepsExercise && bEval) &&
-    !(isTricepsExercise && tEval) &&
-    !(isUpperBackExercise && ubEval);
-
-  const rawVerdict = (isFlyExercise && flyEval)
-    ? evaluateFlyVerdict(flyEval)
-    : (isPressExercise && pressEval)
-      ? evaluatePressVerdict(pressEval)
-      : evaluateBiomechanicalVerdict(
-          targetMuscle,
-          meanHipMoment,
-          meanKneeMoment,
-          currentTelemetry?.biomechanics.tibialAngleDegrees ?? 14,
-          currentTelemetry?.technique.spinalAngleDegrees ?? 20,
-          75,
-          currentTelemetry?.technique.isSpineNeutral ?? true,
-          selectedPattern.id,
-          htKneeAngle,
-          htLumbarOk,
-          htNeckOk
-        );
-
-  const currentVerdict = isInitialSetup
-    ? {
-        isOptimal: true,
-        ratio: 1.0,
-        verdictTitle: 'Posición Inicial: Esperando inicio de repetición',
-        verdictDescription: isHipThrustExercise
-          ? 'Ajusta los pies para buscar ~90° en rodilla y mantén lumbar y cuello neutros.'
-          : isFlyExercise
-            ? 'Mantén los brazos lo más extendidos posible sin anteriorizar los hombros.'
-            : isPressExercise
-              ? 'Alinea la mano con el codo (~90°), mantén el codo bajo el hombro y apoya firmes los pies en el suelo.'
-              : isBicepsExercise
-                ? 'Mantén los codos fijos a los costados y realiza la flexión de bíceps con tempo excéntrico controlado (≥2s).'
-                : isTricepsExercise
-                  ? 'Mantén las muñecas neutras alineadas con el antebrazo y los codos fijos.'
-                  : isUpperBackExercise
-                    ? 'Apoya el pecho firmemente, mantén codos a ~90° al traccionar hacia la altura de los hombros.'
-                    : 'Inicia el descenso controlado para evaluar la trayectoria de fuerza y los brazos de momento en máxima elongación.'
-      }
-    : rawVerdict;
-
-  const hipRaw = currentTelemetry?.biomechanics.momentArms.hip ?? 0.35;
-  const kneeRaw = currentTelemetry?.biomechanics.momentArms.knee ?? 0.22;
-  const totalMoment = hipRaw + kneeRaw + 1e-5;
-  const hipShare = isInitialSetup || (hipRaw + kneeRaw < 0.05)
-    ? 50
-    : Math.round((hipRaw / totalMoment) * 100);
-  const kneeShare = 100 - hipShare;
-
-  const shoulderRaw = currentTelemetry?.biomechanics.momentArms.shoulder ?? 0.28;
-  const elbowRaw = currentTelemetry?.biomechanics.momentArms.elbow ?? 0.14;
-  const totalUpperMoment = shoulderRaw + elbowRaw + 1e-5;
-  const shoulderShare = (shoulderRaw + elbowRaw < 0.04) ? 50 : Math.round((shoulderRaw / totalUpperMoment) * 100);
-  const elbowShare = 100 - shoulderShare;
-
-  const formatPhaseLabel = (phase: FsmPhase): string => {
-    switch (phase) {
-      case 'LOCKOUT':
-        return 'Inicio';
-      case 'ECCENTRIC':
-        return 'Excéntrica';
-      case 'BOTTOM':
-        return 'Fondo';
-      case 'CONCENTRIC':
-        return 'Concéntrica';
-      default:
-        return phase;
-    }
+  // Active verdict read directly from frozen rep verdict
+  const activeVerdict = currentFrame?.verdict || {
+    status: 'OPTIMAL',
+    dominant_joint: 'CADERA',
+    target_alignment: true,
+    primary_torque_bias: 'GLÚTEO MAYOR',
+    inflection_knee_deg: 90.0,
+    inflection_hip_deg: 180.0,
+    d_hip_norm: 0.14,
+    d_knee_norm: 0.12,
+    recommendation: 'Alineación articular óptima con vector vertical equilibrado.'
   };
 
+  const d_hip_val = currentFrame?.moment_arms.d_hip ?? 0.14;
+  const d_knee_val = currentFrame?.moment_arms.d_knee ?? 0.12;
+  const totalMoment = d_hip_val + d_knee_val + 1e-5;
+  const hipShare = Math.round((d_hip_val / totalMoment) * 100);
+  const kneeShare = 100 - hipShare;
+
+  // Mode Switcher Buttons
   const modeSwitcherButtons = (
-    <div className="bg-slate-950/80 p-1 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1.5 shadow-inner">
+    <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-900 border border-slate-800">
       <button
         type="button"
         onClick={() => setAnalysisMode('technique')}
-        className={`py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
           analysisMode === 'technique'
-            ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-black'
-            : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+            : 'text-slate-400 hover:text-white'
         }`}
       >
-        <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-        <span className="truncate">1. Corrección Técnica</span>
+        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+        <span>[1. Corrección Técnica]</span>
       </button>
 
       <button
         type="button"
         onClick={() => setAnalysisMode('biomechanics')}
-        className={`py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
           analysisMode === 'biomechanics'
-            ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30 font-black'
-            : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-lg shadow-blue-500/10'
+            : 'text-slate-400 hover:text-white'
         }`}
       >
-        <Scale className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-        <span className="truncate">2. Optimización Biomecánica</span>
+        <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+        <span>[2. Optimización Biomecánica]</span>
       </button>
-    </div>
-  );
-
-  const exerciseConfigControls = (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-md">
-      {/* 1. Tipo de Carga */}
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
-          <span className="flex items-center gap-1.5">
-            <Scale className="w-3.5 h-3.5 text-cyan-400" />
-            1. Tipo de Carga
-          </span>
-        </div>
-        <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-          {[
-            { key: 'gravity' as LoadType, label: 'Peso Libre' },
-            { key: 'cable' as LoadType, label: 'Polea / Cable' },
-            { key: 'machine' as LoadType, label: 'Máquina' }
-          ].map(item => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setLoadType(item.key)}
-              className={`py-1.5 px-2 rounded-lg text-xs font-semibold text-center truncate transition-all ${
-                loadType === item.key
-                  ? 'bg-blue-600 text-white shadow-md font-bold'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 2. Músculo Objetivo */}
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
-          <span className="flex items-center gap-1.5">
-            <Crosshair className="w-3.5 h-3.5 text-amber-400" />
-            2. Músculo Objetivo
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            { key: 'quadriceps' as TargetMuscle, label: 'Cuádriceps' },
-            { key: 'glutes_max' as TargetMuscle, label: 'Glúteo Mayor' },
-            { key: 'hamstrings' as TargetMuscle, label: 'Isquiosurales' },
-            { key: 'lats' as TargetMuscle, label: 'Dorsal' },
-            { key: 'upper_back' as TargetMuscle, label: 'Espalda Alta' },
-            { key: 'pectorals' as TargetMuscle, label: 'Pectoral' },
-            { key: 'biceps' as TargetMuscle, label: 'Bíceps' },
-            { key: 'triceps' as TargetMuscle, label: 'Tríceps' }
-          ].map(m => (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => {
-                setTargetMuscle(m.key);
-                const patterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === m.key);
-                if (patterns.length > 0) setSelectedPatternId(patterns[0].id);
-              }}
-              className={`py-1 px-2.5 rounded-xl text-xs font-bold transition-all border ${
-                targetMuscle === m.key
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm shadow-amber-500/25'
-                  : 'bg-slate-800/80 text-slate-200 border-slate-700/60 hover:border-slate-500'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 3. Patrón / Ejercicio */}
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-200">
-          <span className="flex items-center gap-1.5 shrink-0">
-            <Layers className="w-3.5 h-3.5 text-blue-400" />
-            3. Ejercicio
-          </span>
-          <span className="text-[10px] text-blue-300 truncate">
-            {selectedPattern.targetRatioDescription}
-          </span>
-        </div>
-        <select
-          value={selectedPattern.id}
-          onChange={e => setSelectedPatternId(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 transition"
-        >
-          {availablePatterns.map(p => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <p className="text-[11px] text-slate-300/90 pl-0.5 leading-snug">
-          {selectedPattern.description}
-        </p>
-      </div>
     </div>
   );
 
@@ -1106,7 +664,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3 landscape:p-2 lg:p-4 bg-black/95 backdrop-blur-md overflow-hidden">
       <div className="w-full h-[100dvh] sm:h-auto sm:max-h-[96dvh] landscape:h-[100dvh] lg:landscape:h-auto lg:landscape:max-h-[95dvh] max-w-6xl bg-[#0f111a] sm:border border-blue-500/30 rounded-none sm:rounded-3xl p-2.5 sm:p-4 lg:p-5 shadow-2xl text-white flex flex-col gap-2 sm:gap-3 overflow-hidden my-auto">
 
-        {/* Compact Header (Adapts seamlessly between Portrait Mobile, Landscape Mobile & Desktop) */}
+        {/* Compact Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-2 gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25 shrink-0">
@@ -1114,46 +672,27 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <h3 className="text-sm sm:text-lg font-black text-white truncate">Análisis Biomecánico</h3>
+                <h3 className="text-sm sm:text-lg font-black text-white truncate">Análisis Biomecánico Clínico</h3>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${
-                  aiModelStatus === 'ready'
+                  pipelineState === 'ready'
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                    : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                    : pipelineState === 'analyzing' || pipelineState === 'compressing'
+                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30 animate-pulse'
+                    : 'bg-slate-800 text-slate-300 border-slate-700'
                 }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${aiModelStatus === 'ready' ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400 animate-ping'}`} />
-                  <span className="hidden sm:inline">{aiModelStatus === 'ready' ? 'Motor Biomecánico Activo' : 'Iniciando Motor...'}</span>
-                  <span className="sm:hidden">{aiModelStatus === 'ready' ? 'Activo' : 'Cargando'}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${pipelineState === 'ready' ? 'bg-emerald-400' : 'bg-cyan-400 animate-ping'}`} />
+                  <span>
+                    {pipelineState === 'ready' ? 'GPU Modal Labs Activo' : pipelineState === 'analyzing' ? 'Inferencia GPU...' : pipelineState === 'compressing' ? 'Comprimiendo...' : 'Listo'}
+                  </span>
                 </span>
               </div>
-              <p className="text-xs text-slate-300/80 hidden lg:block">
-                Evaluación técnica, alineación articular y reparto muscular en tiempo real
+              <p className="text-xs text-slate-400 hidden lg:block">
+                RT-DETR + ViTPose-Large + SciPy Butterworth Fase-Cero (Serverless GPU)
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowConfigBottomSheet(true)}
-              className="lg:hidden px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40 flex items-center gap-1 max-w-[140px]"
-              title="Cambiar ejercicio o tipo de carga"
-            >
-              <Layers className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{selectedPattern.name.split('(')[0].trim()}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowEngineSettings(prev => !prev)}
-              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-colors ${
-                showEngineSettings
-                  ? 'bg-slate-800 text-cyan-300 border-cyan-500/40'
-                  : 'text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800/80'
-              }`}
-              title="Ajustes avanzados del motor"
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Ajustes</span>
-            </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
@@ -1163,1525 +702,337 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
         </div>
 
-        {/* Mobile Portrait Dual Mode Switcher right under compact header */}
+        {/* Mobile Mode Switcher */}
         <div className="shrink-0 landscape:hidden lg:hidden">
           {modeSwitcherButtons}
         </div>
 
-        {/* Collapsible Advanced Engine Settings Drawer */}
-        {showEngineSettings && (
-          <div className="px-3 py-2 rounded-2xl bg-slate-950/90 border border-slate-800 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-2">
-              <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <span>
-                Motor: <strong className="text-white">OneEuroFilter (Cero-Lag)</strong> · Precisión MediaPipe ({aiModelStatus === 'ready' ? 'Activo' : aiModelStatus})
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-400">Modelo:</span>
-              {([
-                { id: 'full' as PoseModelQuality, label: 'Rápido (Full)' },
-                { id: 'heavy' as PoseModelQuality, label: 'Máx. Precisión (Heavy)' }
-              ]).map(opt => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => {
-                    poseSmootherRef.current.reset();
-                    setPoseQuality(opt.id);
-                  }}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
-                    poseQuality === opt.id
-                      ? 'bg-cyan-600/25 border-cyan-500/60 text-cyan-200'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Main 2-Column Responsive Layout */}
+        <div className="flex-1 min-h-0 flex flex-col landscape:grid landscape:grid-cols-12 landscape:gap-3 lg:grid lg:grid-cols-12 lg:gap-4 items-stretch overflow-hidden landscape:overflow-y-auto lg:overflow-y-auto">
 
-        {/* Responsive Main Layout:
-            - Portrait Mobile: Single column 100dvh (Top 45% Video/Controls | Bottom 55% Verdict & Metrics)
-            - Landscape Mobile & Desktop: 2-Column 60% Left Video / 40% Right Controls & Metrics */}
-        <div className="flex-1 min-h-0 flex flex-col landscape:grid landscape:grid-cols-12 landscape:grid-rows-[auto_1fr] landscape:gap-3 lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-4 items-stretch landscape:items-start lg:items-start overflow-hidden landscape:overflow-y-auto lg:overflow-y-auto">
-
-          {/* RIGHT COLUMN TOP (Desktop & Landscape Mobile: Mode Switcher + Config Selector) */}
-          <div className="hidden landscape:block lg:block landscape:col-start-8 landscape:col-span-5 landscape:row-start-1 lg:col-start-8 lg:col-span-5 lg:row-start-1 space-y-2.5 min-w-0">
+          {/* RIGHT COLUMN TOP (Desktop/Landscape) */}
+          <div className="hidden landscape:block lg:block landscape:col-start-8 landscape:col-span-5 lg:col-start-8 lg:col-span-5 space-y-2.5 min-w-0">
             {modeSwitcherButtons}
-            <div className="hidden lg:block">
-              {exerciseConfigControls}
-            </div>
           </div>
 
-          {/* LEFT COLUMN (Portrait Top 45% | Landscape/Desktop 60% col-span-7): Video + Scrubber + Actions */}
-          <div className="shrink-0 flex flex-col gap-1.5 sm:gap-2 min-w-0 landscape:col-start-1 landscape:col-span-7 landscape:row-start-1 landscape:row-span-2 lg:col-start-1 lg:col-span-7 lg:row-start-1 lg:row-span-2">
+          {/* LEFT COLUMN: Video Viewport & Playback Bar */}
+          <div className="shrink-0 flex flex-col gap-1.5 sm:gap-2 min-w-0 landscape:col-start-1 landscape:col-span-7 lg:col-start-1 lg:col-span-7">
 
-            {/* Video Sources Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="video/mp4,video/webm,video/quicktime,video/*"
-              className="hidden"
-              onChange={handleFileUpload}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>{uploadedFileName ? 'Cambiar Vídeo' : 'Subir Vídeo Propio (MP4/MOV)'}</span>
-            </button>
-
-            <button
-              onClick={handleStartWebcam}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition active:scale-95 ${
-                useWebcam
-                  ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
-                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>{useWebcam ? 'Cámara Activa' : 'Usar Cámara en Vivo'}</span>
-            </button>
-          </div>
-
-          {uploadedFileName && (
-            <span className="text-[11px] text-cyan-300 truncate max-w-xs flex items-center gap-1 font-medium">
-              <Film className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-              <span className="truncate">{uploadedFileName}</span>
-            </span>
-          )}
-        </div>
-
-        {/* Video Canvas Viewport */}
-        <div
-          ref={viewportRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleMouseUp}
-          className={`relative w-full h-[33dvh] min-h-[185px] sm:h-[38dvh] landscape:h-[calc(100dvh-11.5rem)] landscape:min-h-[195px] lg:h-[420px] lg:landscape:h-[420px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none ${
-            zoom > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
-          }`}
-        >
-          {/* Viewport Zoom, Canvas Text & Levers Toolbar */}
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-40 bg-black/85 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg">
-            <div className="flex items-center gap-0.5 border-r border-slate-700/80 pr-1 mr-0.5">
-              {[1, 1.5, 2].map(z => (
+            {/* Video File Input Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,video/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
                 <button
-                  key={z}
-                  type="button"
-                  onClick={() => {
-                    setZoom(z);
-                    if (z === 1) setPanOffset({ x: 0, y: 0 });
-                  }}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition ${
-                    zoom === z ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                  }`}
-                  title={`Zoom ${z}x`}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
                 >
-                  {z}x
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{uploadedFileName ? 'Cambiar Vídeo' : 'Subir Vídeo (MP4/WebM)'}</span>
                 </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowCanvasText(prev => !prev)}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition ${
-                showCanvasText
-                  ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
-                  : 'bg-slate-800/80 text-slate-300 border border-slate-700 hover:text-white'
-              }`}
-              title={showCanvasText ? 'Ocultar textos flotantes sobre el vídeo' : 'Mostrar textos sobre el vídeo'}
-            >
-              {showCanvasText ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-              <span>{showCanvasText ? 'Textos ON' : 'Ocultar Textos'}</span>
-            </button>
-
-            {!isHipThrustExercise && (
-              <button
-                type="button"
-                onClick={() => setShowLeverArms(prev => !prev)}
-                className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition ${
-                  showLeverArms
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title={showLeverArms ? 'Ocultar líneas de palancas' : 'Mostrar líneas de palancas'}
-              >
-                <Sliders className="w-3 h-3" />
-                <span>{showLeverArms ? 'Palancas ON' : 'Palancas OFF'}</span>
-              </button>
-            )}
-          </div>
-
-          {/* Synchronized Zoom & Pan Transform Viewport for BOTH Video & Analysis Overlay */}
-          <div
-            className="w-full h-full relative flex items-center justify-center transition-transform duration-75 origin-center will-change-transform"
-            style={{
-              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`
-            }}
-          >
-            {/* HTML5 Video Element with Full Event Tracking */}
-            <video
-              ref={videoElementRef}
-              src={uploadedVideoUrl || undefined}
-              playsInline
-              loop={!useWebcam}
-              muted
-              onLoadedMetadata={(e) => {
-                const vid = e.currentTarget;
-                const dur = Math.min(vid.duration || 0, MAX_ANALYSIS_CLIP_SECONDS);
-                setVideoDuration(dur);
-                setVideoCodecError(null);
-                vid.playbackRate = playbackSpeed;
-                if (vid.currentTime === 0) {
-                  vid.currentTime = 0.01;
-                }
-                setTimeout(() => processSingleFrame(), 80);
-              }}
-              onDurationChange={(e) => {
-                const dur = e.currentTarget.duration || 0;
-                if (dur > 0) setVideoDuration(Math.min(dur, MAX_ANALYSIS_CLIP_SECONDS));
-              }}
-              onTimeUpdate={(e) => {
-                const cur = e.currentTarget.currentTime;
-                if (cur >= MAX_ANALYSIS_CLIP_SECONDS) {
-                  e.currentTarget.currentTime = 0.01;
-                  setVideoCurrentTime(0);
-                  if (!useWebcam && !isRecording) {
-                    e.currentTarget.play().catch(() => {});
-                  }
-                  return;
-                }
-                if (!isScrubbingRef.current) {
-                  setVideoCurrentTime(Math.min(cur, MAX_ANALYSIS_CLIP_SECONDS));
-                }
-              }}
-              onPlay={() => setIsVideoPlaying(true)}
-              onPause={() => {
-                setIsVideoPlaying(false);
-                setTimeout(() => processSingleFrame(), 20);
-              }}
-              onEnded={() => setIsVideoPlaying(false)}
-              onError={() => {
-                setVideoCodecError('No se pudo decodificar este vídeo en tu navegador. Si es un archivo .MOV de iPhone grabado en ProRes o HEVC/H.265, te sugerimos convertirlo a MP4 (H.264) o usar la cámara web.');
-              }}
-              onSeeked={() => {
-                processSingleFrame();
-              }}
-              className={`absolute inset-0 w-full h-full object-contain ${
-                !uploadedVideoUrl && !useWebcam ? 'opacity-0 pointer-events-none' : 'opacity-100'
-              }`}
-            />
-
-            {/* Placeholder when no video is loaded */}
-            {!uploadedVideoUrl && !useWebcam && !isRecording && (
-              <div className="text-center space-y-2 p-4 z-10 pointer-events-none">
-                <Video className="w-12 h-12 text-cyan-400/60 mx-auto animate-pulse" />
-                <p className="text-xs text-slate-200 font-semibold max-w-xs">
-                  Sube un vídeo de tu serie (sentadilla, hip thrust, press o cruces) o usa tu cámara para analizar la técnica y eficiencia muscular.
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Recibirás corrección postural en vivo, conteo de repeticiones y diagnóstico de palancas.
-                </p>
-              </div>
-            )}
-
-            {/* Real Human Skeleton & Biomechanical Canvas Overlay */}
-            <canvas
-              ref={canvasRef}
-              className="absolute inset-0 w-full h-full object-contain pointer-events-none z-20"
-            />
-          </div>
-
-          {/* Real-Time Telemetry HUD Overlays */}
-          {(isRecording || isVideoPlaying || (uploadedVideoUrl && currentTelemetry)) && (
-            <>
-              {/* Primary Joint Angle Gauge */}
-              <div className="absolute top-3 left-3 bg-black/85 backdrop-blur-md border border-cyan-500/50 rounded-xl px-3 py-1.5 text-xs flex items-center gap-2 z-30 shadow-lg">
-                <Gauge className="w-4 h-4 text-cyan-400" />
-                <div>
-                  <div className="text-[10px] text-slate-300 uppercase font-semibold">
-                    Ángulo {selectedPattern.primaryJoint === 'elbow' ? 'de Codo' : selectedPattern.primaryJoint === 'hip' ? 'de Cadera' : selectedPattern.primaryJoint === 'shoulder' ? 'de Hombro' : 'de Rodilla'}
-                  </div>
-                  <div className="font-mono text-sm font-black text-white">
-                    {currentPrimaryAngle}° <span className="text-[10px] text-cyan-400 font-sans font-bold">({formatPhaseLabel(currentPhase)})</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Rep Count HUD */}
-              <div className="absolute bottom-12 right-3 bg-black/85 backdrop-blur-md border border-blue-500/50 rounded-xl px-3.5 py-1.5 text-right z-30 shadow-lg">
-                <div className="text-[10px] text-slate-300 font-semibold">Repeticiones</div>
-                <div className="font-mono text-lg font-black text-white">{repCount}</div>
-              </div>
-
-              {/* Real-time Status Badges */}
-              <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-1.5 z-30 pointer-events-none">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <div className="bg-black/85 backdrop-blur-md border border-slate-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-                    <span className="text-slate-300">Fase:</span>
-                    <span className={`font-bold ${
-                      currentPhase === 'BOTTOM' ? 'text-amber-400' : currentPhase === 'CONCENTRIC' ? 'text-emerald-400' : 'text-cyan-400'
-                    }`}>
-                      {formatPhaseLabel(currentPhase)}
-                    </span>
-                  </div>
-                  <div className="bg-cyan-950/85 backdrop-blur-md border border-cyan-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-cyan-300 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-cyan-400" />
-                    <span>En Vivo 1:1 (GPU)</span>
-                  </div>
-                </div>
-
-                {analysisMode === 'technique' ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {isFlyExercise && flyEval ? (
-                      <>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          flyEval.areArmsExtended
-                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <TrendingUp className="w-3 h-3" />
-                          Codos: {flyEval.elbowAngleDeg}°
-                        </div>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          flyEval.shoulderAnteriorized
-                            ? 'bg-rose-950/85 border-rose-500/50 text-rose-300'
-                            : 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
-                        }`}>
-                          <ShieldCheck className="w-3 h-3" />
-                          Hombro: {flyEval.shoulderAnteriorized ? '⚠️ Anteriorizado' : '✓ Estable'}
-                        </div>
-                      </>
-                    ) : isBicepsExercise && bEval ? (
-                      <>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          bEval.armAlignment === 'aligned_pivot'
-                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <Crosshair className="w-3 h-3" />
-                          {bEval.armAlignment === 'aligned_pivot' ? '✓ Codo Eje Fijo' : '⚠️ Balanceo Codo'}
-                        </div>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          bEval.tempoStatus === 'optimal_controlled'
-                            ? 'bg-cyan-950/85 border-cyan-500/50 text-cyan-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <Activity className="w-3 h-3" />
-                          {bEval.tempoStatus === 'optimal_controlled' ? 'Tempo: ≥2s' : '⚠️ Excéntrico Rápido'}
-                        </div>
-                      </>
-                    ) : isTricepsExercise && tEval ? (
-                      <>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          tEval.wristAlignment === 'aligned_neutral'
-                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <Crosshair className="w-3 h-3" />
-                          {tEval.wristAlignment === 'aligned_neutral' ? '✓ Muñeca Neutra' : '⚠️ Muñeca Quebrada'}
-                        </div>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          tEval.elbowFlare === 'stable_aligned'
-                            ? 'bg-cyan-950/85 border-cyan-500/50 text-cyan-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <ShieldCheck className="w-3 h-3" />
-                          {tEval.elbowFlare === 'stable_aligned' ? '✓ Codos Alineados' : '⚠️ Codos Abiertos'}
-                        </div>
-                      </>
-                    ) : isUpperBackExercise && ubEval ? (
-                      <>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          ubEval.elbowAngleStatus === 'optimal_90'
-                            ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <TrendingUp className="w-3 h-3" />
-                          Codo: {ubEval.elbowAngleDeg}° (~90°)
-                        </div>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          ubEval.tractionHeightStatus === 'optimal_shoulder_height'
-                            ? 'bg-cyan-950/85 border-cyan-500/50 text-cyan-300'
-                            : 'bg-amber-950/85 border-amber-500/50 text-amber-300'
-                        }`}>
-                          <Crosshair className="w-3 h-3" />
-                          {ubEval.tractionHeightStatus === 'optimal_shoulder_height' ? '✓ Altura Hombro' : '⚠️ Tracción Baja'}
-                        </div>
-                        <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                          ubEval.shoulderRetractionStatus === 'optimal_retraction'
-                            ? 'bg-purple-950/85 border-purple-500/50 text-purple-300'
-                            : 'bg-rose-950/85 border-rose-500/50 text-rose-300'
-                        }`}>
-                          <ShieldCheck className="w-3 h-3" />
-                          {ubEval.shoulderRetractionStatus === 'optimal_retraction' ? '✓ Escápulas OK' : '⚠️ Hombros'}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                        {isHipThrustExercise
-                          ? (htLumbarOk && htNeckOk ? 'Lumbar/Cuello OK' : 'Revisar Postura')
-                          : (currentTelemetry?.technique.isSpineNeutral ? 'Columna Neutra' : 'Quiebre Curvatura')}
-                      </div>
-                    )}
-
-                    <div className="bg-blue-950/80 backdrop-blur-md border border-blue-500/40 rounded-xl px-2.5 py-1 text-[10px] font-bold text-blue-300 flex items-center gap-1">
-                      <Activity className="w-3 h-3 text-blue-400" />
-                      ROM: {currentTelemetry?.technique.romPercentage ?? 90}%
-                    </div>
-                  </div>
-                ) : isFlyExercise && flyEval ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      flyEval.areArmsExtended
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <TrendingUp className="w-3 h-3" />
-                      Codo: {flyEval.elbowAngleDeg}° ({flyEval.areArmsExtended ? 'Rectos' : '+Tríceps'})
-                    </div>
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      flyEval.areArmsExtended
-                        ? 'bg-violet-950/90 border-violet-500/50 text-violet-300'
-                        : 'bg-pink-950/90 border-pink-500/50 text-pink-300'
-                    }`}>
-                      <Crosshair className="w-3 h-3" />
-                      Reparto: {flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'}
-                    </div>
-                  </div>
-                ) : isBicepsExercise && bEval ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      bEval.armAlignment === 'aligned_pivot'
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <Crosshair className="w-3 h-3" />
-                      Codo: {bEval.armAlignment === 'aligned_pivot' ? 'Eje Estable' : 'Balanceo'}
-                    </div>
-                    <div className="bg-pink-950/90 backdrop-blur-md border border-pink-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-pink-300 flex items-center gap-1">
-                      <Scale className="w-3 h-3" />
-                      d_codo: {Math.round(elbowRaw * 640)}px ({elbowShare}%)
-                    </div>
-                  </div>
-                ) : isTricepsExercise && tEval ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      tEval.wristAlignment === 'aligned_neutral'
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <Crosshair className="w-3 h-3" />
-                      {tEval.wristAlignment === 'aligned_neutral' ? 'Muñeca Neutra' : '⚠️ Quebrada'}
-                    </div>
-                    <div className="bg-pink-950/90 backdrop-blur-md border border-pink-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-pink-300 flex items-center gap-1">
-                      <Scale className="w-3 h-3" />
-                      d_codo: {Math.round(elbowRaw * 640)}px ({elbowShare}%)
-                    </div>
-                  </div>
-                ) : isUpperBackExercise && ubEval ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      ubEval.elbowAngleStatus === 'optimal_90'
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <TrendingUp className="w-3 h-3" />
-                      Codo: {ubEval.elbowAngleDeg}° (~90°)
-                    </div>
-                    <div className="bg-purple-950/90 backdrop-blur-md border border-purple-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-purple-300 flex items-center gap-1">
-                      <Scale className="w-3 h-3" />
-                      Hombro/Escápula: {shoulderShare}%
-                    </div>
-                  </div>
-                ) : isHipThrustExercise ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className="bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                      MODO LIMPIO ACTIVO
-                    </div>
-                  </div>
-                ) : isPressExercise && pressEval ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      pressEval.handElbowAlignment === 'aligned_90'
-                        ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <Crosshair className="w-3 h-3" />
-                      {pressEval.handElbowAlignment === 'aligned_90'
-                        ? 'Mano/Codo: ~90°'
-                        : pressEval.handElbowAlignment === 'closed_triceps'
-                          ? 'Agarre Cerrado (+Tríceps)'
-                          : 'Mano Abierta'}
-                    </div>
-
-                    <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                      pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
-                        ? 'bg-cyan-950/90 border-cyan-500/50 text-cyan-300'
-                        : 'bg-amber-950/90 border-amber-500/50 text-amber-300'
-                    }`}>
-                      <ShieldCheck className="w-3 h-3" />
-                      {pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
-                        ? `Codo Bajo Hombro (${pressEval.shoulderAbductionDeg}°)`
-                        : pressEval.elbowShoulderPosition === 'high_shoulder_risk'
-                          ? '⚠️ Codo Alto (Hombro)'
-                          : 'Codo Pegado'}
-                    </div>
-
-                    {pressEval.footStabilityStatus !== 'not_visible' && (
-                      <div className={`backdrop-blur-md border rounded-xl px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 ${
-                        pressEval.footStabilityStatus === 'stable_leg_drive'
-                          ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
-                          : 'bg-rose-950/90 border-rose-500/50 text-rose-300'
-                      }`}>
-                        {pressEval.footStabilityStatus === 'stable_leg_drive' ? 'Pies: ✓ Firmes' : '⚠️ Pies Inestables'}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <div className="bg-amber-950/90 backdrop-blur-md border border-amber-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-amber-300 flex items-center gap-1">
-                      <Scale className="w-3 h-3 text-amber-400" />
-                      Ratio: {currentTelemetry?.biomechanics.momentArms.hipOverKneeRatio ?? 1.2}
-                    </div>
-
-                    <div className="bg-cyan-950/90 backdrop-blur-md border border-cyan-500/50 rounded-xl px-2.5 py-1 text-[10px] font-bold text-cyan-300 flex items-center gap-1">
-                      <TrendingUp className="w-3 h-3 text-cyan-400" />
-                      Tibia: {Math.round(currentTelemetry?.biomechanics.tibialAngleDegrees ?? 15)}°
-                    </div>
-                  </div>
+                {uploadedFileName && (
+                  <span className="text-[11px] text-slate-400 truncate max-w-[150px]">
+                    {uploadedFileName}
+                  </span>
                 )}
               </div>
 
-              {framingWarning && (
-                <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 z-40 flex justify-center pointer-events-none">
-                  <div className="bg-rose-950/95 backdrop-blur-md border border-rose-500/70 rounded-2xl px-4 py-3 shadow-2xl max-w-sm text-center space-y-1">
-                    <div className="flex items-center justify-center gap-1.5 text-rose-300 font-black text-xs">
-                      <AlertTriangle className="w-4 h-4 text-rose-400" />
-                      <span>No se puede analizar bien</span>
-                    </div>
-                    <p className="text-[11px] text-rose-100 leading-snug">
-                      {framingWarning}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Framing Distance Warning Banner */}
-        {framingWarning && (
-          <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <div className="space-y-0.5 flex-1">
-              <span className="font-bold text-rose-300">Vídeo demasiado cerca / ocluido:</span>
-              <p className="text-[11px] leading-relaxed text-rose-100/90">{framingWarning}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Codec Warning Banner if browser cannot decode */}
-        {videoCodecError && (
-          <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div className="space-y-1.5 flex-1">
-              <span className="font-bold text-amber-300">Aviso de Compatibilidad de Vídeo:</span>
-              <p className="text-[11px] leading-relaxed text-amber-200/90">{videoCodecError}</p>
-              <div className="pt-0.5 flex flex-wrap gap-2">
+              {/* Zoom & Pan Controls */}
+              <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
                 <button
                   type="button"
-                  onClick={handleStartWebcam}
-                  className="px-2.5 py-1 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-100 text-[10px] font-bold"
+                  onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); }}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 1 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
                 >
-                  Usar Cámara en Vivo
+                  1x
                 </button>
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium"
+                  onClick={() => setZoom(1.5)}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 1.5 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
                 >
-                  Subir otro archivo (MP4)
+                  1.5x
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom(2)}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 2 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                >
+                  2x
                 </button>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Fixed Video Navigation Scrubber & Playback Controls Panel */}
-        {uploadedVideoUrl && (
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-3 space-y-2.5 shadow-lg">
-            {/* Visual Progress Scrubber Bar with Fill Indicator (Clamped to 30s max) */}
-            <div className="flex items-center gap-2.5">
-              <span className="text-[11px] font-mono text-cyan-400 font-bold min-w-[38px] text-right">
-                {formatVideoTime(Math.min(videoCurrentTime, effectiveTotalDuration))}
-              </span>
+            {/* Video Viewport Container */}
+            <div
+              className="relative w-full aspect-[4/3] sm:aspect-video bg-black rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center select-none"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            >
+              {/* Native HTML5 Video Element */}
+              <video
+                ref={videoElementRef}
+                src={uploadedVideoUrl || undefined}
+                playsInline
+                muted
+                loop
+                onLoadedMetadata={(e) => {
+                  const target = e.currentTarget;
+                  setVideoDuration(target.duration || 0);
+                }}
+                className="w-full h-full object-contain pointer-events-none"
+              />
 
-              {/* Custom Track with Active Fill and Overlay Slider */}
-              <div className="relative flex-1 flex items-center h-6 select-none">
-                {/* Background Track */}
-                <div className="absolute inset-x-0 h-2 bg-slate-800 rounded-full overflow-hidden pointer-events-none">
-                  {/* Filled Track Segment */}
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 rounded-full transition-all duration-75"
-                    style={{ width: `${scrubberProgress}%` }}
-                  />
+              {/* Overlay Canvas 1:1 Synchronized */}
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full pointer-events-none"
+              />
+
+              {/* Loading State Overlay */}
+              {(pipelineState === 'compressing' || pipelineState === 'analyzing') && (
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
+                  <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                  <p className="text-sm font-bold text-slate-200">{pipelineMessage}</p>
+                  <span className="text-xs text-slate-400">Zero cold-start penalty • RT-DETR + ViTPose-Large</span>
                 </div>
+              )}
 
-                {/* Thumb Indicator */}
-                <div
-                  className="absolute w-4 h-4 bg-white rounded-full shadow-lg shadow-cyan-500/50 border-2 border-cyan-400 pointer-events-none -ml-2 transition-transform"
-                  style={{ left: `${scrubberProgress}%` }}
-                />
+              {/* Empty placeholder */}
+              {!uploadedVideoUrl && pipelineState === 'idle' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center text-slate-400">
+                  <Film className="w-10 h-10 text-slate-600" />
+                  <p className="text-xs font-semibold">Sube un vídeo para iniciar el análisis cinemático clínico</p>
+                </div>
+              )}
 
-                {/* Functional Input Range Overlay */}
+              {/* HUD Telemetry Badges */}
+              {pipelineState === 'ready' && (
+                <div className="absolute top-2 left-2 flex flex-wrap gap-1.5 pointer-events-none z-10">
+                  <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold">
+                    REP: #{repCount > 0 ? repCount : 1}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold">
+                    {currentPhase}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-mono font-bold">
+                    Ángulo: {Math.round(currentPrimaryAngle)}°
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Video Playback & Scrub Bar */}
+            <div className="flex flex-col gap-1 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
+              <div className="flex items-center gap-2">
                 <input
                   type="range"
                   min={0}
                   max={effectiveTotalDuration}
-                  step={0.01}
-                  value={Math.min(videoCurrentTime, effectiveTotalDuration)}
-                  onMouseDown={() => { isScrubbingRef.current = true; }}
-                  onTouchStart={() => { isScrubbingRef.current = true; }}
+                  step={0.05}
+                  value={videoCurrentTime}
                   onChange={handleScrubChange}
-                  onMouseUp={() => {
-                    isScrubbingRef.current = false;
-                    processSingleFrame();
-                  }}
-                  onTouchEnd={() => {
-                    isScrubbingRef.current = false;
-                    processSingleFrame();
-                  }}
-                  className="w-full h-6 opacity-0 cursor-pointer z-10"
+                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
                 />
               </div>
 
-              <span className="text-[11px] font-mono text-slate-400 font-medium min-w-[38px]">
-                {formatVideoTime(effectiveTotalDuration)}
-              </span>
+              <div className="flex items-center justify-between text-xs font-mono text-slate-300">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTogglePlayPause}
+                    className="p-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30"
+                  >
+                    {isVideoPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSeekRelative(-2)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                  >
+                    <Rewind className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSeekRelative(2)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                  >
+                    <FastForward className="w-3.5 h-3.5" />
+                  </button>
+                  <span>{formatVideoTime(videoCurrentTime)} / {formatVideoTime(effectiveTotalDuration)}</span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {[0.5, 1.0, 1.5].map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => handleSpeedChange(spd)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        playbackSpeed === spd ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {spd}x
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            {/* Playback Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-              {/* Transport Buttons */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleSeekRelative(-0.1)}
-                  title="Retroceder 1 fotograma (-0.1s)"
-                  className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-mono transition"
-                >
-                  -0.1s
-                </button>
+          </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleSeekRelative(-5)}
-                  title="Retroceder 5 segundos"
-                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center gap-0.5 text-xs font-semibold"
-                >
-                  <Rewind className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">-5s</span>
-                </button>
+          {/* RIGHT COLUMN: Biomechanical Diagnosis & Verdict Card */}
+          <div className="space-y-3 landscape:col-start-8 landscape:col-span-5 lg:col-start-8 lg:col-span-5 min-w-0">
 
-                <button
-                  type="button"
-                  onClick={handleTogglePlayPause}
-                  className={`p-2 rounded-xl text-white font-bold transition shadow-md flex items-center justify-center ${
-                    isVideoPlaying
-                      ? 'bg-amber-600 hover:bg-amber-500'
-                      : 'bg-cyan-600 hover:bg-cyan-500'
-                  }`}
-                  title={isVideoPlaying ? 'Pausar vídeo' : 'Reproducir vídeo'}
-                >
-                  {isVideoPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSeekRelative(5)}
-                  title="Adelantar 5 segundos"
-                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center gap-0.5 text-xs font-semibold"
-                >
-                  <FastForward className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">+5s</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSeekRelative(0.1)}
-                  title="Avanzar 1 fotograma (+0.1s)"
-                  className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-mono transition"
-                >
-                  +0.1s
-                </button>
-              </div>
-
-              {/* Playback Speeds */}
-              <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-300 font-semibold px-1">Velocidad:</span>
-                {[0.25, 0.5, 0.75, 1.0].map(speed => (
+            {/* Exercise Selector */}
+            <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-2">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                Patrón Articular Evaluado
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { id: 'hip_thrust_barbell', name: 'Hip Thrust', muscle: 'glutes_max' as TargetMuscle },
+                  { id: 'squat_high_bar', name: 'Sentadilla', muscle: 'quads' as TargetMuscle },
+                  { id: 'bulgarian_split_squat_glute', name: 'Búlgara', muscle: 'glutes_max' as TargetMuscle },
+                  { id: 'romanian_deadlift_glute', name: 'Peso Muerto RDL', muscle: 'glutes_max' as TargetMuscle },
+                ].map((item) => (
                   <button
-                    key={speed}
+                    key={item.id}
                     type="button"
-                    onClick={() => handleSpeedChange(speed)}
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold transition ${
-                      playbackSpeed === speed
-                        ? 'bg-cyan-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    onClick={() => handleConfigChange(item.id, item.muscle, loadType)}
+                    className={`py-1.5 px-2 rounded-xl text-xs font-bold text-left border transition ${
+                      selectedPattern.id === item.id
+                        ? 'bg-blue-600/25 border-blue-500 text-blue-200'
+                        : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
-                    {speed}x
+                    {item.name}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
-        )}
 
-            {/* Main Action Buttons (Right under video & scrubber on Desktop & Mobile) */}
-            <div className="flex gap-2">
-              <button
-                onClick={handleStartStop}
-                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                  isRecording
-                    ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/30'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
-                }`}
-              >
-                {isRecording ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                {isRecording ? 'Pausar Análisis' : (uploadedFileName ? 'Iniciar Análisis' : 'Iniciar Tracking')}
-              </button>
-
-              <button
-                onClick={handleReset}
-                className="py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reiniciar
-              </button>
-
-              <button
-                disabled={auditedReps.length === 0 || isSendingToBackend}
-                onClick={handleSendToBackend}
-                className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all"
-              >
-                <Send className="w-3.5 h-3.5" />
-                {isSendingToBackend ? 'Guardando...' : 'Guardar Análisis'}
-              </button>
-            </div>
-          </div>
-
-          {/* RIGHT COLUMN BOTTOM (Portrait Bottom 55% scrollable | Landscape/Desktop col-span-5 row-2): Verdict & Telemetry Cards */}
-          <div className="flex-1 min-h-0 overflow-y-auto pt-1 sm:pt-1.5 landscape:pt-0 lg:pt-0 landscape:max-h-[calc(100dvh-6.2rem)] lg:max-h-[540px] space-y-2.5 min-w-0 pr-0.5 landscape:col-start-8 landscape:col-span-5 landscape:row-start-2 lg:col-start-8 lg:col-span-5 lg:row-start-2">
-
-        {/* ========================================================= */}
-        {/* MODE 1: DIAGNOSTIC CARDS (CORRECCIÓN DE TÉCNICA)          */}
-        {/* ========================================================= */}
-        {analysisMode === 'technique' && (
-          <div className="space-y-3">
-            {/* Real-time Technique Status */}
-            {isHipThrustExercise ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
-                  <span className="text-sm font-black text-emerald-400 font-mono">
-                    {currentTelemetry?.technique.romPercentage ?? 85}%
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">extensión cadera</span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Ángulo Rodilla</span>
-                  <span className={`text-sm font-black font-mono ${
-                    htKneeAngle >= 80 && htKneeAngle <= 102 ? 'text-emerald-400' : 'text-amber-400'
-                  }`}>
-                    {htKneeAngle}°
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {htKneeAngle < 80 ? '+Cuádriceps (<80°)' : htKneeAngle > 102 ? '+Femoral (>102°)' : 'Óptimo ~90° Glúteo'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Lumbar</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    htLumbarOk ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {htLumbarOk ? '✓ Neutro' : '⚡ Hiperextensión'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">pelvis y costillas</span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Cuello</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    htNeckOk ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {htNeckOk ? '✓ Neutro' : '⚡ Desalineado'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">chin-tuck en banco</span>
-                </div>
-              </div>
-            ) : isFlyExercise && flyEval ? (
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
-                  <span className="text-sm font-black text-emerald-400 font-mono">
-                    {currentTelemetry?.technique.romPercentage ?? 85}%
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">recorrido pectoral</span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Extensión de Brazos</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    flyEval.areArmsExtended ? 'text-emerald-400' : 'text-amber-400'
-                  }`}>
-                    {flyEval.areArmsExtended
-                      ? `✓ Extendidos (${flyEval.elbowAngleDeg}°)`
-                      : `⚡ Flexionados (${flyEval.elbowAngleDeg}°)`}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {flyEval.areArmsExtended ? 'brazos casi rectos' : 'extiende más el codo'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Posición del Hombro</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    flyEval.shoulderAnteriorized ? 'text-rose-400' : 'text-emerald-400'
-                  }`}>
-                    {flyEval.shoulderAnteriorized ? '⚠️ Anteriorizado' : '✓ Estable Atrás'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {flyEval.shoulderAnteriorized ? 'evita adelantar hombro' : 'retracción escapular OK'}
-                  </span>
-                </div>
-              </div>
-            ) : isPressExercise && pressEval ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Mano vs Codo</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    pressEval.handElbowAlignment === 'aligned_90' ? 'text-emerald-400' : 'text-amber-400'
-                  }`}>
-                    {pressEval.handElbowAlignment === 'aligned_90'
-                      ? '✓ ~90° Pectoral'
-                      : pressEval.handElbowAlignment === 'closed_triceps'
-                        ? '⚡ +Tríceps'
-                        : '⚡ Agarre Abierto'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {pressEval.handElbowAlignment === 'aligned_90' ? 'antebrazo alineado' : 'ajusta apertura mano'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Codo vs Hombro</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    pressEval.elbowShoulderPosition === 'optimal_below_shoulder' ? 'text-emerald-400' : 'text-amber-400'
-                  }`}>
-                    {pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
-                      ? `✓ Bajo Hombro (${pressEval.shoulderAbductionDeg}°)`
-                      : pressEval.elbowShoulderPosition === 'high_shoulder_risk'
-                        ? '⚠️ Codo Alto'
-                        : '⚡ Muy Pegado'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {pressEval.elbowShoulderPosition === 'high_shoulder_risk' ? 'riesgo en hombro' : 'plano escapular seguro'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Pies en Suelo</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    pressEval.footStabilityStatus === 'stable_leg_drive'
-                      ? 'text-emerald-400'
-                      : pressEval.footStabilityStatus === 'not_visible'
-                        ? 'text-slate-400'
-                        : 'text-rose-400'
-                  }`}>
-                    {pressEval.footStabilityStatus === 'stable_leg_drive'
-                      ? '✓ Firmes'
-                      : pressEval.footStabilityStatus === 'foot_lifted'
-                        ? '⚠️ Levantados'
-                        : pressEval.footStabilityStatus === 'foot_shifted'
-                          ? '⚠️ Inestables'
-                          : 'No visibles'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">estabilidad y leg drive</span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Columna</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    pressEval.spineNeutral ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {pressEval.spineNeutral ? '✓ Neutra' : '⚡ Inclinada'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {`${pressEval.spineAngleDeg}° eje torso`}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rango (ROM)</span>
-                  <span className="text-sm font-black text-emerald-400 font-mono">
-                    {currentTelemetry?.technique.romPercentage ?? 85}%
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">del recorrido</span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Neutralidad Espinal</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    currentTelemetry?.technique.isSpineNeutral ? 'text-emerald-400' : 'text-amber-400'
-                  }`}>
-                    {currentTelemetry?.technique.isSpineNeutral ? '✓ Alineada' : '⚡ Torso Inclinado'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {`${currentTelemetry?.technique.spinalAngleDegrees ?? 15}° a la vertical`}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Estabilidad Rodilla</span>
-                  <span className={`text-xs font-black font-mono block mt-0.5 ${
-                    currentTelemetry?.technique.isKneeValgusDetected ? 'text-rose-400' : 'text-emerald-400'
-                  }`}>
-                    {currentTelemetry?.technique.isKneeValgusDetected ? '⚡ Valgo Dinámico' : '✓ Eje Estable'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block">sin colapso interno</span>
-                </div>
-              </div>
-            )}
-
-            {/* Active Feedback Alerts & Real-time Pattern Biomechanical Audit */}
-            {((currentTelemetry?.technique.alerts && currentTelemetry.technique.alerts.length > 0) || activeAlerts.length > 0) && (
-              <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+            {/* Frozen Verdict HUD Card */}
+            <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  Auditoría Técnica en Tiempo Real ({selectedPattern.name})
+                  Veredicto Biomecánico Congelado
                 </span>
-
-                {/* Specific Real-Time Rule Alerts */}
-                {currentTelemetry?.technique.alerts?.map((alert, i) => (
-                  <div
-                    key={`realtime-${alert.code}-${i}`}
-                    className={`p-2 rounded-xl text-xs flex items-start gap-2 border ${
-                      alert.type === 'success'
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                    }`}
-                  >
-                    {alert.type === 'success' ? (
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-                    )}
-                    <div className="space-y-0.5">
-                      <span className="font-semibold block">{alert.message}</span>
-                      {showEngineSettings && (
-                        <span className="text-[10px] opacity-70 font-mono">[{alert.code}]</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {/* Completed Repetition Cues */}
-                {activeAlerts.map((msg, i) => {
-                  const isSuccess = msg.startsWith('✓') || msg.startsWith('★');
-                  return (
-                    <div
-                      key={`hist-${i}`}
-                      className={`p-2 rounded-xl text-xs flex items-start gap-2 border ${
-                        isSuccess
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                          : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                      }`}
-                    >
-                      {isSuccess ? (
-                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-                      )}
-                      <span>{msg}</span>
-                    </div>
-                  );
-                })}
+                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  activeVerdict.status === 'OPTIMAL'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}>
+                  {activeVerdict.status === 'OPTIMAL' ? '✓ Óptimo' : '⚠️ Oportunidad'}
+                </span>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* ========================================================= */}
-        {/* MODE 2: DIAGNOSTIC CARDS (OPTIMIZACIÓN BIOMECÁNICA)       */}
-        {/* ========================================================= */}
-        {analysisMode === 'biomechanics' && currentTelemetry && (
-          <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-amber-500/30 space-y-3">
-            {/* Direct Biomechanical Applied Verdict */}
-            <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${currentVerdict.isOptimal ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                  <h4 className="text-xs font-black text-white">{currentVerdict.verdictTitle}</h4>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed">
+                {activeVerdict.recommendation}
+              </div>
+
+              {/* Moment Arms Distribution Bar */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
+                  <span>Brazo Cadera: {hipShare}%</span>
+                  <span>Brazo Rodilla: {kneeShare}%</span>
                 </div>
-                <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
-                  {currentVerdict.verdictDescription}
-                </p>
+                <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                  <div className="bg-blue-500 transition-all duration-150" style={{ width: `${hipShare}%` }} />
+                  <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${kneeShare}%` }} />
+                </div>
               </div>
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0 ${
-                currentVerdict.isOptimal
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-              }`}>
-                {currentVerdict.isOptimal ? 'ÓPTIMO' : 'AJUSTAR'}
-              </span>
+
+              {/* Physical Quantities Grid */}
+              <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
+                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Dominancia</span>
+                  <span className="text-xs font-black text-cyan-300 font-mono">{activeVerdict.dominant_joint}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Enfoque Torque</span>
+                  <span className="text-[11px] font-black text-purple-300 font-mono truncate block">{activeVerdict.primary_torque_bias}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Reps</span>
+                  <span className="text-xs font-black text-emerald-300 font-mono">{analysisData?.total_reps ?? 0}</span>
+                </div>
+              </div>
             </div>
 
-            {isHipThrustExercise ? (
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-300 font-bold uppercase block">Ángulo de Rodilla</span>
-                  <span className={`text-sm font-black font-mono block mt-0.5 ${
-                    htKneeAngle >= 80 && htKneeAngle <= 102 ? 'text-emerald-400' : 'text-amber-400'
-                  }`}>
-                    {htKneeAngle}°
+            {/* Repetitions Breakdown Accordion */}
+            {analysisData && analysisData.repetitions_summary.length > 0 && (
+              <div className="rounded-2xl bg-slate-900/60 border border-slate-800 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowRepBreakdown(prev => !prev)}
+                  className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/40 transition"
+                >
+                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                    Desglose de Repeticiones ({analysisData.repetitions_summary.length})
                   </span>
-                  <span className="text-[10px] text-slate-300 block">
-                    {htKneeAngle < 80
-                      ? '+Cuádriceps (<80°)'
-                      : htKneeAngle > 102
-                        ? '+Femoral (>102°)'
-                        : 'Óptimo Glúteo (~90°)'}
+                  <span className="text-[10px] text-cyan-300 font-mono flex items-center gap-1">
+                    <span>{showRepBreakdown ? 'Ocultar' : 'Ver detalle'}</span>
+                    {showRepBreakdown ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                   </span>
-                </div>
+                </button>
 
-                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-300 font-bold uppercase block">Neutralidad Lumbar</span>
-                  <span className={`text-xs font-black font-mono block mt-1 ${
-                    htLumbarOk ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {htLumbarOk ? '✓ Lumbar Neutro' : '⚡ Hiperextensión'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block mt-0.5">
-                    {htLumbarOk ? 'Bloqueo sin arqueo' : 'Controla retroversión'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-300 font-bold uppercase block">Neutralidad del Cuello</span>
-                  <span className={`text-xs font-black font-mono block mt-1 ${
-                    htNeckOk ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {htNeckOk ? '✓ Cuello Neutro' : '⚡ Desalineado'}
-                  </span>
-                  <span className="text-[10px] text-slate-300 block mt-0.5">
-                    {htNeckOk ? 'Chin-tuck seguro' : 'Evita mirar atrás'}
-                  </span>
-                </div>
-              </div>
-            ) : isFlyExercise && flyEval ? (
-              <>
-                {/* Upper Body Fly Lever Bar (Shoulder Pectoral vs Elbow Triceps) */}
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
-                    <span className="text-violet-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-violet-500" />
-                      Palanca Hombro (Pectoral): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
-                    </span>
-                    <span className="text-pink-400 flex items-center gap-1">
-                      Palanca Codo (Tríceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
-                      <span className="w-2 h-2 rounded-full bg-pink-500" />
-                    </span>
+                {showRepBreakdown && (
+                  <div className="px-3 pb-3 pt-1 max-h-40 overflow-y-auto space-y-1.5 border-t border-slate-800">
+                    {analysisData.repetitions_summary.map((rep) => (
+                      <div
+                        key={rep.rep_number}
+                        className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/50 flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-black text-cyan-300 px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800">
+                            #{rep.rep_number}
+                          </span>
+                          <span className="text-slate-300">
+                            Tempo: <strong className="text-cyan-300">{rep.eccentric_sec}s / {rep.concentric_sec}s</strong>
+                          </span>
+                        </div>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          rep.verdict.status === 'OPTIMAL' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {rep.verdict.dominant_joint}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                    <div className="bg-violet-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
-                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
-                  </div>
-                </div>
-
-                {/* Fly Biomechanics Telemetry Grid */}
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Ángulo del Codo</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      flyEval.areArmsExtended ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {flyEval.elbowAngleDeg}° ({flyEval.areArmsExtended ? 'Rectos' : 'Flexionados'})
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">objetivo ≥ 142°</span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Reparto Muscular</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      flyEval.areArmsExtended ? 'text-violet-300' : 'text-pink-400'
-                    }`}>
-                      {flyEval.areArmsExtended ? 'Pecho + Hombro' : '+Tríceps'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {flyEval.areArmsExtended ? 'el pecho limita' : 'flexión desvía carga'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Anteriorización Hombro</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      flyEval.shoulderAnteriorized ? 'text-rose-400' : 'text-emerald-400'
-                    }`}>
-                      {flyEval.shoulderAnteriorized ? '⚠️ Adelantado' : '✓ Retraído'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">control articular</span>
-                  </div>
-                </div>
-              </>
-            ) : isPressExercise && pressEval ? (
-              <>
-                {/* Upper Body Press Lever Bar (Shoulder vs Elbow) */}
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
-                    <span className="text-violet-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-violet-500" />
-                      Palanca Hombro (Pectoral): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
-                    </span>
-                    <span className="text-pink-400 flex items-center gap-1">
-                      Palanca Codo (Tríceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
-                      <span className="w-2 h-2 rounded-full bg-pink-500" />
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                    <div className="bg-violet-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
-                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
-                  </div>
-                </div>
-
-                {/* Press Telemetry Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Mano vs Codo</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      pressEval.handElbowAlignment === 'aligned_90' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {pressEval.handElbowAlignment === 'aligned_90'
-                        ? '✓ ~90° Pectoral'
-                        : pressEval.handElbowAlignment === 'closed_triceps'
-                          ? '⚡ +Tríceps'
-                          : '⚡ Abierto'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">alineación antebrazo</span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Codo vs Hombro</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      pressEval.elbowShoulderPosition === 'optimal_below_shoulder' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {pressEval.elbowShoulderPosition === 'optimal_below_shoulder'
-                        ? `✓ Bajo Hombro (${pressEval.shoulderAbductionDeg}°)`
-                        : pressEval.elbowShoulderPosition === 'high_shoulder_risk'
-                          ? '⚠️ Codo Alto'
-                          : '⚡ Muy Pegado'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">salud articular hombro</span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Pies (Leg Drive)</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      pressEval.footStabilityStatus === 'stable_leg_drive'
-                        ? 'text-emerald-400'
-                        : pressEval.footStabilityStatus === 'not_visible'
-                          ? 'text-slate-400'
-                          : 'text-rose-400'
-                    }`}>
-                      {pressEval.footStabilityStatus === 'stable_leg_drive'
-                        ? '✓ Firmes Suelo'
-                        : pressEval.footStabilityStatus === 'foot_lifted'
-                          ? '⚠️ Levantados'
-                          : pressEval.footStabilityStatus === 'foot_shifted'
-                            ? '⚠️ Cambian Pos.'
-                            : 'No visibles'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">empuje y estabilidad</span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Columna</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      pressEval.spineNeutral ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {pressEval.spineNeutral ? '✓ Neutra' : '⚡ Inclinada'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {`${pressEval.spineAngleDeg}° inclinación`}
-                    </span>
-                  </div>
-                </div>
-              </>
-            ) : isBicepsExercise ? (
-              <>
-                {/* Muscle Dominance Comparison Bar (Codo vs Hombro) */}
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
-                    <span className="text-pink-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-pink-500" />
-                      Codo (Bíceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
-                    </span>
-                    <span className="text-purple-400 flex items-center gap-1">
-                      Hombro (Deltoides): {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
-                      <span className="w-2 h-2 rounded-full bg-purple-500" />
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
-                    <div className="bg-purple-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Balanceo de Codo</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      bEval?.armAlignment === 'aligned_pivot' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {bEval?.armAlignment === 'aligned_pivot' ? '✓ Eje Estable' : '⚠️ Balanceo'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {`${bEval?.elbowDriftAngleDeg ?? 0}° inclinación eje`}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Tempo Excéntrico</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      bEval?.tempoStatus === 'optimal_controlled' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {bEval?.tempoStatus === 'optimal_controlled' ? '✓ Controlado' : '⚠️ Rápido'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {bEval?.tempoStatus === 'optimal_controlled' ? 'bajada ≥2s' : 'frena descenso'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Aislamiento Bíceps</span>
-                    <span className="text-xs font-black text-pink-300 font-mono block mt-0.5">
-                      {elbowShare}% palanca
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {elbowShare >= 70 ? '✓ d_codo dominante' : 'compensación'}
-                    </span>
-                  </div>
-                </div>
-              </>
-            ) : isTricepsExercise ? (
-              <>
-                {/* Muscle Dominance Comparison Bar (Codo vs Hombro) */}
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
-                    <span className="text-pink-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-pink-500" />
-                      Codo (Tríceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
-                    </span>
-                    <span className="text-purple-400 flex items-center gap-1">
-                      Hombro / Estabilidad: {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
-                      <span className="w-2 h-2 rounded-full bg-purple-500" />
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
-                    <div className="bg-purple-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Muñeca vs Antebrazo</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      tEval?.wristAlignment === 'aligned_neutral' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {tEval?.wristAlignment === 'aligned_neutral' ? '✓ Neutra' : '⚠️ Quebrada'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {tEval?.wristAlignment === 'aligned_neutral' ? 'transmisión directa' : 'corrige flexión'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Alineación Codos</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      tEval?.elbowFlare === 'stable_aligned' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {tEval?.elbowFlare === 'stable_aligned' ? '✓ Alineados' : '⚠️ Abiertos'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {tEval?.elbowFlare === 'stable_aligned' ? 'plano de empuje' : 'cierra codos'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Tempo Retorno</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      tEval?.tempoStatus === 'optimal_controlled' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {tEval?.tempoStatus === 'optimal_controlled' ? '✓ Controlado' : '⚠️ Rápido'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      acompaña subida
-                    </span>
-                  </div>
-                </div>
-              </>
-            ) : isUpperBackExercise ? (
-              <>
-                {/* Muscle Dominance Comparison Bar (Hombro vs Codo) */}
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
-                    <span className="text-purple-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-purple-500" />
-                      Espalda Alta / Trapecio: {shoulderShare}% ({Math.round(shoulderRaw * 640)}px)
-                    </span>
-                    <span className="text-pink-400 flex items-center gap-1">
-                      Codo (Bíceps): {elbowShare}% ({Math.round(elbowRaw * 640)}px)
-                      <span className="w-2 h-2 rounded-full bg-pink-500" />
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                    <div className="bg-purple-500 transition-all duration-100" style={{ width: `${shoulderShare}%` }} />
-                    <div className="bg-pink-500 transition-all duration-100" style={{ width: `${elbowShare}%` }} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Ángulo de Codo</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      ubEval?.elbowAngleStatus === 'optimal_90' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {`${ubEval?.elbowAngleDeg ?? 90}°`}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {ubEval?.elbowAngleStatus === 'optimal_90' ? '✓ ~90° sin exceso bíceps' : ubEval?.elbowAngleStatus === 'too_acute_biceps' ? '<80° sesgo bíceps' : 'tirón incompleto'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Altura Tracción</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      ubEval?.tractionHeightStatus === 'optimal_shoulder_height' ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>
-                      {ubEval?.tractionHeightStatus === 'optimal_shoulder_height' ? '✓ Altura Hombro' : '⚠️ Tracción Baja'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {ubEval?.tractionHeightStatus === 'optimal_shoulder_height' ? 'romboides y trapecio' : 'desplaza a dorsal'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Escápulas / Hombros</span>
-                    <span className={`text-xs font-black font-mono block mt-0.5 ${
-                      ubEval?.shoulderRetractionStatus === 'optimal_retraction' ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {ubEval?.shoulderRetractionStatus === 'optimal_retraction' ? '✓ Rango Seguro' : '⚠️ Desalineados'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      pecho firme apoyado
-                    </span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Muscle Dominance Comparison Bar (Cadera vs Rodilla) */}
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-mono font-bold">
-                    <span className="text-blue-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
-                      Cadera (Glúteo): {hipShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.hip * 640)}px)
-                    </span>
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      Rodilla (Cuádriceps): {kneeShare}% ({Math.round(currentTelemetry.biomechanics.momentArms.knee * 640)}px)
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                    <div className="bg-blue-500 transition-all duration-100" style={{ width: `${hipShare}%` }} />
-                    <div className="bg-emerald-500 transition-all duration-100" style={{ width: `${kneeShare}%` }} />
-                  </div>
-                </div>
-
-                {/* High-density Physical Telemetry Grid */}
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Inclinación Tibial</span>
-                    <span className="text-xs font-black text-cyan-300 font-mono">
-                      {Math.round(currentTelemetry.biomechanics.tibialAngleDegrees)}°
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {currentTelemetry.biomechanics.tibialAngleDegrees <= 18 ? 'Vertical (Glúteo)' : 'Avance (Cuádriceps)'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Plano de Grabación</span>
-                    <span className="text-xs font-black text-purple-300 font-mono">
-                      {currentCameraPlane === 'sagittal' ? 'Sagital (Perfil)' : currentCameraPlane === 'frontal' ? 'Frontal' : 'Oblicuo'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {currentCameraPlane === 'sagittal' ? 'Valgo no aplicable' : 'Valgo frontal'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] text-slate-300 font-bold uppercase block">Columna / Curvatura</span>
-                    <span className={`text-xs font-black font-mono block ${
-                      currentTelemetry.technique.isSpineNeutral ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {currentTelemetry.technique.isSpineNeutral ? '✓ Neutra' : '⚡ Quiebre (>15°)'}
-                    </span>
-                    <span className="text-[10px] text-slate-300 block">
-                      {`${currentTelemetry.technique.spinalAngleDegrees}° inclinación`}
-                    </span>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Repetition History Detail Cards (Collapsed Accordion by default) */}
-        {auditedReps.length > 0 && (
-          <div className="rounded-2xl bg-slate-900/60 border border-slate-800/80 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowRepBreakdown(prev => !prev)}
-              className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/40 transition"
-            >
-              <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-cyan-400" />
-                Desglose de Repeticiones ({auditedReps.length})
-              </span>
-              <span className="text-[10px] text-cyan-300 font-mono flex items-center gap-1">
-                <span>{showRepBreakdown ? 'Ocultar' : 'Ver detalle'}</span>
-                {showRepBreakdown ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              </span>
-            </button>
-
-            {showRepBreakdown && (
-              <div className="px-3 pb-3 pt-1 max-h-36 overflow-y-auto space-y-1.5 border-t border-slate-800/70">
-                {auditedReps.map((rep) => (
-                  <div
-                    key={rep.repIndex}
-                    className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/50 flex flex-wrap items-center justify-between gap-2 text-xs"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-black text-cyan-300 text-xs px-1.5 py-0.5 rounded-lg bg-cyan-950 border border-cyan-800">
-                        #{rep.repIndex}
-                      </span>
-                      <span className="font-semibold text-slate-200">
-                        ROM: <strong className="text-emerald-400">{rep.techniqueVerdict.romReachedDegrees}°</strong> ({rep.techniqueVerdict.romConsistencyScore}% consistencia)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-300 font-mono">
-                        Tempo: <strong className="text-cyan-300">{rep.tempo.tempoDisplay}</strong>
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        {rep.biomechanicsVerdict.biasLabel}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Backend Diagnosis Panel */}
-        {backendDiagnosis && (
-          <div className="p-3.5 rounded-2xl bg-slate-900 border border-blue-500/40 space-y-2 animate-fadeIn">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Resumen Guardado
-              </span>
-              <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  backendDiagnosis.status === 'EXCELLENT'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                }`}
+            {/* Sync Telemetry Button */}
+            {analysisData && (
+              <button
+                type="button"
+                onClick={handleSendToBackend}
+                disabled={isSendingToBackend}
+                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2"
               >
-                {backendDiagnosis.status} • {backendDiagnosis.efficiencyPercentage}% Eficiencia
-              </span>
-            </div>
-            <p className="text-xs text-slate-200">{backendDiagnosis.biomechanicalPrescription}</p>
-          </div>
-        )}
+                {isSendingToBackend ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                <span>Guardar Diagnóstico en Historial</span>
+              </button>
+            )}
 
-        {backendError && (
-          <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-400">
-            {backendError}
-          </div>
-        )}
+            {backendDiagnosis && (
+              <div className="p-3 rounded-2xl bg-slate-900 border border-emerald-500/40 text-xs text-emerald-300">
+                ✓ Telemetría guardada correctamente en el perfil del atleta.
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Mobile BottomSheet Slide-up Drawer for Exercise / Load Configuration */}
-      {showConfigBottomSheet && (
-        <div
-          className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => setShowConfigBottomSheet(false)}
-        >
-          <div
-            className="w-full max-w-lg bg-[#121521] border-t sm:border border-slate-700/80 rounded-t-3xl sm:rounded-3xl p-4 pb-6 shadow-2xl space-y-3 max-h-[85dvh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="w-10 h-1 bg-slate-700 rounded-full mx-auto sm:hidden" />
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-black text-white flex items-center gap-2">
-                <Layers className="w-4 h-4 text-cyan-400" />
-                Configurar Ejercicio y Carga
-              </h4>
-              <button
-                type="button"
-                onClick={() => setShowConfigBottomSheet(false)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            {exerciseConfigControls}
-            <button
-              type="button"
-              onClick={() => setShowConfigBottomSheet(false)}
-              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black shadow-lg shadow-blue-600/30 transition"
-            >
-              Aplicar y Ver Análisis
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

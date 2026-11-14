@@ -55,3 +55,7 @@ tmp/
 # Local persisted user data (the API stores accounts in PostgreSQL)
 frontend/data/
 frontend/data/users/
+
+# Python Cache
+__pycache__/
+*.pyc
