@@ -1,28 +1,32 @@
-"""
-Clinical Biomechanics API - Hugging Face Spaces Entrypoint
-Powered by RT-DETR (PekingU/rtdetr_r50vd_coco_o365) + ViTPose-Large (usyd-community/vitpose-plus-large) + SciPy Signal Processing
-FastAPI REST endpoint POST /analyze mounted alongside Gradio Blocks interface.
-"""
-
 import os
+# 1. Disable Gradio internal SSR proxy to prevent port 7860 binding collisions
+os.environ["GRADIO_SSR_MODE"] = "false"
+
+# 2. Obligatory ZeroGPU spaces import before torch / transformers
+try:
+    import spaces
+    has_spaces = True
+except ImportError:
+    has_spaces = False
+
 import tempfile
 import math
 from typing import Dict, List, Any
 
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import cv2
 import numpy as np
 import scipy.signal
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForObjectDetection, VitPoseForPoseEstimation
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import gradio as gr
 import uvicorn
 
 # ---------------------------------------------------------------------------
-# 1. Hardware Detection & Model Loading
+# 3. Hardware Detection & Dynamic Model Loading
 # ---------------------------------------------------------------------------
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -31,8 +35,8 @@ torch_dtype = torch.float16 if device == "cuda" else torch.float32
 print(f"[Startup] Initializing Biomechanics Pipeline on {device.upper()} ({torch_dtype})...")
 
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
-# Use lightweight vitpose-base-simple when running on CPU to prevent OOM and analyze in seconds;
-# Use vitpose-plus-large when running on GPU.
+# Dynamic selection: vitpose-base-simple on CPU to finish in seconds without exceeding free 16GB RAM;
+# vitpose-plus-large on GPU for maximum heavy inference throughput.
 POSE_MODEL_NAME = (
     "usyd-community/vitpose-plus-large"
     if device == "cuda"
@@ -55,7 +59,7 @@ pose_model = VitPoseForPoseEstimation.from_pretrained(
 ).to(device)
 pose_model.eval()
 
-print("[Startup] All models loaded and ready.")
+print("[Startup] All models loaded successfully.")
 
 COCO_KEYPOINTS = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -64,8 +68,14 @@ COCO_KEYPOINTS = [
     "left_knee", "right_knee", "left_ankle", "right_ankle"
 ]
 
+def gpu_inference(func):
+    """ZeroGPU decorator wrapper: uses spaces.GPU if available, otherwise no-op."""
+    if has_spaces:
+        return spaces.GPU(func)
+    return func
+
 # ---------------------------------------------------------------------------
-# 2. Kinematic & Biomechanical Helper Functions
+# 4. Kinematic & Biomechanical Helper Functions
 # ---------------------------------------------------------------------------
 
 def calculate_angle_2d(p1: Dict[str, float], p2: Dict[str, float], p3: Dict[str, float]) -> float:
@@ -141,9 +151,11 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
     cap.release()
     return frames_rgb, timestamps, duration
 
+@gpu_inference
 def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
-    """Top-Down detection: RT-DETR athlete box + ViTPose-Large keypoints."""
+    """Top-Down detection: RT-DETR athlete box + ViTPose keypoints."""
     all_raw_keypoints = []
+    current_device = "cuda" if torch.cuda.is_available() else "cpu"
     
     for i in range(0, len(frames_rgb), batch_size):
         batch_np = frames_rgb[i : i + batch_size]
@@ -151,11 +163,11 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
         h, w = batch_np[0].shape[:2]
         
         # Step A: RT-DETR Athlete Box Detection
-        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
+        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(current_device)
         with torch.no_grad():
             det_outputs = det_model(**det_inputs)
         
-        target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(device)
+        target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(current_device)
         det_results = det_processor.post_process_object_detection(
             det_outputs, target_sizes=target_sizes, threshold=0.25
         )
@@ -166,7 +178,6 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
             scores = res["scores"].detach().cpu().numpy()
             labels = res["labels"].detach().cpu().numpy()
             
-            # Person class label is 0 in COCO
             person_indices = [idx for idx, lbl in enumerate(labels) if lbl == 0]
             if person_indices:
                 best_idx = None
@@ -184,8 +195,8 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
             else:
                 batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
         
-        # Step B: ViTPose-Large 17 Keypoints
-        pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
+        # Step B: ViTPose 17 Keypoints
+        pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(current_device)
         with torch.no_grad():
             pose_outputs = pose_model(**pose_inputs)
         
@@ -350,11 +361,9 @@ def process_kinematics(
         concentric_sec = max(0.1, round(t_end - t_inflect, 2))
         pause_sec = max(0.0, round((t_end - t_start) - (eccentric_sec + concentric_sec), 2))
         
-        # Repetition Clinical Biomechanical Verdict at Inflection Point
         inflect_knee = float(secondary_angles[bottom_frame] if exercise_type == "hip_thrust" else primary_angles[bottom_frame])
         inflect_hip = float(primary_angles[bottom_frame] if exercise_type == "hip_thrust" else secondary_angles[bottom_frame])
         
-        # Moment arms at inflection
         wr_x = smoothed_joints["wrist"]["x"][bottom_frame]
         hp_x = smoothed_joints["hip"]["x"][bottom_frame]
         kn_x = smoothed_joints["knee"]["x"][bottom_frame]
@@ -364,7 +373,6 @@ def process_kinematics(
         d_knee = abs(kn_x - wr_x)
         d_shoulder = abs(sh_x - wr_x)
         
-        # Construct Frozen Verdict
         if exercise_type == "hip_thrust":
             knee_in_target = abs(inflect_knee - 90.0) <= 12.0
             hip_extended = inflect_hip >= 168.0
@@ -428,7 +436,6 @@ def process_kinematics(
         }
         repetitions_summary.append(rep_data)
         
-        # Map frames belonging to this rep
         for f in range(start_frame, end_frame + 1):
             frame_rep_map[f] = rep_idx
             if f < bottom_frame:
@@ -455,7 +462,6 @@ def process_kinematics(
             "recommendation": "Mapeando cinemática articular..."
         }
         
-        # Current orthogonal moment arms
         wr_x = smoothed_joints["wrist"]["x"][f]
         hp_x = smoothed_joints["hip"]["x"][f]
         kn_x = smoothed_joints["knee"]["x"][f]
@@ -495,9 +501,20 @@ def process_kinematics(
     }
 
 # ---------------------------------------------------------------------------
-# 3. Biomechanics REST API Handler & Gradio Launch
+# 5. FastAPI App & Mounting with Gradio
 # ---------------------------------------------------------------------------
 
+app = FastAPI(title="Biomechanics API Active", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/analyze")
 async def analyze_video(
     video: UploadFile = File(...),
     exercise_type: str = Form("hip_thrust"),
@@ -572,17 +589,9 @@ with gr.Blocks(title="Biomechanics API Active") as demo:
         """
     )
 
-# Add CORS Middleware to Gradio's underlying FastAPI application
-demo.app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Register REST endpoint directly onto Gradio's FastAPI application
-demo.app.add_api_route("/analyze", analyze_video, methods=["POST"])
+# Mount Gradio onto the root of the FastAPI application
+app = gr.mount_gradio_app(app, demo, path="/")
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
