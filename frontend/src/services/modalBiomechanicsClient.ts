@@ -50,6 +50,16 @@ export interface RepetitionVerdict {
   [key: string]: any;
 }
 
+export interface IntensityMetrics {
+  estimated_rir: string;
+  estimated_rpe: number;
+  velocity_loss_pct: number;
+  first_rep_vel: number;
+  last_rep_vel: number;
+  max_rep_vel: number;
+  rep_velocities: number[];
+}
+
 export interface RepetitionSummary {
   rep_number: number;
   start_time: number;
@@ -58,8 +68,13 @@ export interface RepetitionSummary {
   eccentric_sec: number;
   pause_sec: number;
   concentric_sec: number;
+  concentric_time_s?: number;
+  eccentric_time_s?: number;
+  pause_time_s?: number;
+  concentric_velocity_deg_s?: number;
   min_primary_angle: number;
   max_primary_angle: number;
+  rom_deg?: number;
   verdict: RepetitionVerdict;
 }
 
@@ -81,6 +96,7 @@ export interface BiomechanicsAnalysisResponse {
   total_reps: number;
   locked_side: 'left' | 'right';
   repetitions_summary: RepetitionSummary[];
+  intensity_metrics?: IntensityMetrics;
   frames: BiomechanicsFrame[];
 }
 

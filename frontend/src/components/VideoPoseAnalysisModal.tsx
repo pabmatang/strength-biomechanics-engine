@@ -616,14 +616,11 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pAk, '#10B981');
         drawPoint(pHd, '#34D399');
 
-        // Arcos de ángulo limpios
-        drawAngleArc(pHp, pSh, pKn, 22, '#10B981');
+        // Limpieza visual: mantiene exclusivamente el arco y etiqueta limpia de la rodilla
         drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
 
         if (options.showCanvasText) {
-          // Cadera badge
-          drawPillTag(pHp.x + 12, pHp.y - 12, `Cadera: ${Math.round(frame.main_angle)}°`, '#10B981', '#34D399');
-          // Rodilla badge
+          // Rodilla badge únicamente (despeja la cadera, pelvis y barra)
           drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
         }
       } else {
@@ -639,25 +636,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pWr, '#6EE7B7');
         drawPoint(pHp, '#10B981');
 
-        drawAngleArc(pSh, pHp, pEl, 22, '#10B981');
+        // Limpieza visual: mantiene exclusivamente el arco y etiqueta limpia del codo
         drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
 
         if (options.showCanvasText) {
-          drawPillTag(pSh.x + 12, pSh.y - 12, `Hombro: ${Math.round(frame.main_angle)}°`, '#10B981', '#34D399');
           drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
         }
-      }
-
-      // Indicador visual de alineación articular verde/ámbar
-      if (options.showCanvasText) {
-        const isOptimal = frame.verdict?.status === 'OPTIMAL';
-        drawPillTag(
-          pHd.x - 50,
-          Math.max(offsetY + 14, pHd.y - 32),
-          isOptimal ? '✓ Alineación Articular Óptima' : '⚠️ Ajustar Alineación Postural',
-          isOptimal ? '#10B981' : '#F59E0B',
-          isOptimal ? '#6EE7B7' : '#FCD34D'
-        );
       }
     } else {
       // -------------------------------------------------------------
@@ -920,6 +904,40 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     ? (analysisData.repetitions_summary.reduce((acc, r) => acc + (r.concentric_sec || 0), 0) / analysisData.repetitions_summary.length).toFixed(1)
     : '1.1';
 
+  // Velocity Based Training (VBT) & Intensity metrics
+  const intensity = analysisData?.intensity_metrics || (() => {
+    if (!analysisData?.repetitions_summary?.length) {
+      return {
+        estimated_rir: 'N/A',
+        estimated_rpe: 0,
+        velocity_loss_pct: 0,
+        first_rep_vel: 0,
+        last_rep_vel: 0,
+        max_rep_vel: 0,
+        rep_velocities: []
+      };
+    }
+    const vels = analysisData.repetitions_summary.map(r => r.concentric_velocity_deg_s || 0).filter(v => v > 0);
+    const maxV = vels.length ? Math.max(...vels) : 0;
+    const lastV = vels.length ? vels[vels.length - 1] : 0;
+    const loss = maxV > 0 ? Math.round(Math.max(0, ((maxV - lastV) / maxV) * 100) * 10) / 10 : 0;
+    let rir = '4+';
+    let rpe = 6.0;
+    if (loss >= 40) { rir = '0'; rpe = 10.0; }
+    else if (loss >= 30) { rir = '1'; rpe = 9.0; }
+    else if (loss >= 20) { rir = '2'; rpe = 8.0; }
+    else if (loss >= 10) { rir = '3'; rpe = 7.0; }
+    return {
+      estimated_rir: rir,
+      estimated_rpe: rpe,
+      velocity_loss_pct: loss,
+      first_rep_vel: vels[0] || 0,
+      last_rep_vel: lastV,
+      max_rep_vel: maxV,
+      rep_velocities: vels
+    };
+  })();
+
   // Mode Switcher Buttons
   const modeSwitcherButtons = (
     <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-900 border border-slate-800">
@@ -1030,29 +1048,43 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 )}
               </div>
 
-              {/* Zoom & Pan Controls */}
-              <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); }}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 1 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
-                >
-                  1x
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoom(1.5)}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 1.5 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
-                >
-                  1.5x
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoom(2)}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 2 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
-                >
-                  2x
-                </button>
+              {/* Alignment Status Badge + Zoom Controls */}
+              <div className="flex items-center gap-2">
+                {currentFrame && (
+                  <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition ${
+                    activeVerdict.status === 'OPTIMAL'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                      : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${activeVerdict.status === 'OPTIMAL' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    <span>{activeVerdict.status === 'OPTIMAL' ? '✓ Alineación Articular Óptima' : '⚠️ Ajustar Alineación'}</span>
+                  </span>
+                )}
+
+                {/* Zoom & Pan Controls */}
+                <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 1 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    1x
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoom(1.5)}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 1.5 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    1.5x
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoom(2)}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${zoom === 2 ? 'bg-cyan-600/30 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    2x
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1511,7 +1543,81 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                 </div>
 
-                {/* CARD 2: Ajuste Mecánico Recomendado */}
+                {/* CARD 2: Intensidad Estimada (VBT) */}
+                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <Activity className="w-4 h-4 text-cyan-400" />
+                      Intensidad Estimada (VBT)
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      intensity.estimated_rpe >= 9
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        : intensity.estimated_rpe >= 8
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    }`}>
+                      RIR {intensity.estimated_rir} · RPE {intensity.estimated_rpe.toFixed(1)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Pérdida de Velocidad</span>
+                      <span className="text-sm font-black text-amber-300 font-mono">
+                        -{intensity.velocity_loss_pct}%
+                      </span>
+                      <span className="text-[9px] text-slate-500 block">Fatiga concéntrica en serie</span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Velocidad Ini / Fin</span>
+                      <span className="text-sm font-black text-cyan-300 font-mono">
+                        {Math.round(intensity.first_rep_vel)}°/s → {Math.round(intensity.last_rep_vel)}°/s
+                      </span>
+                      <span className="text-[9px] text-slate-500 block">Velocidad angular media</span>
+                    </div>
+                  </div>
+
+                  {/* Mini SVG Sparkline / Bar Chart */}
+                  {intensity.rep_velocities && intensity.rep_velocities.length > 0 && (
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                      <div className="flex justify-between text-[9px] font-mono text-slate-400 font-bold">
+                        <span>Curva de Fatiga Concéntrica</span>
+                        <span>Pico: {Math.round(intensity.max_rep_vel)}°/s</span>
+                      </div>
+                      <div className="h-10 w-full flex items-end gap-1.5 pt-1">
+                        {intensity.rep_velocities.map((vel, idx) => {
+                          const maxV = intensity.max_rep_vel || 1;
+                          const barHeightPct = Math.max(15, Math.min(100, Math.round((vel / maxV) * 100)));
+                          const isLast = idx === intensity.rep_velocities.length - 1;
+                          return (
+                            <div
+                              key={idx}
+                              className="flex-1 flex flex-col items-center gap-0.5 group relative"
+                            >
+                              <div
+                                className={`w-full rounded-t transition-all duration-300 ${
+                                  isLast && intensity.velocity_loss_pct >= 20
+                                    ? 'bg-gradient-to-t from-amber-600 to-amber-400'
+                                    : 'bg-gradient-to-t from-cyan-600 to-blue-400'
+                                }`}
+                                style={{ height: `${barHeightPct}%` }}
+                              />
+                              <span className="text-[8px] font-mono text-slate-400 group-hover:text-white">
+                                #{idx + 1}
+                              </span>
+                              <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition pointer-events-none bg-slate-900 border border-slate-700 px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-300 whitespace-nowrap z-20">
+                                {Math.round(vel)}°/s
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* CARD 3: Ajuste Mecánico Recomendado */}
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
@@ -1545,26 +1651,42 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 </button>
 
                 {showRepBreakdown && (
-                  <div className="px-3 pb-3 pt-1 max-h-40 overflow-y-auto space-y-1.5 border-t border-slate-800">
+                  <div className="px-3 pb-3 pt-1 max-h-48 overflow-y-auto space-y-1.5 border-t border-slate-800">
                     {analysisData.repetitions_summary.map((rep) => (
-                      <div
+                      <button
                         key={rep.rep_number}
-                        className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/50 flex items-center justify-between text-xs"
+                        type="button"
+                        onClick={() => {
+                          if (videoElementRef.current) {
+                            videoElementRef.current.currentTime = rep.start_time;
+                            videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
+                          }
+                        }}
+                        className="w-full p-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-cyan-500/50 transition flex items-center justify-between text-xs text-left group cursor-pointer"
                       >
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-black text-cyan-300 px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800">
+                          <span className="font-mono font-black text-cyan-300 px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 group-hover:border-cyan-400">
                             #{rep.rep_number}
                           </span>
-                          <span className="text-slate-300">
-                            Tempo: <strong className="text-cyan-300">{rep.eccentric_sec}s / {rep.concentric_sec}s</strong>
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-slate-300">
+                              Concéntrico: <strong className="text-emerald-400">{rep.concentric_time_s ?? rep.concentric_sec}s</strong> · Excéntrico: <span className="text-slate-400">{rep.eccentric_time_s ?? rep.eccentric_sec}s</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Velocidad: <strong className="text-cyan-300">{rep.concentric_velocity_deg_s ? `${rep.concentric_velocity_deg_s}°/s` : '—'}</strong>
+                              {rep.pause_time_s ? ` · Pausa: ${rep.pause_time_s}s` : ''}
+                            </span>
+                          </div>
                         </div>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          rep.verdict.status === 'OPTIMAL' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
-                        }`}>
-                          {rep.verdict.dominant_joint}
-                        </span>
-                      </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            rep.verdict.status === 'OPTIMAL' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                          }`}>
+                            {rep.verdict.dominant_joint}
+                          </span>
+                          <Play className="w-3.5 h-3.5 text-slate-500 group-hover:text-cyan-400 transition" />
+                        </div>
+                      </button>
                     ))}
                   </div>
                 )}

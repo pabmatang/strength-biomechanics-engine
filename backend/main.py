@@ -23,12 +23,13 @@ import requests
 # ---------------------------------------------------------------------------
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-torch_dtype = torch.float32  # Float32 ensures strict precision matching with HuggingFace processors and zero underflow
+torch_dtype = torch.float16 if device == "cuda" else torch.float32
 
 print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()} ({torch_dtype})...")
 
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
-POSE_MODEL_NAME = "usyd-community/vitpose-plus-large"
+# ViTPose-Base-Simple: 340 MB (loads 4x faster into VRAM with identical occlusion robustness)
+POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 
 print(f"[Cerebrium Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
 det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
@@ -38,7 +39,7 @@ det_model = AutoModelForObjectDetection.from_pretrained(
 ).to(device)
 det_model.eval()
 
-print(f"[Cerebrium Startup] Loading ViTPose-Large ({POSE_MODEL_NAME})...")
+print(f"[Cerebrium Startup] Loading ViTPose-Base ({POSE_MODEL_NAME})...")
 pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
 pose_model = VitPoseForPoseEstimation.from_pretrained(
     POSE_MODEL_NAME,
@@ -258,88 +259,98 @@ def sample_video_frames(
     print(f"[Decoder] Decoded total of {len(frames_rgb)} frames.")
     return frames_rgb, timestamps, duration
 
-def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
-    """Top-Down detection: RT-DETR athlete box + ViTPose-Large keypoints."""
+def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 32):
+    """Top-Down detection: RT-DETR athlete box + ViTPose-Base keypoints (FP16 inference_mode)."""
     all_raw_keypoints = []
     all_boxes = []
     
-    for i in range(0, len(frames_rgb), batch_size):
-        batch_np = frames_rgb[i : i + batch_size]
-        batch_pil = [Image.fromarray(f) for f in batch_np]
-        h, w = batch_np[0].shape[:2]
-        
-        # Step A: RT-DETR Athlete Box Detection
-        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
-        with torch.no_grad():
-            det_outputs = det_model(**det_inputs)
-        
-        target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(device)
-        det_results = det_processor.post_process_object_detection(
-            det_outputs, target_sizes=target_sizes, threshold=0.25
-        )
-        
-        batch_boxes = []
-        for res in det_results:
-            boxes = res["boxes"].detach().cpu().numpy()
-            scores = res["scores"].detach().cpu().numpy()
-            labels = res["labels"].detach().cpu().numpy()
+    with torch.inference_mode():
+        for i in range(0, len(frames_rgb), batch_size):
+            batch_np = frames_rgb[i : i + batch_size]
+            batch_pil = [Image.fromarray(f) for f in batch_np]
+            h, w = batch_np[0].shape[:2]
             
-            # Person class is 0 in COCO
-            person_indices = [idx for idx, lbl in enumerate(labels) if lbl == 0]
-            if person_indices:
-                best_idx = None
-                best_metric = -1.0
-                for p_idx in person_indices:
-                    b = boxes[p_idx]
-                    area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
-                    metric = scores[p_idx] * area
-                    if metric > best_metric:
-                        best_metric = metric
-                        best_idx = p_idx
-                chosen_box = boxes[best_idx].tolist()
-                batch_boxes.append([chosen_box])
-                cx = float((chosen_box[0] + chosen_box[2]) / (2.0 * w))
-                bw = float((chosen_box[2] - chosen_box[0]) / float(w))
-                all_boxes.append({"cx": cx, "bw": bw})
-            elif len(boxes) > 0:
-                batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
-                all_boxes.append({"cx": 0.5, "bw": 1.0})
+            # Step A: RT-DETR Athlete Box Detection
+            det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
+            if device == "cuda":
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    det_outputs = det_model(**det_inputs)
             else:
-                batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
-                all_boxes.append({"cx": 0.5, "bw": 1.0})
-        
-        # Step B: ViTPose-Large 17 Keypoints
-        pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
-        num_boxes = pose_inputs["pixel_values"].shape[0]
-        dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
-        
-        with torch.no_grad():
+                det_outputs = det_model(**det_inputs)
+            
+            target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(device)
+            det_results = det_processor.post_process_object_detection(
+                det_outputs, target_sizes=target_sizes, threshold=0.25
+            )
+            
+            batch_boxes = []
+            for res in det_results:
+                boxes = res["boxes"].detach().cpu().numpy()
+                scores = res["scores"].detach().cpu().numpy()
+                labels = res["labels"].detach().cpu().numpy()
+                
+                # Person class is 0 in COCO
+                person_indices = [idx for idx, lbl in enumerate(labels) if lbl == 0]
+                if person_indices:
+                    best_idx = None
+                    best_metric = -1.0
+                    for p_idx in person_indices:
+                        b = boxes[p_idx]
+                        area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
+                        metric = scores[p_idx] * area
+                        if metric > best_metric:
+                            best_metric = metric
+                            best_idx = p_idx
+                    chosen_box = boxes[best_idx].tolist()
+                    batch_boxes.append([chosen_box])
+                    cx = float((chosen_box[0] + chosen_box[2]) / (2.0 * w))
+                    bw = float((chosen_box[2] - chosen_box[0]) / float(w))
+                    all_boxes.append({"cx": cx, "bw": bw})
+                elif len(boxes) > 0:
+                    batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
+                    all_boxes.append({"cx": 0.5, "bw": 1.0})
+                else:
+                    batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
+                    all_boxes.append({"cx": 0.5, "bw": 1.0})
+            
+            # Step B: ViTPose-Base 17 Keypoints
+            pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
+            num_boxes = pose_inputs["pixel_values"].shape[0]
+            dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
+            
+            if device == "cuda":
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    try:
+                        pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
+                    except (TypeError, ValueError):
+                        pose_outputs = pose_model(**pose_inputs)
+            else:
+                try:
+                    pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
+                except (TypeError, ValueError):
+                    pose_outputs = pose_model(**pose_inputs)
+            
             try:
-                pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
-            except (TypeError, ValueError):
-                pose_outputs = pose_model(**pose_inputs)
-        
-        try:
-            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
-        except TypeError:
-            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes, dataset_index=0)
-        
-        for p_res in pose_results:
-            kps = p_res[0]["keypoints"].detach().cpu().numpy()
-            scs = p_res[0]["scores"].detach().cpu().numpy()
+                pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
+            except TypeError:
+                pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes, dataset_index=0)
             
-            frame_kps = {}
-            for kp_idx, name in enumerate(COCO_KEYPOINTS):
-                x_norm = float(kps[kp_idx, 0]) / float(w)
-                y_norm = float(kps[kp_idx, 1]) / float(h)
-                score = float(scs[kp_idx])
-                frame_kps[name] = {
-                    "x": min(1.0, max(0.0, x_norm)),
-                    "y": min(1.0, max(0.0, y_norm)),
-                    "score": score
-                }
-            all_raw_keypoints.append(frame_kps)
-            
+            for p_res in pose_results:
+                kps = p_res[0]["keypoints"].detach().cpu().numpy()
+                scs = p_res[0]["scores"].detach().cpu().numpy()
+                
+                frame_kps = {}
+                for kp_idx, name in enumerate(COCO_KEYPOINTS):
+                    x_norm = float(kps[kp_idx, 0]) / float(w)
+                    y_norm = float(kps[kp_idx, 1]) / float(h)
+                    score = float(scs[kp_idx])
+                    frame_kps[name] = {
+                        "x": min(1.0, max(0.0, x_norm)),
+                        "y": min(1.0, max(0.0, y_norm)),
+                        "score": score
+                    }
+                all_raw_keypoints.append(frame_kps)
+                
     return all_raw_keypoints, all_boxes
 
 def process_kinematics(
@@ -508,6 +519,12 @@ def process_kinematics(
     if len(valid_peaks) == 0 and len(peaks) > 0:
         valid_peaks = peaks # fallback if clip is tightly trimmed
 
+    # Angular velocity signal: absolute rate of change in primary angle (deg/s)
+    if len(primary_angles) > 1 and len(timestamps) > 1:
+        angular_vel = np.abs(np.gradient(primary_angles, timestamps))
+    else:
+        angular_vel = np.zeros(n_frames)
+
     for rep_idx, bottom_frame in enumerate(valid_peaks, start=1):
         search_back = max(0, bottom_frame - 25)
         if exercise_type == "hip_thrust":
@@ -524,13 +541,38 @@ def process_kinematics(
         if end_frame <= start_frame:
             end_frame = min(n_frames - 1, bottom_frame + 8)
             
-        t_start = timestamps[start_frame]
-        t_inflect = timestamps[bottom_frame]
-        t_end = timestamps[end_frame]
-        
-        eccentric_sec = max(0.1, round(t_inflect - t_start, 2))
-        concentric_sec = max(0.1, round(t_end - t_inflect, 2))
-        pause_sec = max(0.0, round((t_end - t_start) - (eccentric_sec + concentric_sec), 2))
+        t_start = float(timestamps[start_frame])
+        t_inflect = float(timestamps[bottom_frame])
+        t_end = float(timestamps[end_frame])
+
+        # Precise stationary pause time: frames around turnaround where angular velocity < 15 deg/s
+        inflect_win_start = max(start_frame, bottom_frame - 6)
+        inflect_win_end = min(end_frame, bottom_frame + 7)
+        pause_frames = [f for f in range(inflect_win_start, inflect_win_end) if angular_vel[f] < 15.0]
+
+        if len(pause_frames) >= 2:
+            pause_time_s = max(0.0, round(float(timestamps[pause_frames[-1]] - timestamps[pause_frames[0]]), 2))
+        elif len(pause_frames) == 1:
+            pause_time_s = 0.07
+        else:
+            pause_time_s = 0.0
+
+        if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"]:
+            concentric_raw = max(0.05, t_inflect - t_start)
+            eccentric_raw = max(0.05, t_end - t_inflect)
+        else:
+            eccentric_raw = max(0.05, t_inflect - t_start)
+            concentric_raw = max(0.05, t_end - t_inflect)
+
+        half_pause = pause_time_s / 2.0
+        concentric_time_s = max(0.10, round(float(concentric_raw - half_pause), 2))
+        eccentric_time_s = max(0.10, round(float(eccentric_raw - half_pause), 2))
+
+        rep_min_angle = float(np.min(primary_angles[start_frame : end_frame + 1]))
+        rep_max_angle = float(np.max(primary_angles[start_frame : end_frame + 1]))
+        rom_deg = max(1.0, rep_max_angle - rep_min_angle)
+
+        concentric_velocity_deg_s = round(float(rom_deg / concentric_time_s), 1)
         
         inflect_knee = float(secondary_angles[bottom_frame] if exercise_type == "hip_thrust" else primary_angles[bottom_frame])
         inflect_hip = float(primary_angles[bottom_frame] if exercise_type == "hip_thrust" else secondary_angles[bottom_frame])
@@ -637,14 +679,19 @@ def process_kinematics(
         
         rep_data = {
             "rep_number": rep_idx,
-            "start_time": t_start,
-            "inflection_time": t_inflect,
-            "end_time": t_end,
-            "eccentric_sec": eccentric_sec,
-            "pause_sec": pause_sec,
-            "concentric_sec": concentric_sec,
-            "min_primary_angle": round(float(np.min(primary_angles[start_frame : end_frame + 1])), 1),
-            "max_primary_angle": round(float(np.max(primary_angles[start_frame : end_frame + 1])), 1),
+            "start_time": round(t_start, 3),
+            "inflection_time": round(t_inflect, 3),
+            "end_time": round(t_end, 3),
+            "eccentric_sec": eccentric_time_s,
+            "pause_sec": pause_time_s,
+            "concentric_sec": concentric_time_s,
+            "eccentric_time_s": eccentric_time_s,
+            "pause_time_s": pause_time_s,
+            "concentric_time_s": concentric_time_s,
+            "concentric_velocity_deg_s": concentric_velocity_deg_s,
+            "min_primary_angle": round(rep_min_angle, 1),
+            "max_primary_angle": round(rep_max_angle, 1),
+            "rom_deg": round(rom_deg, 1),
             "verdict": verdict
         }
         repetitions_summary.append(rep_data)
@@ -657,6 +704,55 @@ def process_kinematics(
                 frame_phase_map[f] = "BOTTOM" if exercise_type != "hip_thrust" else "LOCKOUT"
             else:
                 frame_phase_map[f] = "CONCENTRIC"
+
+    # 5.1 Velocity Loss (VBT) and Intensity Metrics across all reps
+    if len(repetitions_summary) > 0:
+        rep_velocities = [r["concentric_velocity_deg_s"] for r in repetitions_summary]
+        first_rep_vel = rep_velocities[0]
+        last_rep_vel = rep_velocities[-1]
+        max_vel = max(rep_velocities)
+        
+        if max_vel > 0:
+            velocity_loss_pct = round(max(0.0, ((max_vel - last_rep_vel) / max_vel) * 100.0), 1)
+        else:
+            velocity_loss_pct = 0.0
+
+        # VBT Velocity Loss Mapping to Estimated RIR & RPE
+        if velocity_loss_pct < 10.0:
+            estimated_rir = "4+"
+            estimated_rpe = 6.0
+        elif velocity_loss_pct < 20.0:
+            estimated_rir = "3"
+            estimated_rpe = 7.0
+        elif velocity_loss_pct < 30.0:
+            estimated_rir = "2"
+            estimated_rpe = 8.0
+        elif velocity_loss_pct < 40.0:
+            estimated_rir = "1"
+            estimated_rpe = 9.0
+        else:
+            estimated_rir = "0"
+            estimated_rpe = 10.0
+
+        intensity_metrics = {
+            "estimated_rir": estimated_rir,
+            "estimated_rpe": estimated_rpe,
+            "velocity_loss_pct": velocity_loss_pct,
+            "first_rep_vel": first_rep_vel,
+            "last_rep_vel": last_rep_vel,
+            "max_rep_vel": max_vel,
+            "rep_velocities": rep_velocities
+        }
+    else:
+        intensity_metrics = {
+            "estimated_rir": "N/A",
+            "estimated_rpe": 0.0,
+            "velocity_loss_pct": 0.0,
+            "first_rep_vel": 0.0,
+            "last_rep_vel": 0.0,
+            "max_rep_vel": 0.0,
+            "rep_velocities": []
+        }
                 
     # 6. Build Per-Frame Output Array with Frozen Rep Verdict
     frames_output = []
@@ -726,6 +822,7 @@ def process_kinematics(
         "total_reps": len(repetitions_summary),
         "locked_side": locked_side,
         "repetitions_summary": repetitions_summary,
+        "intensity_metrics": intensity_metrics,
         "frames": frames_output
     }
 
@@ -832,7 +929,7 @@ def analyze(
         if not frames_rgb:
             raise ValueError("Failed to decode frames from input video.")
             
-        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=16)
+        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=32)
         
         result = process_kinematics(
             raw_keypoints=raw_keypoints,
