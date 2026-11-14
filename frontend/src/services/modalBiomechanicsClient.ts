@@ -87,8 +87,23 @@ export interface BiomechanicsAnalysisResponse {
 // In-memory response cache
 const analysisCache = new Map<string, BiomechanicsAnalysisResponse>();
 
-export function getBiomechanicsCacheKey(fileIdentifier: string, config: ExerciseConfig): string {
-  return `${fileIdentifier}_${config.exerciseType}_${config.targetMuscle}_${config.loadType}`;
+// Active AbortController to cancel previous in-flight requests
+let activeAbortController: AbortController | null = null;
+
+export interface BiomechanicsAnalysisOptions {
+  range?: {
+    startTime: number;
+    endTime: number;
+  };
+}
+
+export function getBiomechanicsCacheKey(
+  fileIdentifier: string,
+  config: ExerciseConfig,
+  range?: { startTime: number; endTime: number }
+): string {
+  const rangePart = range ? `_${range.startTime.toFixed(1)}-${range.endTime.toFixed(1)}` : '';
+  return `${fileIdentifier}_${config.exerciseType}_${config.targetMuscle}_${config.loadType}${rangePart}`;
 }
 
 export function clearBiomechanicsCache(): void {
@@ -108,18 +123,34 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 /**
  * Dispatches video to Cerebrium or Modal/Hugging Face Serverless Backend.
- * Uses cached result if identical video & exercise configuration was already evaluated.
+ * Uses cached result if identical video, range & exercise configuration was already evaluated.
+ * Cancels active in-flight request via AbortController if a new analysis is triggered.
  */
 export async function analyzeVideoWithModal(
   videoBlob: Blob,
   config: ExerciseConfig,
-  fileIdentifier: string = 'video_input'
+  fileIdentifier: string = 'video_input',
+  options?: BiomechanicsAnalysisOptions
 ): Promise<BiomechanicsAnalysisResponse> {
-  const cacheKey = getBiomechanicsCacheKey(fileIdentifier, config);
+  const range = options?.range;
+  const cacheKey = getBiomechanicsCacheKey(fileIdentifier, config, range);
   const cached = analysisCache.get(cacheKey);
   if (cached) {
     return cached;
   }
+
+  // Cancel prior in-flight request to avoid duplicate container spin-ups
+  if (activeAbortController) {
+    try {
+      activeAbortController.abort();
+    } catch {
+      // safe abort
+    }
+    activeAbortController = null;
+  }
+
+  const currentController = new AbortController();
+  activeAbortController = currentController;
 
   const endpointUrl =
     import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL ||
@@ -155,6 +186,7 @@ export async function analyzeVideoWithModal(
       response = await fetch(endpointUrl, {
         method: 'POST',
         headers,
+        signal: currentController.signal,
         body: JSON.stringify({
           video_base64: base64Data,
           video: base64Data,
@@ -173,6 +205,7 @@ export async function analyzeVideoWithModal(
       response = await fetch(endpointUrl, {
         method: 'POST',
         headers,
+        signal: currentController.signal,
         body: formData
       });
     }
@@ -195,7 +228,15 @@ export async function analyzeVideoWithModal(
     analysisCache.set(cacheKey, data);
     return data;
   } catch (err: any) {
-    console.error('[BiomechanicsClient] Fallo en la comunicación con el microservicio:', err);
+    if (err.name === 'AbortError') {
+      console.info('[BiomechanicsClient] Petición anterior cancelada por nueva acción.');
+    } else {
+      console.error('[BiomechanicsClient] Fallo en la comunicación con el microservicio:', err);
+    }
     throw err;
+  } finally {
+    if (activeAbortController === currentController) {
+      activeAbortController = null;
+    }
   }
 }

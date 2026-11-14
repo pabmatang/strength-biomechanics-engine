@@ -1,30 +1,46 @@
 /**
- * High-Speed Client-Side Video Compressor & Trimmer
+ * High-Speed Client-Side Video Compressor & Range Trimmer
  * 
- * - Trims dead start window: t ∈ [1.5s, 16.5s] if video exceeds 15 seconds.
+ * - Supports custom Range Trimming { startTime, endTime } up to 30.0 seconds.
  * - Downsamples to max 480px width (preserving aspect ratio with even pixel bounds).
- * - Transcodes at 15 FPS and 1.2 Mbps via MediaRecorder (WebM VP8 / MP4).
- * - Produces lightweight (<1.5 MB) payload ensuring <0.5s upload to GPU Serverless backend.
+ * - Transcodes at 15 FPS and 900 kbps via MediaRecorder (MP4 AVC1 / WebM VP8).
+ * - Fast bypass if original video already weighs < 1.2 MB and duration <= 30s.
+ * - Detailed telemetry console.info of compression savings.
  */
+
+export interface VideoRange {
+  startTime: number;
+  endTime: number;
+}
 
 export interface VideoCompressionOptions {
   maxWidth?: number;
   targetFps?: number;
   bitrate?: number;
   maxDurationSec?: number;
-  trimStartSec?: number;
+  range?: VideoRange;
 }
 
 export async function prepareVideoForAnalysis(
   file: File | Blob,
-  options: VideoCompressionOptions = {}
+  rangeOrOptions?: VideoRange | VideoCompressionOptions
 ): Promise<Blob> {
+  // Parse polymorphic options
+  let options: VideoCompressionOptions = {};
+  if (rangeOrOptions) {
+    if ('startTime' in rangeOrOptions && 'endTime' in rangeOrOptions) {
+      options = { range: rangeOrOptions as VideoRange };
+    } else {
+      options = rangeOrOptions as VideoCompressionOptions;
+    }
+  }
+
   const {
     maxWidth = 480,
     targetFps = 15,
-    bitrate = 1_200_000,
-    maxDurationSec = 15.0,
-    trimStartSec = 0,
+    bitrate = 900_000,
+    maxDurationSec = 30.0,
+    range
   } = options;
 
   // Fallback for non-browser / test / SSR environments
@@ -59,7 +75,7 @@ export async function prepareVideoForAnalysis(
     const timeoutTimer = setTimeout(() => {
       cleanup();
       resolve(file);
-    }, 25_000);
+    }, 35_000);
 
     video.onerror = () => {
       clearTimeout(timeoutTimer);
@@ -76,11 +92,28 @@ export async function prepareVideoForAnalysis(
           return resolve(file);
         }
 
-        // Determine window - always start at 0 to guarantee 1:1 timeline synchronization
-        const startTime = 0;
-        const endTime = Math.min(duration, maxDurationSec);
+        // Direct bypass if file already lightweight (< 1.2 MB) and <= 30s with no custom range
+        if (!range && duration <= maxDurationSec && file.size < 1.2 * 1024 * 1024) {
+          clearTimeout(timeoutTimer);
+          cleanup();
+          console.info(`[Compressor] Bypass activo: archivo ligero (${(file.size / (1024 * 1024)).toFixed(2)} MB, ${duration.toFixed(1)}s).`);
+          return resolve(file);
+        }
 
-        // Calculate aspect-ratio bounds (must be even for video codecs)
+        // Determine exact window
+        let startTime = 0;
+        let endTime = duration;
+
+        if (range) {
+          startTime = Math.max(0, range.startTime);
+          endTime = Math.min(duration, Math.min(range.endTime, startTime + maxDurationSec));
+        } else if (duration > maxDurationSec) {
+          // Automatic 30s window starting after initial setup
+          startTime = 1.0;
+          endTime = Math.min(duration, startTime + maxDurationSec);
+        }
+
+        // Calculate aspect-ratio bounds (must be even for H.264 / VP8 codecs)
         const srcW = video.videoWidth || 640;
         const srcH = video.videoHeight || 480;
         let targetW = srcW;
@@ -106,14 +139,14 @@ export async function prepareVideoForAnalysis(
           return resolve(file);
         }
 
-        // Determine supported MIME type
+        // Preferred container codecs: MP4 AVC1 preferred, falling back to WebM VP8
         const preferredMimes = [
           'video/mp4;codecs=avc1',
           'video/mp4',
           'video/webm;codecs=vp8',
           'video/webm'
         ];
-        let chosenMime = preferredMimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+        const chosenMime = preferredMimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 
         const stream = canvas.captureStream(targetFps);
         let recorder: MediaRecorder;
@@ -140,17 +173,21 @@ export async function prepareVideoForAnalysis(
           if (recordedChunks.length > 0) {
             const finalMime = recorder.mimeType || chosenMime || 'video/webm';
             const compressedBlob = new Blob(recordedChunks, { type: finalMime });
+
+            const origMb = (file.size / (1024 * 1024)).toFixed(2);
+            const compMb = (compressedBlob.size / (1024 * 1024)).toFixed(2);
+            const savingPct = Math.max(0, Math.round((1 - compressedBlob.size / file.size) * 100));
+            console.info(`[Compressor] Original: ${origMb} MB -> Comprimido: ${compMb} MB (${savingPct}% ahorro) | Rango: ${startTime.toFixed(1)}s -> ${endTime.toFixed(1)}s`);
+
             resolve(compressedBlob);
           } else {
             resolve(file);
           }
         };
 
-        // Prepare frame pump
-        video.currentTime = startTime;
-
-        video.onseeked = () => {
-          video.onseeked = null; // Unbind
+        // Start recording routine
+        const startRecording = () => {
+          if (cleanupDone || recorder.state === 'recording') return;
           recorder.start(100);
 
           const frameIntervalMs = 1000 / targetFps;
@@ -185,6 +222,17 @@ export async function prepareVideoForAnalysis(
               }
             });
         };
+
+        // Seek or immediate start if already at startTime
+        if (Math.abs(video.currentTime - startTime) < 0.05) {
+          startRecording();
+        } else {
+          video.onseeked = () => {
+            video.onseeked = null;
+            startRecording();
+          };
+          video.currentTime = startTime;
+        }
       } catch {
         clearTimeout(timeoutTimer);
         cleanup();

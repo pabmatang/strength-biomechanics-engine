@@ -98,9 +98,9 @@ def apply_zero_phase_butterworth(series: np.ndarray, fs: float = 15.0, cutoff: f
     filtered = scipy.signal.filtfilt(b, a, series)
     return np.clip(filtered, 0.0, 1.0)
 
-def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: int = 225):
+def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: int = 450):
     """
-    Read video sequentially, sampling strictly at target_fps up to max_frames (15s at 15 FPS).
+    Read video sequentially, sampling strictly at target_fps up to max_frames (30s at 15 FPS).
     Robust against WebM (MediaRecorder), variable framerate, missing metadata, and seek-disabled streams.
     """
     frames_rgb = []
@@ -111,33 +111,35 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
     try:
         import av
         container = av.open(video_path)
-        stream = container.streams.video[0]
-        stream.thread_type = "AUTO"
-        
-        next_sample_time = 0.0
-        frame_idx = 0
-        fps = float(stream.average_rate or 30.0) if stream.average_rate else 30.0
-        
-        for packet in container.demux(stream):
-            for frame in packet.decode():
-                if frame.pts is not None and stream.time_base:
-                    t = float(frame.pts * stream.time_base)
-                else:
-                    t = frame_idx / fps
+        if len(container.streams.video) > 0:
+            stream = container.streams.video[0]
+            stream.thread_type = "AUTO"
+            
+            next_sample_time = 0.0
+            frame_idx = 0
+            fps = float(stream.average_rate or 30.0) if stream.average_rate else 30.0
+            
+            for packet in container.demux(stream):
+                for frame in packet.decode():
+                    if frame.pts is not None and stream.time_base:
+                        t = float(frame.pts * stream.time_base)
+                    else:
+                        t = frame_idx / fps
+                        
+                    if t >= next_sample_time - 1e-4:
+                        frames_rgb.append(frame.to_ndarray(format="rgb24"))
+                        timestamps.append(round(t, 3))
+                        next_sample_time += step_dt
+                        if len(frames_rgb) >= max_frames:
+                            break
+                    frame_idx += 1
+                if len(frames_rgb) >= max_frames:
+                    break
                     
-                if t >= next_sample_time - 1e-4:
-                    frames_rgb.append(frame.to_ndarray(format="rgb24"))
-                    timestamps.append(round(t, 3))
-                    next_sample_time += step_dt
-                    if len(frames_rgb) >= max_frames:
-                        break
-                frame_idx += 1
-            if len(frames_rgb) >= max_frames:
-                break
-                
-        container.close()
-        if frames_rgb:
-            return frames_rgb, timestamps, timestamps[-1] if timestamps else 0.0
+            container.close()
+            if frames_rgb:
+                print(f"[Decoder] PyAV successfully decoded {len(frames_rgb)} frames.")
+                return frames_rgb, timestamps, timestamps[-1] if timestamps else 0.0
     except Exception as e:
         print(f"[Decoder] PyAV demux skipped or not available ({e}), trying OpenCV...")
 
@@ -180,11 +182,13 @@ def sample_video_frames(video_path: str, target_fps: float = 15.0, max_frames: i
         cap.release()
 
     duration = timestamps[-1] if timestamps else 0.0
+    print(f"[Decoder] OpenCV decoded {len(frames_rgb)} frames.")
     return frames_rgb, timestamps, duration
 
 def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
     """Top-Down detection: RT-DETR athlete box + ViTPose-Large keypoints."""
     all_raw_keypoints = []
+    all_boxes = []
     
     for i in range(0, len(frames_rgb), batch_size):
         batch_np = frames_rgb[i : i + batch_size]
@@ -219,11 +223,17 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
                     if metric > best_metric:
                         best_metric = metric
                         best_idx = p_idx
-                batch_boxes.append([boxes[best_idx].tolist()])
+                chosen_box = boxes[best_idx].tolist()
+                batch_boxes.append([chosen_box])
+                cx = float((chosen_box[0] + chosen_box[2]) / (2.0 * w))
+                bw = float((chosen_box[2] - chosen_box[0]) / float(w))
+                all_boxes.append({"cx": cx, "bw": bw})
             elif len(boxes) > 0:
                 batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
+                all_boxes.append({"cx": 0.5, "bw": 1.0})
             else:
                 batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
+                all_boxes.append({"cx": 0.5, "bw": 1.0})
         
         # Step B: ViTPose-Large 17 Keypoints
         pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
@@ -257,20 +267,32 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 16):
                 }
             all_raw_keypoints.append(frame_kps)
             
-    return all_raw_keypoints
+    return all_raw_keypoints, all_boxes
 
 def process_kinematics(
     raw_keypoints: List[Dict[str, Dict[str, float]]],
     timestamps: List[float],
     exercise_type: str,
     target_muscle: str,
-    load_type: str
+    load_type: str,
+    athlete_boxes: Optional[List[Dict[str, float]]] = None
 ):
     """Side-locking, linear interpolation, zero-phase Butterworth filter, rep audit & frozen verdicts."""
     n_frames = len(raw_keypoints)
     if n_frames == 0:
         return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
     
+    # 0. Scene Cut Detection (>25% box change between frames)
+    is_scene_cut = [False] * n_frames
+    if athlete_boxes and len(athlete_boxes) == n_frames:
+        for f in range(1, n_frames):
+            prev_b = athlete_boxes[f - 1]
+            curr_b = athlete_boxes[f]
+            delta_cx = abs(curr_b["cx"] - prev_b["cx"])
+            delta_bw = abs(curr_b["bw"] - prev_b["bw"]) / max(prev_b["bw"], 0.05)
+            if delta_cx > 0.25 or delta_bw > 0.25:
+                is_scene_cut[f] = True
+
     # 1. Determine Locked Side (Profile Lock) using all frames for maximum robustness
     left_score_sum = 0.0
     right_score_sum = 0.0
@@ -330,9 +352,10 @@ def process_kinematics(
         "score": hs_arr
     }
         
-    # 4. Compute Angular Kinematics per Frame
+    # 4. Compute Angular Kinematics per Frame & Frontal Plane Filter
     primary_angles = []
     secondary_angles = []
+    is_invalid_angle = [False] * n_frames
     
     for f in range(n_frames):
         sh = {"x": smoothed_joints["shoulder"]["x"][f], "y": smoothed_joints["shoulder"]["y"][f]}
@@ -342,6 +365,10 @@ def process_kinematics(
         kn = {"x": smoothed_joints["knee"]["x"][f], "y": smoothed_joints["knee"]["y"][f]}
         ak = {"x": smoothed_joints["ankle"]["x"][f], "y": smoothed_joints["ankle"]["y"][f]}
         
+        # Frontal plane collapse check: horizontal distance between hip and knee < 0.06
+        if abs(hp["x"] - kn["x"]) < 0.06:
+            is_invalid_angle[f] = True
+        
         knee_deg = calculate_angle_2d(hp, kn, ak)
         hip_deg = calculate_angle_2d(sh, hp, kn)
         elbow_deg = calculate_angle_2d(sh, el, wr)
@@ -350,21 +377,24 @@ def process_kinematics(
         if exercise_type == "hip_thrust":
             p_angle = hip_deg
             s_angle = knee_deg
-        elif exercise_type in ["squat", "bulgarian_squat"]:
+        elif exercise_type in ["squat", "bulgarian_squat", "leg_press"]:
             p_angle = knee_deg
             s_angle = hip_deg
-        elif exercise_type == "rdl":
+        elif exercise_type in ["rdl", "hamstring_curl"]:
             p_angle = hip_deg
             s_angle = knee_deg
-        elif exercise_type == "bench_press":
+        elif exercise_type in ["bench_press", "overhead_press"]:
             p_angle = elbow_deg
             s_angle = hip_deg
-        elif exercise_type == "row":
+        elif exercise_type in ["row", "barbell_row", "lat_pulldown"]:
             p_angle = elbow_deg
             s_angle = torso_deg
-        elif exercise_type == "cable_fly":
+        elif exercise_type in ["cable_fly", "lateral_raise"]:
             p_angle = calculate_angle_2d(hp, sh, el)
             s_angle = elbow_deg
+        elif exercise_type in ["biceps_curl", "triceps_extension"]:
+            p_angle = elbow_deg
+            s_angle = calculate_angle_2d(hp, sh, el)
         else:
             p_angle = knee_deg
             s_angle = hip_deg
@@ -375,20 +405,24 @@ def process_kinematics(
     primary_angles = np.array(primary_angles)
     secondary_angles = np.array(secondary_angles)
     
-    # 5. Repetition Segmentation with SciPy find_peaks
+    # 5. Repetition Segmentation with SciPy find_peaks (excluding scene cuts & invalid frames)
+    clean_curve = primary_angles.copy()
+    if exercise_type != "hip_thrust":
+        clean_curve = -clean_curve
+        
+    # Mask out scene cuts and invalid angles from peak detection
+    neutral_val = np.median(clean_curve)
+    for f in range(n_frames):
+        if is_scene_cut[f] or is_invalid_angle[f]:
+            clean_curve[f] = neutral_val
+            
     repetitions_summary = []
     frame_rep_map = [0] * n_frames
     frame_phase_map = ["IDLE"] * n_frames
     
-    if exercise_type == "hip_thrust":
-        peaks, properties = scipy.signal.find_peaks(primary_angles, prominence=20, distance=12)
-        if len(peaks) == 0:
-            peaks, properties = scipy.signal.find_peaks(primary_angles, prominence=12, distance=10)
-    else:
-        inverted_curve = -primary_angles
-        peaks, properties = scipy.signal.find_peaks(inverted_curve, prominence=22, distance=12)
-        if len(peaks) == 0:
-            peaks, properties = scipy.signal.find_peaks(inverted_curve, prominence=14, distance=10)
+    peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=18, distance=12)
+    if len(peaks) == 0:
+        peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=12, distance=10)
             
     for rep_idx, bottom_frame in enumerate(peaks, start=1):
         search_back = max(0, bottom_frame - 25)
@@ -421,42 +455,60 @@ def process_kinematics(
         hp_x = smoothed_joints["hip"]["x"][bottom_frame]
         kn_x = smoothed_joints["knee"]["x"][bottom_frame]
         sh_x = smoothed_joints["shoulder"]["x"][bottom_frame]
-        
-        d_hip = abs(hp_x - wr_x)
-        d_knee = abs(kn_x - wr_x)
-        d_shoulder = abs(sh_x - wr_x)
+        ak_x = smoothed_joints["ankle"]["x"][bottom_frame]
         
         if exercise_type == "hip_thrust":
+            d_knee = abs(kn_x - ak_x) # vertical tibia => knee lever arm -> 0
+            d_hip = abs(hp_x - kn_x)  # hip lever arm about knee axis
+            d_shoulder = abs(sh_x - hp_x)
+            
+            tot_lever = d_knee + d_hip
+            hip_share = (d_hip / tot_lever) if tot_lever > 1e-4 else 1.0
+            knee_share = (d_knee / tot_lever) if tot_lever > 1e-4 else 0.0
+            
             knee_in_target = abs(inflect_knee - 90.0) <= 12.0
-            hip_extended = inflect_hip >= 168.0
+            hip_extended = inflect_hip >= 158.0 # Optimal lockout >= 158° with pelvic tilt
             status = "OPTIMAL" if (knee_in_target and hip_extended) else "IMPROVEMENT_OPPORTUNITY"
             dominant_joint = "CADERA"
             torque_bias = "GLÚTEO MAYOR" if knee_in_target else ("ISQUIOSURALES" if inflect_knee > 102 else "CUÁDRICEPS")
+            
             if knee_in_target and hip_extended:
-                recom = "Alineación articular perfecta a ~90° en rodilla. Brazo de momento sobre glúteo maximizado en lockout."
+                recom = f"Alineación articular óptima (~90° rodilla). Brazo de palanca: {round(hip_share*100)}% Cadera vs {round(knee_share*100)}% Rodilla."
             elif not knee_in_target and inflect_knee < 78.0:
-                recom = "Pies demasiado retrasados (<78°): incrementa torque en patela. Adelanta ligeramente la base."
+                recom = f"Pies demasiado retrasados (<78°): incrementa palanca sobre rodilla ({round(knee_share*100)}%). Adelanta la base."
             elif not knee_in_target and inflect_knee > 102.0:
-                recom = "Pies demasiado adelantados (>102°): traslada tensión hacia isquios. Acerca los pies ~5 cm."
+                recom = f"Pies demasiado adelantados (>102°): traslada tensión hacia isquios. Acerca los pies ~5 cm."
             else:
-                recom = "Extensión de cadera incompleta. Busca bloqueo neutro activo sin hiperlordosis lumbar."
-        elif exercise_type in ["squat", "bulgarian_squat"]:
+                recom = "Extensión de cadera incompleta (<158°). Busca lockout activo con retroversión pélvica."
+        elif exercise_type in ["squat", "bulgarian_squat", "leg_press"]:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
             deep_enough = inflect_knee <= 95.0
             dominant_joint = "RODILLA" if d_knee >= d_hip else "CADERA"
             torque_bias = "CUÁDRICEPS" if dominant_joint == "RODILLA" else "CADERA / GLÚTEO"
             status = "OPTIMAL" if deep_enough else "IMPROVEMENT_OPPORTUNITY"
             recom = "Profundidad clínica alcanzada (rodilla ≤90°)." if deep_enough else "Profundidad parcial. Desciende hasta que fémur quede paralelo al suelo."
-        elif exercise_type == "rdl":
+        elif exercise_type in ["rdl", "hamstring_curl"]:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
             dominant_joint = "CADERA"
             torque_bias = "GLÚTEO / ISQUIOS"
             status = "OPTIMAL" if inflect_knee >= 140.0 else "IMPROVEMENT_OPPORTUNITY"
             recom = "Bisagra de cadera pura mantenida con rodilla semirrígida." if inflect_knee >= 140.0 else "Flexión excesiva de rodilla. Convierte el RDL en sentadilla; mantén tibia vertical."
-        elif exercise_type == "row":
+        elif exercise_type in ["row", "barbell_row", "lat_pulldown"]:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
             dominant_joint = "DORSAL / HOMBRO"
             torque_bias = "DORSAL ANCHO" if abs(inflect_knee - 90) <= 15 else "BÍCEPS"
             status = "OPTIMAL"
             recom = "Tracción neutra a nivel de hombro/costillas con codo a 90° en máxima contracción."
         else:
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
             dominant_joint = "HOMBRO"
             torque_bias = "PECTORAL / TREN SUPERIOR"
             status = "OPTIMAL"
@@ -519,12 +571,28 @@ def process_kinematics(
         hp_x = smoothed_joints["hip"]["x"][f]
         kn_x = smoothed_joints["knee"]["x"][f]
         sh_x = smoothed_joints["shoulder"]["x"][f]
+        ak_x = smoothed_joints["ankle"]["x"][f]
         
+        if exercise_type == "hip_thrust":
+            f_d_knee = abs(kn_x - ak_x)
+            f_d_hip = abs(hp_x - kn_x)
+            f_d_sh = abs(sh_x - hp_x)
+        else:
+            f_d_hip = abs(hp_x - wr_x)
+            f_d_knee = abs(kn_x - wr_x)
+            f_d_sh = abs(sh_x - wr_x)
+            
+        phase = frame_phase_map[f]
+        if is_scene_cut[f]:
+            phase = "SCENE_CUT"
+        elif is_invalid_angle[f]:
+            phase = "INVALID_ANGLE"
+            
         frames_output.append({
             "frame_idx": f,
             "time": timestamps[f],
             "rep_number": rep_num,
-            "phase": frame_phase_map[f],
+            "phase": phase,
             "main_angle": round(float(primary_angles[f]), 1),
             "secondary_angle": round(float(secondary_angles[f]), 1),
             "keypoints_norm": {
@@ -533,13 +601,13 @@ def process_kinematics(
                 "wrist": {"x": round(float(wr_x), 4), "y": round(float(smoothed_joints["wrist"]["y"][f]), 4), "score": round(float(smoothed_joints["wrist"]["score"][f]), 2)},
                 "hip": {"x": round(float(hp_x), 4), "y": round(float(smoothed_joints["hip"]["y"][f]), 4), "score": round(float(smoothed_joints["hip"]["score"][f]), 2)},
                 "knee": {"x": round(float(kn_x), 4), "y": round(float(smoothed_joints["knee"]["y"][f]), 4), "score": round(float(smoothed_joints["knee"]["score"][f]), 2)},
-                "ankle": {"x": round(float(smoothed_joints["ankle"]["x"][f]), 4), "y": round(float(smoothed_joints["ankle"]["y"][f]), 4), "score": round(float(smoothed_joints["ankle"]["score"][f]), 2)},
+                "ankle": {"x": round(float(ak_x), 4), "y": round(float(smoothed_joints["ankle"]["y"][f]), 4), "score": round(float(smoothed_joints["ankle"]["score"][f]), 2)},
                 "head": {"x": round(float(smoothed_joints["head"]["x"][f]), 4), "y": round(float(smoothed_joints["head"]["y"][f]), 4), "score": round(float(smoothed_joints["head"]["score"][f]), 2)}
             },
             "moment_arms": {
-                "d_hip": round(float(abs(hp_x - wr_x)), 4),
-                "d_knee": round(float(abs(kn_x - wr_x)), 4),
-                "d_shoulder": round(float(abs(sh_x - wr_x)), 4)
+                "d_hip": round(float(f_d_hip), 4),
+                "d_knee": round(float(f_d_knee), 4),
+                "d_shoulder": round(float(f_d_sh), 4)
             },
             "verdict": rep_verdict
         })
@@ -568,7 +636,8 @@ def _extract_video_to_tempfile(
         raise ValueError("Missing required video input ('video_base64', 'video_url', or 'video').")
     
     suffix = ".mp4"
-    if "webm" in str(raw_data[:60]).lower():
+    data_header = str(raw_data[:80]).lower()
+    if "webm" in data_header:
         suffix = ".webm"
         
     # URL download
@@ -584,6 +653,11 @@ def _extract_video_to_tempfile(
         if "," in b64_str:
             b64_str = b64_str.split(",", 1)[1]
         content = base64.b64decode(b64_str)
+        # Check EBML magic bytes for WebM container (0x1A 0x45 0xDF 0xA3)
+        if len(content) > 4 and content[:4] == b"\x1a\x45\xdf\xa3":
+            suffix = ".webm"
+        elif len(content) > 8 and content[4:8] == b"ftyp":
+            suffix = ".mp4"
         
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(content)
@@ -602,7 +676,7 @@ def analyze(
     """
     Primary Cerebrium endpoint handler.
     Receives JSON payload with video (base64 or URL) and biomechanics configuration.
-    Returns clean clinical kinematics and frozen verdicts.
+    Returns clean clinical kinematics and frozen verdicts up to 30s (450 frames).
     """
     # Fallback if first param is passed as dict payload
     if isinstance(video_base64, dict):
@@ -616,18 +690,19 @@ def analyze(
 
     temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     try:
-        frames_rgb, timestamps, duration = sample_video_frames(temp_path, target_fps=15.0, max_frames=225)
+        frames_rgb, timestamps, duration = sample_video_frames(temp_path, target_fps=15.0, max_frames=450)
         if not frames_rgb:
             raise ValueError("Failed to decode frames from input video.")
             
-        raw_keypoints = run_inference_batches(frames_rgb, batch_size=16)
+        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=16)
         
         result = process_kinematics(
             raw_keypoints=raw_keypoints,
             timestamps=timestamps,
             exercise_type=exercise_type,
             target_muscle=target_muscle,
-            load_type=load_type
+            load_type=load_type,
+            athlete_boxes=athlete_boxes
         )
         return result
     finally:

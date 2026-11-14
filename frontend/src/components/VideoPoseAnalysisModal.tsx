@@ -48,6 +48,76 @@ import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } 
 
 export const MAX_ANALYSIS_CLIP_SECONDS = 30.0;
 
+export interface ExerciseItem {
+  id: string;
+  name: string;
+  exerciseType: string;
+  targetMuscle: TargetMuscle;
+  loadType: LoadType;
+  patternId: string;
+}
+
+export interface MuscleGroup {
+  id: string;
+  name: string;
+  exercises: ExerciseItem[];
+}
+
+export const MUSCLE_GROUPS: MuscleGroup[] = [
+  {
+    id: 'glutes_hamstrings',
+    name: 'Glúteo e Isquios',
+    exercises: [
+      { id: 'hip_thrust', name: 'Hip Thrust', exerciseType: 'hip_thrust', targetMuscle: 'glutes_max', loadType: 'gravity', patternId: 'hip_thrust_barbell' },
+      { id: 'rdl', name: 'Peso Muerto Rumano', exerciseType: 'rdl', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
+      { id: 'hamstring_curl', name: 'Curl Femoral', exerciseType: 'hamstring_curl', targetMuscle: 'hamstrings', loadType: 'machine', patternId: 'seated_leg_curl_machine' }
+    ]
+  },
+  {
+    id: 'quads',
+    name: 'Cuádriceps',
+    exercises: [
+      { id: 'squat', name: 'Sentadilla Libre', exerciseType: 'squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
+      { id: 'leg_press', name: 'Prensa', exerciseType: 'leg_press', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'leg_press_high_feet' },
+      { id: 'bulgarian_squat', name: 'Zancada Búlgara', exerciseType: 'bulgarian_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'bulgarian_split_squat_glute' }
+    ]
+  },
+  {
+    id: 'back',
+    name: 'Espalda',
+    exercises: [
+      { id: 'barbell_row', name: 'Remo con Barra', exerciseType: 'barbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
+      { id: 'lat_pulldown', name: 'Jalón al Pecho', exerciseType: 'lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' }
+    ]
+  },
+  {
+    id: 'chest',
+    name: 'Pecho',
+    exercises: [
+      { id: 'bench_press', name: 'Press Banca', exerciseType: 'bench_press', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'converging_chest_press_machine' },
+      { id: 'cable_fly', name: 'Aperturas en Polea', exerciseType: 'cable_fly', targetMuscle: 'pectorals', loadType: 'cable', patternId: 'cable_fly_mid_sternal' }
+    ]
+  },
+  {
+    id: 'shoulders',
+    name: 'Hombro',
+    exercises: [
+      { id: 'overhead_press', name: 'Press Militar', exerciseType: 'overhead_press', targetMuscle: 'upper_back', loadType: 'gravity', patternId: 'incline_dumbbell_press' },
+      { id: 'lateral_raise', name: 'Elevaciones Laterales', exerciseType: 'lateral_raise', targetMuscle: 'upper_back', loadType: 'cable', patternId: 'straight_arm_cable_pulldown' }
+    ]
+  },
+  {
+    id: 'arms',
+    name: 'Brazos',
+    exercises: [
+      { id: 'biceps_curl', name: 'Curl Bíceps', exerciseType: 'biceps_curl', targetMuscle: 'biceps', loadType: 'cable', patternId: 'biceps_curl_cable' },
+      { id: 'triceps_extension', name: 'Extensión Tríceps', exerciseType: 'triceps_extension', targetMuscle: 'triceps', loadType: 'cable', patternId: 'triceps_pushdown_cable' }
+    ]
+  }
+];
+
+export const ALL_EXERCISES: ExerciseItem[] = MUSCLE_GROUPS.flatMap(g => g.exercises);
+
 interface VideoPoseAnalysisModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -80,21 +150,30 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   defaultExerciseId = 'hip_thrust',
   defaultExerciseName = 'Hip Thrust (Glúteo Mayor)'
 }) => {
-  // Cascading Selection State
-  const [loadType, setLoadType] = useState<LoadType>('gravity');
-  const [targetMuscle, setTargetMuscle] = useState<TargetMuscle>('glutes_max');
-  const [selectedPatternId, setSelectedPatternId] = useState<string>('hip_thrust_barbell');
+  // Cascading Selection State & Catalog Mapping
+  const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<string>('glutes_hamstrings');
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(defaultExerciseId);
 
-  const availablePatterns = EXERCISE_PATTERNS.filter(p => p.targetMuscle === targetMuscle);
+  const activeMuscleGroup = MUSCLE_GROUPS.find(g => g.id === selectedMuscleGroupId) || MUSCLE_GROUPS[0];
+  const activeExercise = ALL_EXERCISES.find(e => e.id === selectedExerciseId) || ALL_EXERCISES[0];
+
   const selectedPattern: ExercisePatternSpec =
-    availablePatterns.find(p => p.id === selectedPatternId) ||
-    availablePatterns[0] ||
+    EXERCISE_PATTERNS.find(p => p.id === activeExercise.patternId) ||
     EXERCISE_PATTERNS[0];
+
+  const [loadType, setLoadType] = useState<LoadType>(activeExercise.loadType);
+  const [targetMuscle, setTargetMuscle] = useState<TargetMuscle>(activeExercise.targetMuscle);
 
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const compressedBlobRef = useRef<Blob | null>(null);
   const fileCacheIdRef = useRef<string>('');
+  const uploadedFileRef = useRef<File | null>(null);
+
+  // Range Trimmer State
+  const [trimStart, setTrimStart] = useState<number>(0);
+  const [trimEnd, setTrimEnd] = useState<number>(15);
+  const [showTrimmer, setShowTrimmer] = useState<boolean>(false);
 
   // Dual Analysis Modes: Mode 1 (Técnica) vs Mode 2 (Biomecánica)
   const [analysisMode, setAnalysisMode] = useState<'technique' | 'biomechanics'>('technique');
@@ -158,18 +237,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   }, [isOpen]);
 
   // Execute Analysis when video or exercise config changes
-  const runPipelineAnalysis = useCallback(async (blob: Blob, fileId: string, pattern: ExercisePatternSpec, muscle: string, load: string) => {
+  const runPipelineAnalysis = useCallback(async (
+    blob: Blob,
+    fileId: string,
+    exType: string,
+    muscle: string,
+    load: string,
+    range?: { startTime: number; endTime: number }
+  ) => {
     try {
       setPipelineState('analyzing');
       setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose-Large)...');
-
-      let exType = 'squat';
-      if (pattern.id.includes('hip_thrust')) exType = 'hip_thrust';
-      else if (pattern.id.includes('rdl')) exType = 'rdl';
-      else if (pattern.id.includes('bulgarian')) exType = 'bulgarian_squat';
-      else if (pattern.id.includes('bench') || pattern.id.includes('press')) exType = 'bench_press';
-      else if (pattern.id.includes('row')) exType = 'row';
-      else if (pattern.id.includes('fly')) exType = 'cable_fly';
 
       let backendLoad = 'free_weight';
       if (load === 'cable') backendLoad = 'cable';
@@ -181,12 +259,16 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         loadType: backendLoad
       };
 
-      const result = await analyzeVideoWithModal(blob, config, fileId);
+      const result = await analyzeVideoWithModal(blob, config, fileId, { range });
       setAnalysisData(result);
       setRepCount(result.total_reps);
       setPipelineState('ready');
       setPipelineMessage('');
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        console.info('[Pipeline] Análisis cancelado por nueva petición.');
+        return;
+      }
       console.error('[Pipeline Error]', err);
       setPipelineState('error');
       setPipelineMessage(err?.message || 'Error al conectar con el microservicio GPU.');
@@ -197,6 +279,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    uploadedFileRef.current = file;
 
     if (uploadedVideoUrl) {
       URL.revokeObjectURL(uploadedVideoUrl);
@@ -223,27 +307,71 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       const compressedBlob = await prepareVideoForAnalysis(file);
       compressedBlobRef.current = compressedBlob;
 
-      await runPipelineAnalysis(compressedBlob, fileId, selectedPattern, targetMuscle, loadType);
+      await runPipelineAnalysis(
+        compressedBlob,
+        fileId,
+        activeExercise.exerciseType,
+        activeExercise.targetMuscle,
+        activeExercise.loadType
+      );
 
       if (videoElementRef.current) {
         videoElementRef.current.playbackRate = 1.0;
         videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
       }
     } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       setPipelineState('error');
       setPipelineMessage('Error en compresión de vídeo.');
     }
   };
 
+  // Analyze trimmed range
+  const handleAnalyzeTrimmedRange = async () => {
+    if (!uploadedFileRef.current) return;
+    try {
+      setPipelineState('compressing');
+      setPipelineMessage(`Recortando y preparando tramo (${trimStart.toFixed(1)}s - ${trimEnd.toFixed(1)}s)...`);
+
+      const file = uploadedFileRef.current;
+      const fileId = fileCacheIdRef.current || `${file.name}_${file.size}_${file.lastModified}`;
+
+      const compressedBlob = await prepareVideoForAnalysis(file, {
+        range: { startTime: trimStart, endTime: trimEnd }
+      });
+      compressedBlobRef.current = compressedBlob;
+
+      await runPipelineAnalysis(
+        compressedBlob,
+        fileId,
+        activeExercise.exerciseType,
+        activeExercise.targetMuscle,
+        activeExercise.loadType,
+        { startTime: trimStart, endTime: trimEnd }
+      );
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      setPipelineState('error');
+      setPipelineMessage('Error al recortar y procesar tramo seleccionado.');
+    }
+  };
+
   // Trigger re-analysis when exercise configuration changes (Instant from cache if already processed)
-  const handleConfigChange = (newPatternId: string, newMuscle: TargetMuscle, newLoad: LoadType) => {
-    setSelectedPatternId(newPatternId);
-    setTargetMuscle(newMuscle);
-    setLoadType(newLoad);
+  const handleExerciseSelect = (item: ExerciseItem) => {
+    setSelectedExerciseId(item.id);
+    setTargetMuscle(item.targetMuscle);
+    setLoadType(item.loadType);
 
     if (compressedBlobRef.current && fileCacheIdRef.current) {
-      const pattern = EXERCISE_PATTERNS.find(p => p.id === newPatternId) || selectedPattern;
-      runPipelineAnalysis(compressedBlobRef.current, fileCacheIdRef.current, pattern, newMuscle, newLoad);
+      const range = showTrimmer ? { startTime: trimStart, endTime: trimEnd } : undefined;
+      runPipelineAnalysis(
+        compressedBlobRef.current,
+        fileCacheIdRef.current,
+        item.exerciseType,
+        item.targetMuscle,
+        item.loadType,
+        range
+      );
     }
   };
 
@@ -609,10 +737,10 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
     const payload: VideoTelemetryPayload = {
       userId: 'athlete_user',
-      exerciseId: selectedPattern.id,
-      exerciseName: selectedPattern.name,
+      exerciseId: activeExercise.id,
+      exerciseName: activeExercise.name,
       videoDurationSeconds: analysisData.duration,
-      hardwareModel: 'Modal Labs GPU (RT-DETR + ViTPose-Large + SciPy)',
+      hardwareModel: 'Cerebrium Serverless T4 GPU (RT-DETR + ViTPose-Large + SciPy)',
       metrics: {
         totalRepsCounted: analysisData.total_reps,
         validRepsCount: analysisData.total_reps,
@@ -824,7 +952,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                 loop
                 onLoadedMetadata={(e) => {
                   const target = e.currentTarget;
-                  setVideoDuration(target.duration || 0);
+                  const dur = target.duration || 0;
+                  setVideoDuration(dur);
+                  setTrimStart(0);
+                  const end = Math.min(dur, 30);
+                  setTrimEnd(end);
+                  if (dur > 15.0) {
+                    setShowTrimmer(true);
+                  }
                 }}
                 className="w-full h-full object-contain pointer-events-none"
               />
@@ -860,7 +995,15 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     type="button"
                     onClick={() => {
                       if (compressedBlobRef.current && fileCacheIdRef.current) {
-                        runPipelineAnalysis(compressedBlobRef.current, fileCacheIdRef.current, selectedPattern, targetMuscle, loadType);
+                        const range = showTrimmer ? { startTime: trimStart, endTime: trimEnd } : undefined;
+                        runPipelineAnalysis(
+                          compressedBlobRef.current,
+                          fileCacheIdRef.current,
+                          activeExercise.exerciseType,
+                          activeExercise.targetMuscle,
+                          activeExercise.loadType,
+                          range
+                        );
                       } else {
                         fileInputRef.current?.click();
                       }
@@ -953,6 +1096,98 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
             </div>
 
+            {/* Range Trimmer Component (Interactive Dual Slider & Controls) */}
+            {uploadedVideoUrl && (
+              <div className="p-3 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-bold text-slate-300">Recortador de Rango (Dual-Range Trimmer)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      (trimEnd - trimStart) <= 30
+                        ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                        : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                    }`}>
+                      Ventana: {(trimEnd - trimStart).toFixed(1)}s (Máx 30s)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTrimmer(prev => !prev)}
+                      className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700"
+                    >
+                      {showTrimmer ? 'Ocultar' : 'Ajustar'}
+                    </button>
+                  </div>
+                </div>
+
+                {showTrimmer && (
+                  <div className="space-y-3 pt-1">
+                    <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-slate-400 text-[11px]">
+                          <span>Inicio:</span>
+                          <span className="text-cyan-300 font-bold">{trimStart.toFixed(1)}s</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={Math.max(0, trimEnd - 0.5)}
+                          step={0.1}
+                          value={trimStart}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setTrimStart(val);
+                            if (videoElementRef.current) {
+                              videoElementRef.current.currentTime = val;
+                            }
+                          }}
+                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-slate-400 text-[11px]">
+                          <span>Fin:</span>
+                          <span className="text-cyan-300 font-bold">{trimEnd.toFixed(1)}s</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={Math.min(effectiveTotalDuration, trimStart + 0.5)}
+                          max={effectiveTotalDuration || 30}
+                          step={0.1}
+                          value={trimEnd}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setTrimEnd(val);
+                            if (videoElementRef.current) {
+                              videoElementRef.current.currentTime = val;
+                            }
+                          }}
+                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-slate-400">
+                        Rango activo: <strong className="text-white">{trimStart.toFixed(1)}s</strong> a <strong className="text-white">{trimEnd.toFixed(1)}s</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleAnalyzeTrimmedRange}
+                        disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
+                        className="px-3 py-1 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/30 transition"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
+                        <span>Analizar tramo seleccionado</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
 
           {/* RIGHT COLUMN: Mode Switcher, Exercise Selector & Biomechanical Diagnosis */}
@@ -961,31 +1196,61 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
               {modeSwitcherButtons}
             </div>
 
-            {/* Exercise Selector */}
-            <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-2">
+            {/* Muscle Group & Exercise Catalog Selector */}
+            <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
               <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                Patrón Articular Evaluado
+                Grupo Muscular y Ejercicio Evaluado
               </label>
-              <div className="grid grid-cols-2 gap-1.5">
-                {[
-                  { id: 'hip_thrust_barbell', name: 'Hip Thrust', muscle: 'glutes_max' as TargetMuscle },
-                  { id: 'squat_high_bar', name: 'Sentadilla', muscle: 'quads' as TargetMuscle },
-                  { id: 'bulgarian_split_squat_glute', name: 'Búlgara', muscle: 'glutes_max' as TargetMuscle },
-                  { id: 'romanian_deadlift_glute', name: 'Peso Muerto RDL', muscle: 'glutes_max' as TargetMuscle },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleConfigChange(item.id, item.muscle, loadType)}
-                    className={`py-1.5 px-2 rounded-xl text-xs font-bold text-left border transition ${
-                      selectedPattern.id === item.id
-                        ? 'bg-blue-600/25 border-blue-500 text-blue-200'
-                        : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {item.name}
-                  </button>
-                ))}
+
+              {/* Muscle Group Tabs */}
+              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-800">
+                {MUSCLE_GROUPS.map((group) => {
+                  const isSelected = selectedMuscleGroupId === group.id;
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMuscleGroupId(group.id);
+                        const firstEx = group.exercises[0];
+                        if (firstEx) {
+                          handleExerciseSelect(firstEx);
+                        }
+                      }}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition border ${
+                        isSelected
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20'
+                          : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      {group.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Exercises Grid for Selected Group */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {activeMuscleGroup?.exercises.map((item) => {
+                  const isSelected = selectedExerciseId === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleExerciseSelect(item)}
+                      className={`p-2 rounded-xl text-left border transition flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-blue-600/25 border-blue-500 text-blue-200 shadow-sm shadow-blue-500/20'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="text-xs font-bold leading-tight">{item.name}</span>
+                      <span className="text-[9px] font-mono text-slate-400 mt-1 uppercase">
+                        {item.loadType === 'gravity' ? 'Peso Libre' : item.loadType === 'cable' ? 'Polea' : 'Máquina'}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
