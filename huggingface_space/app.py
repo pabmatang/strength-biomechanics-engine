@@ -1,8 +1,3 @@
-import os
-# 1. Disable Gradio internal SSR proxy to prevent port 7860 binding collisions
-os.environ["GRADIO_SSR_MODE"] = "false"
-
-# 2. Obligatory ZeroGPU spaces import on line 1 before torch / transformers
 try:
     import spaces
 except ImportError:
@@ -13,6 +8,10 @@ except ImportError:
                 return fn
             return decorator
     spaces = _MockSpaces()
+
+import os
+# Disable Gradio internal SSR proxy to prevent port 7860 binding collisions
+os.environ["GRADIO_SSR_MODE"] = "false"
 
 import tempfile
 import math
@@ -558,6 +557,12 @@ async def analyze_video(
                 pass
 
 
+@spaces.GPU(duration=15)
+def gpu_warmup():
+    """Startup warm-up and ZeroGPU event detection anchor."""
+    return "ok"
+
+
 with gr.Blocks(title="Biomechanics API Active") as demo:
     gr.Markdown(
         """
@@ -586,6 +591,15 @@ with gr.Blocks(title="Biomechanics API Active") as demo:
         JSON with `{"fps", "duration", "total_reps", "locked_side", "repetitions_summary", "frames"}`.
         """
     )
+
+    # Hidden components connected to @spaces.GPU functions for ZeroGPU startup scanner
+    gpu_test_btn = gr.Button("Test GPU", visible=False)
+    gpu_test_out = gr.Textbox(visible=False)
+    gpu_test_btn.click(fn=gpu_warmup, inputs=None, outputs=gpu_test_out)
+    
+    dummy_input = gr.State()
+    dummy_output = gr.State()
+    gpu_test_btn.click(fn=run_gpu_inference, inputs=[dummy_input], outputs=[dummy_output])
 
 # Mount Gradio onto the root of the FastAPI application
 app = gr.mount_gradio_app(app, demo, path="/")
