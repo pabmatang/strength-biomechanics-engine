@@ -7,7 +7,7 @@ exclude = [".*", "__pycache__", "*.pyc"]
 [cerebrium.hardware]
 cpu = 2.0
 memory = 8.0
-compute = "T4"
+compute = "TURING_T4"
 gpu_count = 1
 provider = "aws"
 region = "us-east-1"
