@@ -92,12 +92,11 @@ export async function prepareVideoForAnalysis(
           return resolve(file);
         }
 
-        // Direct bypass if file already lightweight (< 25 MB)
-        // PyAV on Cerebrium T4 decodes native MP4/WebM ranges with zero loss and 0 ms sync error
-        if (file.size <= 25 * 1024 * 1024) {
+        // Direct bypass ONLY if video is already tiny (< 1.2 MB) AND no range trimming requested
+        if (!range && file.size <= 1.2 * 1024 * 1024 && duration <= maxDurationSec) {
           clearTimeout(timeoutTimer);
           cleanup();
-          console.info(`[Compressor] Direct serverless pass: ${(file.size / (1024 * 1024)).toFixed(2)} MB (${duration.toFixed(1)}s). Cerebrium PyAV procesará el rango exacto.`);
+          console.info(`[Compressor] Bypass: archivo ligero (${(file.size / 1024).toFixed(0)} KB) y dentro del rango.`);
           return resolve(file);
         }
 

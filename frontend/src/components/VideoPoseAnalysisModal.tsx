@@ -851,13 +851,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pLWr, '#6EE7B7');
           drawPoint(pRWr, '#6EE7B7');
 
-          // Arco y etiqueta de Codo en el brazo activo
+          // Arco y etiqueta limpia de Codo en el brazo activo (despeja hombro y torso)
           drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
           if (options.showCanvasText) {
             drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
-            if (frame.secondary_angle > 10) {
-              drawPillTag(pSh.x - 70, pSh.y - 16, `Hombro: ${Math.round(frame.secondary_angle)}°`, '#34D399', '#A7F3D0');
-            }
           }
         }
       } else {
@@ -888,9 +885,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
           if (options.showCanvasText) {
             drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
-            if (frame.secondary_angle > 10) {
-              drawPillTag(pSh.x - 70, pSh.y - 16, `Hombro: ${Math.round(frame.secondary_angle)}°`, '#34D399', '#A7F3D0');
-            }
           }
         }
       }
@@ -1925,7 +1919,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       onClick={() => setShowTrimmer(prev => !prev)}
                       className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700"
                     >
-                      {showTrimmer ? 'Ocultar' : 'Ajustar'}
+                      {showTrimmer ? 'Ocultar' : '✂️ Recortar tramo'}
                     </button>
                   </div>
                 </div>
