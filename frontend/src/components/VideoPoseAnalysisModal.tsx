@@ -699,8 +699,17 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.fillStyle = '#FBBF24';
       ctx.fill();
 
-      // Cotas horizontales perpendiculares (brazos de momento d_cadera y d_rodilla)
-      if (options.showLeverArms) {
+      // Cotas horizontales perpendiculares (brazos de momento d_cadera y d_rodilla) - Ocultas en variantes de Hip Thrust
+      const isHipThrust =
+        options.exerciseId.includes('hip_thrust') ||
+        options.exerciseId.includes('kas_glute') ||
+        options.exerciseId.includes('glute_bridge') ||
+        options.exerciseId.includes('bridge') ||
+        selectedExerciseId.includes('hip_thrust') ||
+        selectedExerciseId.includes('kas_glute') ||
+        selectedExerciseId.includes('bridge');
+
+      if (options.showLeverArms && !isHipThrust) {
         // Brazo de momento a la cadera (azul)
         drawSegment(pHp, { x: lineX, y: pHp.y }, '#3B82F6', true);
         // Brazo de momento a la rodilla (verde)
@@ -881,6 +890,15 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     selectedExerciseId.includes('curl') ||
     selectedExerciseId.includes('kickback') ||
     selectedExerciseId.includes('abduction');
+
+  const isHipThrustVariant =
+    selectedPattern.id.includes('hip_thrust') ||
+    selectedPattern.id.includes('kas_glute') ||
+    selectedPattern.id.includes('glute_bridge') ||
+    selectedPattern.id.includes('bridge') ||
+    selectedExerciseId.includes('hip_thrust') ||
+    selectedExerciseId.includes('kas_glute') ||
+    selectedExerciseId.includes('bridge');
 
   const primaryJointName = isLowerBody ? 'Cadera' : 'Hombro';
   const secondaryJointName = isLowerBody ? 'Rodilla' : 'Codo';
@@ -1448,22 +1466,22 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed">
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed break-words whitespace-normal">
                     {activeVerdict.recommendation}
                   </div>
 
-                  <div className="space-y-1 pt-1 border-t border-slate-800/60 text-[11px]">
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Estabilidad Tibial:</span>
-                      <span className="font-bold text-emerald-400">Vertical fija (sin deslizamiento)</span>
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/60 text-[11px]">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
+                      <span className="shrink-0 font-medium">Estabilidad Tibial:</span>
+                      <span className="font-bold text-emerald-400 break-words whitespace-normal">Vertical fija (sin deslizamiento)</span>
                     </div>
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Bloqueo Pélvico:</span>
-                      <span className="font-bold text-cyan-300">Retroversión completa (≥158°)</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
+                      <span className="shrink-0 font-medium">Bloqueo Pélvico:</span>
+                      <span className="font-bold text-cyan-300 break-words whitespace-normal">Retroversión completa (≥158°)</span>
                     </div>
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Control Excéntrico:</span>
-                      <span className="font-bold text-slate-200">Cadencia sostenida</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
+                      <span className="shrink-0 font-medium">Control Excéntrico:</span>
+                      <span className="font-bold text-slate-200 break-words whitespace-normal">Cadencia sostenida</span>
                     </div>
                   </div>
                 </div>
@@ -1507,24 +1525,31 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                       <Scale className="w-4 h-4 text-blue-400" />
-                      Reparto de Torque y Palancas
+                      {isHipThrustVariant ? 'Palanca Articular y Enfoque' : 'Reparto de Torque y Palancas'}
                     </span>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                      {hipShare}% Cadera vs {kneeShare}% Rodilla
+                      {isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : `${hipShare}% Cadera vs ${kneeShare}% Rodilla`}
                     </span>
                   </div>
 
-                  {/* Moment Arms Distribution Bar */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
-                      <span>Brazo Cadera: {hipShare}%</span>
-                      <span>Brazo Rodilla: {kneeShare}%</span>
+                  {/* Moment Arms Distribution Bar - Only shown for non-hip thrust exercises */}
+                  {!isHipThrustVariant ? (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
+                        <span>Brazo Cadera: {hipShare}%</span>
+                        <span>Brazo Rodilla: {kneeShare}%</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                        <div className="bg-blue-500 transition-all duration-150" style={{ width: `${hipShare}%` }} />
+                        <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${kneeShare}%` }} />
+                      </div>
                     </div>
-                    <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                      <div className="bg-blue-500 transition-all duration-150" style={{ width: `${hipShare}%` }} />
-                      <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${kneeShare}%` }} />
+                  ) : (
+                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center justify-between">
+                      <span className="text-slate-400 font-bold">Alineación Tibial (Rodilla):</span>
+                      <span className="font-bold text-cyan-300">{Math.round(activeVerdict.inflection_knee_deg || 90)}° (Objetivo ~90°)</span>
                     </div>
-                  </div>
+                  )}
 
                   {/* Physical Quantities Grid */}
                   <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
@@ -1534,7 +1559,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                     </div>
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Enfoque Muscular</span>
-                      <span className="text-[11px] font-black text-purple-300 font-mono truncate block">{activeVerdict.primary_torque_bias}</span>
+                      <span className="text-[11px] font-black text-purple-300 font-mono break-words block">{activeVerdict.primary_torque_bias}</span>
                     </div>
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Reps</span>
@@ -1580,20 +1605,64 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
                   {/* Mini SVG Sparkline / Bar Chart */}
                   {intensity.rep_velocities && intensity.rep_velocities.length > 0 && (
-                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
                       <div className="flex justify-between text-[9px] font-mono text-slate-400 font-bold">
                         <span>Curva de Fatiga Concéntrica</span>
-                        <span>Pico: {Math.round(intensity.max_rep_vel)}°/s</span>
+                        <span className="text-cyan-400">Pico: {Math.round(intensity.max_rep_vel)}°/s</span>
                       </div>
-                      <div className="h-10 w-full flex items-end gap-1.5 pt-1">
+
+                      {/* Visible SVG Sparkline Curve with Area Fill */}
+                      <div className="w-full h-11 relative flex items-center">
+                        <svg className="w-full h-full overflow-visible" viewBox="0 0 100 36" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="fatigueGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.45" />
+                              <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0" />
+                            </linearGradient>
+                          </defs>
+                          {(() => {
+                            const vels = intensity.rep_velocities;
+                            const maxV = Math.max(...vels, 1);
+                            const minV = Math.min(...vels, 0);
+                            const rangeV = Math.max(maxV - minV, 10);
+                            const pts = vels.map((v, i) => {
+                              const x = vels.length === 1 ? 50 : (i / (vels.length - 1)) * 94 + 3;
+                              const y = 32 - ((v - minV) / rangeV) * 26;
+                              return { x, y, v };
+                            });
+                            const pathD = pts.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`, '');
+                            const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} 36 L ${pts[0].x.toFixed(1)} 36 Z`;
+                            return (
+                              <>
+                                <path d={areaD} fill="url(#fatigueGrad)" />
+                                <path d={pathD} fill="none" stroke="#22D3EE" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                                {pts.map((p, i) => (
+                                  <circle
+                                    key={i}
+                                    cx={p.x}
+                                    cy={p.y}
+                                    r="2.5"
+                                    className={i === vels.length - 1 && intensity.velocity_loss_pct >= 20 ? 'fill-amber-400' : 'fill-cyan-300'}
+                                    stroke="#0F172A"
+                                    strokeWidth="1"
+                                  />
+                                ))}
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      </div>
+
+                      {/* Rep Bar Indicators with guaranteed heights */}
+                      <div className="h-6 w-full flex items-end gap-1.5 pt-0.5">
                         {intensity.rep_velocities.map((vel, idx) => {
                           const maxV = intensity.max_rep_vel || 1;
-                          const barHeightPct = Math.max(15, Math.min(100, Math.round((vel / maxV) * 100)));
+                          const barHeightPct = Math.max(25, Math.min(100, Math.round((vel / maxV) * 100)));
                           const isLast = idx === intensity.rep_velocities.length - 1;
                           return (
                             <div
                               key={idx}
-                              className="flex-1 flex flex-col items-center gap-0.5 group relative"
+                              className="flex-1 h-full flex flex-col justify-end items-center gap-0.5 group relative"
                             >
                               <div
                                 className={`w-full rounded-t transition-all duration-300 ${
@@ -1601,12 +1670,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                                     ? 'bg-gradient-to-t from-amber-600 to-amber-400'
                                     : 'bg-gradient-to-t from-cyan-600 to-blue-400'
                                 }`}
-                                style={{ height: `${barHeightPct}%` }}
+                                style={{ height: `${barHeightPct}%`, minHeight: '6px' }}
                               />
                               <span className="text-[8px] font-mono text-slate-400 group-hover:text-white">
                                 #{idx + 1}
                               </span>
-                              <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition pointer-events-none bg-slate-900 border border-slate-700 px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-300 whitespace-nowrap z-20">
+                              <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition pointer-events-none bg-slate-900 border border-slate-700 px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-300 whitespace-nowrap z-30 shadow-lg">
                                 {Math.round(vel)}°/s
                               </div>
                             </div>
@@ -1625,8 +1694,8 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                       Ajuste Mecánico Recomendado
                     </span>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed">
-                    {activeVerdict.recommendation || "Adelantar pies ~5 cm reduce el brazo de palanca en rodilla, elimina cizalla anterior y aísla el torque en el glúteo mayor."}
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed break-words whitespace-normal">
+                    {activeVerdict.recommendation || "Alineación articular óptima (~90° en rodilla): máxima palanca sobre el glúteo mayor."}
                   </div>
                 </div>
               </>

@@ -511,17 +511,27 @@ def process_kinematics(
     primary_angles = np.array(primary_angles, dtype=np.float64)
     secondary_angles = np.array(secondary_angles, dtype=np.float64)
     
-    # 5. Repetition Segmentation with SciPy find_peaks (excluding scene cuts & invalid frames)
-    clean_curve = np.array(primary_angles, dtype=np.float64, copy=True)
+    # 5. Clean series interpolation over INVALID_ANGLE & SCENE_CUT frames
+    valid_indices = [f for f in range(n_frames) if not is_invalid_angle[f] and not is_scene_cut[f]]
+    all_indices = np.arange(n_frames)
+    
+    if len(valid_indices) >= 2:
+        clean_primary = np.interp(all_indices, valid_indices, primary_angles[valid_indices])
+        clean_secondary = np.interp(all_indices, valid_indices, secondary_angles[valid_indices])
+    elif len(valid_indices) == 1:
+        clean_primary = np.full(n_frames, primary_angles[valid_indices[0]], dtype=np.float64)
+        clean_secondary = np.full(n_frames, secondary_angles[valid_indices[0]], dtype=np.float64)
+    else:
+        clean_primary = np.array(primary_angles, dtype=np.float64)
+        clean_secondary = np.array(secondary_angles, dtype=np.float64)
+
+    # Butterworth smoothing on the clean continuous series for robust peak detection
+    clean_primary_smooth = apply_zero_phase_butterworth(clean_primary, fs=15.0, cutoff=2.5)
+
+    clean_curve = np.array(clean_primary_smooth, dtype=np.float64, copy=True)
     if exercise_type != "hip_thrust":
         clean_curve = -clean_curve
-        
-    # Mask out scene cuts and invalid angles from peak detection
-    neutral_val = float(np.median(clean_curve))
-    for f in range(n_frames):
-        if is_scene_cut[f] or is_invalid_angle[f]:
-            clean_curve[f] = neutral_val
-            
+
     repetitions_summary = []
     frame_rep_map = [0] * n_frames
     frame_phase_map = ["IDLE"] * n_frames
@@ -531,31 +541,42 @@ def process_kinematics(
     if len(peaks) == 0:
         peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=24, distance=12)
             
-    # Discard peaks within first and last 1.0s of the clip (setup and racking movements)
-    t_min_bound = timestamps[0] + 1.0
-    t_max_bound = timestamps[-1] - 1.0
+    # Discard peaks within first and last 0.4s of the clip (setup and racking movements)
+    t_min_bound = timestamps[0] + 0.4
+    t_max_bound = timestamps[-1] - 0.4
     valid_peaks = [p for p in peaks if t_min_bound <= timestamps[p] <= t_max_bound]
     if len(valid_peaks) == 0 and len(peaks) > 0:
         valid_peaks = peaks # fallback if clip is tightly trimmed
 
-    # Angular velocity signal: absolute rate of change in primary angle (deg/s)
-    if len(primary_angles) > 1 and len(timestamps) > 1:
-        angular_vel = np.abs(np.gradient(primary_angles, timestamps))
+    # Angular velocity signal: absolute rate of change in clean primary angle (deg/s)
+    if len(clean_primary) > 1 and len(timestamps) > 1:
+        angular_vel = np.abs(np.gradient(clean_primary, timestamps))
     else:
         angular_vel = np.zeros(n_frames)
+
+    # 5.1 Median Knee Angle across all valid extension peaks for global foot placement diagnosis
+    knee_angles_at_peaks = []
+    for p in valid_peaks:
+        k_ang = float(clean_secondary[p] if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"] else clean_primary[p])
+        knee_angles_at_peaks.append(k_ang)
+
+    if len(knee_angles_at_peaks) > 0:
+        median_knee_angle_peaks = float(np.median(knee_angles_at_peaks))
+    else:
+        median_knee_angle_peaks = 90.0
 
     for rep_idx, bottom_frame in enumerate(valid_peaks, start=1):
         search_back = max(0, bottom_frame - 25)
         if exercise_type == "hip_thrust":
-            start_frame = search_back + int(np.argmin(primary_angles[search_back:bottom_frame])) if bottom_frame > search_back else search_back
+            start_frame = search_back + int(np.argmin(clean_primary_smooth[search_back:bottom_frame])) if bottom_frame > search_back else search_back
         else:
-            start_frame = search_back + int(np.argmax(primary_angles[search_back:bottom_frame])) if bottom_frame > search_back else search_back
+            start_frame = search_back + int(np.argmax(clean_primary_smooth[search_back:bottom_frame])) if bottom_frame > search_back else search_back
             
         search_fwd = min(n_frames, bottom_frame + 25)
         if exercise_type == "hip_thrust":
-            end_frame = bottom_frame + int(np.argmin(primary_angles[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
+            end_frame = bottom_frame + int(np.argmin(clean_primary_smooth[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
         else:
-            end_frame = bottom_frame + int(np.argmax(primary_angles[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
+            end_frame = bottom_frame + int(np.argmax(clean_primary_smooth[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
             
         if end_frame <= start_frame:
             end_frame = min(n_frames - 1, bottom_frame + 8)
@@ -587,14 +608,20 @@ def process_kinematics(
         concentric_time_s = max(0.10, round(float(concentric_raw - half_pause), 2))
         eccentric_time_s = max(0.10, round(float(eccentric_raw - half_pause), 2))
 
-        rep_min_angle = float(np.min(primary_angles[start_frame : end_frame + 1]))
-        rep_max_angle = float(np.max(primary_angles[start_frame : end_frame + 1]))
+        # ROM calculation strictly excluding invalid and scene-cut frames
+        rep_valid_frames = [f for f in range(start_frame, end_frame + 1) if not is_invalid_angle[f] and not is_scene_cut[f]]
+        if rep_valid_frames:
+            rep_min_angle = float(np.min(clean_primary[rep_valid_frames]))
+            rep_max_angle = float(np.max(clean_primary[rep_valid_frames]))
+        else:
+            rep_min_angle = float(np.min(clean_primary[start_frame : end_frame + 1]))
+            rep_max_angle = float(np.max(clean_primary[start_frame : end_frame + 1]))
         rom_deg = max(1.0, rep_max_angle - rep_min_angle)
 
         concentric_velocity_deg_s = round(float(rom_deg / concentric_time_s), 1)
         
-        inflect_knee = float(secondary_angles[bottom_frame] if exercise_type == "hip_thrust" else primary_angles[bottom_frame])
-        inflect_hip = float(primary_angles[bottom_frame] if exercise_type == "hip_thrust" else secondary_angles[bottom_frame])
+        inflect_knee = float(clean_secondary[bottom_frame] if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"] else clean_primary[bottom_frame])
+        inflect_hip = float(clean_primary[bottom_frame] if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"] else clean_secondary[bottom_frame])
         
         wr_x = smoothed_joints["wrist"]["x"][bottom_frame]
         hp_x = smoothed_joints["hip"]["x"][bottom_frame]
@@ -602,7 +629,7 @@ def process_kinematics(
         sh_x = smoothed_joints["shoulder"]["x"][bottom_frame]
         ak_x = smoothed_joints["ankle"]["x"][bottom_frame]
         
-        if exercise_type == "hip_thrust":
+        if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"]:
             d_knee = abs(kn_x - ak_x) # vertical tibia => knee lever arm -> 0
             d_hip = abs(hp_x - kn_x)  # hip lever arm about knee axis
             d_shoulder = abs(sh_x - hp_x)
@@ -610,21 +637,28 @@ def process_kinematics(
             tot_lever = d_knee + d_hip
             hip_share = (d_hip / tot_lever) if tot_lever > 1e-4 else 1.0
             knee_share = (d_knee / tot_lever) if tot_lever > 1e-4 else 0.0
-            
-            knee_in_target = abs(inflect_knee - 90.0) <= 12.0
-            hip_extended = inflect_hip >= 158.0 # Optimal lockout >= 158° with pelvic tilt
-            status = "OPTIMAL" if (knee_in_target and hip_extended) else "IMPROVEMENT_OPPORTUNITY"
-            dominant_joint = "CADERA"
-            torque_bias = "GLÚTEO MAYOR" if knee_in_target else ("ISQUIOSURALES" if inflect_knee > 102 else "CUÁDRICEPS")
-            
-            if knee_in_target and hip_extended:
-                recom = f"Alineación articular óptima (~90° rodilla). Brazo de palanca: {round(hip_share*100)}% Cadera vs {round(knee_share*100)}% Rodilla."
-            elif not knee_in_target and inflect_knee < 78.0:
-                recom = f"Pies demasiado retrasados (<78°): incrementa palanca sobre rodilla ({round(knee_share*100)}%). Adelanta la base."
-            elif not knee_in_target and inflect_knee > 102.0:
-                recom = f"Pies demasiado adelantados (>102°): traslada tensión hacia isquios. Acerca los pies ~5 cm."
+
+            # Foot placement evaluation based on MEDIAN knee angle across extension peaks:
+            knee_angle_peak = median_knee_angle_peaks
+            if knee_angle_peak < 78.0:
+                recom = "Pies demasiado retrasados (<78°): exceso de cizalla en rodilla y dominio de cuádriceps. Adelanta los pies ~5-10 cm."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "CUÁDRICEPS"
+            elif knee_angle_peak > 102.0:
+                recom = "Pies demasiado adelantados (>102°): traslada tensión hacia isquios. Acerca los talones ~5 cm."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "ISQUIOSURALES"
             else:
-                recom = "Extensión de cadera incompleta (<158°). Busca lockout activo con retroversión pélvica."
+                hip_extended = inflect_hip >= 158.0 # Optimal lockout >= 158° with pelvic retroversion
+                if hip_extended:
+                    recom = "Alineación articular óptima (~90° en rodilla): máxima palanca sobre el glúteo mayor."
+                    status = "OPTIMAL"
+                else:
+                    recom = f"Extensión de cadera incompleta ({round(inflect_hip)}° < 158°). Busca lockout activo con retroversión pélvica."
+                    status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "GLÚTEO MAYOR"
+
+            dominant_joint = "CADERA"
         elif exercise_type in ["squat", "hack_squat", "leg_press", "leg_extension", "bulgarian_squat", "front_squat", "sissy_squat"]:
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
@@ -777,7 +811,7 @@ def process_kinematics(
     frames_output = []
     for f in range(n_frames):
         rep_num = frame_rep_map[f]
-        rep_verdict = repetitions_summary[rep_num - 1]["verdict"] if (rep_num > 0 and rep_num <= len(repetitions_summary)) else {
+        base_rep_verdict = repetitions_summary[rep_num - 1]["verdict"] if (rep_num > 0 and rep_num <= len(repetitions_summary)) else {
             "status": "TRACKING",
             "dominant_joint": "NEUTRO",
             "target_alignment": True,
@@ -789,6 +823,16 @@ def process_kinematics(
             "d_shoulder_norm": 0.0,
             "recommendation": "Mapeando cinemática articular..."
         }
+
+        # When frame is INVALID_ANGLE, do not evaluate postural verdict on this frame
+        if is_invalid_angle[f]:
+            rep_verdict = {
+                **base_rep_verdict,
+                "status": "TRACKING_FILTERED",
+                "recommendation": "Ángulo frontal/diagonal filtrado (esperando vista lateral válida)..."
+            }
+        else:
+            rep_verdict = base_rep_verdict
         
         wr_x = smoothed_joints["wrist"]["x"][f]
         hp_x = smoothed_joints["hip"]["x"][f]
@@ -816,8 +860,8 @@ def process_kinematics(
             "time": timestamps[f],
             "rep_number": rep_num,
             "phase": phase,
-            "main_angle": round(float(primary_angles[f]), 1),
-            "secondary_angle": round(float(secondary_angles[f]), 1),
+            "main_angle": round(float(clean_primary[f]), 1),
+            "secondary_angle": round(float(clean_secondary[f]), 1),
             "keypoints_norm": {
                 "shoulder": {"x": round(float(sh_x), 4), "y": round(float(smoothed_joints["shoulder"]["y"][f]), 4), "score": round(float(smoothed_joints["shoulder"]["score"][f]), 2)},
                 "elbow": {"x": round(float(smoothed_joints["elbow"]["x"][f]), 4), "y": round(float(smoothed_joints["elbow"]["y"][f]), 4), "score": round(float(smoothed_joints["elbow"]["score"][f]), 2)},
