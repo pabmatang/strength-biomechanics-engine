@@ -281,6 +281,8 @@ def run_inference_batches(
     has_crop = (crop_w < w or crop_h < h)
     eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
     
+    tracked_athlete_box = None
+
     for i in range(0, n_frames, batch_size):
         batch_rgb = frames_rgb[i : i + batch_size]
         if has_crop:
@@ -289,14 +291,14 @@ def run_inference_batches(
             batch_crop = batch_rgb
         batch_pil = [Image.fromarray(f) for f in batch_crop]
         
-        # Step A: RT-DETR Primary Athlete Bounding Box Detection
+        # Step A: RT-DETR Primary Athlete Bounding Box Detection with Temporal IoU Tracking
         det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
         with torch.inference_mode():
             det_outputs = det_model(**det_inputs)
             
         target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), device=device)
         det_results = det_processor.post_process_object_detection(
-            det_outputs, target_sizes=target_sizes, threshold=0.25
+            det_outputs, target_sizes=target_sizes, threshold=0.20
         )
         
         batch_boxes = []
@@ -306,27 +308,65 @@ def run_inference_batches(
             labels = d_res["labels"].detach().cpu().numpy()
             
             # Label 0: Person class in COCO
-            person_indices = [idx for idx, l in enumerate(labels) if l == 0]
+            person_indices = [idx for idx, l in enumerate(labels) if l == 0 and scores[idx] >= 0.20]
             if len(person_indices) > 0:
-                best_idx = person_indices[0]
-                best_metric = -1.0
-                for p_idx in person_indices:
-                    b = boxes[p_idx]
-                    area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
-                    b_cx = (b[0] + b[2]) / (2.0 * eff_w)
-                    center_weight = max(0.3, 1.0 - abs(b_cx - 0.5))
-                    metric = scores[p_idx] * area * center_weight
-                    if metric > best_metric:
-                        best_metric = metric
-                        best_idx = p_idx
-                chosen_box = boxes[best_idx].tolist()
-                
-                # Smooth bounding box with previous frame
-                if len(batch_boxes) > 0:
-                    prev = batch_boxes[-1][0]
-                    chosen_box = [
-                        0.70 * chosen_box[c] + 0.30 * prev[c] for c in range(4)
-                    ]
+                if tracked_athlete_box is None:
+                    # Initialize on primary athlete: largest, most central high-confidence person
+                    best_idx = person_indices[0]
+                    best_metric = -1.0
+                    for p_idx in person_indices:
+                        b = boxes[p_idx]
+                        area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
+                        b_cx = (b[0] + b[2]) / (2.0 * eff_w)
+                        center_weight = max(0.4, 1.0 - abs(b_cx - 0.5))
+                        metric = float(scores[p_idx]) * float(area) * float(center_weight)
+                        if metric > best_metric:
+                            best_metric = metric
+                            best_idx = p_idx
+                    tracked_athlete_box = boxes[best_idx].tolist()
+                    chosen_box = tracked_athlete_box
+                else:
+                    # Continuous Temporal Matching: match against tracked athlete using IoU + spatial proximity
+                    prev_b = tracked_athlete_box
+                    prev_cx = (prev_b[0] + prev_b[2]) / 2.0
+                    prev_cy = (prev_b[1] + prev_b[3]) / 2.0
+                    prev_area = max(1.0, (prev_b[2] - prev_b[0]) * (prev_b[3] - prev_b[1]))
+                    diag = float(np.hypot(eff_w, eff_h)) + 1e-6
+
+                    best_idx = None
+                    best_match_score = -999.0
+
+                    for p_idx in person_indices:
+                        b = boxes[p_idx]
+                        ix1 = max(prev_b[0], b[0])
+                        iy1 = max(prev_b[1], b[1])
+                        ix2 = min(prev_b[2], b[2])
+                        iy2 = min(prev_b[3], b[3])
+                        inter_area = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+                        b_area = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
+                        union_area = prev_area + b_area - inter_area
+                        iou = inter_area / union_area
+
+                        cand_cx = (b[0] + b[2]) / 2.0
+                        cand_cy = (b[1] + b[3]) / 2.0
+                        norm_dist = float(np.hypot(cand_cx - prev_cx, cand_cy - prev_cy)) / diag
+                        area_ratio = min(b_area, prev_area) / max(b_area, prev_area)
+
+                        # Match score strongly penalizes distance to lock onto the primary athlete
+                        m_score = iou * 3.5 + float(scores[p_idx]) * 1.5 + area_ratio * 1.0 - norm_dist * 3.0
+                        if m_score > best_match_score:
+                            best_match_score = m_score
+                            best_idx = p_idx
+
+                    # Lock strictly onto the tracked athlete; do not jump to background gym users
+                    if best_idx is not None and (best_match_score > 0.25):
+                        cand_box = boxes[best_idx].tolist()
+                        tracked_athlete_box = [
+                            0.75 * cand_box[c] + 0.25 * tracked_athlete_box[c] for c in range(4)
+                        ]
+                        chosen_box = tracked_athlete_box
+                    else:
+                        chosen_box = tracked_athlete_box
                 
                 batch_boxes.append([chosen_box])
                 cx = float((crop_x + (chosen_box[0] + chosen_box[2]) / 2.0) / float(w))
@@ -334,9 +374,14 @@ def run_inference_batches(
                 bw = float((chosen_box[2] - chosen_box[0]) / float(w))
                 bh = float((chosen_box[3] - chosen_box[1]) / float(h))
                 all_boxes.append({"cx": cx, "cy": cy, "bw": bw, "bh": bh})
-            elif len(boxes) > 0:
-                batch_boxes.append([[0.0, 0.0, float(eff_w), float(eff_h)]])
-                all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
+            elif tracked_athlete_box is not None:
+                # Detector missed a frame -> persist previous tracked athlete box without jumping
+                batch_boxes.append([tracked_athlete_box])
+                cx = float((crop_x + (tracked_athlete_box[0] + tracked_athlete_box[2]) / 2.0) / float(w))
+                cy = float((crop_y + (tracked_athlete_box[1] + tracked_athlete_box[3]) / 2.0) / float(h))
+                bw = float((tracked_athlete_box[2] - tracked_athlete_box[0]) / float(w))
+                bh = float((tracked_athlete_box[3] - tracked_athlete_box[1]) / float(h))
+                all_boxes.append({"cx": cx, "cy": cy, "bw": bw, "bh": bh})
             else:
                 batch_boxes.append([[0.0, 0.0, float(eff_w), float(eff_h)]])
                 all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
@@ -535,54 +580,20 @@ def process_kinematics(
             metric_r = len_r * 2.0 + side_conf["right"]
             active_side_init = "left" if metric_l >= metric_r else "right"
 
-        # Anti-Arm-Flipping Spatial Continuity Tracker
+        # Strict Active Arm Lock: eliminate mid-video arm hopping and jitter
+        locked_side = active_side_init
         tracked_sh = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_el = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_wr = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_sc = {"shoulder": np.zeros(n_frames), "elbow": np.zeros(n_frames), "wrist": np.zeros(n_frames)}
 
-        s0 = active_side_init
-        tracked_sh[0] = [all_smoothed[f"{s0}_shoulder"]["x"][0], all_smoothed[f"{s0}_shoulder"]["y"][0]]
-        tracked_el[0] = [all_smoothed[f"{s0}_elbow"]["x"][0], all_smoothed[f"{s0}_elbow"]["y"][0]]
-        tracked_wr[0] = [all_smoothed[f"{s0}_wrist"]["x"][0], all_smoothed[f"{s0}_wrist"]["y"][0]]
-        tracked_sc["shoulder"][0] = all_smoothed[f"{s0}_shoulder"]["score"][0]
-        tracked_sc["elbow"][0] = all_smoothed[f"{s0}_elbow"]["score"][0]
-        tracked_sc["wrist"][0] = all_smoothed[f"{s0}_wrist"]["score"][0]
-
-        for f in range(1, n_frames):
-            prev_el = tracked_el[f - 1]
-            prev_wr = tracked_wr[f - 1]
-
-            cand_l_sh = np.array([all_smoothed["left_shoulder"]["x"][f], all_smoothed["left_shoulder"]["y"][f]])
-            cand_l_el = np.array([all_smoothed["left_elbow"]["x"][f], all_smoothed["left_elbow"]["y"][f]])
-            cand_l_wr = np.array([all_smoothed["left_wrist"]["x"][f], all_smoothed["left_wrist"]["y"][f]])
-
-            cand_r_sh = np.array([all_smoothed["right_shoulder"]["x"][f], all_smoothed["right_shoulder"]["y"][f]])
-            cand_r_el = np.array([all_smoothed["right_elbow"]["x"][f], all_smoothed["right_elbow"]["y"][f]])
-            cand_r_wr = np.array([all_smoothed["right_wrist"]["x"][f], all_smoothed["right_wrist"]["y"][f]])
-
-            dist_l = np.linalg.norm(cand_l_el - prev_el) + 0.7 * np.linalg.norm(cand_l_wr - prev_wr)
-            dist_r = np.linalg.norm(cand_r_el - prev_el) + 0.7 * np.linalg.norm(cand_r_wr - prev_wr)
-
-            if is_unilateral_flag:
-                chosen_side = active_side_init
-            else:
-                chosen_side = "left" if dist_l <= dist_r else "right"
-
-            if chosen_side == "left":
-                tracked_sh[f] = cand_l_sh
-                tracked_el[f] = cand_l_el
-                tracked_wr[f] = cand_l_wr
-                tracked_sc["shoulder"][f] = all_smoothed["left_shoulder"]["score"][f]
-                tracked_sc["elbow"][f] = all_smoothed["left_elbow"]["score"][f]
-                tracked_sc["wrist"][f] = all_smoothed["left_wrist"]["score"][f]
-            else:
-                tracked_sh[f] = cand_r_sh
-                tracked_el[f] = cand_r_el
-                tracked_wr[f] = cand_r_wr
-                tracked_sc["shoulder"][f] = all_smoothed["right_shoulder"]["score"][f]
-                tracked_sc["elbow"][f] = all_smoothed["right_elbow"]["score"][f]
-                tracked_sc["wrist"][f] = all_smoothed["right_wrist"]["score"][f]
+        for f in range(n_frames):
+            tracked_sh[f] = [all_smoothed[f"{locked_side}_shoulder"]["x"][f], all_smoothed[f"{locked_side}_shoulder"]["y"][f]]
+            tracked_el[f] = [all_smoothed[f"{locked_side}_elbow"]["x"][f], all_smoothed[f"{locked_side}_elbow"]["y"][f]]
+            tracked_wr[f] = [all_smoothed[f"{locked_side}_wrist"]["x"][f], all_smoothed[f"{locked_side}_wrist"]["y"][f]]
+            tracked_sc["shoulder"][f] = all_smoothed[f"{locked_side}_shoulder"]["score"][f]
+            tracked_sc["elbow"][f] = all_smoothed[f"{locked_side}_elbow"]["score"][f]
+            tracked_sc["wrist"][f] = all_smoothed[f"{locked_side}_wrist"]["score"][f]
 
         primary_joints["shoulder"] = {
             "x": apply_zero_phase_butterworth(tracked_sh[:, 0], fs=15.0, cutoff=1.8),
@@ -599,13 +610,35 @@ def process_kinematics(
             "y": apply_zero_phase_butterworth(tracked_wr[:, 1], fs=15.0, cutoff=1.8),
             "score": tracked_sc["wrist"]
         }
-        for c_name in ["hip", "knee", "ankle"]:
-            primary_joints[c_name] = {
-                "x": all_smoothed[f"{active_side_init}_{c_name}"]["x"].copy(),
-                "y": all_smoothed[f"{active_side_init}_{c_name}"]["y"].copy(),
-                "score": all_smoothed[f"{active_side_init}_{c_name}"]["score"].copy()
+
+        # Anatomically stable pelvis center for torso vector
+        l_hip_conf = float(np.mean(all_smoothed["left_hip"]["score"]))
+        r_hip_conf = float(np.mean(all_smoothed["right_hip"]["score"]))
+        if l_hip_conf >= 0.35 and r_hip_conf >= 0.35:
+            primary_joints["hip"] = {
+                "x": 0.5 * (all_smoothed["left_hip"]["x"] + all_smoothed["right_hip"]["x"]),
+                "y": 0.5 * (all_smoothed["left_hip"]["y"] + all_smoothed["right_hip"]["y"]),
+                "score": 0.5 * (all_smoothed["left_hip"]["score"] + all_smoothed["right_hip"]["score"])
             }
-        locked_side = active_side_init
+        elif l_hip_conf >= r_hip_conf:
+            primary_joints["hip"] = {
+                "x": all_smoothed["left_hip"]["x"].copy(),
+                "y": all_smoothed["left_hip"]["y"].copy(),
+                "score": all_smoothed["left_hip"]["score"].copy()
+            }
+        else:
+            primary_joints["hip"] = {
+                "x": all_smoothed["right_hip"]["x"].copy(),
+                "y": all_smoothed["right_hip"]["y"].copy(),
+                "score": all_smoothed["right_hip"]["score"].copy()
+            }
+
+        for c_name in ["knee", "ankle"]:
+            primary_joints[c_name] = {
+                "x": all_smoothed[f"{locked_side}_{c_name}"]["x"].copy(),
+                "y": all_smoothed[f"{locked_side}_{c_name}"]["y"].copy(),
+                "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
+            }
         other_side = "right" if locked_side == "left" else "left"
     else:
         is_unilateral_flag = False

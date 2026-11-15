@@ -749,16 +749,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const clampY = (y: number, h: number = 22) => Math.max(10, Math.min(canvas.height - h - 10, y));
 
     const drawPillTag = (x: number, y: number, text: string, borderColor: string, textColor: string = '#FFFFFF') => {
-      ctx.font = 'bold 11px ui-monospace, SFMono-Regular, monospace';
+      ctx.font = 'bold 10px ui-monospace, SFMono-Regular, monospace';
       const textW = ctx.measureText(text).width;
-      const pillW = textW + 14;
-      const pillH = 20;
+      const pillW = textW + 12;
+      const pillH = 18;
       const pillX = clampX(x, pillW);
       const pillY = clampY(y, pillH);
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.80)';
       ctx.beginPath();
-      ctx.roundRect(pillX, pillY, pillW, pillH, 6);
+      ctx.roundRect(pillX, pillY, pillW, pillH, 5);
       ctx.fill();
 
       ctx.strokeStyle = borderColor;
@@ -766,7 +766,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
 
       ctx.fillStyle = textColor;
-      ctx.fillText(text, pillX + 7, pillY + 14);
+      ctx.fillText(text, pillX + 6, pillY + 12);
     };
 
     const drawAngleArc = (pCenter: { x: number; y: number; score?: number }, p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, radius: number, color: string) => {
@@ -898,13 +898,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       // MODO 2: OPTIMIZACIÓN BIOMECÁNICA
       // -------------------------------------------------------------
       ctx.save();
-      ctx.globalAlpha = 0.35;
-      if (hasBilateral) {
-        drawSegment(pLSh, pRSh, '#94A3B8');
-        drawSegment(pLSh, pLEl, '#94A3B8');
-        drawSegment(pLEl, pLWr, '#94A3B8');
-        drawSegment(pRSh, pREl, '#94A3B8');
-        drawSegment(pREl, pRWr, '#94A3B8');
+      ctx.globalAlpha = 0.28;
+      if (isLowerBody) {
         drawSegment(pLSh, pLHp, '#94A3B8');
         drawSegment(pRSh, pRHp, '#94A3B8');
         drawSegment(pLHp, pLKn, '#94A3B8');
@@ -912,15 +907,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawSegment(pRHp, pRKn, '#94A3B8');
         drawSegment(pRKn, pRAk, '#94A3B8');
       } else {
-        if (isLowerBody) {
-          drawSegment(pSh, pHp, '#94A3B8');
-          drawSegment(pHp, pKn, '#94A3B8');
-          drawSegment(pKn, pAk, '#94A3B8');
-        } else {
-          drawSegment(pSh, pHp, '#94A3B8');
-          drawSegment(pSh, pEl, '#94A3B8');
-          drawSegment(pEl, pWr, '#94A3B8');
-        }
+        drawSegment(pSh, pHp, '#94A3B8');
+        drawSegment(pLSh, pLEl, '#94A3B8');
+        drawSegment(pLEl, pLWr, '#94A3B8');
+        drawSegment(pRSh, pREl, '#94A3B8');
+        drawSegment(pREl, pRWr, '#94A3B8');
+        drawSegment(pHp, pKn, '#94A3B8');
+        drawSegment(pKn, pAk, '#94A3B8');
       }
       ctx.restore();
 
@@ -967,8 +960,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             isUpperBackCanvas = (elbowTorsoDeg >= 38.0 || relDist >= 0.35 || exIdStr.includes('t_bar') || exIdStr.includes('upper_back'));
           }
 
-          const labelSh = isBack ? (isUpperBackCanvas ? 'Brazo Espalda Alta' : 'Brazo Dorsal') : 'Brazo Pectoral';
-          const labelEl = isBack ? 'Brazo Bíceps' : 'Brazo Tríceps';
+          const labelSh = isBack ? (isUpperBackCanvas ? 'Espalda Alta' : 'Dorsal') : 'Pectoral';
+          const labelEl = isBack ? 'Bíceps' : 'Tríceps';
 
           if (isHorizontalResistance) {
             // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
@@ -1016,11 +1009,27 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               );
 
               const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
-                ? `${labelEl}: 0 (Todo ${isBack ? 'Espalda' : 'Pecho'})`
+                ? `${labelEl}: 0`
                 : `${labelEl}: ${dEl}`;
 
-              drawPillTag(pSh.x - 55, (pSh.y + lineY) / 2, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(pEl.x - 55, (pEl.y + lineY) / 2, elLabelText, '#10B981', '#6EE7B7');
+              const tagX = facingDir > 0
+                ? Math.min(offsetX + drawW - 90, Math.max(pWr.x + 10, lineRight - 75))
+                : Math.max(offsetX + 12, Math.min(pWr.x - 75, lineLeft + 10));
+
+              let tagShY = (pSh.y + lineY) / 2 - 9;
+              let tagElY = (pEl.y + lineY) / 2 - 9;
+              if (Math.abs(tagShY - tagElY) < 20) {
+                if (tagShY <= tagElY) {
+                  tagShY -= 10;
+                  tagElY += 10;
+                } else {
+                  tagShY += 10;
+                  tagElY -= 10;
+                }
+              }
+
+              drawPillTag(tagX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(tagX, tagElY, elLabelText, '#10B981', '#6EE7B7');
             }
           } else {
             // Vector de resistencia vertical (Peso libre por gravedad o Jalón en polea vertical)
@@ -1071,27 +1080,25 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100)
               );
 
-              const midShX = (pSh.x + lineX) / 2;
-              const midElX = (pEl.x + lineX) / 2;
+              const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
+                ? `${labelEl}: 0`
+                : `${labelEl}: ${dEl}`;
 
-              let tagShY = pSh.y - 18;
-              let tagElY = pEl.y - 18;
-              if (Math.abs(tagShY - tagElY) < 28) {
+              const tagX = lineX > pSh.x ? Math.min(offsetX + drawW - 85, lineX + 8) : Math.max(offsetX + 10, lineX - 85);
+              let tagShY = pSh.y - 9;
+              let tagElY = pEl.y - 9;
+              if (Math.abs(tagShY - tagElY) < 22) {
                 if (tagShY <= tagElY) {
-                  tagShY -= 14;
-                  tagElY += 14;
+                  tagShY -= 11;
+                  tagElY += 11;
                 } else {
-                  tagShY += 14;
-                  tagElY -= 14;
+                  tagShY += 11;
+                  tagElY -= 11;
                 }
               }
 
-              const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
-                ? `${labelEl}: 0 (Todo ${isBack ? 'Espalda' : 'Pecho'})`
-                : `${labelEl}: ${dEl}`;
-
-              drawPillTag(midShX - 55, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(midElX - 55, tagElY, elLabelText, '#10B981', '#6EE7B7');
+              drawPillTag(tagX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(tagX, tagElY, elLabelText, '#10B981', '#6EE7B7');
             }
           }
         }
@@ -1824,7 +1831,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 {/* Lever Arms & Force Vectors Visibility Toggle */}
                 <button
                   type="button"
-                  onClick={() => setShowLeverArms(prev => !prev)}
+                  onClick={() => {
+                    setShowLeverArms(prev => {
+                      const next = !prev;
+                      setShowCanvasText(next);
+                      return next;
+                    });
+                  }}
                   className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition active:scale-95 ${
                     showLeverArms
                       ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
@@ -1970,9 +1983,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               )}
 
-              {/* HUD Telemetry Badges */}
+              {/* HUD Telemetry Badges (Positioned at bottom-left to avoid occluding video titles and athlete) */}
               {pipelineState === 'ready' && (
-                <div className="absolute top-2 left-2 flex flex-wrap gap-1.5 pointer-events-none z-10">
+                <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-1.5 pointer-events-none z-10 max-w-[90%]">
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold shadow-md">
                     {analysisData && analysisData.total_reps > 0 && currentFrame && currentFrame.rep_number > 0
                       ? `REP #${currentFrame.rep_number}`
