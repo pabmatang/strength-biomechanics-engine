@@ -119,7 +119,8 @@ export const MUSCLE_GROUPS: MuscleGroup[] = [
       { id: 'machine_chest_press', name: 'Press en Máquina Convergente', exerciseType: 'machine_chest_press', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'converging_chest_press_machine' },
       { id: 'cable_fly', name: 'Aperturas / Cruces en Polea', exerciseType: 'cable_fly', targetMuscle: 'pectorals', loadType: 'cable', patternId: 'cable_fly_mid_sternal' },
       { id: 'pec_deck', name: 'Pec Deck / Contractora', exerciseType: 'pec_deck', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'cable_fly_mid_sternal' },
-      { id: 'chest_dips', name: 'Fondos en Paralelas para Pecho', exerciseType: 'chest_dips', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'dips_chest_lean' }
+      { id: 'chest_dips', name: 'Fondos en Paralelas para Pecho', exerciseType: 'chest_dips', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'dips_chest_lean' },
+      { id: 'machine_dips', name: 'Fondos en Máquina para Pecho', exerciseType: 'machine_dips', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'dips_chest_lean' }
     ]
   },
   {
@@ -708,16 +709,38 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y), score: kp.right_ankle.score } : pAk;
 
 
+    const pHand = {
+      x: kp.hand_grip ? px(kp.hand_grip.x) : pWr.x + 0.18 * (pWr.x - pEl.x),
+      y: kp.hand_grip ? py(kp.hand_grip.y) : pWr.y + 0.18 * (pWr.y - pEl.y),
+      score: pWr.score
+    };
+
     const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
     const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
     // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
     const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
 
+    // Torso reference length for anatomical outlier rejection
+    const torsoLen = Math.hypot(pSh.x - pHp.x, pSh.y - pHp.y);
+
+    // Lateral profile view check: if horizontal distance between shoulders and hips is small, view is in profile
+    const shoulderSpanX = Math.abs(pLSh.x - pRSh.x);
+    const hipSpanX = Math.abs(pLHp.x - pRHp.x);
+    const isProfileView = isUnilateralMotion || (shoulderSpanX < drawW * 0.08 && hipSpanX < drawW * 0.08);
+
+    // Anatomical segment check: limb segment must be within plausible human bounds [0.10, 1.15] * torsoLen
+    const isLimbPlausible = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+      if (torsoLen < 20) return true;
+      const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      return d >= torsoLen * 0.10 && d <= torsoLen * 1.15;
+    };
+
     // Both sides must have reasonable confidence to render bilateral skeleton, otherwise use primary tracked limbs
-    const hasBilateral = !isUnilateralMotion && Boolean(
-      (kp.left_shoulder?.score ?? 0) >= 0.28 && (kp.right_shoulder?.score ?? 0) >= 0.28 &&
-      (kp.left_elbow?.score ?? 0) >= 0.28 && (kp.right_elbow?.score ?? 0) >= 0.28
+    const hasBilateral = !isProfileView && Boolean(
+      (kp.left_shoulder?.score ?? 0) >= 0.35 && (kp.right_shoulder?.score ?? 0) >= 0.35 &&
+      (kp.left_elbow?.score ?? 0) >= 0.35 && (kp.right_elbow?.score ?? 0) >= 0.35 &&
+      isLimbPlausible(pLSh, pLEl) && isLimbPlausible(pRSh, pREl)
     );
 
     const drawPoint = (p: { x: number; y: number; score?: number }, color: string) => {
@@ -733,6 +756,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
     const drawSegment = (p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, color: string, dashed: boolean = false) => {
       if ((p1.score !== undefined && p1.score < 0.25) || (p2.score !== undefined && p2.score < 0.25)) return;
+      if (!isLimbPlausible(p1, p2)) return; // Suppress spurious limbs connecting to background gym members
       ctx.beginPath();
       if (dashed) ctx.setLineDash([4, 4]);
       else ctx.setLineDash([]);
@@ -885,10 +909,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawSegment(pSh, pHp, '#10B981');
           drawSegment(pSh, pEl, '#6EE7B7');
           drawSegment(pEl, pWr, '#6EE7B7');
+          drawSegment(pWr, pHand, '#FBBF24');
           drawPoint(pHd, '#34D399');
           drawPoint(pSh, '#10B981');
           drawPoint(pEl, '#6EE7B7');
           drawPoint(pWr, '#6EE7B7');
+          drawPoint(pHand, '#FBBF24');
           drawPoint(pHp, '#10B981');
         }
       }
@@ -899,18 +925,29 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.save();
       ctx.globalAlpha = 0.28;
       if (isLowerBody) {
-        drawSegment(pLSh, pLHp, '#94A3B8');
-        drawSegment(pRSh, pRHp, '#94A3B8');
-        drawSegment(pLHp, pLKn, '#94A3B8');
-        drawSegment(pLKn, pLAk, '#94A3B8');
-        drawSegment(pRHp, pRKn, '#94A3B8');
-        drawSegment(pRKn, pRAk, '#94A3B8');
+        if (!isProfileView && hasBilateral) {
+          drawSegment(pLSh, pLHp, '#94A3B8');
+          drawSegment(pRSh, pRHp, '#94A3B8');
+          drawSegment(pLHp, pLKn, '#94A3B8');
+          drawSegment(pLKn, pLAk, '#94A3B8');
+          drawSegment(pRHp, pRKn, '#94A3B8');
+          drawSegment(pRKn, pRAk, '#94A3B8');
+        } else {
+          drawSegment(pSh, pHp, '#94A3B8');
+          drawSegment(pHp, pKn, '#94A3B8');
+          drawSegment(pKn, pAk, '#94A3B8');
+        }
       } else {
         drawSegment(pSh, pHp, '#94A3B8');
-        drawSegment(pLSh, pLEl, '#94A3B8');
-        drawSegment(pLEl, pLWr, '#94A3B8');
-        drawSegment(pRSh, pREl, '#94A3B8');
-        drawSegment(pREl, pRWr, '#94A3B8');
+        if (!isProfileView && hasBilateral) {
+          drawSegment(pLSh, pLEl, '#94A3B8');
+          drawSegment(pLEl, pLWr, '#94A3B8');
+          drawSegment(pRSh, pREl, '#94A3B8');
+          drawSegment(pREl, pRWr, '#94A3B8');
+        } else {
+          drawSegment(pSh, pEl, '#94A3B8');
+          drawSegment(pEl, pWr, '#94A3B8');
+        }
         drawSegment(pHp, pKn, '#94A3B8');
         drawSegment(pKn, pAk, '#94A3B8');
       }
@@ -928,7 +965,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         // TREN SUPERIOR (Pecho, Espalda, Hombros, Brazos):
         drawPoint(pSh, '#3B82F6');
         drawPoint(pEl, '#10B981');
-        drawPoint(pWr, '#FBBF24');
+        // Anchor yellow load marker directly at Hand Grip center (dumbbell/bar/machine handle)
+        drawPoint(pHand, '#FBBF24');
         if (pHp.score !== undefined && pHp.score > 0.35) {
           drawPoint(pHp, '#64748B');
         }
@@ -964,12 +1002,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           if (isHorizontalResistance) {
             // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
-            // Pin directly to smoothed wrist joint for zero-lag biomechanical accuracy
-            const lineY = pWr.y;
+            // Pin directly to Hand Grip center (machine handle / dumbbell grip)
+            const lineY = pHand.y;
 
-            const facingDir = fv?.dx !== undefined ? (fv.dx >= 0 ? 1 : -1) : (pWr.x > pSh.x ? 1 : -1);
-            const lineLeft = Math.max(offsetX + 10, Math.min(pSh.x, pWr.x) - 60);
-            const lineRight = Math.min(offsetX + drawW - 10, Math.max(pSh.x, pWr.x) + 60);
+            const facingDir = fv?.dx !== undefined ? (fv.dx >= 0 ? 1 : -1) : (pHand.x > pSh.x ? 1 : -1);
+            const lineLeft = Math.max(offsetX + 10, Math.min(pSh.x, pHand.x) - 60);
+            const lineRight = Math.min(offsetX + drawW - 10, Math.max(pSh.x, pHand.x) + 60);
 
             ctx.beginPath();
             ctx.setLineDash([6, 3]);
@@ -995,18 +1033,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             drawSegment(pEl, { x: pEl.x, y: lineY, score: pEl.score }, '#10B981', true);
 
             if (options.showCanvasText) {
-              const dSh = Math.round(
-                ((frame.moment_arms?.d_shoulder !== undefined ? frame.moment_arms.d_shoulder : (Math.abs(pSh.y - lineY) / (drawH * 0.4))) * 100)
-              );
-              const dEl = Math.round(
-                (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.y - lineY) / (drawH * 0.4))) * 100)
-              );
+              const dSh = Math.round(Math.abs(pSh.y - lineY));
+              const dEl = Math.round(Math.abs(pEl.y - lineY));
 
               const elLabelText = `${labelEl}: ${dEl}`;
 
               const tagX = facingDir > 0
-                ? Math.min(offsetX + drawW - 90, Math.max(pWr.x + 10, lineRight - 75))
-                : Math.max(offsetX + 12, Math.min(pWr.x - 75, lineLeft + 10));
+                ? Math.min(offsetX + drawW - 90, Math.max(pHand.x + 10, lineRight - 75))
+                : Math.max(offsetX + 12, Math.min(pHand.x - 75, lineLeft + 10));
 
               let tagShY = (pSh.y + lineY) / 2 - 9;
               let tagElY = (pEl.y + lineY) / 2 - 9;
@@ -1025,11 +1059,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             }
           } else {
             // Vector de resistencia vertical (Peso libre por gravedad o Jalón en polea vertical)
-            // Pin directly to smoothed wrist joint for zero-lag biomechanical accuracy
-            const lineX = pWr.x;
+            // Pin directly to Hand Grip center passing squarely through dumbbell handle / bar
+            const lineX = pHand.x;
 
-            const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pWr.y) - 60);
-            const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pWr.y, pHp.y) + 40);
+            const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pHand.y) - 60);
+            const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pHand.y, pHp.y) + 40);
 
             ctx.beginPath();
             ctx.setLineDash([6, 3]);
@@ -1060,12 +1094,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             drawSegment(pEl, { x: lineX, y: pEl.y, score: pEl.score }, '#10B981', true);
 
             if (options.showCanvasText) {
-              const dSh = Math.round(
-                ((frame.moment_arms?.d_shoulder !== undefined ? frame.moment_arms.d_shoulder : (Math.abs(pSh.x - lineX) / (drawW * 0.4))) * 100)
-              );
-              const dEl = Math.round(
-                (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100)
-              );
+              const dSh = Math.round(Math.abs(pSh.x - lineX));
+              const dEl = Math.round(Math.abs(pEl.x - lineX));
 
               const elLabelText = `${labelEl}: ${dEl}`;
 
@@ -1999,8 +2029,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
                       Torso: {Math.round(currentFrame?.secondary_angle ?? 0)}° · Palanca: {
                         secondaryLeverShare === 0
-                          ? `100% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} (Todo ${isBackExercise ? 'Espalda' : 'Pecho'})`
-                          : `${primaryLeverShare}% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} / ${secondaryLeverShare}% ${isBackExercise ? 'Bíceps' : 'Tríceps'}`
+                          ? `100% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')}`
+                          : `${primaryLeverShare}% ${isUpperBackActive ? 'Esp. Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} / ${secondaryLeverShare}% ${isBackExercise ? 'Bíceps' : 'Tríceps'}`
                       }
                     </span>
                   ) : (

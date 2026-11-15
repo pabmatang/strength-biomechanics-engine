@@ -747,9 +747,13 @@ def process_kinematics(
         wr_y = primary_joints["wrist"]["y"]
         el_x = primary_joints["elbow"]["x"]
         el_y = primary_joints["elbow"]["y"]
+        sh_x = primary_joints["shoulder"]["x"]
+        sh_y = primary_joints["shoulder"]["y"]
         wr_score = primary_joints["wrist"]["score"]
         el_score = primary_joints["elbow"]["score"]
+        sh_score = primary_joints["shoulder"]["score"]
 
+        # 3B. Anatomical Rigid Forearm and Humerus Stabilizer
         forearm_lengths = np.hypot(wr_x - el_x, wr_y - el_y)
         unoccluded_wrist_mask = (wr_score >= 0.40) & (el_score >= 0.40) & (forearm_lengths >= 0.08)
 
@@ -758,6 +762,25 @@ def process_kinematics(
         else:
             box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
             l_forearm_median = float(max(0.14, min(0.28, box_h * 0.22)))
+
+        humerus_lengths = np.hypot(el_x - sh_x, el_y - sh_y)
+        unoccluded_elbow_mask = (el_score >= 0.40) & (sh_score >= 0.40) & (humerus_lengths >= 0.08)
+        if np.any(unoccluded_elbow_mask):
+            l_humerus_median = float(np.median(humerus_lengths[unoccluded_elbow_mask]))
+        else:
+            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
+            l_humerus_median = float(max(0.16, min(0.32, box_h * 0.25)))
+
+        # Fine-tune elbow joint: enforce rigid humerus length to eliminate drift from muscle bulge / loose clothing
+        for f in range(n_frames):
+            cur_hl = math.hypot(el_x[f] - sh_x[f], el_y[f] - sh_y[f])
+            if cur_hl > 1e-4 and abs(cur_hl - l_humerus_median) / max(l_humerus_median, 1e-4) > 0.15:
+                ratio = l_humerus_median / cur_hl
+                el_x[f] = sh_x[f] + (el_x[f] - sh_x[f]) * (0.35 + 0.65 * ratio)
+                el_y[f] = sh_y[f] + (el_y[f] - sh_y[f]) * (0.35 + 0.65 * ratio)
+
+        primary_joints["elbow"]["x"] = apply_zero_phase_butterworth(el_x, fs=15.0, cutoff=1.8)
+        primary_joints["elbow"]["y"] = apply_zero_phase_butterworth(el_y, fs=15.0, cutoff=1.8)
 
         # Detect Dumbbell / Barbell plate occlusion: wrist score drops or forearm length collapses > 20%
         forearm_ratio_dev = np.abs(forearm_lengths - l_forearm_median) / max(l_forearm_median, 1e-4)
@@ -793,6 +816,29 @@ def process_kinematics(
         primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=1.8)
         primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=1.8)
 
+        # 3C. Hand Grip Center Projection (Exact center of palm / dumbbell handle / machine grip)
+        hand_x = np.zeros(n_frames, dtype=np.float64)
+        hand_y = np.zeros(n_frames, dtype=np.float64)
+        for f in range(n_frames):
+            vx = wr_x[f] - el_x[f]
+            vy = wr_y[f] - el_y[f]
+            hand_x[f] = wr_x[f] + 0.18 * vx
+            hand_y[f] = wr_y[f] + 0.18 * vy
+
+        primary_joints["hand"] = {
+            "x": apply_zero_phase_butterworth(hand_x, fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth(hand_y, fs=15.0, cutoff=1.8),
+            "score": primary_joints["wrist"]["score"]
+        }
+    else:
+        l_humerus_median = 0.20
+        l_forearm_median = 0.18
+        primary_joints["hand"] = {
+            "x": primary_joints["wrist"]["x"].copy(),
+            "y": primary_joints["wrist"]["y"].copy(),
+            "score": primary_joints["wrist"]["score"].copy()
+        }
+
     # 4. Planar Joint Kinematics Calculated on Smoothed 2D Coordinates
     hp_2d = np.zeros(n_frames, dtype=np.float64)
     kn_2d = np.zeros(n_frames, dtype=np.float64)
@@ -810,7 +856,19 @@ def process_kinematics(
 
         raw_k = calculate_angle_2d(hp, kn, ak)
         raw_h = calculate_angle_2d(sh, hp, kn)
-        raw_e = calculate_angle_2d(sh, el, wr)
+        if is_pattern_b:
+            # 3D Foreshortening Perspective Compensation (prevents 2D planar angle collapse to 0.5 deg in presses/dips)
+            d_fore = math.hypot(wr["x"] - el["x"], wr["y"] - el["y"])
+            dz_fore = math.sqrt(max(0.0, l_forearm_median**2 - d_fore**2))
+            v_hum = (sh["x"] - el["x"], sh["y"] - el["y"], 0.0)
+            v_fore = (wr["x"] - el["x"], wr["y"] - el["y"], dz_fore)
+            dot_p = v_hum[0] * v_fore[0] + v_hum[1] * v_fore[1]
+            mag_prod = max(1e-5, l_humerus_median * l_forearm_median)
+            cos_e = max(-1.0, min(1.0, dot_p / mag_prod))
+            raw_e = float(math.degrees(math.acos(cos_e)))
+            raw_e = float(np.clip(raw_e, 55.0, 175.0))
+        else:
+            raw_e = calculate_angle_2d(sh, el, wr)
         raw_hu = calculate_angle_2d(hp, sh, el)
         raw_t = calculate_angle_2d({"x": hp["x"], "y": hp["y"] - 0.2}, hp, sh)
 
@@ -884,7 +942,7 @@ def process_kinematics(
     t_min_bound = timestamps[0] + 0.6 if timestamps else 0.6
     t_max_bound = timestamps[-1] - 0.3 if timestamps else 29.7
 
-    min_rep_frames = max(16, int(15.0 * 1.15)) # 1.15s minimum repetition distance
+    min_rep_frames = max(20, int(15.0 * 1.30)) if is_pattern_b else max(16, int(15.0 * 1.15))
 
     p10 = float(np.percentile(clean_curve, 10))
     p90 = float(np.percentile(clean_curve, 90))
@@ -923,6 +981,15 @@ def process_kinematics(
             filtered_peaks.append(p)
         else:
             prev_p = filtered_peaks[-1]
+            if is_pattern_b:
+                # Lockout check: between two press valleys, the elbow MUST extend back to at least 120 deg
+                crest_val = float(np.max(clean_primary[prev_p : p + 1]))
+                if crest_val < 120.0:
+                    # Incomplete extension, sticking point or pause: merge and keep the deeper inflection point
+                    if clean_primary[p] < clean_primary[prev_p]:
+                        filtered_peaks[-1] = p
+                    continue
+
             valley_val = float(np.min(clean_curve[prev_p : p + 1]))
             dip_from_prev = clean_curve[prev_p] - valley_val
             dip_from_curr = clean_curve[p] - valley_val
@@ -982,17 +1049,17 @@ def process_kinematics(
             force_dir_name = "horizontal_backward"
             force_dx = float(-facing_forward_x)
             force_dy = 0.0
-            force_origin = "wrist"
+            force_origin = "hand_grip"
         else:
             force_dir_name = "vertical_down"
             force_dx = 0.0
             force_dy = 1.0
-            force_origin = "load"
+            force_origin = "hand_grip" if is_upper_body else "load"
     else: # free_weight / gravity
         force_dir_name = "vertical_down"
         force_dx = 0.0
         force_dy = 1.0
-        force_origin = "wrist" if is_upper_body else "bar"
+        force_origin = "hand_grip" if is_upper_body else "bar"
 
     # 7. Repetition Tempos, VBT & Clinical Postural Diagnostic
     repetitions_summary = []
@@ -1049,6 +1116,10 @@ def process_kinematics(
             concentric_time_s = round(max(0.2, t_inflect - t_start), 2)
             eccentric_time_s = round(max(0.2, t_end - t_inflect), 2)
 
+        # Reject micro-reps, twitches, or incomplete hesitations
+        if rom_deg < 22.0 or (t_end - t_start) < 1.25 or (is_pattern_b and concentric_time_s < 0.28):
+            continue
+
         # Pause duration: time stationary (velocity < 15 deg/s) around inflection
         window_start = max(start_frame, bottom_frame - 4)
         window_end = min(end_frame, bottom_frame + 4)
@@ -1064,6 +1135,8 @@ def process_kinematics(
         el_y_inf = primary_joints["elbow"]["y"][bottom_frame]
         wr_x_inf = primary_joints["wrist"]["x"][bottom_frame]
         wr_y_inf = primary_joints["wrist"]["y"][bottom_frame]
+        hx_inf = primary_joints["hand"]["x"][bottom_frame]
+        hy_inf = primary_joints["hand"]["y"][bottom_frame]
         hp_x_inf = primary_joints["hip"]["x"][bottom_frame]
         hp_y_inf = primary_joints["hip"]["y"][bottom_frame]
         kn_x_inf = primary_joints["knee"]["x"][bottom_frame]
@@ -1082,13 +1155,13 @@ def process_kinematics(
 
         if is_pattern_a:
             # Pattern A — Tracción / Flexión
-            # Perpendicular moment arms relative to the line of force
+            # Perpendicular moment arms relative to the line of force passing through hand grip
             if force_dir_name.startswith("horizontal"):
-                d_sh = float(abs(sh_y_inf - wr_y_inf))
-                d_el = float(abs(el_y_inf - wr_y_inf))
+                d_sh = float(abs(sh_y_inf - hy_inf))
+                d_el = float(abs(el_y_inf - hy_inf))
             else:
-                d_sh = float(abs(sh_x_inf - wr_x_inf))
-                d_el = float(abs(el_x_inf - wr_x_inf))
+                d_sh = float(abs(sh_x_inf - hx_inf))
+                d_el = float(abs(el_x_inf - hx_inf))
             d_hp = 0.0
             d_kn = 0.0
 
@@ -1145,13 +1218,14 @@ def process_kinematics(
             dorsal_share = back_share
 
         elif is_pattern_b:
-            # Pattern B — Empuje / Extensión
+            # Pattern B — Empuje / Extensión (press, bench, dips)
+            # Perpendicular moment arms relative to the line of force passing through hand grip
             if force_dir_name.startswith("horizontal"):
-                d_sh = float(abs(sh_y_inf - wr_y_inf))
-                d_el = float(abs(el_y_inf - wr_y_inf))
+                d_sh = float(abs(sh_y_inf - hy_inf))
+                d_el = float(abs(el_y_inf - hy_inf))
             else:
-                d_sh = float(abs(sh_x_inf - wr_x_inf))
-                d_el = float(abs(el_x_inf - wr_x_inf))
+                d_sh = float(abs(sh_x_inf - hx_inf))
+                d_el = float(abs(el_x_inf - hx_inf))
             d_hp = 0.0
             d_kn = 0.0
 
@@ -1337,6 +1411,8 @@ def process_kinematics(
         ak_y = primary_joints["ankle"]["y"][f]
         el_x = primary_joints["elbow"]["x"][f]
         el_y = primary_joints["elbow"]["y"][f]
+        cur_hx = primary_joints["hand"]["x"][f]
+        cur_hy = primary_joints["hand"]["y"][f]
 
         if (len(repetitions_summary) > 0 and rep_num > 0 and rep_num <= len(repetitions_summary)):
             base_rep_verdict = repetitions_summary[rep_num - 1]["verdict"]
@@ -1347,8 +1423,8 @@ def process_kinematics(
             
             if is_pattern_a:
                 # Relationship with line of force
-                cur_d_sh = float(abs(sh_y - wr_y) if force_dir_name.startswith("horizontal") else abs(sh_x - wr_x))
-                cur_d_el = float(abs(el_y - wr_y) if force_dir_name.startswith("horizontal") else abs(el_x - wr_x))
+                cur_d_sh = float(abs(sh_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(sh_x - cur_hx))
+                cur_d_el = float(abs(el_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(el_x - cur_hx))
                 
                 sh_v = np.array([sh_x - hp_x, sh_y - hp_y])
                 t_len = float(np.linalg.norm(sh_v)) + 1e-6
@@ -1399,8 +1475,8 @@ def process_kinematics(
                     "recommendation": fb_rec
                 }
             elif is_pattern_b:
-                cur_d_sh = float(abs(sh_y - wr_y) if force_dir_name.startswith("horizontal") else abs(sh_x - wr_x))
-                cur_d_el = float(abs(el_y - wr_y) if force_dir_name.startswith("horizontal") else abs(el_x - wr_x))
+                cur_d_sh = float(abs(sh_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(sh_x - cur_hx))
+                cur_d_el = float(abs(el_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(el_x - cur_hx))
                 tot_d = cur_d_sh + cur_d_el
                 if tot_d > 0.005:
                     fb_pec = round((cur_d_sh / tot_d) * 100.0, 1)
@@ -1479,12 +1555,12 @@ def process_kinematics(
         if is_upper_body:
             if force_dir_name.startswith("horizontal"):
                 # Perpendicular to horizontal line is vertical distance dy
-                f_d_sh = abs(sh_y - wr_y)
-                f_d_el = abs(el_y - wr_y)
+                f_d_sh = abs(sh_y - cur_hy)
+                f_d_el = abs(el_y - cur_hy)
             else:
                 # Perpendicular to vertical line is horizontal distance dx
-                f_d_sh = abs(sh_x - wr_x)
-                f_d_el = abs(el_x - wr_x)
+                f_d_sh = abs(sh_x - cur_hx)
+                f_d_el = abs(el_x - cur_hx)
             f_d_hip = 0.0
             f_d_knee = 0.0
         elif is_hip_thrust:
@@ -1509,7 +1585,8 @@ def process_kinematics(
             "ankle": {"x": round(float(ak_x), 3), "y": round(float(ak_y), 3), "z": 0.0},
             "shoulder": {"x": round(float(sh_x), 3), "y": round(float(sh_y), 3), "z": 0.0},
             "elbow": {"x": round(float(el_x), 3), "y": round(float(el_y), 3), "z": 0.0},
-            "wrist": {"x": round(float(wr_x), 3), "y": round(float(wr_y), 3), "z": 0.0}
+            "wrist": {"x": round(float(wr_x), 3), "y": round(float(wr_y), 3), "z": 0.0},
+            "hand_grip": {"x": round(float(cur_hx), 3), "y": round(float(cur_hy), 3), "z": 0.0}
         }
 
         frames_output.append({
@@ -1529,7 +1606,7 @@ def process_kinematics(
             "keypoints_norm": {
                 # Bilateral anatomical skeleton
                 "left_shoulder": {"x": round(float(all_smoothed["left_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["left_shoulder"]["y"][f]), 4), "score": round(float(all_smoothed["left_shoulder"]["score"][f]), 2)},
-                "right_shoulder": {"x": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["right_shoulder"]["y"][f]), 4), "score": round(float(all_smoothed["right_shoulder"]["score"][f]), 2)},
+                "right_shoulder": {"x": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "score": round(float(all_smoothed["right_shoulder"]["score"][f]), 2)},
                 "left_elbow": {"x": round(float(all_smoothed["left_elbow"]["x"][f]), 4), "y": round(float(all_smoothed["left_elbow"]["y"][f]), 4), "score": round(float(all_smoothed["left_elbow"]["score"][f]), 2)},
                 "right_elbow": {"x": round(float(all_smoothed["right_elbow"]["x"][f]), 4), "y": round(float(all_smoothed["right_elbow"]["y"][f]), 4), "score": round(float(all_smoothed["right_elbow"]["score"][f]), 2)},
                 "left_wrist": {"x": round(float(all_smoothed["left_wrist"]["x"][f]), 4), "y": round(float(all_smoothed["left_wrist"]["y"][f]), 4), "score": round(float(all_smoothed["left_wrist"]["score"][f]), 2)},
@@ -1545,6 +1622,7 @@ def process_kinematics(
                 "shoulder": {"x": round(float(sh_x), 4), "y": round(float(sh_y), 4), "score": round(float(primary_joints["shoulder"]["score"][f]), 2)},
                 "elbow": {"x": round(float(el_x), 4), "y": round(float(el_y), 4), "score": round(float(primary_joints["elbow"]["score"][f]), 2)},
                 "wrist": {"x": round(float(wr_x), 4), "y": round(float(wr_y), 4), "score": round(float(primary_joints["wrist"]["score"][f]), 2)},
+                "hand_grip": {"x": round(float(cur_hx), 4), "y": round(float(cur_hy), 4), "score": round(float(primary_joints["wrist"]["score"][f]), 2)},
                 "hip": {"x": round(float(hp_x), 4), "y": round(float(hp_y), 4), "score": round(float(primary_joints["hip"]["score"][f]), 2)},
                 "knee": {"x": round(float(kn_x), 4), "y": round(float(kn_y), 4), "score": round(float(primary_joints["knee"]["score"][f]), 2)},
                 "ankle": {"x": round(float(ak_x), 4), "y": round(float(ak_y), 4), "score": round(float(primary_joints["ankle"]["score"][f]), 2)}
