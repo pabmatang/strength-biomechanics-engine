@@ -156,11 +156,20 @@ def sample_video_frames(
             if fps_val <= 0 or math.isnan(fps_val):
                 fps_val = 30.0
             
-            total_dur = float(stream.duration * stream.time_base) if stream.duration else 10.0
-            effective_end = min(total_dur, t_end) if t_end is not None else total_dur
+            stream_dur = float(stream.duration * stream.time_base) if (stream.duration and stream.time_base) else None
+            
+            # If video was already trimmed by client, stream_dur is shorter than t_start
+            actual_start = t_start
+            if stream_dur is not None and stream_dur > 0 and stream_dur < t_start:
+                actual_start = 0.0
+                effective_end = min(stream_dur, (t_end - t_start) if t_end is not None else stream_dur)
+            elif stream_dur is not None and stream_dur > 0:
+                effective_end = min(stream_dur, t_end) if t_end is not None else stream_dur
+            else:
+                effective_end = t_end if t_end is not None else (actual_start + 30.0)
             
             target_timestamps = []
-            curr_t = t_start
+            curr_t = actual_start
             while curr_t <= effective_end and len(target_timestamps) < max_frames:
                 target_timestamps.append(curr_t)
                 curr_t += step_dt
@@ -201,11 +210,18 @@ def sample_video_frames(
     if native_fps <= 0 or math.isnan(native_fps):
         native_fps = 30.0
     total_native_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    native_duration = total_native_frames / native_fps if total_native_frames > 0 else 10.0
+    native_duration = total_native_frames / native_fps if total_native_frames > 0 else None
     
-    effective_end = min(native_duration, t_end) if t_end is not None else native_duration
+    actual_start = t_start
+    if native_duration is not None and native_duration > 0 and native_duration < t_start:
+        actual_start = 0.0
+        effective_end = min(native_duration, (t_end - t_start) if t_end is not None else native_duration)
+    elif native_duration is not None and native_duration > 0:
+        effective_end = min(native_duration, t_end) if t_end is not None else native_duration
+    else:
+        effective_end = t_end if t_end is not None else (actual_start + 30.0)
     
-    curr_t = t_start
+    curr_t = actual_start
     while curr_t <= effective_end and len(frames_rgb) < max_frames:
         target_f_idx = int(round(curr_t * native_fps))
         cap.set(cv2.CAP_PROP_POS_FRAMES, target_f_idx)
