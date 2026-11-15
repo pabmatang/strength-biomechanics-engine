@@ -34,6 +34,7 @@ export interface MomentArms {
   d_hip: number;
   d_knee: number;
   d_shoulder: number;
+  d_elbow?: number;
 }
 
 export interface RepetitionVerdict {

@@ -182,6 +182,67 @@ function findClosestFrame(frames: BiomechanicsFrame[], currentTime: number): Bio
   return closest;
 }
 
+function getInterpolatedFrame(frames: BiomechanicsFrame[], currentTime: number): BiomechanicsFrame | null {
+  if (!frames || frames.length === 0) return null;
+  if (currentTime <= frames[0].time) return frames[0];
+  if (currentTime >= frames[frames.length - 1].time) return frames[frames.length - 1];
+
+  let low = 0;
+  let high = frames.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (frames[mid].time < currentTime) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const idx0 = Math.max(0, Math.min(frames.length - 1, high));
+  const idx1 = Math.max(0, Math.min(frames.length - 1, low));
+  if (idx0 === idx1) return frames[idx0];
+
+  const f0 = frames[idx0];
+  const f1 = frames[idx1];
+  const dt = f1.time - f0.time;
+  if (dt <= 0.0001) return f0;
+
+  const alpha = Math.max(0, Math.min(1, (currentTime - f0.time) / dt));
+  const lerp = (a: number, b: number) => a + (b - a) * alpha;
+
+  const kp0 = f0.keypoints_norm as unknown as Record<string, { x: number; y: number; score: number }>;
+  const kp1 = f1.keypoints_norm as unknown as Record<string, { x: number; y: number; score: number }>;
+  const interpolatedKp: Record<string, { x: number; y: number; score: number }> = {};
+
+  if (kp0 && kp1) {
+    for (const k of Object.keys(kp0)) {
+      if (kp0[k] && kp1[k]) {
+        interpolatedKp[k] = {
+          x: lerp(kp0[k].x, kp1[k].x),
+          y: lerp(kp0[k].y, kp1[k].y),
+          score: Math.min(kp0[k].score, kp1[k].score)
+        };
+      } else {
+        interpolatedKp[k] = kp0[k] || kp1[k];
+      }
+    }
+  }
+
+  return {
+    ...f1,
+    time: currentTime,
+    main_angle: lerp(f0.main_angle, f1.main_angle),
+    secondary_angle: lerp(f0.secondary_angle, f1.secondary_angle),
+    keypoints_norm: Object.keys(interpolatedKp).length > 0 ? (interpolatedKp as any) : f1.keypoints_norm,
+    moment_arms: {
+      d_hip: lerp(f0.moment_arms?.d_hip ?? 0, f1.moment_arms?.d_hip ?? 0),
+      d_knee: lerp(f0.moment_arms?.d_knee ?? 0, f1.moment_arms?.d_knee ?? 0),
+      d_shoulder: lerp(f0.moment_arms?.d_shoulder ?? 0, f1.moment_arms?.d_shoulder ?? 0),
+      d_elbow: lerp((f0.moment_arms as any)?.d_elbow ?? 0, (f1.moment_arms as any)?.d_elbow ?? 0)
+    } as any
+  };
+}
+
 export function resolveExercise(exerciseId?: string | null, exerciseName?: string | null): ExerciseItem {
   const targetId = String(exerciseId || '').toLowerCase().trim();
   const targetName = String(exerciseName || '').toLowerCase().trim();
@@ -520,7 +581,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       }
 
       if (analysisData && analysisData.frames.length > 0) {
-        const frame = findClosestFrame(analysisData.frames, currentTime);
+        const frame = getInterpolatedFrame(analysisData.frames, currentTime) || findClosestFrame(analysisData.frames, currentTime);
         if (frame) {
           setCurrentFrame(frame);
           setCurrentPrimaryAngle(frame.main_angle);
@@ -532,7 +593,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             panOffset,
             showLeverArms,
             showCanvasText,
-            exerciseId: selectedPattern.id
+            exerciseId: selectedExerciseId || selectedPattern?.id || activeExercise?.id || ''
           });
         }
       } else {
@@ -618,30 +679,35 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       return;
     }
 
-    const pSh = { x: px(kp.shoulder?.x ?? 0.5), y: py(kp.shoulder?.y ?? 0.5) };
-    const pEl = { x: px(kp.elbow?.x ?? 0.5), y: py(kp.elbow?.y ?? 0.5) };
-    const pWr = { x: px(kp.wrist?.x ?? 0.5), y: py(kp.wrist?.y ?? 0.5) };
-    const pHp = { x: px(kp.hip?.x ?? 0.5), y: py(kp.hip?.y ?? 0.5) };
-    const pKn = { x: px(kp.knee?.x ?? 0.5), y: py(kp.knee?.y ?? 0.5) };
-    const pAk = { x: px(kp.ankle?.x ?? 0.5), y: py(kp.ankle?.y ?? 0.5) };
-    const pHd = { x: px(kp.head?.x ?? 0.5), y: py(kp.head?.y ?? 0.3) };
+    const pSh = { x: px(kp.shoulder?.x ?? 0.5), y: py(kp.shoulder?.y ?? 0.5), score: kp.shoulder?.score ?? 1 };
+    const pEl = { x: px(kp.elbow?.x ?? 0.5), y: py(kp.elbow?.y ?? 0.5), score: kp.elbow?.score ?? 1 };
+    const pWr = { x: px(kp.wrist?.x ?? 0.5), y: py(kp.wrist?.y ?? 0.5), score: kp.wrist?.score ?? 1 };
+    const pHp = { x: px(kp.hip?.x ?? 0.5), y: py(kp.hip?.y ?? 0.5), score: kp.hip?.score ?? 1 };
+    const pKn = { x: px(kp.knee?.x ?? 0.5), y: py(kp.knee?.y ?? 0.5), score: kp.knee?.score ?? 1 };
+    const pAk = { x: px(kp.ankle?.x ?? 0.5), y: py(kp.ankle?.y ?? 0.5), score: kp.ankle?.score ?? 1 };
+    const pHd = { x: px(kp.head?.x ?? 0.5), y: py(kp.head?.y ?? 0.3), score: kp.head?.score ?? 1 };
 
-    const hasBilateral = Boolean(kp.left_shoulder && kp.right_shoulder && kp.left_elbow && kp.right_elbow);
+    const pLSh = kp.left_shoulder ? { x: px(kp.left_shoulder.x), y: py(kp.left_shoulder.y), score: kp.left_shoulder.score } : pSh;
+    const pRSh = kp.right_shoulder ? { x: px(kp.right_shoulder.x), y: py(kp.right_shoulder.y), score: kp.right_shoulder.score } : pSh;
+    const pLEl = kp.left_elbow ? { x: px(kp.left_elbow.x), y: py(kp.left_elbow.y), score: kp.left_elbow.score } : pEl;
+    const pREl = kp.right_elbow ? { x: px(kp.right_elbow.x), y: py(kp.right_elbow.y), score: kp.right_elbow.score } : pEl;
+    const pLWr = kp.left_wrist ? { x: px(kp.left_wrist.x), y: py(kp.left_wrist.y), score: kp.left_wrist.score } : pWr;
+    const pRWr = kp.right_wrist ? { x: px(kp.right_wrist.x), y: py(kp.right_wrist.y), score: kp.right_wrist.score } : pWr;
+    const pLHp = kp.left_hip ? { x: px(kp.left_hip.x), y: py(kp.left_hip.y), score: kp.left_hip.score } : pHp;
+    const pRHp = kp.right_hip ? { x: px(kp.right_hip.x), y: py(kp.right_hip.y), score: kp.right_hip.score } : pHp;
+    const pLKn = kp.left_knee ? { x: px(kp.left_knee.x), y: py(kp.left_knee.y), score: kp.left_knee.score } : pKn;
+    const pRKn = kp.right_knee ? { x: px(kp.right_knee.x), y: py(kp.right_knee.y), score: kp.right_knee.score } : pKn;
+    const pLAk = kp.left_ankle ? { x: px(kp.left_ankle.x), y: py(kp.left_ankle.y), score: kp.left_ankle.score } : pAk;
+    const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y), score: kp.right_ankle.score } : pAk;
 
-    const pLSh = kp.left_shoulder ? { x: px(kp.left_shoulder.x), y: py(kp.left_shoulder.y) } : pSh;
-    const pRSh = kp.right_shoulder ? { x: px(kp.right_shoulder.x), y: py(kp.right_shoulder.y) } : pSh;
-    const pLEl = kp.left_elbow ? { x: px(kp.left_elbow.x), y: py(kp.left_elbow.y) } : pEl;
-    const pREl = kp.right_elbow ? { x: px(kp.right_elbow.x), y: py(kp.right_elbow.y) } : pEl;
-    const pLWr = kp.left_wrist ? { x: px(kp.left_wrist.x), y: py(kp.left_wrist.y) } : pWr;
-    const pRWr = kp.right_wrist ? { x: px(kp.right_wrist.x), y: py(kp.right_wrist.y) } : pWr;
-    const pLHp = kp.left_hip ? { x: px(kp.left_hip.x), y: py(kp.left_hip.y) } : pHp;
-    const pRHp = kp.right_hip ? { x: px(kp.right_hip.x), y: py(kp.right_hip.y) } : pHp;
-    const pLKn = kp.left_knee ? { x: px(kp.left_knee.x), y: py(kp.left_knee.y) } : pKn;
-    const pRKn = kp.right_knee ? { x: px(kp.right_knee.x), y: py(kp.right_knee.y) } : pKn;
-    const pLAk = kp.left_ankle ? { x: px(kp.left_ankle.x), y: py(kp.left_ankle.y) } : pAk;
-    const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y) } : pAk;
+    // Both sides must have reasonable confidence to render bilateral skeleton, otherwise use primary tracked limbs
+    const hasBilateral = Boolean(
+      (kp.left_shoulder?.score ?? 0) >= 0.28 && (kp.right_shoulder?.score ?? 0) >= 0.28 &&
+      (kp.left_elbow?.score ?? 0) >= 0.28 && (kp.right_elbow?.score ?? 0) >= 0.28
+    );
 
-    const drawPoint = (p: { x: number; y: number }, color: string) => {
+    const drawPoint = (p: { x: number; y: number; score?: number }, color: string) => {
+      if (p.score !== undefined && p.score < 0.25) return;
       ctx.beginPath();
       ctx.arc(p.x, p.y, 4.0, 0, 2 * Math.PI);
       ctx.fillStyle = color;
@@ -651,7 +717,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
-    const drawSegment = (p1: { x: number; y: number }, p2: { x: number; y: number }, color: string, dashed: boolean = false) => {
+    const drawSegment = (p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, color: string, dashed: boolean = false) => {
+      if ((p1.score !== undefined && p1.score < 0.25) || (p2.score !== undefined && p2.score < 0.25)) return;
       ctx.beginPath();
       if (dashed) ctx.setLineDash([4, 4]);
       else ctx.setLineDash([]);
@@ -687,7 +754,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.fillText(text, pillX + 7, pillY + 14);
     };
 
-    const drawAngleArc = (pCenter: { x: number; y: number }, p1: { x: number; y: number }, p2: { x: number; y: number }, radius: number, color: string) => {
+    const drawAngleArc = (pCenter: { x: number; y: number; score?: number }, p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, radius: number, color: string) => {
+      if ((pCenter.score !== undefined && pCenter.score < 0.25) ||
+          (p1.score !== undefined && p1.score < 0.25) ||
+          (p2.score !== undefined && p2.score < 0.25)) return;
       const a1 = Math.atan2(p1.y - pCenter.y, p1.x - pCenter.x);
       const a2 = Math.atan2(p2.y - pCenter.y, p2.x - pCenter.x);
       ctx.beginPath();
@@ -713,7 +783,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       exIdStr.includes('leg_extension') ||
       exIdStr.includes('leg_curl') ||
       exIdStr.includes('glute')
-    ) && !exIdStr.includes('biceps') && !exIdStr.includes('hammer');
+    ) && !exIdStr.includes('biceps') && !exIdStr.includes('hammer') && selectedMuscleGroupId !== 'chest' && selectedMuscleGroupId !== 'back' && selectedMuscleGroupId !== 'shoulders' && selectedMuscleGroupId !== 'arms';
 
     if (mode === 'technique') {
       // -------------------------------------------------------------
@@ -721,7 +791,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       // -------------------------------------------------------------
       if (hasBilateral) {
         // Cuello y cabeza
-        const midNeck = { x: (pLSh.x + pRSh.x) / 2, y: (pLSh.y + pRSh.y) / 2 };
+        const midNeck = { x: (pLSh.x + pRSh.x) / 2, y: (pLSh.y + pRSh.y) / 2, score: Math.min(pLSh.score ?? 1, pRSh.score ?? 1) };
         drawSegment(pHd, midNeck, '#34D399');
         drawPoint(pHd, '#34D399');
 
@@ -796,7 +866,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         }
       } else {
-        // Fallback unilateral
+        // Fallback unilateral suave y centrado en la articulación dominante
         if (isLowerBody) {
           drawSegment(pSh, pHp, '#10B981');
           drawSegment(pHp, pKn, '#10B981');
@@ -808,7 +878,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pHd, '#34D399');
           drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
           if (options.showCanvasText) {
-            drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
+            drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle || frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
           }
         } else {
           drawSegment(pHd, pSh, '#34D399');
@@ -823,6 +893,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
           if (options.showCanvasText) {
             drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
+            if (frame.secondary_angle > 10) {
+              drawPillTag(pSh.x - 70, pSh.y - 16, `Hombro: ${Math.round(frame.secondary_angle)}°`, '#34D399', '#A7F3D0');
+            }
           }
         }
       }
@@ -857,36 +930,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       }
       ctx.restore();
 
-            // Puntos articulares clave en color nítido
-      drawPoint(pHp, '#38BDF8');
-      drawPoint(pKn, '#10B981');
-      drawPoint(pAk, '#38BDF8');
-      drawPoint(pWr, '#FBBF24');
-
-      // Línea vertical de fuerza de gravedad a través del centro de carga / muñeca
-      const lineX = pWr.x;
-      const lineTop = Math.max(offsetY + 10, pWr.y - 120);
-      const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pHp.y, pKn.y, pAk.y) + 30);
-
-      ctx.beginPath();
-      ctx.setLineDash([6, 3]);
-      ctx.moveTo(lineX, lineTop);
-      ctx.lineTo(lineX, lineBottom);
-      ctx.strokeStyle = '#FBBF24';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Flecha vertical de carga descendente
-      ctx.beginPath();
-      ctx.moveTo(lineX, lineBottom);
-      ctx.lineTo(lineX - 6, lineBottom - 10);
-      ctx.lineTo(lineX + 6, lineBottom - 10);
-      ctx.closePath();
-      ctx.fillStyle = '#FBBF24';
-      ctx.fill();
-
-      // Cotas horizontales perpendiculares (brazos de momento d_cadera y d_rodilla) - Ocultas en variantes de Hip Thrust
       const isHipThrust =
         exIdStr.includes('hip_thrust') ||
         exIdStr.includes('kas_glute') ||
@@ -896,29 +939,138 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         safeExerciseId.includes('kas_glute') ||
         safeExerciseId.includes('bridge');
 
-      if (options.showLeverArms && !isHipThrust) {
-        // Brazo de momento a la cadera (azul)
-        drawSegment(pHp, { x: lineX, y: pHp.y }, '#3B82F6', true);
-        // Brazo de momento a la rodilla (verde)
-        drawSegment(pKn, { x: lineX, y: pKn.y }, '#10B981', true);
+      if (!isLowerBody) {
+        // TREN SUPERIOR (Pecho, Espalda, Hombros, Brazos):
+        // Puntos articulares clave en color nítido: Hombro, Codo, Muñeca
+        drawPoint(pSh, '#3B82F6');
+        drawPoint(pEl, '#10B981');
+        drawPoint(pWr, '#FBBF24');
+        if (pHp.score !== undefined && pHp.score > 0.35) {
+          drawPoint(pHp, '#64748B');
+        }
+
+        // Línea vertical de fuerza de carga / resistencia a través de la muñeca
+        const lineX = pWr.x;
+        const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pWr.y) - 60);
+        const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pWr.y, pHp.y) + 40);
+
+        ctx.beginPath();
+        ctx.setLineDash([6, 3]);
+        ctx.moveTo(lineX, lineTop);
+        ctx.lineTo(lineX, lineBottom);
+        ctx.strokeStyle = '#FBBF24';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Flecha vertical de carga descendente
+        ctx.beginPath();
+        ctx.moveTo(lineX, lineBottom);
+        ctx.lineTo(lineX - 6, lineBottom - 10);
+        ctx.lineTo(lineX + 6, lineBottom - 10);
+        ctx.closePath();
+        ctx.fillStyle = '#FBBF24';
+        ctx.fill();
+
+        if (options.showLeverArms) {
+          // Brazo de momento a Hombro (azul)
+          drawSegment(pSh, { x: lineX, y: pSh.y, score: pSh.score }, '#3B82F6', true);
+          // Brazo de momento a Codo (verde)
+          drawSegment(pEl, { x: lineX, y: pEl.y, score: pEl.score }, '#10B981', true);
+
+          if (options.showCanvasText) {
+            const dSh = Math.round(
+              ((frame.moment_arms?.d_shoulder ?? (Math.abs(pSh.x - lineX) / (drawW * 0.4))) * 100) || 28
+            );
+            const dEl = Math.round(
+              (((frame.moment_arms as any)?.d_elbow ?? (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100) || 14
+            );
+
+            const midShX = (pSh.x + lineX) / 2;
+            drawPillTag(midShX - 28, pSh.y - 16, `d_hombro: ${dSh}`, '#3B82F6', '#93C5FD');
+
+            const midElX = (pEl.x + lineX) / 2;
+            drawPillTag(midElX - 28, pEl.y - 16, `d_codo: ${dEl}`, '#10B981', '#6EE7B7');
+          }
+        }
+      } else if (!isHipThrust) {
+        // TREN INFERIOR CON CARGA VERTICAL (Sentadilla, Prensa, Hack, RDL, Búlgara, etc.):
+        drawPoint(pHp, '#3B82F6');
+        drawPoint(pKn, '#10B981');
+        drawPoint(pAk, '#38BDF8');
+        drawPoint(pWr, '#FBBF24');
+
+        const lineX = (pWr.score !== undefined && pWr.score > 0.35) ? pWr.x : pAk.x;
+        const lineTop = Math.max(offsetY + 10, Math.min(pHp.y, pWr.y) - 60);
+        const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pHp.y, pKn.y, pAk.y) + 30);
+
+        ctx.beginPath();
+        ctx.setLineDash([6, 3]);
+        ctx.moveTo(lineX, lineTop);
+        ctx.lineTo(lineX, lineBottom);
+        ctx.strokeStyle = '#FBBF24';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Flecha vertical de carga descendente
+        ctx.beginPath();
+        ctx.moveTo(lineX, lineBottom);
+        ctx.lineTo(lineX - 6, lineBottom - 10);
+        ctx.lineTo(lineX + 6, lineBottom - 10);
+        ctx.closePath();
+        ctx.fillStyle = '#FBBF24';
+        ctx.fill();
+
+        if (options.showLeverArms) {
+          // Brazo de momento a la cadera (azul)
+          drawSegment(pHp, { x: lineX, y: pHp.y, score: pHp.score }, '#3B82F6', true);
+          // Brazo de momento a la rodilla (verde)
+          drawSegment(pKn, { x: lineX, y: pKn.y, score: pKn.score }, '#10B981', true);
+
+          if (options.showCanvasText) {
+            const midHipX = (pHp.x + lineX) / 2;
+            drawPillTag(
+              midHipX - 28,
+              pHp.y - 16,
+              `d_cadera: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
+              '#3B82F6',
+              '#93C5FD'
+            );
+
+            const midKnX = (pKn.x + lineX) / 2;
+            drawPillTag(
+              midKnX - 28,
+              pKn.y - 16,
+              `d_rodilla: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
+              '#10B981',
+              '#6EE7B7'
+            );
+          }
+        }
+      } else {
+        // VARIANTES DE HIP THRUST / PUENTE DE GLÚTEO:
+        drawPoint(pHp, '#38BDF8');
+        drawPoint(pKn, '#10B981');
+        drawPoint(pAk, '#38BDF8');
+
+        drawAngleArc(pKn, pHp, pAk, 22, '#10B981');
+        drawAngleArc(pHp, pSh, pKn, 22, '#38BDF8');
 
         if (options.showCanvasText) {
-          const midHipX = (pHp.x + lineX) / 2;
           drawPillTag(
-            midHipX - 28,
-            pHp.y - 16,
-            `d_cadera: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
-            '#3B82F6',
-            '#93C5FD'
-          );
-
-          const midKnX = (pKn.x + lineX) / 2;
-          drawPillTag(
-            midKnX - 28,
-            pKn.y - 16,
-            `d_rodilla: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
+            pKn.x - 70,
+            pKn.y - 14,
+            `Alineación Rodilla: ${Math.round(frame.secondary_angle || 90)}°`,
             '#10B981',
             '#6EE7B7'
+          );
+          drawPillTag(
+            pHp.x - 65,
+            pHp.y - 18,
+            `Bloqueo Cadera: ${Math.round(frame.main_angle || 180)}°`,
+            '#38BDF8',
+            '#93C5FD'
           );
         }
       }
@@ -1043,52 +1195,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     ? Math.min(100, Math.max(0, (Math.min(videoCurrentTime, effectiveTotalDuration) / effectiveTotalDuration) * 100))
     : 0;
 
-  // Active verdict read directly from frozen rep verdict
-  const activeVerdict = currentFrame?.verdict || {
-    status: 'OPTIMAL',
-    dominant_joint: 'CADERA',
-    target_alignment: true,
-    primary_torque_bias: 'GLÚTEO MAYOR',
-    inflection_knee_deg: 90.0,
-    inflection_hip_deg: 180.0,
-    d_hip_norm: 0.14,
-    d_knee_norm: 0.12,
-    recommendation: 'Alineación articular óptima con vector vertical equilibrado.'
-  };
-
-  const d_hip_val = currentFrame?.moment_arms?.d_hip ?? 0.14;
-  const d_knee_val = currentFrame?.moment_arms?.d_knee ?? 0.12;
-  const totalMoment = d_hip_val + d_knee_val + 1e-5;
-  const hipShare = Math.round((d_hip_val / totalMoment) * 100);
-  const kneeShare = 100 - hipShare;
-
   const safeExerciseId = String(selectedExerciseId || activeExercise?.id || 'hip_thrust').toLowerCase();
   const safePatternId = String(selectedPattern?.id || '').toLowerCase();
-
-  const isLowerBody =
-    safePatternId.includes('hip_thrust') ||
-    safePatternId.includes('squat') ||
-    safePatternId.includes('rdl') ||
-    safePatternId.includes('deadlift') ||
-    safePatternId.includes('lunge') ||
-    safePatternId.includes('leg') ||
-    safePatternId.includes('glute') ||
-    safeExerciseId.includes('hip_thrust') ||
-    safeExerciseId.includes('squat') ||
-    safeExerciseId.includes('rdl') ||
-    safeExerciseId.includes('bridge') ||
-    safeExerciseId.includes('curl') ||
-    safeExerciseId.includes('kickback') ||
-    safeExerciseId.includes('abduction');
-
-  const isHipThrustVariant =
-    safePatternId.includes('hip_thrust') ||
-    safePatternId.includes('kas_glute') ||
-    safePatternId.includes('glute_bridge') ||
-    safePatternId.includes('bridge') ||
-    safeExerciseId.includes('hip_thrust') ||
-    safeExerciseId.includes('kas_glute') ||
-    safeExerciseId.includes('bridge');
 
   const kinematicMeta = useMemo(() => {
     const groupId = selectedMuscleGroupId || 'glutes_hamstrings';
@@ -1109,8 +1217,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ],
         torqueTitle: 'Reparto de Torque y Palancas',
         torqueShare: '76% Pectoral vs 24% Tríceps / Hombro',
-        barLabel1: 'Brazo Pectoral: 76%',
-        barLabel2: 'Brazo Tríceps / Hombro: 24%',
+        barLabel1: 'Brazo Pectoral',
+        barLabel2: 'Brazo Tríceps',
         torqueFocus: 'PECTORAL MAYOR'
       };
     }
@@ -1129,8 +1237,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ],
         torqueTitle: 'Reparto de Palanca y Tracción',
         torqueShare: '82% Dorsal Ancho vs 18% Flexores de Codo',
-        barLabel1: 'Brazo Dorsal: 82%',
-        barLabel2: 'Brazo Bíceps: 18%',
+        barLabel1: 'Brazo Dorsal',
+        barLabel2: 'Brazo Bíceps',
         torqueFocus: 'DORSAL ANCHO'
       };
     }
@@ -1150,8 +1258,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ],
         torqueTitle: 'Enfoque Muscular y Palanca',
         torqueShare: '85% Deltoides vs 15% Asistente',
-        barLabel1: 'Brazo Deltoides: 85%',
-        barLabel2: 'Brazo Asistente: 15%',
+        barLabel1: 'Brazo Deltoides',
+        barLabel2: 'Brazo Asistente',
         torqueFocus: 'DELTOIDES'
       };
     }
@@ -1170,8 +1278,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ],
         torqueTitle: 'Reparto de Torque y Palancas',
         torqueShare: '78% Rodilla (Cuádriceps) vs 22% Cadera (Glúteo)',
-        barLabel1: 'Brazo Rodilla: 78%',
-        barLabel2: 'Brazo Cadera: 22%',
+        barLabel1: 'Brazo Rodilla',
+        barLabel2: 'Brazo Cadera',
         torqueFocus: 'CUÁDRICEPS'
       };
     }
@@ -1191,8 +1299,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ],
         torqueTitle: 'Aislamiento y Palanca',
         torqueShare: '90% Brazo vs 10% Inercia / Balanceo',
-        barLabel1: isTriceps ? 'Tríceps: 90%' : 'Bíceps: 90%',
-        barLabel2: 'Inercia: 10%',
+        barLabel1: isTriceps ? 'Tríceps' : 'Bíceps',
+        barLabel2: 'Inercia',
         torqueFocus: isTriceps ? 'TRÍCEPS BRAQUIAL' : 'BÍCEPS BRAQUIAL'
       };
     }
@@ -1212,14 +1320,110 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ],
       torqueTitle: 'Palanca Articular y Enfoque',
       torqueShare: 'Alineación Tibial: ~90° en rodilla',
-      barLabel1: 'Extensión Cadera: ≥158°',
-      barLabel2: 'Alineación Tibial: ~90°',
+      barLabel1: 'Extensión Cadera',
+      barLabel2: 'Alineación Tibial',
       torqueFocus: 'GLÚTEO MAYOR'
     };
   }, [selectedMuscleGroupId, selectedExerciseId]);
 
   const primaryJointName = kinematicMeta.primaryJointName;
   const secondaryJointName = kinematicMeta.secondaryJointName;
+  const isLowerBody = kinematicMeta.isLowerBody;
+
+  const isHipThrustVariant =
+    safePatternId.includes('hip_thrust') ||
+    safePatternId.includes('kas_glute') ||
+    safePatternId.includes('glute_bridge') ||
+    safePatternId.includes('bridge') ||
+    safeExerciseId.includes('hip_thrust') ||
+    safeExerciseId.includes('kas_glute') ||
+    safeExerciseId.includes('bridge');
+
+  // Dynamically calculate leverage and moment arm share for Upper Body or Lower Body
+  const d_hip_val = currentFrame?.moment_arms?.d_hip ?? 0.14;
+  const d_knee_val = currentFrame?.moment_arms?.d_knee ?? 0.12;
+  const d_sh_val = currentFrame?.moment_arms?.d_shoulder ?? 0.15;
+  const d_el_val = (currentFrame?.moment_arms as any)?.d_elbow ?? 0.08;
+
+  let shoulderShare = 76;
+  let elbowShare = 24;
+  if (d_sh_val + d_el_val > 0.005) {
+    shoulderShare = Math.max(10, Math.min(90, Math.round((d_sh_val / (d_sh_val + d_el_val)) * 100)));
+    elbowShare = 100 - shoulderShare;
+  }
+
+  let hipShare = 55;
+  let kneeShare = 45;
+  if (d_hip_val + d_knee_val > 0.005) {
+    hipShare = Math.max(10, Math.min(90, Math.round((d_hip_val / (d_hip_val + d_knee_val)) * 100)));
+    kneeShare = 100 - hipShare;
+  }
+
+  let primaryLeverName = 'Brazo Cadera';
+  let secondaryLeverName = 'Brazo Rodilla';
+  let primaryLeverShare = hipShare;
+  let secondaryLeverShare = kneeShare;
+  let torqueBadgeText = `${hipShare}% Cadera vs ${kneeShare}% Rodilla`;
+
+  if (!isLowerBody) {
+    if (selectedMuscleGroupId === 'chest') {
+      primaryLeverName = 'Brazo Pectoral';
+      secondaryLeverName = 'Brazo Tríceps';
+      primaryLeverShare = shoulderShare;
+      secondaryLeverShare = elbowShare;
+      torqueBadgeText = `${shoulderShare}% Pectoral vs ${elbowShare}% Tríceps`;
+    } else if (selectedMuscleGroupId === 'back') {
+      primaryLeverName = 'Brazo Dorsal';
+      secondaryLeverName = 'Brazo Bíceps';
+      primaryLeverShare = shoulderShare;
+      secondaryLeverShare = elbowShare;
+      torqueBadgeText = `${shoulderShare}% Dorsal vs ${elbowShare}% Bíceps`;
+    } else if (selectedMuscleGroupId === 'shoulders') {
+      primaryLeverName = 'Brazo Deltoides';
+      secondaryLeverName = 'Brazo Asistente';
+      primaryLeverShare = shoulderShare;
+      secondaryLeverShare = elbowShare;
+      torqueBadgeText = `${shoulderShare}% Deltoides vs ${elbowShare}% Asistente`;
+    } else {
+      primaryLeverName = 'Brazo Principal';
+      secondaryLeverName = 'Inercia';
+      primaryLeverShare = 90;
+      secondaryLeverShare = 10;
+      torqueBadgeText = '90% Aislamiento vs 10% Inercia';
+    }
+  } else if (selectedMuscleGroupId === 'quadriceps') {
+    primaryLeverName = 'Brazo Rodilla';
+    secondaryLeverName = 'Brazo Cadera';
+    primaryLeverShare = kneeShare;
+    secondaryLeverShare = hipShare;
+    torqueBadgeText = `${kneeShare}% Rodilla vs ${hipShare}% Cadera`;
+  }
+
+  // Active verdict read directly from frozen rep verdict with high-confidence fallbacks
+  const rawVerdict = currentFrame?.verdict;
+  const activeVerdict = {
+    status: rawVerdict?.status || 'OPTIMAL',
+    dominant_joint: (rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
+      ? rawVerdict.dominant_joint
+      : kinematicMeta.dominantLabel.toUpperCase(),
+    target_alignment: rawVerdict?.target_alignment ?? true,
+    primary_torque_bias: (rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
+      ? rawVerdict.primary_torque_bias
+      : kinematicMeta.torqueFocus,
+    inflection_knee_deg: rawVerdict?.inflection_knee_deg ?? 90.0,
+    inflection_hip_deg: rawVerdict?.inflection_hip_deg ?? 180.0,
+    d_hip_norm: rawVerdict?.d_hip_norm ?? 0.14,
+    d_knee_norm: rawVerdict?.d_knee_norm ?? 0.12,
+    recommendation: (rawVerdict?.recommendation && !rawVerdict.recommendation.includes('Mapeando cinemática'))
+      ? rawVerdict.recommendation
+      : (!isLowerBody
+        ? (selectedMuscleGroupId === 'chest'
+          ? 'Descenso controlado a ~55° de abducción escapular para maximizar palanca sobre fibras esternocostales sin pinzamiento acromioclavicular.'
+          : selectedMuscleGroupId === 'back'
+          ? 'Tracción guiada con inicio escapular y codos cerrados hacia la cadera para maximizar el brazo de palanca del dorsal ancho.'
+          : 'Trayectoria vertical centrada en el plano escapular con tronco rígido para optimizar torque en deltoides.')
+        : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.')
+  };
 
   // Real clinical statistics from repetition summaries
   const minRomAngle = analysisData?.repetitions_summary?.length
@@ -1790,8 +1994,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
                   <div className="space-y-1.5 pt-1 border-t border-slate-800/60 text-[11px]">
                     {kinematicMeta.rows.map((row: { label: string; value: string; color: string }, rIdx: number) => (
-                      <div key={rIdx} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
-                        <span className="shrink-0 font-medium">{row.label}</span>
+                      <div key={rIdx} className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
+                        <span className="font-medium text-slate-300">{row.label}</span>
                         <span className={`font-bold ${row.color} break-words whitespace-normal`}>{row.value}</span>
                       </div>
                     ))}
@@ -1837,10 +2041,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                       <Scale className="w-4 h-4 text-blue-400" />
-                      {isHipThrustVariant ? 'Palanca Articular y Enfoque' : 'Reparto de Torque y Palancas'}
+                      {isHipThrustVariant ? 'Palanca Articular y Enfoque' : kinematicMeta.torqueTitle}
                     </span>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                      {isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : `${hipShare}% Cadera vs ${kneeShare}% Rodilla`}
+                      {isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : torqueBadgeText}
                     </span>
                   </div>
 
@@ -1848,12 +2052,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   {!isHipThrustVariant ? (
                     <div className="space-y-1">
                       <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
-                        <span>Brazo Cadera: {hipShare}%</span>
-                        <span>Brazo Rodilla: {kneeShare}%</span>
+                        <span>{primaryLeverName}: {primaryLeverShare}%</span>
+                        <span>{secondaryLeverName}: {secondaryLeverShare}%</span>
                       </div>
                       <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                        <div className="bg-blue-500 transition-all duration-150" style={{ width: `${hipShare}%` }} />
-                        <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${kneeShare}%` }} />
+                        <div className="bg-blue-500 transition-all duration-150" style={{ width: `${primaryLeverShare}%` }} />
+                        <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${secondaryLeverShare}%` }} />
                       </div>
                     </div>
                   ) : (
@@ -1867,11 +2071,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Dominancia</span>
-                      <span className="text-xs font-black text-cyan-300 font-mono">{activeVerdict.dominant_joint}</span>
+                      <span className="text-xs font-black text-cyan-300 font-mono truncate block" title={activeVerdict.dominant_joint}>
+                        {activeVerdict.dominant_joint}
+                      </span>
                     </div>
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Enfoque Muscular</span>
-                      <span className="text-[11px] font-black text-purple-300 font-mono break-words block">{activeVerdict.primary_torque_bias}</span>
+                      <span className="text-[11px] font-black text-purple-300 font-mono break-words block" title={activeVerdict.primary_torque_bias}>
+                        {activeVerdict.primary_torque_bias}
+                      </span>
                     </div>
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Total Reps</span>
