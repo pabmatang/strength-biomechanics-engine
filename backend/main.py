@@ -230,9 +230,11 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 32):
             batch_pil = [Image.fromarray(f) for f in batch_np]
             h, w = batch_np[0].shape[:2]
             
-            # Step A: RT-DETR Athlete Box Detection (Native float32)
+            # Step A: RT-DETR Athlete Box Detection (Tensor Core FP16 for max throughput)
             det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
-            det_outputs = det_model(**det_inputs)
+            with torch.inference_mode():
+                with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
+                    det_outputs = det_model(**det_inputs)
             
             if hasattr(det_outputs, "logits") and det_outputs.logits is not None:
                 det_outputs.logits = det_outputs.logits.to(torch.float32)
@@ -297,15 +299,17 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 32):
                     batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
                     all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
             
-            # Step B: ViTPose-Base 17 Keypoints (Native float32)
+            # Step B: ViTPose-Base 17 Keypoints (Tensor Core FP16 for max throughput)
             pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
             num_boxes = pose_inputs["pixel_values"].shape[0]
             dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
             
-            try:
-                pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
-            except (TypeError, ValueError):
-                pose_outputs = pose_model(**pose_inputs)
+            with torch.inference_mode():
+                with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
+                    try:
+                        pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
+                    except (TypeError, ValueError):
+                        pose_outputs = pose_model(**pose_inputs)
             
             if hasattr(pose_outputs, "heatmaps") and pose_outputs.heatmaps is not None:
                 pose_outputs.heatmaps = pose_outputs.heatmaps.to(torch.float32)
@@ -402,18 +406,72 @@ def process_kinematics(
         "score": hs_arr
     }
 
-    # 2. Determine Primary Active Profile Side
-    left_score = sum(float(np.mean(all_smoothed[f"left_{j}"]["score"])) for j in canonical_joints)
-    right_score = sum(float(np.mean(all_smoothed[f"right_{j}"]["score"])) for j in canonical_joints)
-    locked_side = "left" if left_score >= right_score else "right"
+    # 2. Determine Primary Active Profile Side with Anatomical Validity Checks
+    ex_lower = exercise_type.lower()
+    is_lower_movement = not any(k in ex_lower for k in [
+        "press", "bench", "row", "pull", "fly", "pec", "curl", "dips",
+        "raise", "shoulder", "overhead", "lateral", "triceps", "biceps", "t_bar", "gironda"
+    ]) or any(k in ex_lower for k in ["leg_press", "leg_extension"])
+
+    def evaluate_side_quality(side_name: str) -> float:
+        if is_lower_movement:
+            s_k = float(np.mean(all_smoothed[f"{side_name}_knee"]["score"]))
+            s_h = float(np.mean(all_smoothed[f"{side_name}_hip"]["score"]))
+            s_a = float(np.mean(all_smoothed[f"{side_name}_ankle"]["score"]))
+            base = 2.5 * s_k + 1.5 * s_h + 1.2 * s_a
+            
+            ky = all_smoothed[f"{side_name}_knee"]["y"]
+            ay = all_smoothed[f"{side_name}_ankle"]["y"]
+            hy = all_smoothed[f"{side_name}_hip"]["y"]
+            kx = all_smoothed[f"{side_name}_knee"]["x"]
+            ax = all_smoothed[f"{side_name}_ankle"]["x"]
+            hx = all_smoothed[f"{side_name}_hip"]["x"]
+            
+            # In Hip Thrust, knee cannot be placed on the floor below the foot
+            if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
+                inverted_ratio = float(np.mean(ky > ay + 0.04))
+                if inverted_ratio > 0.30:
+                    base *= 0.10 # Severe penalty for inverted leg (e.g. knee hallucinated on aerobic step)
+            
+            femur = np.hypot(hx - kx, hy - ky)
+            tibia = np.hypot(kx - ax, ky - ay)
+            ratio = float(np.median(femur / (tibia + 1e-4)))
+            if ratio > 2.5 or ratio < 0.40:
+                base *= 0.25 # Severe penalty for distorted segment ratio
+                
+            return float(base)
+        else:
+            s_e = float(np.mean(all_smoothed[f"{side_name}_elbow"]["score"]))
+            s_s = float(np.mean(all_smoothed[f"{side_name}_shoulder"]["score"]))
+            s_w = float(np.mean(all_smoothed[f"{side_name}_wrist"]["score"]))
+            return float(2.5 * s_e + 1.5 * s_s + 1.2 * s_w)
+
+    left_quality = evaluate_side_quality("left")
+    right_quality = evaluate_side_quality("right")
+    locked_side = "left" if left_quality >= right_quality else "right"
+    other_side = "right" if locked_side == "left" else "left"
     
     primary_joints = {}
     for c_name in canonical_joints:
         primary_joints[c_name] = {
-            "x": all_smoothed[f"{locked_side}_{c_name}"]["x"],
-            "y": all_smoothed[f"{locked_side}_{c_name}"]["y"],
-            "score": all_smoothed[f"{locked_side}_{c_name}"]["score"]
+            "x": all_smoothed[f"{locked_side}_{c_name}"]["x"].copy(),
+            "y": all_smoothed[f"{locked_side}_{c_name}"]["y"].copy(),
+            "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
         }
+
+    # Per-frame anatomical knee recovery for Hip Thrust:
+    # If the primary knee in frame f drops below the ankle (e.g. occluded by text overlay), recover from other side!
+    if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
+        for f in range(n_frames):
+            pk_y = primary_joints["knee"]["y"][f]
+            pa_y = primary_joints["ankle"]["y"][f]
+            if pk_y > pa_y + 0.03: # Knee below foot/step!
+                ok_y = all_smoothed[f"{other_side}_knee"]["y"][f]
+                oa_y = all_smoothed[f"{other_side}_ankle"]["y"][f]
+                if ok_y <= oa_y: # Other side's knee is physically above foot!
+                    primary_joints["knee"]["x"][f] = all_smoothed[f"{other_side}_knee"]["x"][f]
+                    primary_joints["knee"]["y"][f] = ok_y
+                    primary_joints["knee"]["score"][f] = all_smoothed[f"{other_side}_knee"]["score"][f]
 
     # 3. MotionBERT 3D Pose Lifting & Trajectory Filtering
     # Prepare COCO 2D array: (n_frames, 17, 2) in pixels + scores (n_frames, 17)
@@ -426,6 +484,16 @@ def process_kinematics(
                 kps_2d_pixels[f, kp_idx, 0] = raw_keypoints[f][k_name]["x"] * float(img_w)
                 kps_2d_pixels[f, kp_idx, 1] = raw_keypoints[f][k_name]["y"] * float(img_h)
                 scores_2d[f, kp_idx] = raw_keypoints[f][k_name]["score"]
+
+        # Ensure primary joint anatomical corrections are reflected in lifted keypoints
+        if locked_side == "left":
+            kps_2d_pixels[f, 13, 0] = primary_joints["knee"]["x"][f] * float(img_w)
+            kps_2d_pixels[f, 13, 1] = primary_joints["knee"]["y"][f] * float(img_h)
+            scores_2d[f, 13] = primary_joints["knee"]["score"][f]
+        else:
+            kps_2d_pixels[f, 14, 0] = primary_joints["knee"]["x"][f] * float(img_w)
+            kps_2d_pixels[f, 14, 1] = primary_joints["knee"]["y"][f] * float(img_h)
+            scores_2d[f, 14] = primary_joints["knee"]["score"][f]
 
     kps_3d = lift_2d_to_3d(kps_2d_pixels, scores_2d, img_w, img_h, device=torch.device(device)) # (n_frames, 17, 3)
 
@@ -537,20 +605,58 @@ def process_kinematics(
     t_min_bound = timestamps[0] + 0.3 if timestamps else 0.3
     t_max_bound = timestamps[-1] - 0.3 if timestamps else 29.7
 
-    valid_peaks = []
-    # Prominence search: starts at 30° minimum with adaptive cascade for lower amplitudes
-    for prom in [30.0, 22.0, 15.0, 8.0, 4.0]:
-        if prom > max(4.0, signal_range * 0.85):
-            continue
-        pks, _ = scipy.signal.find_peaks(clean_curve, prominence=prom, distance=6)
-        in_bounds = [p for p in pks if t_min_bound <= timestamps[p] <= t_max_bound]
-        if len(in_bounds) > 0:
-            valid_peaks = in_bounds
-            break
+    # 5. Robust Kinematic Repetition Detection (Perspective-Invariant)
+    # Minimum temporal distance between peaks: at least 1.1s (15-16 frames at 15 FPS)
+    # Strength exercise reps in human biomechanics never occur closer than 1.1s.
+    min_rep_frames = max(14, int(15.0 * 1.05))
+
+    p10 = float(np.percentile(clean_curve, 10))
+    p90 = float(np.percentile(clean_curve, 90))
+    eff_range = max(p90 - p10, 10.0)
+
+    # Dynamic prominence: 28% of dynamic range (minimum 10.0°, maximum 26.0°)
+    target_prom = max(10.0, min(26.0, eff_range * 0.28))
+
+    pks, _ = scipy.signal.find_peaks(
+        clean_curve,
+        prominence=target_prom,
+        distance=min_rep_frames
+    )
+    in_bounds = [p for p in pks if t_min_bound <= timestamps[p] <= t_max_bound]
+
+    # Secondary check: if fewer than 2 peaks detected but effective range is large, check with softer prominence
+    if len(in_bounds) < 2 and eff_range >= 18.0:
+        pks_soft, _ = scipy.signal.find_peaks(
+            clean_curve,
+            prominence=max(7.0, eff_range * 0.20),
+            distance=min_rep_frames
+        )
+        in_bounds_soft = [p for p in pks_soft if t_min_bound <= timestamps[p] <= t_max_bound]
+        if len(in_bounds_soft) > len(in_bounds):
+            in_bounds = in_bounds_soft
+
+    # Post-filtering: eliminate false stutter sub-peaks without a significant valley dip
+    filtered_peaks = []
+    for idx_p, p in enumerate(in_bounds):
+        if idx_p == 0:
+            filtered_peaks.append(p)
+        else:
+            prev_p = filtered_peaks[-1]
+            valley_val = float(np.min(clean_curve[prev_p : p + 1]))
+            dip_from_prev = clean_curve[prev_p] - valley_val
+            dip_from_curr = clean_curve[p] - valley_val
+            min_dip_required = max(7.0, target_prom * 0.60)
+            if dip_from_prev >= min_dip_required and dip_from_curr >= min_dip_required:
+                filtered_peaks.append(p)
+            else:
+                if clean_curve[p] > clean_curve[prev_p]:
+                    filtered_peaks[-1] = p
+
+    valid_peaks = filtered_peaks
 
     # If still 0 peaks but significant range, fallback to main inflection
-    if len(valid_peaks) == 0 and signal_range >= 10.0:
-        margin = max(2, int(n_frames * 0.10))
+    if len(valid_peaks) == 0 and signal_range >= 12.0:
+        margin = max(2, int(n_frames * 0.08))
         if n_frames - margin > margin:
             sub = clean_curve[margin : n_frames - margin]
             if len(sub) > 0:
@@ -636,21 +742,24 @@ def process_kinematics(
 
         if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
             dominant_joint = "CADERA"
-            if inflect_knee < 78.0:
-                recom = "Pies demasiado retrasados (<78°): exceso de cizalla en rodilla y dominio de cuádriceps. Adelanta los pies ~5-10 cm."
+            # Expanded margins of error for real-world clinical validity:
+            # Full extension lockout threshold: >= 142.0° (gives 16° of realistic margin for monocular PPT)
+            # Knee placement tolerance: 74.0° <= inflect_knee <= 106.0°
+            if inflect_knee < 74.0:
+                recom = f"Pies demasiado retrasados ({round(inflect_knee)}° < 74°): sobrecarga de cuádriceps. Adelanta los pies ~5-8 cm."
                 status = "IMPROVEMENT_OPPORTUNITY"
                 torque_bias = "CUÁDRICEPS"
-            elif inflect_knee > 102.0:
-                recom = "Pies demasiado adelantados (>102°): traslada tensión hacia isquios. Acerca los talones ~5 cm."
+            elif inflect_knee > 106.0:
+                recom = f"Pies demasiado adelantados ({round(inflect_knee)}° > 106°): traslada tensión hacia isquios. Acerca los talones ~5 cm."
                 status = "IMPROVEMENT_OPPORTUNITY"
                 torque_bias = "ISQUIOSURALES"
+            elif inflect_hip >= 142.0:
+                recom = f"Alineación articular y extensión de cadera óptimas ({round(inflect_hip)}° cadera, {round(inflect_knee)}° rodilla): máxima palanca sobre el glúteo mayor."
+                status = "OPTIMAL"
+                torque_bias = "GLÚTEO MAYOR"
             else:
-                if inflect_hip >= 158.0:
-                    recom = "Alineación articular óptima (~90° en rodilla): máxima palanca sobre el glúteo mayor."
-                    status = "OPTIMAL"
-                else:
-                    recom = f"Extensión de cadera incompleta ({round(inflect_hip)}° < 158°). Busca lockout activo con retroversión pélvica."
-                    status = "IMPROVEMENT_OPPORTUNITY"
+                recom = f"Extensión de cadera incompleta ({round(inflect_hip)}° < 142°). Busca lockout activo con retroversión pélvica."
+                status = "IMPROVEMENT_OPPORTUNITY"
                 torque_bias = "GLÚTEO MAYOR"
 
         elif is_chest:

@@ -447,7 +447,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   ) => {
     try {
       setPipelineState('analyzing');
-      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose-Large)...');
+      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose + MotionBERT 3D)...');
 
       let backendLoad = 'free_weight';
       if (load === 'cable') backendLoad = 'cable';
@@ -1190,7 +1190,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       exerciseId: activeExercise.id,
       exerciseName: activeExercise.name,
       videoDurationSeconds: analysisData.duration,
-      hardwareModel: 'Cerebrium Serverless T4 GPU (RT-DETR + ViTPose-Large + SciPy)',
+      hardwareModel: 'Cerebrium Serverless T4 GPU (RT-DETR + ViTPose + MotionBERT 3D)',
       metrics: {
         totalRepsCounted: analysisData.total_reps,
         validRepsCount: analysisData.total_reps,
@@ -1351,7 +1351,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       dominantLabel: 'Glúteo Mayor',
       rows: [
         { label: 'Estabilidad Tibial:', value: 'Vertical fija (sin deslizamiento anterior)', color: 'text-emerald-400' },
-        { label: 'Bloqueo Pélvico:', value: 'Retroversión completa en lockout (≥158°)', color: 'text-cyan-300' },
+        { label: 'Bloqueo Pélvico:', value: 'Retroversión completa en lockout (≥142°)', color: 'text-cyan-300' },
         { label: 'Control Excéntrico:', value: 'Cadencia sostenida con bisagra de cadera', color: 'text-slate-200' },
       ],
       torqueTitle: 'Palanca Articular y Enfoque',
@@ -1501,7 +1501,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             ? `Codos excesivamente flexionados (${Math.round(curElbowDeg)}° < 80°): tirón excesivo de brazos que sobrecarga Bíceps. Conduce codos hacia la cadera para aislar Dorsal Ancho.`
             : `Tracción óptima de Dorsal Ancho (~${Math.round(curElbowDeg)}° en codo): codos cerrados hacia la pelvis con máxima activación dorsal.`)
           : 'Trayectoria vertical centrada en el plano escapular con tronco rígido para optimizar torque en deltoides.')
-        : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.')
+        : (isHipThrustVariant
+          ? 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico activo (≥142° en cadera).'
+          : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.'))
   };
 
   // Real clinical statistics from repetition summaries
@@ -1617,7 +1619,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden lg:block">
-                RT-DETR + ViTPose-Large + SciPy Butterworth Fase-Cero (Cerebrium T4 GPU)
+                RT-DETR + ViTPose + MotionBERT 3D (Cerebrium T4 GPU)
               </p>
             </div>
           </div>
@@ -1746,7 +1748,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
                   <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
                   <p className="text-sm font-bold text-slate-200">{pipelineMessage}</p>
-                  <span className="text-xs text-slate-400">Zero cold-start • RT-DETR + ViTPose-Large (Cerebrium T4 GPU)</span>
+                  <span className="text-xs text-slate-400">Zero cold-start • RT-DETR + ViTPose + MotionBERT 3D (Cerebrium T4 GPU)</span>
                 </div>
               )}
 
