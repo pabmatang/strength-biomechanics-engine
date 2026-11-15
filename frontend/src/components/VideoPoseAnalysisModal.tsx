@@ -920,12 +920,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.restore();
 
       const isHipThrust =
-        (grpId === 'glutes_hamstrings' || grpId === '') && (
-          exIdStr.includes('hip_thrust') ||
-          exIdStr.includes('kas_glute') ||
-          exIdStr.includes('glute_bridge') ||
-          exIdStr.includes('bridge')
-        );
+        exIdStr.includes('hip_thrust') ||
+        exIdStr.includes('kas_glute') ||
+        exIdStr.includes('glute_bridge') ||
+        exIdStr.includes('bridge') ||
+        exIdStr.includes('thrust') ||
+        exIdStr.includes('kas');
 
       if (!isLowerBody) {
         // TREN SUPERIOR (Pecho, Espalda, Hombros, Brazos):
@@ -1102,18 +1102,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
         if (options.showCanvasText) {
           drawPillTag(
-            pKn.x - 70,
+            pKn.x - 55,
             pKn.y - 14,
-            `Alineación Rodilla: ${Math.round(frame.secondary_angle || 90)}°`,
+            `Rodilla: ${Math.round(frame.secondary_angle || 90)}°`,
             '#10B981',
             '#6EE7B7'
-          );
-          drawPillTag(
-            pHp.x - 65,
-            pHp.y - 18,
-            `Bloqueo Cadera: ${Math.round(frame.main_angle || 180)}°`,
-            '#38BDF8',
-            '#93C5FD'
           );
         }
       }
@@ -1374,12 +1367,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const isLowerBody = kinematicMeta.isLowerBody;
 
   const isHipThrustVariant =
-    selectedMuscleGroupId === 'glutes_hamstrings' && (
-      safeExerciseId.includes('hip_thrust') ||
-      safeExerciseId.includes('kas') ||
-      safeExerciseId.includes('bridge') ||
-      (activeExercise?.patternId && activeExercise.patternId.includes('hip_thrust'))
-    );
+    safeExerciseId.includes('hip_thrust') ||
+    safeExerciseId.includes('kas') ||
+    safeExerciseId.includes('bridge') ||
+    safeExerciseId.includes('thrust') ||
+    (activeExercise?.patternId && activeExercise.patternId.includes('hip_thrust'));
 
   // Dynamically calculate leverage and moment arm share for Upper Body or Lower Body
   const d_hip_val = currentFrame?.moment_arms?.d_hip ?? 0.14;
@@ -1434,7 +1426,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       primaryLeverShare = pectShare;
       secondaryLeverShare = tricShare;
       torqueBadgeText = `${pectShare}% Pectoral vs ${tricShare}% Tríceps`;
-    } else if (selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull')) {
+    } else if (selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull') || safeExerciseId.includes('t_bar') || safeExerciseId.includes('gironda')) {
       let dorsShare = 82;
       let bicShare = 18;
       if (rawVerdict?.dorsal_share && rawVerdict?.biceps_share) {
@@ -2212,74 +2204,78 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
                   {/* Mini SVG Sparkline / Bar Chart */}
                   {intensity.rep_velocities && intensity.rep_velocities.length > 0 && (
-                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
-                      <div className="flex justify-between text-[9px] font-mono text-slate-400 font-bold">
-                        <span>Curva de Fatiga Concéntrica</span>
-                        <span className="text-cyan-400">Pico: {Math.round(intensity.max_rep_vel)}°/s</span>
+                    <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2">
+                      <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 font-bold">
+                        <span className="flex items-center gap-1.5 text-slate-300">
+                          <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                          Curva de Fatiga Concéntrica
+                        </span>
+                        <span className="text-cyan-400 font-bold">Pico: {Math.round(intensity.max_rep_vel)}°/s</span>
                       </div>
 
                       {/* Visible SVG Sparkline Curve with Area Fill */}
-                      <div className="w-full h-11 relative flex items-center">
-                        <svg className="w-full h-full overflow-visible" viewBox="0 0 100 36" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="fatigueGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.45" />
-                              <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0" />
-                            </linearGradient>
-                          </defs>
-                          {(() => {
-                            const vels = intensity.rep_velocities;
-                            const maxV = Math.max(...vels, 1);
-                            const minV = Math.min(...vels, 0);
-                            const rangeV = Math.max(maxV - minV, 10);
-                            const pts = vels.map((v, i) => {
-                              const x = vels.length === 1 ? 50 : (i / (vels.length - 1)) * 94 + 3;
-                              const y = 32 - ((v - minV) / rangeV) * 26;
-                              return { x, y, v };
-                            });
-                            const pathD = pts.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`, '');
-                            const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} 36 L ${pts[0].x.toFixed(1)} 36 Z`;
-                            return (
-                              <>
-                                <path d={areaD} fill="url(#fatigueGrad)" />
-                                <path d={pathD} fill="none" stroke="#22D3EE" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                                {pts.map((p, i) => (
+                      <div className="w-full h-14 relative block">
+                        {(() => {
+                          const vels = intensity.rep_velocities;
+                          const maxV = Math.max(...vels, 1);
+                          const minV = Math.max(0, Math.min(...vels) * 0.7);
+                          const rangeV = Math.max(maxV - minV, 10);
+                          const pts = vels.map((v, i) => {
+                            const x = vels.length === 1 ? 50 : (i / (vels.length - 1)) * 92 + 4;
+                            const y = 38 - ((v - minV) / rangeV) * 32;
+                            return { x, y, v };
+                          });
+                          const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                          const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} 44 L ${pts[0].x.toFixed(1)} 44 Z`;
+                          return (
+                            <svg className="w-full h-full overflow-visible block" viewBox="0 0 100 44" preserveAspectRatio="none">
+                              <defs>
+                                <linearGradient id="fatigueAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.45" />
+                                  <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.05" />
+                                </linearGradient>
+                              </defs>
+                              <path d={areaD} fill="url(#fatigueAreaGrad)" />
+                              <path d={pathD} fill="none" stroke="#22D3EE" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                              {pts.map((p, i) => (
+                                <g key={i}>
                                   <circle
-                                    key={i}
                                     cx={p.x}
                                     cy={p.y}
-                                    r="2.5"
+                                    r="3"
                                     className={i === vels.length - 1 && intensity.velocity_loss_pct >= 20 ? 'fill-amber-400' : 'fill-cyan-300'}
                                     stroke="#0F172A"
-                                    strokeWidth="1"
+                                    strokeWidth="1.5"
                                   />
-                                ))}
-                              </>
-                            );
-                          })()}
-                        </svg>
+                                </g>
+                              ))}
+                            </svg>
+                          );
+                        })()}
                       </div>
 
-                      {/* Rep Bar Indicators with guaranteed heights */}
-                      <div className="h-6 w-full flex items-end gap-1.5 pt-0.5">
+                      {/* Rep Bar Indicators with guaranteed heights and labels */}
+                      <div className="h-10 w-full flex items-end gap-1.5 pt-1 border-t border-slate-900">
                         {intensity.rep_velocities.map((vel, idx) => {
                           const maxV = intensity.max_rep_vel || 1;
-                          const barHeightPct = Math.max(25, Math.min(100, Math.round((vel / maxV) * 100)));
+                          const barHeightPct = Math.max(20, Math.min(100, Math.round((vel / maxV) * 100)));
                           const isLast = idx === intensity.rep_velocities.length - 1;
                           return (
                             <div
                               key={idx}
                               className="flex-1 h-full flex flex-col justify-end items-center gap-0.5 group relative"
                             >
-                              <div
-                                className={`w-full rounded-t transition-all duration-300 ${
-                                  isLast && intensity.velocity_loss_pct >= 20
-                                    ? 'bg-gradient-to-t from-amber-600 to-amber-400'
-                                    : 'bg-gradient-to-t from-cyan-600 to-blue-400'
-                                }`}
-                                style={{ height: `${barHeightPct}%`, minHeight: '6px' }}
-                              />
-                              <span className="text-[8px] font-mono text-slate-400 group-hover:text-white">
+                              <div className="w-full flex-1 flex items-end justify-center">
+                                <div
+                                  className={`w-full rounded-t transition-all duration-300 ${
+                                    isLast && intensity.velocity_loss_pct >= 20
+                                      ? 'bg-gradient-to-t from-amber-600 to-amber-400 shadow-sm shadow-amber-500/30'
+                                      : 'bg-gradient-to-t from-cyan-600 to-cyan-400 shadow-sm shadow-cyan-500/20'
+                                  }`}
+                                  style={{ height: `${barHeightPct}%`, minHeight: '6px' }}
+                                />
+                              </div>
+                              <span className="text-[9px] font-mono font-bold text-slate-400 group-hover:text-white">
                                 #{idx + 1}
                               </span>
                               <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition pointer-events-none bg-slate-900 border border-slate-700 px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-300 whitespace-nowrap z-30 shadow-lg">

@@ -105,24 +105,26 @@ def interpolate_series_1d(values: np.ndarray, scores: np.ndarray, min_score: flo
 
 def apply_zero_phase_butterworth(series: np.ndarray, fs: float = 15.0, cutoff: float = 1.8) -> np.ndarray:
     """Zero-phase 2nd-order lowpass Butterworth filter via filtfilt clipped to [0, 1]."""
-    n = len(series)
+    series_f64 = np.asarray(series, dtype=np.float64)
+    n = len(series_f64)
     if n <= 9:
-        return series
+        return series_f64
     nyq = fs / 2.0
     normal_cutoff = min(cutoff / nyq, 0.99)
     b, a = scipy.signal.butter(2, normal_cutoff, btype="low", analog=False)
-    filtered = scipy.signal.filtfilt(b, a, series)
+    filtered = scipy.signal.filtfilt(b, a, series_f64)
     return np.clip(filtered, 0.0, 1.0)
 
 def apply_zero_phase_butterworth_continuous(series: np.ndarray, fs: float = 15.0, cutoff: float = 1.8) -> np.ndarray:
     """Zero-phase 2nd-order lowpass Butterworth filter for continuous real values (metric / angular)."""
-    n = len(series)
+    series_f64 = np.asarray(series, dtype=np.float64)
+    n = len(series_f64)
     if n <= 9:
-        return series
+        return series_f64
     nyq = fs / 2.0
     normal_cutoff = min(cutoff / nyq, 0.99)
     b, a = scipy.signal.butter(2, normal_cutoff, btype="low", analog=False)
-    return scipy.signal.filtfilt(b, a, series)
+    return scipy.signal.filtfilt(b, a, series_f64)
 
 def sample_video_frames(
     video_path: str,
@@ -357,15 +359,15 @@ def process_kinematics(
     if n_frames == 0:
         return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
     
-    # 0. Scene Cut Detection (>25% box change between frames)
+    # 0. Scene Cut Detection (teleport jump >45% between consecutive frames)
     is_scene_cut = [False] * n_frames
     if athlete_boxes and len(athlete_boxes) == n_frames:
         for f in range(1, n_frames):
             prev_b = athlete_boxes[f - 1]
             curr_b = athlete_boxes[f]
             delta_cx = abs(curr_b["cx"] - prev_b["cx"])
-            delta_bw = abs(curr_b["bw"] - prev_b["bw"]) / max(prev_b["bw"], 0.05)
-            if delta_cx > 0.25 or delta_bw > 0.25:
+            delta_cy = abs(curr_b["cy"] - prev_b["cy"])
+            if delta_cx > 0.45 and delta_cy > 0.45:
                 is_scene_cut[f] = True
 
     canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
@@ -471,8 +473,10 @@ def process_kinematics(
     ex_lower = exercise_type.lower()
     is_upper_body = any(k in ex_lower for k in [
         "press", "bench", "row", "pull", "fly", "pec", "curl", "dips",
-        "raise", "shoulder", "overhead", "lateral", "triceps", "biceps"
+        "raise", "shoulder", "overhead", "lateral", "triceps", "biceps", "t_bar", "gironda"
     ]) and not any(k in ex_lower for k in ["leg_press", "leg_extension"])
+    is_chest = any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly", "press"]) and not any(k in ex_lower for k in ["leg_press", "shoulder_press", "overhead"])
+    is_back = any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover", "t_bar", "gironda"])
 
     if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
         raw_primary = hip_3d_angles
@@ -483,10 +487,10 @@ def process_kinematics(
     elif any(k in ex_lower for k in ["rdl", "deadlift"]):
         raw_primary = hip_3d_angles
         raw_secondary = knee_3d_angles
-    elif any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"]):
+    elif is_chest:
         raw_primary = elbow_3d_angles
         raw_secondary = humeral_3d_angles
-    elif any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"]):
+    elif is_back:
         raw_primary = elbow_3d_angles
         raw_secondary = torso_3d_angles
     elif any(k in ex_lower for k in ["overhead", "shoulder_press", "lateral_raise", "front_raise", "rear_delt", "face_pull"]):
@@ -527,9 +531,9 @@ def process_kinematics(
 
     signal_range = float(np.max(clean_curve) - np.min(clean_curve))
     
-    # Boundary clipping: ignore peaks within the first/last 0.8s
-    t_min_bound = timestamps[0] + 0.8 if timestamps else 0.8
-    t_max_bound = timestamps[-1] - 0.8 if timestamps else 29.2
+    # Boundary clipping: ignore peaks within the first/last 0.3s
+    t_min_bound = timestamps[0] + 0.3 if timestamps else 0.3
+    t_max_bound = timestamps[-1] - 0.3 if timestamps else 29.7
 
     valid_peaks = []
     # Prominence search: starts at 30° minimum with adaptive cascade for lower amplitudes
@@ -623,10 +627,6 @@ def process_kinematics(
         inflect_hip = float(hip_3d_angles[bottom_frame])
         inflect_elbow = float(elbow_3d_angles[bottom_frame])
 
-        # Clinical Verdict Evaluation tailored to exercise biomechanics
-        is_chest = any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"])
-        is_back = any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"])
-
         pectoral_share = None
         triceps_share = None
         dorsal_share = None
@@ -706,6 +706,7 @@ def process_kinematics(
             recom = "Control cinemático y alineación articular estricta en el patrón motor evaluado."
             status = "OPTIMAL"
 
+        is_ht = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"])
         verdict = {
             "status": status,
             "dominant_joint": dominant_joint,
@@ -718,8 +719,8 @@ def process_kinematics(
             "triceps_share": round(triceps_share, 1) if triceps_share else None,
             "dorsal_share": round(dorsal_share, 1) if dorsal_share else None,
             "biceps_share": round(biceps_share, 1) if biceps_share else None,
-            "d_hip_norm": round(d_hip_3d, 3),
-            "d_knee_norm": round(d_knee_3d, 3),
+            "d_hip_norm": 0.0 if is_ht else round(d_hip_3d, 3),
+            "d_knee_norm": 0.0 if is_ht else round(d_knee_3d, 3),
             "d_shoulder_norm": round(d_sh_3d, 3),
             "recommendation": recom
         }
@@ -920,10 +921,10 @@ def process_kinematics(
                 }
 
         # Projected 2D Moment Arms for Canvas Overlay
-        if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]):
-            f_d_knee = abs(kn_x - ak_x)
-            f_d_hip = abs(hp_x - kn_x)
-            f_d_sh = abs(sh_x - hp_x)
+        if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
+            f_d_knee = 0.0
+            f_d_hip = 0.0
+            f_d_sh = 0.0
             f_d_el = 0.0
         elif is_upper_body:
             f_d_sh = abs(sh_x - wr_x)

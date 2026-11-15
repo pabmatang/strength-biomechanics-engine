@@ -456,8 +456,8 @@ def _apply_metric_anatomical_constraints(out_3d: np.ndarray, kps_2d: np.ndarray,
         v = adjusted_3d[:, child] - adjusted_3d[:, parent]
         current_len = np.linalg.norm(v, axis=-1, keepdims=True) + 1e-6
         # If segment collapsed due to frontal view, recover full depth Z
-        depth_deficit = np.maximum(0.0, target_len**2 - (v[:, :, 0]**2 + v[:, :, 1]**2))
-        v[:, :, 2] = np.where(np.abs(v[:, :, 2]) < 0.02, np.sqrt(depth_deficit), v[:, :, 2])
+        depth_deficit = np.maximum(0.0, target_len**2 - (v[:, 0]**2 + v[:, 1]**2))
+        v[:, 2] = np.where(np.abs(v[:, 2]) < 0.02, np.sqrt(depth_deficit), v[:, 2])
         # Re-normalize to target metric length
         new_len = np.linalg.norm(v, axis=-1, keepdims=True) + 1e-6
         adjusted_3d[:, child] = adjusted_3d[:, parent] + (v / new_len) * target_len
