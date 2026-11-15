@@ -773,11 +773,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
     const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
-    const isUpperBody = grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
-      exIdStr.includes('bench') || exIdStr.includes('chest') || exIdStr.includes('press') ||
+    const isUpperBody = (
+      grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
+      exIdStr.includes('bench') || exIdStr.includes('chest') ||
+      (exIdStr.includes('press') && !exIdStr.includes('leg_press')) ||
       exIdStr.includes('row') || exIdStr.includes('pulldown') || exIdStr.includes('pullup') ||
       exIdStr.includes('pullover') || exIdStr.includes('curl') || exIdStr.includes('triceps') ||
-      exIdStr.includes('dips');
+      exIdStr.includes('dips') || exIdStr.includes('t_bar') || exIdStr.includes('gironda')
+    ) && !exIdStr.includes('leg_press') && !exIdStr.includes('leg_extension');
     const isLowerBody = !isUpperBody;
 
     if (mode === 'technique') {
@@ -1238,7 +1241,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const groupId = selectedMuscleGroupId || 'glutes_hamstrings';
     const exId = safeExerciseId;
 
-    if (groupId === 'chest' || exId.includes('bench') || exId.includes('chest') || exId.includes('pec') || exId.includes('dip')) {
+    if (groupId === 'chest' || exId.includes('bench') || (exId.includes('chest') && !exId.includes('row')) || exId.includes('pec') || (exId.includes('press') && !exId.includes('leg') && !exId.includes('shoulder')) || exId.includes('dip')) {
       return {
         isLowerBody: false,
         primaryJointName: 'Codo',
@@ -1251,14 +1254,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           { label: 'Bloqueo Concéntrico:', value: 'Extensión completa sin hiperextensión pasiva', color: 'text-cyan-300' },
           { label: 'Control Excéntrico:', value: 'Descenso sostenido con escápulas retraídas', color: 'text-slate-200' },
         ],
-        torqueTitle: 'Reparto de Torque y Palancas',
+        torqueTitle: 'Reparto de Torque Pectoral / Tríceps',
         torqueShare: '76% Pectoral vs 24% Tríceps / Hombro',
         barLabel1: 'Brazo Pectoral',
         barLabel2: 'Brazo Tríceps',
         torqueFocus: 'PECTORAL MAYOR'
       };
     }
-    if (groupId === 'back' || exId.includes('row') || exId.includes('pulldown') || exId.includes('pullup') || exId.includes('pullover')) {
+    if (groupId === 'back' || exId.includes('row') || exId.includes('pulldown') || exId.includes('pullup') || exId.includes('pullover') || exId.includes('t_bar') || exId.includes('gironda')) {
       return {
         isLowerBody: false,
         primaryJointName: 'Codo',
@@ -1271,7 +1274,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           { label: 'Rigidez de Torso:', value: 'Columna neutra sin balanceo lumbar', color: 'text-cyan-300' },
           { label: 'Recorrido de Tracción:', value: 'Codos superando la línea del torso', color: 'text-slate-200' },
         ],
-        torqueTitle: 'Reparto de Palanca y Tracción',
+        torqueTitle: 'Reparto de Palanca Dorsal / Bíceps',
         torqueShare: '82% Dorsal Ancho vs 18% Flexores de Codo',
         barLabel1: 'Brazo Dorsal',
         barLabel2: 'Brazo Bíceps',
