@@ -312,7 +312,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
         <VideoPoseAnalysisModal
           isOpen={true}
           onClose={() => setVideoExercise(null)}
-          defaultExerciseId={videoExercise.exercise_template_id}
+          defaultExerciseId={videoExercise.exercise_template_id || videoExercise.id}
           defaultExerciseName={videoExercise.title}
         />
       )}

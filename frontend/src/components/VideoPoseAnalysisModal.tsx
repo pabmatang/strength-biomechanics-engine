@@ -45,6 +45,7 @@ import {
   ResistanceSourceType
 } from '../utils/biomechanicsEngine';
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
+import { ErrorBoundary } from './ErrorBoundary';
 
 export const MAX_ANALYSIS_CLIP_SECONDS = 30.0;
 
@@ -181,22 +182,122 @@ function findClosestFrame(frames: BiomechanicsFrame[], currentTime: number): Bio
   return closest;
 }
 
-export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
+export function resolveExercise(exerciseId?: string | null, exerciseName?: string | null): ExerciseItem {
+  const targetId = String(exerciseId || '').toLowerCase().trim();
+  const targetName = String(exerciseName || '').toLowerCase().trim();
+
+  // 1. Direct match on item.id
+  if (targetId) {
+    const directMatch = ALL_EXERCISES.find(e => e.id.toLowerCase() === targetId);
+    if (directMatch) return directMatch;
+  }
+
+  // 2. Direct match on item.exerciseType
+  if (targetId) {
+    const typeMatch = ALL_EXERCISES.find(e => e.exerciseType.toLowerCase() === targetId);
+    if (typeMatch) return typeMatch;
+  }
+
+  // 3. Substring / semantic heuristic match on ID or Name
+  const combined = `${targetId} ${targetName}`;
+
+  if (combined.includes('hip_thrust') || combined.includes('thrust') || combined.includes('bridge') || combined.includes('glute')) {
+    if (combined.includes('mach') || combined.includes('máquina')) {
+      return ALL_EXERCISES.find(e => e.id === 'machine_hip_thrust') || ALL_EXERCISES[0];
+    }
+    return ALL_EXERCISES.find(e => e.id === 'hip_thrust') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('rdl') || combined.includes('rumano') || combined.includes('deadlift') || combined.includes('muerto')) {
+    return ALL_EXERCISES.find(e => e.id === 'rdl') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('hack') || combined.includes('squat') || combined.includes('sentadilla') || combined.includes('prensa') || combined.includes('leg_press')) {
+    if (combined.includes('hack')) return ALL_EXERCISES.find(e => e.id === 'hack_squat') || ALL_EXERCISES[0];
+    if (combined.includes('prensa') || combined.includes('press')) return ALL_EXERCISES.find(e => e.id === 'leg_press') || ALL_EXERCISES[0];
+    return ALL_EXERCISES.find(e => e.id === 'barbell_squat') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('extension') || combined.includes('cuadriceps')) {
+    return ALL_EXERCISES.find(e => e.id === 'leg_extension') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('bench') || combined.includes('banca') || combined.includes('chest') || combined.includes('pecho')) {
+    if (combined.includes('inclin')) return ALL_EXERCISES.find(e => e.id === 'incline_press') || ALL_EXERCISES[0];
+    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'machine_chest_press') || ALL_EXERCISES[0];
+    return ALL_EXERCISES.find(e => e.id === 'bench_press') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('row') || combined.includes('remo') || combined.includes('gironda') || combined.includes('dorsal')) {
+    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'machine_row') || ALL_EXERCISES[0];
+    if (combined.includes('barbell') || combined.includes('barra')) return ALL_EXERCISES.find(e => e.id === 'barbell_row') || ALL_EXERCISES[0];
+    return ALL_EXERCISES.find(e => e.id === 'machine_row') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('jalon') || combined.includes('pulldown') || combined.includes('dominada') || combined.includes('pullup')) {
+    return ALL_EXERCISES.find(e => e.id === 'lat_pulldown') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('militar') || combined.includes('overhead') || combined.includes('shoulder') || combined.includes('hombro')) {
+    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'shoulder_press_machine') || ALL_EXERCISES[0];
+    return ALL_EXERCISES.find(e => e.id === 'overhead_press') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('lateral')) {
+    return ALL_EXERCISES.find(e => e.id === 'lateral_raise') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('biceps') || combined.includes('curl')) {
+    return ALL_EXERCISES.find(e => e.id === 'biceps_curl') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('triceps') || combined.includes('pushdown') || combined.includes('frances') || combined.includes('dip')) {
+    return ALL_EXERCISES.find(e => e.id === 'triceps_extension') || ALL_EXERCISES[0];
+  }
+
+  // 4. Default fallback: Hip Thrust
+  return ALL_EXERCISES.find(e => e.id === 'hip_thrust') || ALL_EXERCISES[0];
+}
+
+const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   isOpen,
   onClose,
   defaultExerciseId = 'hip_thrust',
   defaultExerciseName = 'Hip Thrust (Glúteo Mayor)'
 }) => {
-  // Cascading Selection State & Catalog Mapping
-  const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<string>('glutes_hamstrings');
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(defaultExerciseId);
+  // Cascading Selection State & Safe Catalog Mapping
+  const initialExercise = useMemo(() => {
+    return resolveExercise(defaultExerciseId, defaultExerciseName);
+  }, [defaultExerciseId, defaultExerciseName]);
 
-  const activeMuscleGroup = MUSCLE_GROUPS.find(g => g.id === selectedMuscleGroupId) || MUSCLE_GROUPS[0];
-  const activeExercise = ALL_EXERCISES.find(e => e.id === selectedExerciseId) || ALL_EXERCISES[0];
+  const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<string>(() => {
+    const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === initialExercise.id));
+    return parentGroup ? parentGroup.id : 'glutes_hamstrings';
+  });
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(initialExercise.id);
+
+  // Synchronize exercise and group when modal opens or defaults change
+  useEffect(() => {
+    if (isOpen) {
+      const resolved = resolveExercise(defaultExerciseId, defaultExerciseName);
+      setSelectedExerciseId(resolved.id);
+      const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === resolved.id));
+      if (parentGroup) {
+        setSelectedMuscleGroupId(parentGroup.id);
+      }
+      setLoadType(resolved.loadType);
+      setTargetMuscle(resolved.targetMuscle);
+    }
+  }, [isOpen, defaultExerciseId, defaultExerciseName]);
+
+  const activeMuscleGroup =
+    MUSCLE_GROUPS.find(g => g.id === selectedMuscleGroupId) || MUSCLE_GROUPS[0];
+  const activeExercise =
+    ALL_EXERCISES.find(e => e.id === selectedExerciseId) ||
+    initialExercise ||
+    ALL_EXERCISES[0];
 
   const selectedPattern: ExercisePatternSpec =
-    EXERCISE_PATTERNS.find(p => p.id === activeExercise.patternId) ||
-    EXERCISE_PATTERNS[0];
+    (activeExercise?.patternId && EXERCISE_PATTERNS.find(p => p.id === activeExercise.patternId)) ||
+    EXERCISE_PATTERNS[0] ||
+    ({
+      id: 'hip_thrust_barbell',
+      name: 'Hip Thrust con Barra',
+      primaryTarget: 'glutes_max',
+      jointSequence: ['hip', 'knee'],
+      optimalAngleWindow: { min: 80, max: 180, inflection: 90 },
+      primaryPlane: 'sagittal'
+    } as unknown as ExercisePatternSpec);
 
   const [loadType, setLoadType] = useState<LoadType>(activeExercise.loadType);
   const [targetMuscle, setTargetMuscle] = useState<TargetMuscle>(activeExercise.targetMuscle);
@@ -596,21 +697,23 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
+    const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
+
     const isLowerBody = (
       selectedMuscleGroupId === 'glutes_hamstrings' ||
       selectedMuscleGroupId === 'quadriceps' ||
-      options.exerciseId.includes('hip_thrust') ||
-      options.exerciseId.includes('squat') ||
-      options.exerciseId.includes('rdl') ||
-      options.exerciseId.includes('deadlift') ||
-      options.exerciseId.includes('lunge') ||
-      options.exerciseId.includes('leg_press') ||
-      options.exerciseId.includes('hack') ||
-      options.exerciseId.includes('bulgarian') ||
-      options.exerciseId.includes('leg_extension') ||
-      options.exerciseId.includes('leg_curl') ||
-      options.exerciseId.includes('glute')
-    ) && !options.exerciseId.includes('biceps') && !options.exerciseId.includes('hammer');
+      exIdStr.includes('hip_thrust') ||
+      exIdStr.includes('squat') ||
+      exIdStr.includes('rdl') ||
+      exIdStr.includes('deadlift') ||
+      exIdStr.includes('lunge') ||
+      exIdStr.includes('leg_press') ||
+      exIdStr.includes('hack') ||
+      exIdStr.includes('bulgarian') ||
+      exIdStr.includes('leg_extension') ||
+      exIdStr.includes('leg_curl') ||
+      exIdStr.includes('glute')
+    ) && !exIdStr.includes('biceps') && !exIdStr.includes('hammer');
 
     if (mode === 'technique') {
       // -------------------------------------------------------------
@@ -785,13 +888,13 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
 
       // Cotas horizontales perpendiculares (brazos de momento d_cadera y d_rodilla) - Ocultas en variantes de Hip Thrust
       const isHipThrust =
-        options.exerciseId.includes('hip_thrust') ||
-        options.exerciseId.includes('kas_glute') ||
-        options.exerciseId.includes('glute_bridge') ||
-        options.exerciseId.includes('bridge') ||
-        selectedExerciseId.includes('hip_thrust') ||
-        selectedExerciseId.includes('kas_glute') ||
-        selectedExerciseId.includes('bridge');
+        exIdStr.includes('hip_thrust') ||
+        exIdStr.includes('kas_glute') ||
+        exIdStr.includes('glute_bridge') ||
+        exIdStr.includes('bridge') ||
+        safeExerciseId.includes('hip_thrust') ||
+        safeExerciseId.includes('kas_glute') ||
+        safeExerciseId.includes('bridge');
 
       if (options.showLeverArms && !isHipThrust) {
         // Brazo de momento a la cadera (azul)
@@ -804,7 +907,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPillTag(
             midHipX - 28,
             pHp.y - 16,
-            `d_cadera: ${Math.round((frame.moment_arms.d_hip || 0) * 100)}`,
+            `d_cadera: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
             '#3B82F6',
             '#93C5FD'
           );
@@ -813,7 +916,7 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPillTag(
             midKnX - 28,
             pKn.y - 16,
-            `d_rodilla: ${Math.round((frame.moment_arms.d_knee || 0) * 100)}`,
+            `d_rodilla: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
             '#10B981',
             '#6EE7B7'
           );
@@ -953,40 +1056,43 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     recommendation: 'Alineación articular óptima con vector vertical equilibrado.'
   };
 
-  const d_hip_val = currentFrame?.moment_arms.d_hip ?? 0.14;
-  const d_knee_val = currentFrame?.moment_arms.d_knee ?? 0.12;
+  const d_hip_val = currentFrame?.moment_arms?.d_hip ?? 0.14;
+  const d_knee_val = currentFrame?.moment_arms?.d_knee ?? 0.12;
   const totalMoment = d_hip_val + d_knee_val + 1e-5;
   const hipShare = Math.round((d_hip_val / totalMoment) * 100);
   const kneeShare = 100 - hipShare;
 
+  const safeExerciseId = String(selectedExerciseId || activeExercise?.id || 'hip_thrust').toLowerCase();
+  const safePatternId = String(selectedPattern?.id || '').toLowerCase();
+
   const isLowerBody =
-    selectedPattern.id.includes('hip_thrust') ||
-    selectedPattern.id.includes('squat') ||
-    selectedPattern.id.includes('rdl') ||
-    selectedPattern.id.includes('deadlift') ||
-    selectedPattern.id.includes('lunge') ||
-    selectedPattern.id.includes('leg') ||
-    selectedPattern.id.includes('glute') ||
-    selectedExerciseId.includes('hip_thrust') ||
-    selectedExerciseId.includes('squat') ||
-    selectedExerciseId.includes('rdl') ||
-    selectedExerciseId.includes('bridge') ||
-    selectedExerciseId.includes('curl') ||
-    selectedExerciseId.includes('kickback') ||
-    selectedExerciseId.includes('abduction');
+    safePatternId.includes('hip_thrust') ||
+    safePatternId.includes('squat') ||
+    safePatternId.includes('rdl') ||
+    safePatternId.includes('deadlift') ||
+    safePatternId.includes('lunge') ||
+    safePatternId.includes('leg') ||
+    safePatternId.includes('glute') ||
+    safeExerciseId.includes('hip_thrust') ||
+    safeExerciseId.includes('squat') ||
+    safeExerciseId.includes('rdl') ||
+    safeExerciseId.includes('bridge') ||
+    safeExerciseId.includes('curl') ||
+    safeExerciseId.includes('kickback') ||
+    safeExerciseId.includes('abduction');
 
   const isHipThrustVariant =
-    selectedPattern.id.includes('hip_thrust') ||
-    selectedPattern.id.includes('kas_glute') ||
-    selectedPattern.id.includes('glute_bridge') ||
-    selectedPattern.id.includes('bridge') ||
-    selectedExerciseId.includes('hip_thrust') ||
-    selectedExerciseId.includes('kas_glute') ||
-    selectedExerciseId.includes('bridge');
+    safePatternId.includes('hip_thrust') ||
+    safePatternId.includes('kas_glute') ||
+    safePatternId.includes('glute_bridge') ||
+    safePatternId.includes('bridge') ||
+    safeExerciseId.includes('hip_thrust') ||
+    safeExerciseId.includes('kas_glute') ||
+    safeExerciseId.includes('bridge');
 
   const kinematicMeta = useMemo(() => {
-    const groupId = selectedMuscleGroupId;
-    const exId = selectedExerciseId.toLowerCase();
+    const groupId = selectedMuscleGroupId || 'glutes_hamstrings';
+    const exId = safeExerciseId;
 
     if (groupId === 'chest' || exId.includes('bench') || exId.includes('chest') || exId.includes('pec') || exId.includes('dip')) {
       return {
@@ -1990,5 +2096,14 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = (props) => {
+  if (!props.isOpen) return null;
+  return (
+    <ErrorBoundary onReset={props.onClose}>
+      <VideoPoseAnalysisModalInner {...props} />
+    </ErrorBoundary>
   );
 };
