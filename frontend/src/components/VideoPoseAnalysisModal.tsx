@@ -417,6 +417,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const smoothLineXRef = useRef<number | null>(null);
+  const smoothLineYRef = useRef<number | null>(null);
 
   // Cleanup on close
   useEffect(() => {
@@ -447,7 +448,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   ) => {
     try {
       setPipelineState('analyzing');
-      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose + MotionBERT 3D)...');
+      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose 2D + SciPy)...');
 
       let backendLoad = 'free_weight';
       if (load === 'cable') backendLoad = 'cable';
@@ -953,68 +954,135 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         }
 
-        // Línea vertical de fuerza de carga con suavizado temporal anti-vibración
-        const rawLineX = pWr.x;
-        if (smoothLineXRef.current === null || isNaN(smoothLineXRef.current)) {
-          smoothLineXRef.current = rawLineX;
-        } else {
-          smoothLineXRef.current = smoothLineXRef.current * 0.85 + rawLineX * 0.15;
-        }
-        const lineX = smoothLineXRef.current;
+        // Vector de fuerza realista y brazos de momento según load_type y cinemática
+        const fv = (frame as any).force_vector;
+        const isHorizontalResistance = (fv?.direction && fv.direction.startsWith('horizontal')) ||
+          ((activeExercise?.loadType === 'machine' || activeExercise?.loadType === 'cable') && (
+            grpId === 'back' || exIdStr.includes('row') || exIdStr.includes('t_bar') || exIdStr.includes('gironda') ||
+            grpId === 'chest' || exIdStr.includes('press') || exIdStr.includes('fly') || exIdStr.includes('pec_deck')
+          ) && !exIdStr.includes('pulldown') && !exIdStr.includes('pullup'));
 
-        const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pWr.y) - 60);
-        const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pWr.y, pHp.y) + 40);
+        const isVerticalUp = (fv?.direction === 'vertical_up') ||
+          (exIdStr.includes('pulldown') || exIdStr.includes('pullup'));
 
-        ctx.beginPath();
-        ctx.setLineDash([6, 3]);
-        ctx.moveTo(lineX, lineTop);
-        ctx.lineTo(lineX, lineBottom);
-        ctx.strokeStyle = '#FBBF24';
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-        ctx.setLineDash([]);
+        if (isHorizontalResistance) {
+          // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
+          const rawLineY = pWr.y;
+          if (smoothLineYRef.current === null || isNaN(smoothLineYRef.current)) {
+            smoothLineYRef.current = rawLineY;
+          } else {
+            smoothLineYRef.current = smoothLineYRef.current * 0.85 + rawLineY * 0.15;
+          }
+          const lineY = smoothLineYRef.current;
 
-        // Flecha vertical de carga descendente
-        ctx.beginPath();
-        ctx.moveTo(lineX, lineBottom);
-        ctx.lineTo(lineX - 6, lineBottom - 10);
-        ctx.lineTo(lineX + 6, lineBottom - 10);
-        ctx.closePath();
-        ctx.fillStyle = '#FBBF24';
-        ctx.fill();
+          const facingDir = fv?.dx !== undefined ? (fv.dx >= 0 ? 1 : -1) : (pWr.x > pSh.x ? 1 : -1);
+          const lineLeft = Math.max(offsetX + 10, Math.min(pSh.x, pWr.x) - 60);
+          const lineRight = Math.min(offsetX + drawW - 10, Math.max(pSh.x, pWr.x) + 60);
 
-        if (options.showLeverArms) {
-          // Brazo de momento a Hombro (azul)
-          drawSegment(pSh, { x: lineX, y: pSh.y, score: pSh.score }, '#3B82F6', true);
-          // Brazo de momento a Codo (verde)
-          drawSegment(pEl, { x: lineX, y: pEl.y, score: pEl.score }, '#10B981', true);
+          ctx.beginPath();
+          ctx.setLineDash([6, 3]);
+          ctx.moveTo(lineLeft, lineY);
+          ctx.lineTo(lineRight, lineY);
+          ctx.strokeStyle = '#FBBF24';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+          ctx.setLineDash([]);
 
-          if (options.showCanvasText) {
-            const dSh = Math.round(
-              ((frame.moment_arms?.d_shoulder !== undefined ? frame.moment_arms.d_shoulder : (Math.abs(pSh.x - lineX) / (drawW * 0.4))) * 100)
-            );
-            const dEl = Math.round(
-              (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100)
-            );
+          // Flecha horizontal de resistencia
+          const arrowX = facingDir > 0 ? lineRight : lineLeft;
+          ctx.beginPath();
+          ctx.moveTo(arrowX, lineY);
+          ctx.lineTo(arrowX - facingDir * 10, lineY - 6);
+          ctx.lineTo(arrowX - facingDir * 10, lineY + 6);
+          ctx.closePath();
+          ctx.fillStyle = '#FBBF24';
+          ctx.fill();
 
-            const midShX = (pSh.x + lineX) / 2;
-            const midElX = (pEl.x + lineX) / 2;
+          if (options.showLeverArms) {
+            // Brazos de momento perpendiculares (verticales desde hombro y codo a la línea de fuerza)
+            drawSegment(pSh, { x: pSh.x, y: lineY, score: pSh.score }, '#3B82F6', true);
+            drawSegment(pEl, { x: pEl.x, y: lineY, score: pEl.score }, '#10B981', true);
 
-            // Separación vertical anti-colisión
-            let tagShY = pSh.y - 18;
-            let tagElY = pEl.y - 18;
-            if (Math.abs(tagShY - tagElY) < 28) {
-              if (tagShY <= tagElY) {
-                tagShY -= 14;
-                tagElY += 14;
-              } else {
-                tagShY += 14;
-                tagElY -= 14;
-              }
+            if (options.showCanvasText) {
+              const dSh = Math.round(
+                ((frame.moment_arms?.d_shoulder !== undefined ? frame.moment_arms.d_shoulder : (Math.abs(pSh.y - lineY) / (drawH * 0.4))) * 100)
+              );
+              const dEl = Math.round(
+                (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.y - lineY) / (drawH * 0.4))) * 100)
+              );
+
+              drawPillTag(pSh.x - 28, (pSh.y + lineY) / 2, `d_hombro: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(pEl.x - 28, (pEl.y + lineY) / 2, `d_codo: ${dEl}`, '#10B981', '#6EE7B7');
             }
+          }
+        } else {
+          // Vector de resistencia vertical (Peso libre por gravedad o Jalón en polea vertical)
+          const rawLineX = pWr.x;
+          if (smoothLineXRef.current === null || isNaN(smoothLineXRef.current)) {
+            smoothLineXRef.current = rawLineX;
+          } else {
+            smoothLineXRef.current = smoothLineXRef.current * 0.85 + rawLineX * 0.15;
+          }
+          const lineX = smoothLineXRef.current;
 
-            drawPillTag(midShX - 28, tagShY, `d_hombro: ${dSh}`, '#3B82F6', '#93C5FD');
-            drawPillTag(midElX - 28, tagElY, `d_codo: ${dEl}`, '#10B981', '#6EE7B7');
+          const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pWr.y) - 60);
+          const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pWr.y, pHp.y) + 40);
+
+          ctx.beginPath();
+          ctx.setLineDash([6, 3]);
+          ctx.moveTo(lineX, lineTop);
+          ctx.lineTo(lineX, lineBottom);
+          ctx.strokeStyle = '#FBBF24';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Flecha vertical de carga
+          ctx.beginPath();
+          if (isVerticalUp) {
+            ctx.moveTo(lineX, lineTop);
+            ctx.lineTo(lineX - 6, lineTop + 10);
+            ctx.lineTo(lineX + 6, lineTop + 10);
+          } else {
+            ctx.moveTo(lineX, lineBottom);
+            ctx.lineTo(lineX - 6, lineBottom - 10);
+            ctx.lineTo(lineX + 6, lineBottom - 10);
+          }
+          ctx.closePath();
+          ctx.fillStyle = '#FBBF24';
+          ctx.fill();
+
+          if (options.showLeverArms) {
+            // Brazos de momento perpendiculares (horizontales a la línea de gravedad)
+            drawSegment(pSh, { x: lineX, y: pSh.y, score: pSh.score }, '#3B82F6', true);
+            drawSegment(pEl, { x: lineX, y: pEl.y, score: pEl.score }, '#10B981', true);
+
+            if (options.showCanvasText) {
+              const dSh = Math.round(
+                ((frame.moment_arms?.d_shoulder !== undefined ? frame.moment_arms.d_shoulder : (Math.abs(pSh.x - lineX) / (drawW * 0.4))) * 100)
+              );
+              const dEl = Math.round(
+                (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100)
+              );
+
+              const midShX = (pSh.x + lineX) / 2;
+              const midElX = (pEl.x + lineX) / 2;
+
+              let tagShY = pSh.y - 18;
+              let tagElY = pEl.y - 18;
+              if (Math.abs(tagShY - tagElY) < 28) {
+                if (tagShY <= tagElY) {
+                  tagShY -= 14;
+                  tagElY += 14;
+                } else {
+                  tagShY += 14;
+                  tagElY -= 14;
+                }
+              }
+
+              drawPillTag(midShX - 28, tagShY, `d_hombro: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(midElX - 28, tagElY, `d_codo: ${dEl}`, '#10B981', '#6EE7B7');
+            }
           }
         }
       } else if (!isHipThrust) {
@@ -1465,7 +1533,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       secondaryLeverShare = 10;
       torqueBadgeText = '90% Aislamiento vs 10% Inercia';
     }
-  } else if (selectedMuscleGroupId === 'quadriceps' || selectedMuscleGroupId === 'quads') {
+  } else if (selectedMuscleGroupId === 'quadriceps' || selectedMuscleGroupId === 'quads' || safeExerciseId.includes('squat') || safeExerciseId.includes('hack') || safeExerciseId.includes('leg_press') || safeExerciseId.includes('bulgarian') || safeExerciseId.includes('leg_extension')) {
     primaryLeverName = 'Brazo Rodilla';
     secondaryLeverName = 'Brazo Cadera';
     primaryLeverShare = kneeShare;
@@ -1622,7 +1690,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden lg:block">
-                RT-DETR + ViTPose + MotionBERT 3D (Cerebrium T4 GPU)
+                RT-DETR + ViTPose 2D + SciPy Butterworth Fase-Cero (Cerebrium T4 GPU)
               </p>
             </div>
           </div>
@@ -1736,6 +1804,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   if (dur > 15.0) {
                     setShowTrimmer(true);
                   }
+                }}
+                onTimeUpdate={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.seeking && trimEnd > trimStart && (target.currentTime >= trimEnd || target.currentTime < trimStart - 0.2)) {
+                    target.currentTime = trimStart;
+                  }
+                }}
+                onEnded={(e) => {
+                  e.currentTarget.currentTime = trimStart;
+                  e.currentTarget.play().catch(() => {});
                 }}
                 className="w-full h-full object-contain pointer-events-none"
               />
