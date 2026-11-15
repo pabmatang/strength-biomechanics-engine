@@ -579,7 +579,7 @@ def process_kinematics(
 
     clean_primary_smooth = apply_zero_phase_butterworth(clean_primary, fs=15.0, cutoff=1.8)
 
-    # 5. Adaptive Curve Orientation & Peak Detection
+    # 5. Adaptive Multi-Signal Curve Orientation & Cascade Peak Detection
     is_trough_movement = any(k in ex_lower for k in [
         "squat", "leg_press", "hack", "bulgarian", "rdl", "deadlift",
         "row", "pulldown", "pullup", "biceps", "leg_curl",
@@ -592,22 +592,74 @@ def process_kinematics(
         clean_curve = -clean_curve
 
     signal_range = float(np.max(clean_primary_smooth) - np.min(clean_primary_smooth))
-    target_prominence = max(7.0, min(22.0, signal_range * 0.28))
-
     repetitions_summary = []
     frame_rep_map = [0] * n_frames
     frame_phase_map = ["IDLE"] * n_frames
 
-    peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=target_prominence, distance=8)
-    if len(peaks) == 0:
-        peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=max(5.0, target_prominence * 0.55), distance=6)
+    # Multi-signal cascade peak finder
+    valid_peaks = []
+    
+    # Cascade 1: Primary angle curve with decreasing prominence
+    for prom_ratio in [0.22, 0.15, 0.08, 0.04]:
+        prom = max(1.8, min(22.0, signal_range * prom_ratio))
+        for dist in [8, 6, 5, 4]:
+            pks, _ = scipy.signal.find_peaks(clean_curve, prominence=prom, distance=dist)
+            if len(pks) > 0:
+                valid_peaks = list(pks)
+                break
+        if len(valid_peaks) > 0:
+            break
 
-    # Clip boundary margins: keep reps within active window
-    t_min_bound = timestamps[0] + 0.3
-    t_max_bound = timestamps[-1] - 0.3
-    valid_peaks = [p for p in peaks if t_min_bound <= timestamps[p] <= t_max_bound]
-    if len(valid_peaks) == 0 and len(peaks) > 0:
-        valid_peaks = peaks
+    # Cascade 2: Inverted angle curve search (if movement inflection was inverted in 2D projection)
+    if len(valid_peaks) == 0:
+        inv_curve = -clean_curve
+        for prom_ratio in [0.20, 0.12, 0.05]:
+            prom = max(1.8, min(20.0, signal_range * prom_ratio))
+            pks, _ = scipy.signal.find_peaks(inv_curve, prominence=prom, distance=5)
+            if len(pks) > 0:
+                valid_peaks = list(pks)
+                clean_curve = inv_curve
+                is_trough_movement = not is_trough_movement
+                break
+
+    # Cascade 3: Kinematic Euclidean Displacement (wrist to shoulder for upper body, hip to ankle for lower body)
+    if len(valid_peaks) == 0:
+        if is_upper_body:
+            disp_raw = np.array([
+                math.hypot(primary_joints["wrist"]["x"][f] - primary_joints["shoulder"]["x"][f],
+                           primary_joints["wrist"]["y"][f] - primary_joints["shoulder"]["y"][f])
+                for f in range(n_frames)
+            ], dtype=np.float64)
+        else:
+            disp_raw = np.array([
+                abs(primary_joints["hip"]["y"][f] - primary_joints["knee"]["y"][f])
+                for f in range(n_frames)
+            ], dtype=np.float64)
+        
+        disp_smooth = apply_zero_phase_butterworth(disp_raw, fs=15.0, cutoff=1.8)
+        disp_range = float(np.max(disp_smooth) - np.min(disp_smooth))
+        if disp_range > 0.015:
+            for d_c in [-disp_smooth, disp_smooth]:
+                pks, _ = scipy.signal.find_peaks(d_c, prominence=max(0.008, disp_range * 0.12), distance=5)
+                if len(pks) > 0:
+                    valid_peaks = list(pks)
+                    break
+
+    # Cascade 4: If still 0 peaks but there is visible movement, identify main inflection turnaround
+    if len(valid_peaks) == 0 and (signal_range >= 4.0 or n_frames >= 15):
+        margin = max(1, int(n_frames * 0.10))
+        if n_frames - margin > margin:
+            sub = clean_curve[margin : n_frames - margin]
+            if len(sub) > 0:
+                best_sub_idx = int(np.argmax(sub))
+                valid_peaks = [margin + best_sub_idx]
+
+    # Clip boundary margins: keep reps within active window unless only 1 peak
+    t_min_bound = timestamps[0] + 0.15
+    t_max_bound = timestamps[-1] - 0.15
+    filtered_peaks = [p for p in valid_peaks if t_min_bound <= timestamps[p] <= t_max_bound]
+    if len(filtered_peaks) > 0:
+        valid_peaks = filtered_peaks
 
     # Angular velocity signal: absolute rate of change in clean primary angle (deg/s)
     if len(clean_primary) > 1 and len(timestamps) > 1:
@@ -713,34 +765,56 @@ def process_kinematics(
             d_shoulder = abs(sh_x - wr_x)
             humeral_angle = float(clean_secondary[bottom_frame])
             elbow_angle = float(clean_primary[bottom_frame])
-            if humeral_angle > 75.0:
-                recom = "Codos excesivamente abiertos (>75°): riesgo de pinzamiento subacromial. Cierra los codos a ~50°-60° del torso para maximizar activación esternal."
-                status = "IMPROVEMENT_OPPORTUNITY"
-                torque_bias = "DELTOIDES ANTERIOR"
-            elif elbow_angle < 145.0:
-                recom = "Empuje incompleto en concéntrica. Extiende los brazos completamente manteniendo escápulas retraídas."
+            inflect_elbow = elbow_angle
+
+            if elbow_angle < 78.0:
+                triceps_share = min(68.0, 52.0 + (78.0 - elbow_angle) * 1.1)
+                pectoral_share = round(100.0 - triceps_share, 1)
+                recom = f"Ángulo de codo cerrado ({round(elbow_angle)}° < 78°): excesiva flexión que deriva el torque mecánico hacia el Tríceps Braquial ({round(triceps_share)}%). Abre el agarre o separa los codos a ~50°-60° del torso para maximizar la tensión en el Pectoral Mayor."
                 status = "IMPROVEMENT_OPPORTUNITY"
                 torque_bias = "TRÍCEPS BRAQUIAL"
-            else:
-                recom = "Alineación glenohumeral óptima (~50°-60°): máxima tensión en pectoral mayor con protección subacromial."
+            elif elbow_angle <= 96.0:
+                pectoral_share = min(84.0, 76.0 + (96.0 - abs(elbow_angle - 88.0)) * 0.7)
+                triceps_share = round(100.0 - pectoral_share, 1)
+                recom = f"Palanca óptima sobre Pectoral Mayor ({round(pectoral_share)}%): antebrazo perpendicular al vector de empuje ({round(elbow_angle)}°), minimizando el brazo de momento del tríceps."
                 status = "OPTIMAL"
                 torque_bias = "PECTORAL MAYOR"
-            dominant_joint = "PECTORAL"
+            else:
+                pectoral_share = 72.0
+                triceps_share = 28.0
+                recom = f"Profundidad parcial en excéntrica ({round(elbow_angle)}° > 96°). Desciende hasta ~90° para mayor estiramiento y palanca sobre el pectoral."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "PECTORAL MAYOR (RECORRIDO CORTO)"
+            
+            dominant_joint = "GLENOHUMERAL / PECTORAL"
 
         elif any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"]):
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
-            torso_angle = float(clean_secondary[bottom_frame])
-            if torso_angle > 25.0:
-                recom = "Exceso de balanceo e inercia lumbar (>25°). Mantén el torso rígido y tracciona guiando con los codos pegados al cuerpo."
+            elbow_angle = float(clean_primary[bottom_frame])
+            inflect_elbow = elbow_angle
+
+            if elbow_angle < 80.0:
+                biceps_share = min(65.0, 50.0 + (80.0 - elbow_angle) * 1.0)
+                dorsal_share = round(100.0 - biceps_share, 1)
+                recom = f"Codos excesivamente cerrados ({round(elbow_angle)}° < 80°): estás flexionando el brazo en lugar de traccionar con la espalda, sobrecargando el Bíceps Braquial ({round(biceps_share)}%). Guía los codos hacia la cadera ('cue del gancho') para aislar el Dorsal Ancho."
                 status = "IMPROVEMENT_OPPORTUNITY"
-                torque_bias = "ZONA LUMBAR / INERCIA"
-            else:
-                recom = "Tracción neutra y retracción escapular estricta: codos superan la línea del torso con máxima activación dorsal."
+                torque_bias = "BÍCEPS BRAQUIAL"
+            elif elbow_angle <= 112.0:
+                dorsal_share = min(88.0, 82.0 + (112.0 - abs(elbow_angle - 95.0)) * 0.5)
+                biceps_share = round(100.0 - dorsal_share, 1)
+                recom = f"Tracción óptima de Dorsal Ancho ({round(dorsal_share)}%): codo guiado hacia la cadera ({round(elbow_angle)}°) con mínimo reclutamiento parásito del bíceps ({round(biceps_share)}%)."
                 status = "OPTIMAL"
                 torque_bias = "DORSAL ANCHO"
-            dominant_joint = "DORSAL"
+            else:
+                dorsal_share = 75.0
+                biceps_share = 25.0
+                recom = f"Tracción incompleta ({round(elbow_angle)}° > 112°). Lleva los codos más atrás superando la línea del torso para completar la aducción escapular."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "DORSAL ANCHO (RECORRIDO CORTO)"
+            
+            dominant_joint = "DORSAL ANCHO"
 
         elif any(k in ex_lower for k in ["overhead", "shoulder_press", "lateral_raise", "front_raise", "rear_delt"]):
             d_hip = abs(hp_x - wr_x)
@@ -779,6 +853,9 @@ def process_kinematics(
             dominant_joint = "NEUTRO"
             torque_bias = "GENERAL"
 
+        is_chest = any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"])
+        is_back = any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"])
+
         verdict = {
             "status": status,
             "dominant_joint": dominant_joint,
@@ -786,6 +863,11 @@ def process_kinematics(
             "primary_torque_bias": torque_bias,
             "inflection_knee_deg": round(inflect_knee, 1),
             "inflection_hip_deg": round(inflect_hip, 1),
+            "inflection_elbow_deg": round(inflect_elbow, 1) if (is_chest or is_back) else 90.0,
+            "pectoral_share": round(pectoral_share, 1) if is_chest else None,
+            "triceps_share": round(triceps_share, 1) if is_chest else None,
+            "dorsal_share": round(dorsal_share, 1) if is_back else None,
+            "biceps_share": round(biceps_share, 1) if is_back else None,
             "d_hip_norm": round(float(d_hip), 3),
             "d_knee_norm": round(float(d_knee), 3),
             "d_shoulder_norm": round(float(d_shoulder), 3),
@@ -867,8 +949,8 @@ def process_kinematics(
         }
     else:
         intensity_metrics = {
-            "estimated_rir": "N/A",
-            "estimated_rpe": 0.0,
+            "estimated_rir": "4+",
+            "estimated_rpe": 6.0,
             "velocity_loss_pct": 0.0,
             "first_rep_vel": 0.0,
             "last_rep_vel": 0.0,
@@ -893,30 +975,68 @@ def process_kinematics(
             med_p = float(np.median(clean_primary))
             med_s = float(np.median(clean_secondary))
             if any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"]):
+                if med_p < 78.0:
+                    fb_tri = min(68.0, 52.0 + (78.0 - med_p) * 1.1)
+                    fb_pec = round(100.0 - fb_tri, 1)
+                    fb_bias = "TRÍCEPS BRAQUIAL"
+                    fb_rec = f"Ángulo de codo cerrado ({round(med_p)}° < 78°): sobrecarga en Tríceps Braquial ({round(fb_tri)}%). Abre el agarre para mayor estímulo pectoral."
+                elif med_p <= 96.0:
+                    fb_pec = min(84.0, 76.0 + (96.0 - abs(med_p - 88.0)) * 0.7)
+                    fb_tri = round(100.0 - fb_pec, 1)
+                    fb_bias = "PECTORAL MAYOR"
+                    fb_rec = f"Palanca óptima sobre Pectoral Mayor ({round(fb_pec)}%): codo a ~90° ({round(med_p)}°) en el plano escapular."
+                else:
+                    fb_pec = 72.0
+                    fb_tri = 28.0
+                    fb_bias = "PECTORAL MAYOR (RECORRIDO CORTO)"
+                    fb_rec = f"Profundidad parcial ({round(med_p)}° > 96°). Desciende a ~90° para estiramiento óptimo de fibras esternocostales."
+
                 base_rep_verdict = {
                     "status": "OPTIMAL",
                     "dominant_joint": "GLENOHUMERAL (PECTORAL)",
                     "target_alignment": True,
-                    "primary_torque_bias": "PECTORAL MAYOR",
+                    "primary_torque_bias": fb_bias,
                     "inflection_knee_deg": 90.0,
                     "inflection_hip_deg": 180.0,
+                    "inflection_elbow_deg": round(med_p, 1),
+                    "pectoral_share": round(fb_pec, 1),
+                    "triceps_share": round(fb_tri, 1),
                     "d_hip_norm": 0.0,
                     "d_knee_norm": 0.0,
                     "d_shoulder_norm": round(float(abs(sh_x - wr_x)), 3),
-                    "recommendation": "Alineación glenohumeral evaluada. Codos en plano de la escápula (~50°-60°) para máxima palanca esternal."
+                    "recommendation": fb_rec
                 }
             elif any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"]):
+                if med_p < 80.0:
+                    fb_bic = min(65.0, 50.0 + (80.0 - med_p) * 1.0)
+                    fb_dor = round(100.0 - fb_bic, 1)
+                    fb_bias = "BÍCEPS BRAQUIAL"
+                    fb_rec = f"Codos muy cerrados ({round(med_p)}° < 80°): tirón excesivo de brazos. Tira con los codos hacia la cadera para aislar el Dorsal Ancho."
+                elif med_p <= 112.0:
+                    fb_dor = min(88.0, 82.0 + (112.0 - abs(med_p - 95.0)) * 0.5)
+                    fb_bic = round(100.0 - fb_dor, 1)
+                    fb_bias = "DORSAL ANCHO"
+                    fb_rec = f"Tracción óptima de Dorsal Ancho ({round(fb_dor)}%): codos dirigidos hacia la pelvis ({round(med_p)}°)."
+                else:
+                    fb_dor = 75.0
+                    fb_bic = 25.0
+                    fb_bias = "DORSAL ANCHO (RECORRIDO CORTO)"
+                    fb_rec = f"Tracción incompleta ({round(med_p)}° > 112°). Lleva los codos más atrás superando el torso."
+
                 base_rep_verdict = {
                     "status": "OPTIMAL",
                     "dominant_joint": "EXTENSIÓN HOMBRO (DORSAL)",
                     "target_alignment": True,
-                    "primary_torque_bias": "DORSAL ANCHO",
+                    "primary_torque_bias": fb_bias,
                     "inflection_knee_deg": 90.0,
                     "inflection_hip_deg": 180.0,
+                    "inflection_elbow_deg": round(med_p, 1),
+                    "dorsal_share": round(fb_dor, 1),
+                    "biceps_share": round(fb_bic, 1),
                     "d_hip_norm": 0.0,
                     "d_knee_norm": 0.0,
                     "d_shoulder_norm": round(float(abs(sh_x - wr_x)), 3),
-                    "recommendation": "Tracción dorsal evaluada. Codos superando la línea del torso con escápulas activas sin balanceo lumbar."
+                    "recommendation": fb_rec
                 }
             elif any(k in ex_lower for k in ["overhead", "shoulder_press", "lateral_raise", "front_raise", "rear_delt", "face_pull"]):
                 base_rep_verdict = {

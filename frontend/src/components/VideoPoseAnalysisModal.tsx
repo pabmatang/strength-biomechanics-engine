@@ -416,6 +416,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const smoothLineXRef = useRef<number | null>(null);
 
   // Cleanup on close
   useEffect(() => {
@@ -593,7 +594,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             panOffset,
             showLeverArms,
             showCanvasText,
-            exerciseId: selectedExerciseId || selectedPattern?.id || activeExercise?.id || ''
+            exerciseId: selectedExerciseId || activeExercise?.id || '',
+            muscleGroupId: selectedMuscleGroupId
           });
         }
       } else {
@@ -611,7 +613,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       cancelled = true;
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, selectedPattern, trimStart, trimEnd]);
+  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, selectedMuscleGroupId, selectedExerciseId, activeExercise, trimStart, trimEnd]);
 
   /**
    * Surgical 1:1 Canvas Projection and Clean Visual Layer Separation
@@ -627,6 +629,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       showLeverArms: boolean;
       showCanvasText: boolean;
       exerciseId: string;
+      muscleGroupId?: string;
     }
   ) => {
     const ctx = canvas.getContext('2d');
@@ -767,23 +770,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
+    const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
     const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
-    const isLowerBody = (
-      selectedMuscleGroupId === 'glutes_hamstrings' ||
-      selectedMuscleGroupId === 'quadriceps' ||
-      exIdStr.includes('hip_thrust') ||
-      exIdStr.includes('squat') ||
-      exIdStr.includes('rdl') ||
-      exIdStr.includes('deadlift') ||
-      exIdStr.includes('lunge') ||
-      exIdStr.includes('leg_press') ||
-      exIdStr.includes('hack') ||
-      exIdStr.includes('bulgarian') ||
-      exIdStr.includes('leg_extension') ||
-      exIdStr.includes('leg_curl') ||
-      exIdStr.includes('glute')
-    ) && !exIdStr.includes('biceps') && !exIdStr.includes('hammer') && selectedMuscleGroupId !== 'chest' && selectedMuscleGroupId !== 'back' && selectedMuscleGroupId !== 'shoulders' && selectedMuscleGroupId !== 'arms';
+    const isUpperBody = grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
+      exIdStr.includes('bench') || exIdStr.includes('chest') || exIdStr.includes('press') ||
+      exIdStr.includes('row') || exIdStr.includes('pulldown') || exIdStr.includes('pullup') ||
+      exIdStr.includes('pullover') || exIdStr.includes('curl') || exIdStr.includes('triceps') ||
+      exIdStr.includes('dips');
+    const isLowerBody = !isUpperBody;
 
     if (mode === 'technique') {
       // -------------------------------------------------------------
@@ -931,17 +926,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.restore();
 
       const isHipThrust =
-        exIdStr.includes('hip_thrust') ||
-        exIdStr.includes('kas_glute') ||
-        exIdStr.includes('glute_bridge') ||
-        exIdStr.includes('bridge') ||
-        safeExerciseId.includes('hip_thrust') ||
-        safeExerciseId.includes('kas_glute') ||
-        safeExerciseId.includes('bridge');
+        (grpId === 'glutes_hamstrings' || grpId === '') && (
+          exIdStr.includes('hip_thrust') ||
+          exIdStr.includes('kas_glute') ||
+          exIdStr.includes('glute_bridge') ||
+          exIdStr.includes('bridge')
+        );
 
       if (!isLowerBody) {
         // TREN SUPERIOR (Pecho, Espalda, Hombros, Brazos):
-        // Puntos articulares clave en color nítido: Hombro, Codo, Muñeca
         drawPoint(pSh, '#3B82F6');
         drawPoint(pEl, '#10B981');
         drawPoint(pWr, '#FBBF24');
@@ -949,8 +942,29 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pHp, '#64748B');
         }
 
-        // Línea vertical de fuerza de carga / resistencia a través de la muñeca
-        const lineX = pWr.x;
+        // Live Elbow Angle Arc
+        drawAngleArc(pEl, pSh, pWr, 24, '#10B981');
+
+        if (options.showCanvasText) {
+          const liveElbow = Math.round(frame.main_angle || 90);
+          if (grpId === 'chest' || exIdStr.includes('bench') || exIdStr.includes('chest') || exIdStr.includes('press')) {
+            const biasTag = liveElbow < 78 ? 'Tríceps +' : (liveElbow <= 96 ? 'Pectoral +' : 'Recorrido Corto');
+            drawPillTag(pEl.x - 45, pEl.y + 16, `Codo: ${liveElbow}° (${biasTag})`, '#10B981', '#6EE7B7');
+          } else if (grpId === 'back' || exIdStr.includes('row') || exIdStr.includes('pull')) {
+            const biasTag = liveElbow < 80 ? 'Bíceps +' : (liveElbow <= 112 ? 'Dorsal +' : 'Tracción Parcial');
+            drawPillTag(pEl.x - 45, pEl.y + 16, `Codo: ${liveElbow}° (${biasTag})`, '#10B981', '#6EE7B7');
+          }
+        }
+
+        // Línea vertical de fuerza de carga con suavizado temporal anti-vibración
+        const rawLineX = pWr.x;
+        if (smoothLineXRef.current === null || isNaN(smoothLineXRef.current)) {
+          smoothLineXRef.current = rawLineX;
+        } else {
+          smoothLineXRef.current = smoothLineXRef.current * 0.85 + rawLineX * 0.15;
+        }
+        const lineX = smoothLineXRef.current;
+
         const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pWr.y) - 60);
         const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pWr.y, pHp.y) + 40);
 
@@ -987,10 +1001,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             );
 
             const midShX = (pSh.x + lineX) / 2;
-            drawPillTag(midShX - 28, pSh.y - 16, `d_hombro: ${dSh}`, '#3B82F6', '#93C5FD');
-
             const midElX = (pEl.x + lineX) / 2;
-            drawPillTag(midElX - 28, pEl.y - 16, `d_codo: ${dEl}`, '#10B981', '#6EE7B7');
+
+            // Separación vertical anti-colisión
+            let tagShY = pSh.y - 18;
+            let tagElY = pEl.y - 18;
+            if (Math.abs(tagShY - tagElY) < 28) {
+              if (tagShY <= tagElY) {
+                tagShY -= 14;
+                tagElY += 14;
+              } else {
+                tagShY += 14;
+                tagElY -= 14;
+              }
+            }
+
+            drawPillTag(midShX - 28, tagShY, `d_hombro: ${dSh}`, '#3B82F6', '#93C5FD');
+            drawPillTag(midElX - 28, tagElY, `d_codo: ${dEl}`, '#10B981', '#6EE7B7');
           }
         }
       } else if (!isHipThrust) {
@@ -1000,7 +1027,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pAk, '#38BDF8');
         drawPoint(pWr, '#FBBF24');
 
-        const lineX = (pWr.score !== undefined && pWr.score > 0.35) ? pWr.x : pAk.x;
+        const rawLineX = (pWr.score !== undefined && pWr.score > 0.35) ? pWr.x : pAk.x;
+        if (smoothLineXRef.current === null || isNaN(smoothLineXRef.current)) {
+          smoothLineXRef.current = rawLineX;
+        } else {
+          smoothLineXRef.current = smoothLineXRef.current * 0.85 + rawLineX * 0.15;
+        }
+        const lineX = smoothLineXRef.current;
+
         const lineTop = Math.max(offsetY + 10, Math.min(pHp.y, pWr.y) - 60);
         const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pHp.y, pKn.y, pAk.y) + 30);
 
@@ -1030,18 +1064,32 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           if (options.showCanvasText) {
             const midHipX = (pHp.x + lineX) / 2;
+            const midKnX = (pKn.x + lineX) / 2;
+
+            // Separación vertical anti-colisión
+            let tagHipY = pHp.y - 18;
+            let tagKnY = pKn.y - 18;
+            if (Math.abs(tagHipY - tagKnY) < 28) {
+              if (tagHipY <= tagKnY) {
+                tagHipY -= 14;
+                tagKnY += 14;
+              } else {
+                tagHipY += 14;
+                tagKnY -= 14;
+              }
+            }
+
             drawPillTag(
               midHipX - 28,
-              pHp.y - 16,
+              tagHipY,
               `d_cadera: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
               '#3B82F6',
               '#93C5FD'
             );
 
-            const midKnX = (pKn.x + lineX) / 2;
             drawPillTag(
               midKnX - 28,
-              pKn.y - 16,
+              tagKnY,
               `d_rodilla: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
               '#10B981',
               '#6EE7B7'
@@ -1050,6 +1098,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         }
       } else {
         // VARIANTES DE HIP THRUST / PUENTE DE GLÚTEO:
+        // No se dibujan brazos de momento ni línea de carga vertical
         drawPoint(pHp, '#38BDF8');
         drawPoint(pKn, '#10B981');
         drawPoint(pAk, '#38BDF8');
@@ -1263,7 +1312,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         torqueFocus: 'DELTOIDES'
       };
     }
-    if (groupId === 'quadriceps' || exId.includes('squat') || exId.includes('hack') || exId.includes('leg_press') || exId.includes('bulgarian') || exId.includes('leg_extension')) {
+    if (groupId === 'quadriceps' || groupId === 'quads' || exId.includes('squat') || exId.includes('hack') || exId.includes('leg_press') || exId.includes('bulgarian') || exId.includes('leg_extension')) {
       return {
         isLowerBody: true,
         primaryJointName: 'Rodilla',
@@ -1331,13 +1380,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const isLowerBody = kinematicMeta.isLowerBody;
 
   const isHipThrustVariant =
-    safePatternId.includes('hip_thrust') ||
-    safePatternId.includes('kas_glute') ||
-    safePatternId.includes('glute_bridge') ||
-    safePatternId.includes('bridge') ||
-    safeExerciseId.includes('hip_thrust') ||
-    safeExerciseId.includes('kas_glute') ||
-    safeExerciseId.includes('bridge');
+    selectedMuscleGroupId === 'glutes_hamstrings' && (
+      safeExerciseId.includes('hip_thrust') ||
+      safeExerciseId.includes('kas') ||
+      safeExerciseId.includes('bridge') ||
+      (activeExercise?.patternId && activeExercise.patternId.includes('hip_thrust'))
+    );
 
   // Dynamically calculate leverage and moment arm share for Upper Body or Lower Body
   const d_hip_val = currentFrame?.moment_arms?.d_hip ?? 0.14;
@@ -1365,19 +1413,56 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   let secondaryLeverShare = kneeShare;
   let torqueBadgeText = `${hipShare}% Cadera vs ${kneeShare}% Rodilla`;
 
+  const rawVerdict = currentFrame?.verdict;
+  const curElbowDeg = currentFrame ? currentFrame.main_angle : (rawVerdict?.inflection_elbow_deg || 90.0);
+
   if (!isLowerBody) {
-    if (selectedMuscleGroupId === 'chest') {
+    if (selectedMuscleGroupId === 'chest' || safeExerciseId.includes('bench') || safeExerciseId.includes('chest') || safeExerciseId.includes('press')) {
+      let pectShare = 78;
+      let tricShare = 22;
+      if (rawVerdict?.pectoral_share && rawVerdict?.triceps_share) {
+        pectShare = Math.round(rawVerdict.pectoral_share);
+        tricShare = Math.round(rawVerdict.triceps_share);
+      } else {
+        if (curElbowDeg < 78) {
+          tricShare = Math.min(68, Math.round(52 + (78 - curElbowDeg) * 1.1));
+          pectShare = 100 - tricShare;
+        } else if (curElbowDeg <= 96) {
+          pectShare = Math.min(84, Math.round(76 + (96 - Math.abs(curElbowDeg - 88)) * 0.7));
+          tricShare = 100 - pectShare;
+        } else {
+          pectShare = 72;
+          tricShare = 28;
+        }
+      }
       primaryLeverName = 'Brazo Pectoral';
       secondaryLeverName = 'Brazo Tríceps';
-      primaryLeverShare = shoulderShare;
-      secondaryLeverShare = elbowShare;
-      torqueBadgeText = `${shoulderShare}% Pectoral vs ${elbowShare}% Tríceps`;
-    } else if (selectedMuscleGroupId === 'back') {
+      primaryLeverShare = pectShare;
+      secondaryLeverShare = tricShare;
+      torqueBadgeText = `${pectShare}% Pectoral vs ${tricShare}% Tríceps`;
+    } else if (selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull')) {
+      let dorsShare = 82;
+      let bicShare = 18;
+      if (rawVerdict?.dorsal_share && rawVerdict?.biceps_share) {
+        dorsShare = Math.round(rawVerdict.dorsal_share);
+        bicShare = Math.round(rawVerdict.biceps_share);
+      } else {
+        if (curElbowDeg < 80) {
+          bicShare = Math.min(65, Math.round(50 + (80 - curElbowDeg) * 1.0));
+          dorsShare = 100 - bicShare;
+        } else if (curElbowDeg <= 112) {
+          dorsShare = Math.min(88, Math.round(82 + (112 - Math.abs(curElbowDeg - 95)) * 0.5));
+          bicShare = 100 - dorsShare;
+        } else {
+          dorsShare = 75;
+          bicShare = 25;
+        }
+      }
       primaryLeverName = 'Brazo Dorsal';
       secondaryLeverName = 'Brazo Bíceps';
-      primaryLeverShare = shoulderShare;
-      secondaryLeverShare = elbowShare;
-      torqueBadgeText = `${shoulderShare}% Dorsal vs ${elbowShare}% Bíceps`;
+      primaryLeverShare = dorsShare;
+      secondaryLeverShare = bicShare;
+      torqueBadgeText = `${dorsShare}% Dorsal vs ${bicShare}% Bíceps`;
     } else if (selectedMuscleGroupId === 'shoulders') {
       primaryLeverName = 'Brazo Deltoides';
       secondaryLeverName = 'Brazo Asistente';
@@ -1391,7 +1476,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       secondaryLeverShare = 10;
       torqueBadgeText = '90% Aislamiento vs 10% Inercia';
     }
-  } else if (selectedMuscleGroupId === 'quadriceps') {
+  } else if (selectedMuscleGroupId === 'quadriceps' || selectedMuscleGroupId === 'quads') {
     primaryLeverName = 'Brazo Rodilla';
     secondaryLeverName = 'Brazo Cadera';
     primaryLeverShare = kneeShare;
@@ -1400,7 +1485,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   }
 
   // Active verdict read directly from frozen rep verdict with high-confidence fallbacks
-  const rawVerdict = currentFrame?.verdict;
   const activeVerdict = {
     status: rawVerdict?.status || 'OPTIMAL',
     dominant_joint: (rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
@@ -1412,15 +1496,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       : kinematicMeta.torqueFocus,
     inflection_knee_deg: rawVerdict?.inflection_knee_deg ?? 90.0,
     inflection_hip_deg: rawVerdict?.inflection_hip_deg ?? 180.0,
+    inflection_elbow_deg: rawVerdict?.inflection_elbow_deg ?? curElbowDeg,
+    pectoral_share: rawVerdict?.pectoral_share,
+    triceps_share: rawVerdict?.triceps_share,
+    dorsal_share: rawVerdict?.dorsal_share,
+    biceps_share: rawVerdict?.biceps_share,
     d_hip_norm: rawVerdict?.d_hip_norm ?? 0.14,
     d_knee_norm: rawVerdict?.d_knee_norm ?? 0.12,
     recommendation: (rawVerdict?.recommendation && !rawVerdict.recommendation.includes('Mapeando cinemática'))
       ? rawVerdict.recommendation
       : (!isLowerBody
         ? (selectedMuscleGroupId === 'chest'
-          ? 'Descenso controlado a ~55° de abducción escapular para maximizar palanca sobre fibras esternocostales sin pinzamiento acromioclavicular.'
+          ? (curElbowDeg < 78
+            ? `Ángulo de codo cerrado (${Math.round(curElbowDeg)}° < 78°): sobrecarga mecánica en Tríceps Braquial. Abre el agarre o separa codos ~50°-60° para aislar Pectoral Mayor.`
+            : `Palanca óptima sobre Pectoral Mayor (~${Math.round(curElbowDeg)}° en codo): antebrazo perpendicular con mínima palanca parásita de tríceps.`)
           : selectedMuscleGroupId === 'back'
-          ? 'Tracción guiada con inicio escapular y codos cerrados hacia la cadera para maximizar el brazo de palanca del dorsal ancho.'
+          ? (curElbowDeg < 80
+            ? `Codos excesivamente flexionados (${Math.round(curElbowDeg)}° < 80°): tirón excesivo de brazos que sobrecarga Bíceps. Conduce codos hacia la cadera para aislar Dorsal Ancho.`
+            : `Tracción óptima de Dorsal Ancho (~${Math.round(curElbowDeg)}° en codo): codos cerrados hacia la pelvis con máxima activación dorsal.`)
           : 'Trayectoria vertical centrada en el plano escapular con tronco rígido para optimizar torque en deltoides.')
         : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.')
   };
