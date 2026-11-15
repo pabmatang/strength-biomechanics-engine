@@ -879,6 +879,14 @@ def process_kinematics(
     # 6. Build Per-Frame Output Array with Bilateral Keypoints and Frozen Rep Verdict
     frames_output = []
     for f in range(n_frames):
+        rep_num = frame_rep_map[f]
+        wr_x = primary_joints["wrist"]["x"][f]
+        hp_x = primary_joints["hip"]["x"][f]
+        kn_x = primary_joints["knee"]["x"][f]
+        sh_x = primary_joints["shoulder"]["x"][f]
+        ak_x = primary_joints["ankle"]["x"][f]
+        el_x = primary_joints["elbow"]["x"][f]
+
         if (len(repetitions_summary) > 0 and rep_num > 0 and rep_num <= len(repetitions_summary)):
             base_rep_verdict = repetitions_summary[rep_num - 1]["verdict"]
         else:
@@ -971,13 +979,6 @@ def process_kinematics(
             }
         else:
             rep_verdict = base_rep_verdict
-        
-        wr_x = primary_joints["wrist"]["x"][f]
-        hp_x = primary_joints["hip"]["x"][f]
-        kn_x = primary_joints["knee"]["x"][f]
-        sh_x = primary_joints["shoulder"]["x"][f]
-        ak_x = primary_joints["ankle"]["x"][f]
-        el_x = primary_joints["elbow"]["x"][f]
         
         if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]):
             f_d_knee = abs(kn_x - ak_x)
