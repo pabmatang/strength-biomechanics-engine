@@ -286,14 +286,16 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 32):
                     
                     batch_boxes.append([chosen_box])
                     cx = float((chosen_box[0] + chosen_box[2]) / (2.0 * w))
+                    cy = float((chosen_box[1] + chosen_box[3]) / (2.0 * h))
                     bw = float((chosen_box[2] - chosen_box[0]) / float(w))
-                    all_boxes.append({"cx": cx, "bw": bw})
+                    bh = float((chosen_box[3] - chosen_box[1]) / float(h))
+                    all_boxes.append({"cx": cx, "cy": cy, "bw": bw, "bh": bh})
                 elif len(boxes) > 0:
                     batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
-                    all_boxes.append({"cx": 0.5, "bw": 1.0})
+                    all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
                 else:
                     batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
-                    all_boxes.append({"cx": 0.5, "bw": 1.0})
+                    all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
             
             # Step B: ViTPose-Base 17 Keypoints (Native float32)
             pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
@@ -365,8 +367,8 @@ def process_kinematics(
         for f in range(1, n_frames):
             prev_b = athlete_boxes[f - 1]
             curr_b = athlete_boxes[f]
-            delta_cx = abs(curr_b["cx"] - prev_b["cx"])
-            delta_cy = abs(curr_b["cy"] - prev_b["cy"])
+            delta_cx = abs(curr_b.get("cx", 0.5) - prev_b.get("cx", 0.5))
+            delta_cy = abs(curr_b.get("cy", 0.5) - prev_b.get("cy", 0.5))
             if delta_cx > 0.45 and delta_cy > 0.45:
                 is_scene_cut[f] = True
 
