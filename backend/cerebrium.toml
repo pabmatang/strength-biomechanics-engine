@@ -1,8 +1,8 @@
 [cerebrium.deployment]
 name = "biomechanics-engine"
 python_version = "3.11"
-include = ["main.py", "motionbert_3d.py", "cerebrium.toml"]
-exclude = [".*", "__pycache__", "*.pyc"]
+include = ["main.py", "cerebrium.toml"]
+exclude = [".*", "__pycache__", "*.pyc", "motionbert_3d.py"]
 
 [cerebrium.hardware]
 cpu = 2.0
@@ -26,8 +26,6 @@ scipy = ">=1.12.0"
 numpy = ">=1.26.0"
 pillow = ">=10.2.0"
 huggingface_hub = ">=0.25.0"
-einops = ">=0.7.0"
-timm = ">=0.9.12"
 pydantic = ">=2.0.0"
 requests = ">=2.31.0"
 av = ">=12.0.0"

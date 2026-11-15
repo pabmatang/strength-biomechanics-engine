@@ -991,10 +991,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           if (options.showCanvasText) {
             const dSh = Math.round(
-              ((frame.moment_arms?.d_shoulder ?? (Math.abs(pSh.x - lineX) / (drawW * 0.4))) * 100) || 28
+              ((frame.moment_arms?.d_shoulder !== undefined ? frame.moment_arms.d_shoulder : (Math.abs(pSh.x - lineX) / (drawW * 0.4))) * 100)
             );
             const dEl = Math.round(
-              (((frame.moment_arms as any)?.d_elbow ?? (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100) || 14
+              (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100)
             );
 
             const midShX = (pSh.x + lineX) / 2;
@@ -1274,7 +1274,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           { label: 'Rigidez de Torso:', value: 'Columna neutra sin balanceo lumbar', color: 'text-cyan-300' },
           { label: 'Recorrido de Tracción:', value: 'Codos superando la línea del torso', color: 'text-slate-200' },
         ],
-        torqueTitle: 'Reparto de Palanca Dorsal / Bíceps',
+        torqueTitle: 'Reparto de Torque Dorsal / Bíceps',
         torqueShare: '82% Dorsal Ancho vs 18% Flexores de Codo',
         barLabel1: 'Brazo Dorsal',
         barLabel2: 'Brazo Bíceps',
@@ -1530,7 +1530,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // Velocity Based Training (VBT) & Intensity metrics
   const intensity = analysisData?.intensity_metrics || (() => {
-    if (!analysisData?.repetitions_summary?.length) {
+    if (!analysisData?.repetitions_summary?.length || analysisData.repetitions_summary.length < 2) {
       return {
         estimated_rir: 'N/A',
         estimated_rpe: 0,
@@ -1826,7 +1826,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               {pipelineState === 'ready' && (
                 <div className="absolute top-2 left-2 flex flex-wrap gap-1.5 pointer-events-none z-10">
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold shadow-md">
-                    {currentFrame && currentFrame.rep_number > 0 ? `REP: #${currentFrame.rep_number}` : 'PREPARACIÓN'}
+                    {analysisData && analysisData.total_reps > 0 && currentFrame && currentFrame.rep_number > 0
+                      ? `REP #${currentFrame.rep_number}`
+                      : 'PREPARACIÓN'}
                   </span>
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold shadow-md">
                     {currentFrame?.phase || 'IDLE'}
@@ -2180,32 +2182,47 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       Intensidad Estimada (VBT)
                     </span>
                     <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                      intensity.estimated_rpe >= 9
+                      (analysisData?.total_reps ?? 0) < 2
+                        ? 'bg-slate-800/80 text-slate-400 border-slate-700'
+                        : intensity.estimated_rpe >= 9
                         ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                         : intensity.estimated_rpe >= 8
                         ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                         : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                     }`}>
-                      RIR {intensity.estimated_rir} · RPE {intensity.estimated_rpe.toFixed(1)}
+                      {(analysisData?.total_reps ?? 0) < 2
+                        ? 'VBT: Requiere ≥ 2 reps'
+                        : `RIR ${intensity.estimated_rir} · RPE ${intensity.estimated_rpe.toFixed(1)}`}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Pérdida de Velocidad</span>
-                      <span className="text-sm font-black text-amber-300 font-mono">
-                        -{intensity.velocity_loss_pct}%
+                  {(analysisData?.total_reps ?? 0) < 2 ? (
+                    <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-center">
+                      <span className="text-[11px] font-mono text-slate-400 block font-bold">
+                        VBT: Requiere ≥ 2 reps
                       </span>
-                      <span className="text-[9px] text-slate-500 block">Fatiga concéntrica en serie</span>
-                    </div>
-                    <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Velocidad Ini / Fin</span>
-                      <span className="text-sm font-black text-cyan-300 font-mono">
-                        {Math.round(intensity.first_rep_vel)}°/s → {Math.round(intensity.last_rep_vel)}°/s
+                      <span className="text-[9px] text-slate-500 block mt-0.5">
+                        Se requieren al menos 2 repeticiones para calcular fatiga concéntrica en serie.
                       </span>
-                      <span className="text-[9px] text-slate-500 block">Velocidad angular media</span>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Pérdida de Velocidad</span>
+                        <span className="text-sm font-black text-amber-300 font-mono">
+                          -{intensity.velocity_loss_pct}%
+                        </span>
+                        <span className="text-[9px] text-slate-500 block">Fatiga concéntrica en serie</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Velocidad Ini / Fin</span>
+                        <span className="text-sm font-black text-cyan-300 font-mono">
+                          {Math.round(intensity.first_rep_vel)}°/s → {Math.round(intensity.last_rep_vel)}°/s
+                        </span>
+                        <span className="text-[9px] text-slate-500 block">Velocidad angular media</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Mini SVG Sparkline / Bar Chart */}
                   {intensity.rep_velocities && intensity.rep_velocities.length > 0 && (
