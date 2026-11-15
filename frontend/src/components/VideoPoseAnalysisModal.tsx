@@ -230,8 +230,9 @@ function getInterpolatedFrame(frames: BiomechanicsFrame[], currentTime: number):
     }
   }
 
+  const baseFrame = alpha < 0.5 ? f0 : f1;
   return {
-    ...f1,
+    ...baseFrame,
     time: currentTime,
     main_angle: lerp(f0.main_angle, f1.main_angle),
     secondary_angle: lerp(f0.secondary_angle, f1.secondary_angle),
@@ -645,15 +646,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Synchronize canvas resolution with displayed bounding rect
+    // Synchronize internal canvas buffer with CSS layout dimensions (unaffected by parent CSS scale transforms)
     const rect = canvas.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      const rw = Math.round(rect.width);
-      const rh = Math.round(rect.height);
-      if (canvas.width !== rw || canvas.height !== rh) {
-        canvas.width = rw;
-        canvas.height = rh;
-      }
+    const cWidth = canvas.clientWidth || (rect.width > 0 ? Math.round(rect.width / Math.max(0.1, zoom)) : 800);
+    const cHeight = canvas.clientHeight || (rect.height > 0 ? Math.round(rect.height / Math.max(0.1, zoom)) : 600);
+    if (cWidth > 0 && cHeight > 0 && (canvas.width !== cWidth || canvas.height !== cHeight)) {
+      canvas.width = cWidth;
+      canvas.height = cHeight;
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -965,13 +964,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           if (isHorizontalResistance) {
             // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
-            const rawLineY = pWr.y;
-            if (smoothLineYRef.current === null || isNaN(smoothLineYRef.current)) {
-              smoothLineYRef.current = rawLineY;
-            } else {
-              smoothLineYRef.current = smoothLineYRef.current * 0.85 + rawLineY * 0.15;
-            }
-            const lineY = smoothLineYRef.current;
+            // Pin directly to smoothed wrist joint for zero-lag biomechanical accuracy
+            const lineY = pWr.y;
 
             const facingDir = fv?.dx !== undefined ? (fv.dx >= 0 ? 1 : -1) : (pWr.x > pSh.x ? 1 : -1);
             const lineLeft = Math.max(offsetX + 10, Math.min(pSh.x, pWr.x) - 60);
@@ -1008,9 +1002,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.y - lineY) / (drawH * 0.4))) * 100)
               );
 
-              const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
-                ? `${labelEl}: 0`
-                : `${labelEl}: ${dEl}`;
+              const elLabelText = `${labelEl}: ${dEl}`;
 
               const tagX = facingDir > 0
                 ? Math.min(offsetX + drawW - 90, Math.max(pWr.x + 10, lineRight - 75))
@@ -1033,13 +1025,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             }
           } else {
             // Vector de resistencia vertical (Peso libre por gravedad o Jalón en polea vertical)
-            const rawLineX = pWr.x;
-            if (smoothLineXRef.current === null || isNaN(smoothLineXRef.current)) {
-              smoothLineXRef.current = rawLineX;
-            } else {
-              smoothLineXRef.current = smoothLineXRef.current * 0.85 + rawLineX * 0.15;
-            }
-            const lineX = smoothLineXRef.current;
+            // Pin directly to smoothed wrist joint for zero-lag biomechanical accuracy
+            const lineX = pWr.x;
 
             const lineTop = Math.max(offsetY + 10, Math.min(pSh.y, pWr.y) - 60);
             const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pSh.y, pEl.y, pWr.y, pHp.y) + 40);
@@ -1080,9 +1067,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.x - lineX) / (drawW * 0.4))) * 100)
               );
 
-              const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
-                ? `${labelEl}: 0`
-                : `${labelEl}: ${dEl}`;
+              const elLabelText = `${labelEl}: ${dEl}`;
 
               const tagX = lineX > pSh.x ? Math.min(offsetX + drawW - 85, lineX + 8) : Math.max(offsetX + 10, lineX - 85);
               let tagShY = pSh.y - 9;
@@ -1499,13 +1484,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       let tricShare = 22;
       const totD = d_sh_val + d_el_val;
       if (totD > 0.005) {
-        if (d_el_val / totD <= 0.10 || d_el_val <= 0.015) {
-          pectShare = 100;
-          tricShare = 0;
-        } else {
-          pectShare = Math.max(10, Math.min(95, Math.round((d_sh_val / totD) * 100)));
-          tricShare = 100 - pectShare;
-        }
+        pectShare = Math.max(10, Math.min(95, Math.round((d_sh_val / totD) * 100)));
+        tricShare = 100 - pectShare;
       } else if (rawVerdict?.pectoral_share && rawVerdict?.triceps_share) {
         pectShare = Math.round(rawVerdict.pectoral_share);
         tricShare = Math.round(rawVerdict.triceps_share);
@@ -1514,7 +1494,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       secondaryLeverName = 'Brazo Tríceps';
       primaryLeverShare = pectShare;
       secondaryLeverShare = tricShare;
-      torqueBadgeText = tricShare === 0 ? '100% Pectoral (Todo Pecho)' : `${pectShare}% Pectoral vs ${tricShare}% Tríceps`;
+      torqueBadgeText = `${pectShare}% Pectoral vs ${tricShare}% Tríceps`;
     } else if (selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull') || safeExerciseId.includes('t_bar') || safeExerciseId.includes('gironda')) {
       // Check elbow-torso clearance to classify Upper Back (codo alejado) vs Latissimus Dorsi (codo pegado)
       const kp = currentFrame?.keypoints_norm as any;
@@ -1663,12 +1643,33 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const maxV = vels.length ? Math.max(...vels) : 0;
     const lastV = vels.length ? vels[vels.length - 1] : 0;
     const loss = maxV > 0 ? Math.round(Math.max(0, ((maxV - lastV) / maxV) * 100) * 10) / 10 : 0;
+    const penultV = vels.length >= 3 ? vels[vels.length - 2] : lastV;
+    const isTerminalGrinder = (lastV <= Math.min(...vels) * 1.02) && (vels.length < 3 || lastV <= penultV * 0.92);
+    const isTerminalAccel = (vels.length >= 3 && lastV > penultV * 1.05);
+
     let rir = '4+';
     let rpe = 6.0;
-    if (loss >= 40) { rir = '0'; rpe = 10.0; }
-    else if (loss >= 30) { rir = '1'; rpe = 9.0; }
-    else if (loss >= 20) { rir = '2'; rpe = 8.0; }
-    else if (loss >= 10) { rir = '3'; rpe = 7.0; }
+    if (loss >= 48 && isTerminalGrinder) {
+      rir = '0';
+      rpe = 10.0;
+    } else if (loss >= 38) {
+      if (isTerminalAccel) {
+        rir = '2';
+        rpe = 8.5;
+      } else if (isTerminalGrinder) {
+        rir = '1';
+        rpe = 9.5;
+      } else {
+        rir = '1';
+        rpe = 9.0;
+      }
+    } else if (loss >= 28) {
+      rir = isTerminalAccel ? '3' : '2';
+      rpe = isTerminalAccel ? 7.5 : 8.0;
+    } else if (loss >= 18) {
+      rir = '3';
+      rpe = 7.0;
+    }
     return {
       estimated_rir: rir,
       estimated_rpe: rpe,

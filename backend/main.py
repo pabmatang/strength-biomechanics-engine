@@ -318,8 +318,19 @@ def run_inference_batches(
                         b = boxes[p_idx]
                         area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
                         b_cx = (b[0] + b[2]) / (2.0 * eff_w)
-                        center_weight = max(0.4, 1.0 - abs(b_cx - 0.5))
-                        metric = float(scores[p_idx]) * float(area) * float(center_weight)
+                        dist_cx = abs(b_cx - 0.5)
+
+                        # Strict border penalty: background gym users standing at frame margins (< 0.12 or > 0.88)
+                        # or touching the screen boundaries are strongly attenuated so they never steal athlete tracking.
+                        is_touching_edge = (b[0] <= 0.04 * eff_w or b[2] >= 0.96 * eff_w)
+                        edge_factor = 0.15 if is_touching_edge else (0.40 if (b_cx < 0.15 or b_cx > 0.85) else 1.0)
+                        center_weight = max(0.02, 1.0 - 2.8 * (dist_cx ** 1.5)) * edge_factor
+
+                        # Lateral spread factor: performing athletes have active width across shoulders, equipment, and handles
+                        bw_norm = (b[2] - b[0]) / float(eff_w)
+                        width_factor = min(2.0, max(0.6, bw_norm * 4.0))
+
+                        metric = float(scores[p_idx]) * (float(area) ** 1.25) * float(center_weight) * float(width_factor)
                         if metric > best_metric:
                             best_metric = metric
                             best_idx = p_idx
@@ -352,8 +363,12 @@ def run_inference_batches(
                         norm_dist = float(np.hypot(cand_cx - prev_cx, cand_cy - prev_cy)) / diag
                         area_ratio = min(b_area, prev_area) / max(b_area, prev_area)
 
+                        # Penalize candidate if it has wandered into the extreme margins
+                        cand_cx_norm = cand_cx / eff_w
+                        edge_cand_pen = 2.0 if (cand_cx_norm < 0.08 or cand_cx_norm > 0.92) else 0.0
+
                         # Match score strongly penalizes distance to lock onto the primary athlete
-                        m_score = iou * 3.5 + float(scores[p_idx]) * 1.5 + area_ratio * 1.0 - norm_dist * 3.0
+                        m_score = iou * 3.5 + float(scores[p_idx]) * 1.5 + area_ratio * 1.0 - norm_dist * 3.0 - edge_cand_pen
                         if m_score > best_match_score:
                             best_match_score = m_score
                             best_idx = p_idx
@@ -726,6 +741,58 @@ def process_kinematics(
                     primary_joints["knee"]["y"][f] = max(0.15, primary_joints["ankle"]["y"][f] - tibia_len)
                     primary_joints["knee"]["score"][f] = 0.85
 
+    # 3B. Anatomical Rigid Forearm Stabilizer & Dumbbell/Barbell Plate Occlusion Reconstructor
+    if is_upper_body:
+        wr_x = primary_joints["wrist"]["x"]
+        wr_y = primary_joints["wrist"]["y"]
+        el_x = primary_joints["elbow"]["x"]
+        el_y = primary_joints["elbow"]["y"]
+        wr_score = primary_joints["wrist"]["score"]
+        el_score = primary_joints["elbow"]["score"]
+
+        forearm_lengths = np.hypot(wr_x - el_x, wr_y - el_y)
+        unoccluded_wrist_mask = (wr_score >= 0.40) & (el_score >= 0.40) & (forearm_lengths >= 0.08)
+
+        if np.any(unoccluded_wrist_mask):
+            l_forearm_median = float(np.median(forearm_lengths[unoccluded_wrist_mask]))
+        else:
+            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
+            l_forearm_median = float(max(0.14, min(0.28, box_h * 0.22)))
+
+        # Detect Dumbbell / Barbell plate occlusion: wrist score drops or forearm length collapses > 20%
+        forearm_ratio_dev = np.abs(forearm_lengths - l_forearm_median) / max(l_forearm_median, 1e-4)
+        is_wrist_occluded = (wr_score < 0.35) | (forearm_ratio_dev > 0.20)
+
+        valid_wrist_frames = np.where(~is_wrist_occluded)[0]
+        if len(valid_wrist_frames) >= 4 and np.any(is_wrist_occluded):
+            try:
+                cs_wr_x = scipy.interpolate.CubicSpline(valid_wrist_frames, wr_x[valid_wrist_frames], bc_type='natural')
+                cs_wr_y = scipy.interpolate.CubicSpline(valid_wrist_frames, wr_y[valid_wrist_frames], bc_type='natural')
+                all_f_idx = np.arange(n_frames)
+                interp_wr_x = cs_wr_x(all_f_idx)
+                interp_wr_y = cs_wr_y(all_f_idx)
+            except Exception:
+                all_f_idx = np.arange(n_frames)
+                interp_wr_x = np.interp(all_f_idx, valid_wrist_frames, wr_x[valid_wrist_frames])
+                interp_wr_y = np.interp(all_f_idx, valid_wrist_frames, wr_y[valid_wrist_frames])
+
+            for f in range(n_frames):
+                if is_wrist_occluded[f]:
+                    # Project along elbow-to-wrist vector to enforce exact rigid L_forearm
+                    vx = interp_wr_x[f] - el_x[f]
+                    vy = interp_wr_y[f] - el_y[f]
+                    v_mag = math.hypot(vx, vy)
+                    if v_mag > 1e-5:
+                        wr_x[f] = el_x[f] + (vx / v_mag) * l_forearm_median
+                        wr_y[f] = el_y[f] + (vy / v_mag) * l_forearm_median
+                    else:
+                        wr_x[f] = el_x[f]
+                        wr_y[f] = el_y[f] - l_forearm_median
+                    primary_joints["wrist"]["score"][f] = 0.85
+
+        primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=1.8)
+        primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=1.8)
+
     # 4. Planar Joint Kinematics Calculated on Smoothed 2D Coordinates
     hp_2d = np.zeros(n_frames, dtype=np.float64)
     kn_2d = np.zeros(n_frames, dtype=np.float64)
@@ -814,10 +881,10 @@ def process_kinematics(
 
     # 5. Peak-Trough Repetition Detection
     signal_range = float(np.max(clean_curve) - np.min(clean_curve))
-    t_min_bound = timestamps[0] + 0.3 if timestamps else 0.3
+    t_min_bound = timestamps[0] + 0.6 if timestamps else 0.6
     t_max_bound = timestamps[-1] - 0.3 if timestamps else 29.7
 
-    min_rep_frames = max(10, int(15.0 * 0.70)) # 0.70s minimum repetition distance
+    min_rep_frames = max(16, int(15.0 * 1.15)) # 1.15s minimum repetition distance
 
     p10 = float(np.percentile(clean_curve, 10))
     p90 = float(np.percentile(clean_curve, 90))
@@ -936,10 +1003,25 @@ def process_kinematics(
         rep_idx = i + 1
         
         # Start of rep
-        prev_bound = valid_peaks[i - 1] if i > 0 else 0
-        left_search = clean_curve[prev_bound : p]
-        start_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
-        start_frame = prev_bound + start_offset
+        if i == 0:
+            # Search backwards from peak p to find the true onset of movement.
+            # Frames prior to motion onset must stay rep_number = 0 and phase = "IDLE".
+            search_start = max(0, p - int(15.0 * 2.5))
+            left_search = clean_curve[search_start : p]
+            local_min_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
+            cand_start = search_start + local_min_offset
+
+            # Refine onset: find where angular velocity rises above 12 deg/s moving towards p
+            start_frame = cand_start
+            for f_scan in range(cand_start, p):
+                if ang_vel[f_scan] >= 12.0:
+                    start_frame = max(0, f_scan - 2)
+                    break
+        else:
+            prev_bound = valid_peaks[i - 1]
+            left_search = clean_curve[prev_bound : p]
+            start_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
+            start_frame = prev_bound + start_offset
         
         # End of rep
         next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else n_frames - 1
@@ -1076,17 +1158,13 @@ def process_kinematics(
             dominant_joint = "PECTORAL MAYOR"
             tot_d = d_sh + d_el
             if tot_d > 0.005:
-                el_ratio = d_el / tot_d
-                if el_ratio <= 0.10 or d_el <= 0.015:
-                    triceps_share = 0.0
-                    pectoral_share = 100.0
-                    torque_bias = "PECTORAL MAYOR (TODO PECHO)"
-                    recom = "Palanca óptima: línea de fuerza alineada con el codo. Carga 100% en pectoral mayor (tríceps neutro)."
-                else:
-                    pectoral_share = round((d_sh / tot_d) * 100.0, 1)
-                    triceps_share = round((d_el / tot_d) * 100.0, 1)
-                    torque_bias = "PECTORAL MAYOR" if pectoral_share >= 60.0 else "TRÍCEPS BRAQUIAL"
-                    recom = f"Reparto de palanca: {pectoral_share}% sobre pectoral mayor y {triceps_share}% sobre tríceps braquial."
+                pectoral_share = round((d_sh / tot_d) * 100.0, 1)
+                triceps_share = round((d_el / tot_d) * 100.0, 1)
+                if triceps_share < 5.0:
+                    triceps_share = 5.0
+                    pectoral_share = 95.0
+                torque_bias = "PECTORAL MAYOR" if pectoral_share >= 60.0 else "TRÍCEPS BRAQUIAL"
+                recom = f"Reparto de palanca: {pectoral_share}% sobre pectoral mayor y {triceps_share}% sobre tríceps braquial."
             else:
                 pectoral_share = 78.0
                 triceps_share = 22.0
@@ -1190,25 +1268,36 @@ def process_kinematics(
         first_rep_vel = rep_vels[0]
         last_rep_vel = rep_vels[-1]
         max_rep_vel = max(rep_vels) if rep_vels else 1.0
-        
+
         vel_loss = round(float(max(0.0, ((first_rep_vel - last_rep_vel) / max(first_rep_vel, 1e-4)) * 100.0)), 1)
-        
-        if vel_loss < 10.0:
-            rir_est = "4+"
-            rpe_est = 6.0
-        elif vel_loss < 20.0:
-            rir_est = "3"
-            rpe_est = 7.0
-        elif vel_loss < 30.0:
-            rir_est = "2"
-            rpe_est = 8.0
-        elif vel_loss < 40.0:
-            rir_est = "1"
-            rpe_est = 9.0
-        else:
+
+        penult_rep_vel = rep_vels[-2] if len(rep_vels) >= 3 else last_rep_vel
+        is_terminal_grinder = (last_rep_vel <= min(rep_vels) * 1.02) and (len(rep_vels) < 3 or last_rep_vel <= penult_rep_vel * 0.92)
+        is_terminal_accel = (len(rep_vels) >= 3 and last_rep_vel > penult_rep_vel * 1.05)
+
+        if vel_loss >= 48.0 and is_terminal_grinder:
             rir_est = "0"
             rpe_est = 10.0
-            
+        elif vel_loss >= 38.0:
+            if is_terminal_accel:
+                rir_est = "2"
+                rpe_est = 8.5
+            elif is_terminal_grinder:
+                rir_est = "1"
+                rpe_est = 9.5
+            else:
+                rir_est = "1"
+                rpe_est = 9.0
+        elif vel_loss >= 28.0:
+            rir_est = "3" if is_terminal_accel else "2"
+            rpe_est = 7.5 if is_terminal_accel else 8.0
+        elif vel_loss >= 18.0:
+            rir_est = "3"
+            rpe_est = 7.0
+        else:
+            rir_est = "4+"
+            rpe_est = 6.0
+
         intensity_metrics = {
             "estimated_rir": rir_est,
             "estimated_rpe": rpe_est,
@@ -1314,17 +1403,13 @@ def process_kinematics(
                 cur_d_el = float(abs(el_y - wr_y) if force_dir_name.startswith("horizontal") else abs(el_x - wr_x))
                 tot_d = cur_d_sh + cur_d_el
                 if tot_d > 0.005:
-                    el_ratio = cur_d_el / tot_d
-                    if el_ratio <= 0.10 or cur_d_el <= 0.015:
-                        fb_tri = 0.0
-                        fb_pec = 100.0
-                        fb_bias = "PECTORAL MAYOR (TODO PECHO)"
-                        fb_rec = "Palanca óptima: línea de fuerza alineada con el codo. Carga 100% en pectoral mayor (tríceps neutro)."
-                    else:
-                        fb_pec = round((cur_d_sh / tot_d) * 100.0, 1)
-                        fb_tri = round((cur_d_el / tot_d) * 100.0, 1)
-                        fb_bias = "PECTORAL MAYOR" if fb_pec >= 60.0 else "TRÍCEPS BRAQUIAL"
-                        fb_rec = f"Reparto de palanca: {fb_pec}% sobre pectoral mayor y {fb_tri}% sobre tríceps."
+                    fb_pec = round((cur_d_sh / tot_d) * 100.0, 1)
+                    fb_tri = round((cur_d_el / tot_d) * 100.0, 1)
+                    if fb_tri < 5.0:
+                        fb_tri = 5.0
+                        fb_pec = 95.0
+                    fb_bias = "PECTORAL MAYOR" if fb_pec >= 60.0 else "TRÍCEPS BRAQUIAL"
+                    fb_rec = f"Reparto de palanca: {fb_pec}% sobre pectoral mayor y {fb_tri}% sobre tríceps."
                 else:
                     fb_pec = 78.0
                     fb_tri = 22.0
