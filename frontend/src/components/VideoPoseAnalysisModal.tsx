@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   X,
   Video,
@@ -511,19 +511,34 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     const px = (normX: number) => offsetX + normX * drawW;
     const py = (normY: number) => offsetY + normY * drawH;
 
-    const kp = frame.keypoints_norm;
+    const kp = frame.keypoints_norm as any;
     if (!kp) {
       ctx.restore();
       return;
     }
 
-    const pSh = { x: px(kp.shoulder.x), y: py(kp.shoulder.y) };
-    const pEl = { x: px(kp.elbow.x), y: py(kp.elbow.y) };
-    const pWr = { x: px(kp.wrist.x), y: py(kp.wrist.y) };
-    const pHp = { x: px(kp.hip.x), y: py(kp.hip.y) };
-    const pKn = { x: px(kp.knee.x), y: py(kp.knee.y) };
-    const pAk = { x: px(kp.ankle.x), y: py(kp.ankle.y) };
-    const pHd = { x: px(kp.head.x), y: py(kp.head.y) };
+    const pSh = { x: px(kp.shoulder?.x ?? 0.5), y: py(kp.shoulder?.y ?? 0.5) };
+    const pEl = { x: px(kp.elbow?.x ?? 0.5), y: py(kp.elbow?.y ?? 0.5) };
+    const pWr = { x: px(kp.wrist?.x ?? 0.5), y: py(kp.wrist?.y ?? 0.5) };
+    const pHp = { x: px(kp.hip?.x ?? 0.5), y: py(kp.hip?.y ?? 0.5) };
+    const pKn = { x: px(kp.knee?.x ?? 0.5), y: py(kp.knee?.y ?? 0.5) };
+    const pAk = { x: px(kp.ankle?.x ?? 0.5), y: py(kp.ankle?.y ?? 0.5) };
+    const pHd = { x: px(kp.head?.x ?? 0.5), y: py(kp.head?.y ?? 0.3) };
+
+    const hasBilateral = Boolean(kp.left_shoulder && kp.right_shoulder && kp.left_elbow && kp.right_elbow);
+
+    const pLSh = kp.left_shoulder ? { x: px(kp.left_shoulder.x), y: py(kp.left_shoulder.y) } : pSh;
+    const pRSh = kp.right_shoulder ? { x: px(kp.right_shoulder.x), y: py(kp.right_shoulder.y) } : pSh;
+    const pLEl = kp.left_elbow ? { x: px(kp.left_elbow.x), y: py(kp.left_elbow.y) } : pEl;
+    const pREl = kp.right_elbow ? { x: px(kp.right_elbow.x), y: py(kp.right_elbow.y) } : pEl;
+    const pLWr = kp.left_wrist ? { x: px(kp.left_wrist.x), y: py(kp.left_wrist.y) } : pWr;
+    const pRWr = kp.right_wrist ? { x: px(kp.right_wrist.x), y: py(kp.right_wrist.y) } : pWr;
+    const pLHp = kp.left_hip ? { x: px(kp.left_hip.x), y: py(kp.left_hip.y) } : pHp;
+    const pRHp = kp.right_hip ? { x: px(kp.right_hip.x), y: py(kp.right_hip.y) } : pHp;
+    const pLKn = kp.left_knee ? { x: px(kp.left_knee.x), y: py(kp.left_knee.y) } : pKn;
+    const pRKn = kp.right_knee ? { x: px(kp.right_knee.x), y: py(kp.right_knee.y) } : pKn;
+    const pLAk = kp.left_ankle ? { x: px(kp.left_ankle.x), y: py(kp.left_ankle.y) } : pAk;
+    const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y) } : pAk;
 
     const drawPoint = (p: { x: number; y: number }, color: string) => {
       ctx.beginPath();
@@ -581,96 +596,165 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
-    const isLowerBody = options.exerciseId.includes('hip_thrust') ||
+    const isLowerBody = (
+      selectedMuscleGroupId === 'glutes_hamstrings' ||
+      selectedMuscleGroupId === 'quadriceps' ||
+      options.exerciseId.includes('hip_thrust') ||
       options.exerciseId.includes('squat') ||
       options.exerciseId.includes('rdl') ||
       options.exerciseId.includes('deadlift') ||
       options.exerciseId.includes('lunge') ||
-      options.exerciseId.includes('leg') ||
-      options.exerciseId.includes('glute') ||
-      selectedExerciseId.includes('hip_thrust') ||
-      selectedExerciseId.includes('squat') ||
-      selectedExerciseId.includes('rdl') ||
-      selectedExerciseId.includes('bridge') ||
-      selectedExerciseId.includes('curl') ||
-      selectedExerciseId.includes('kickback') ||
-      selectedExerciseId.includes('abduction');
+      options.exerciseId.includes('leg_press') ||
+      options.exerciseId.includes('hack') ||
+      options.exerciseId.includes('bulgarian') ||
+      options.exerciseId.includes('leg_extension') ||
+      options.exerciseId.includes('leg_curl') ||
+      options.exerciseId.includes('glute')
+    ) && !options.exerciseId.includes('biceps') && !options.exerciseId.includes('hammer');
 
     if (mode === 'technique') {
       // -------------------------------------------------------------
-      // MODO 1: CORRECCIÓN TÉCNICA
-      // Esqueleto anatómico completo (opacidad 1.0)
-      // Arcos angulares en vivo + pills oscuras en vértices
-      // Indicador de alineación articular
-      // Vector de fuerza y cotas de brazos de momento ocultos
+      // MODO 1: CORRECCIÓN TÉCNICA (ESQUELETO COMPLETO Y AJUSTADO AL CUERPO)
       // -------------------------------------------------------------
-      if (isLowerBody) {
-        // Lower-body clean kinetic chain: Shoulder -> Hip -> Knee -> Ankle
-        drawSegment(pSh, pHp, '#10B981'); // Trunk
-        drawSegment(pHp, pKn, '#10B981'); // Thigh
-        drawSegment(pKn, pAk, '#10B981'); // Shin
-
-        drawPoint(pSh, '#10B981');
-        drawPoint(pHp, '#10B981');
-        drawPoint(pKn, '#10B981');
-        drawPoint(pAk, '#10B981');
+      if (hasBilateral) {
+        // Cuello y cabeza
+        const midNeck = { x: (pLSh.x + pRSh.x) / 2, y: (pLSh.y + pRSh.y) / 2 };
+        drawSegment(pHd, midNeck, '#34D399');
         drawPoint(pHd, '#34D399');
 
-        // Limpieza visual: mantiene exclusivamente el arco y etiqueta limpia de la rodilla
-        drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
+        // Clavícula / Unión de hombros
+        drawSegment(pLSh, pRSh, '#34D399');
+        drawPoint(pLSh, '#10B981');
+        drawPoint(pRSh, '#10B981');
 
-        if (options.showCanvasText) {
-          // Rodilla badge únicamente (despeja la cadera, pelvis y barra)
-          drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
+        if (isLowerBody) {
+          // Tren inferior: piernas y cadera resaltadas
+          drawSegment(pLSh, pLEl, 'rgba(148, 163, 184, 0.40)');
+          drawSegment(pLEl, pLWr, 'rgba(148, 163, 184, 0.40)');
+          drawSegment(pRSh, pREl, 'rgba(148, 163, 184, 0.40)');
+          drawSegment(pREl, pRWr, 'rgba(148, 163, 184, 0.40)');
+          drawPoint(pLEl, '#94A3B8');
+          drawPoint(pREl, '#94A3B8');
+
+          // Torso y pelvis
+          drawSegment(pLSh, pLHp, '#10B981');
+          drawSegment(pRSh, pRHp, '#10B981');
+          drawSegment(pLHp, pRHp, '#10B981');
+          drawPoint(pLHp, '#10B981');
+          drawPoint(pRHp, '#10B981');
+
+          // Piernas
+          drawSegment(pLHp, pLKn, '#10B981');
+          drawSegment(pLKn, pLAk, '#10B981');
+          drawSegment(pRHp, pRKn, '#10B981');
+          drawSegment(pRKn, pRAk, '#10B981');
+          drawPoint(pLKn, '#10B981');
+          drawPoint(pRKn, '#10B981');
+          drawPoint(pLAk, '#38BDF8');
+          drawPoint(pRAk, '#38BDF8');
+
+          drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
+          if (options.showCanvasText) {
+            drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle || frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
+          }
+        } else {
+          // Tren superior: brazos, codos, hombros y torso resaltados
+          drawSegment(pLHp, pLKn, 'rgba(148, 163, 184, 0.35)');
+          drawSegment(pLKn, pLAk, 'rgba(148, 163, 184, 0.35)');
+          drawSegment(pRHp, pRKn, 'rgba(148, 163, 184, 0.35)');
+          drawSegment(pRKn, pRAk, 'rgba(148, 163, 184, 0.35)');
+          drawPoint(pLKn, '#94A3B8');
+          drawPoint(pRKn, '#94A3B8');
+
+          // Torso y pelvis
+          drawSegment(pLSh, pLHp, '#10B981');
+          drawSegment(pRSh, pRHp, '#10B981');
+          drawSegment(pLHp, pRHp, '#10B981');
+          drawPoint(pLHp, '#10B981');
+          drawPoint(pRHp, '#10B981');
+
+          // Ambos brazos completos
+          drawSegment(pLSh, pLEl, '#34D399');
+          drawSegment(pLEl, pLWr, '#6EE7B7');
+          drawSegment(pRSh, pREl, '#34D399');
+          drawSegment(pREl, pRWr, '#6EE7B7');
+          drawPoint(pLEl, '#38BDF8');
+          drawPoint(pREl, '#38BDF8');
+          drawPoint(pLWr, '#6EE7B7');
+          drawPoint(pRWr, '#6EE7B7');
+
+          // Arco y etiqueta de Codo en el brazo activo
+          drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
+          if (options.showCanvasText) {
+            drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
+            if (frame.secondary_angle > 10) {
+              drawPillTag(pSh.x - 70, pSh.y - 16, `Hombro: ${Math.round(frame.secondary_angle)}°`, '#34D399', '#A7F3D0');
+            }
+          }
         }
       } else {
-        // Upper-body kinetic chain
-        drawSegment(pHd, pSh, '#34D399');
-        drawSegment(pSh, pHp, '#10B981');
-        drawSegment(pSh, pEl, '#6EE7B7');
-        drawSegment(pEl, pWr, '#6EE7B7');
-
-        drawPoint(pHd, '#34D399');
-        drawPoint(pSh, '#10B981');
-        drawPoint(pEl, '#6EE7B7');
-        drawPoint(pWr, '#6EE7B7');
-        drawPoint(pHp, '#10B981');
-
-        // Limpieza visual: mantiene exclusivamente el arco y etiqueta limpia del codo
-        drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
-
-        if (options.showCanvasText) {
-          drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
+        // Fallback unilateral
+        if (isLowerBody) {
+          drawSegment(pSh, pHp, '#10B981');
+          drawSegment(pHp, pKn, '#10B981');
+          drawSegment(pKn, pAk, '#10B981');
+          drawPoint(pSh, '#10B981');
+          drawPoint(pHp, '#10B981');
+          drawPoint(pKn, '#10B981');
+          drawPoint(pAk, '#10B981');
+          drawPoint(pHd, '#34D399');
+          drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
+          if (options.showCanvasText) {
+            drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle)}°`, '#38BDF8', '#7DD3FC');
+          }
+        } else {
+          drawSegment(pHd, pSh, '#34D399');
+          drawSegment(pSh, pHp, '#10B981');
+          drawSegment(pSh, pEl, '#6EE7B7');
+          drawSegment(pEl, pWr, '#6EE7B7');
+          drawPoint(pHd, '#34D399');
+          drawPoint(pSh, '#10B981');
+          drawPoint(pEl, '#6EE7B7');
+          drawPoint(pWr, '#6EE7B7');
+          drawPoint(pHp, '#10B981');
+          drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
+          if (options.showCanvasText) {
+            drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
+          }
         }
       }
     } else {
       // -------------------------------------------------------------
       // MODO 2: OPTIMIZACIÓN BIOMECÁNICA
-      // Esqueleto atenuado (opacidad 0.35)
-      // Vector de carga vertical amarillo (#FBBF24) discontinua con flecha
-      // Cotas horizontales perpendiculares (brazos d_cadera y d_rodilla)
       // -------------------------------------------------------------
       ctx.save();
       ctx.globalAlpha = 0.35;
-      if (isLowerBody) {
-        drawSegment(pSh, pHp, '#94A3B8');
-        drawSegment(pHp, pKn, '#94A3B8');
-        drawSegment(pKn, pAk, '#94A3B8');
-        drawPoint(pSh, '#94A3B8');
-        drawPoint(pHp, '#94A3B8');
-        drawPoint(pKn, '#94A3B8');
-        drawPoint(pAk, '#94A3B8');
+      if (hasBilateral) {
+        drawSegment(pLSh, pRSh, '#94A3B8');
+        drawSegment(pLSh, pLEl, '#94A3B8');
+        drawSegment(pLEl, pLWr, '#94A3B8');
+        drawSegment(pRSh, pREl, '#94A3B8');
+        drawSegment(pREl, pRWr, '#94A3B8');
+        drawSegment(pLSh, pLHp, '#94A3B8');
+        drawSegment(pRSh, pRHp, '#94A3B8');
+        drawSegment(pLHp, pLKn, '#94A3B8');
+        drawSegment(pLKn, pLAk, '#94A3B8');
+        drawSegment(pRHp, pRKn, '#94A3B8');
+        drawSegment(pRKn, pRAk, '#94A3B8');
       } else {
-        drawSegment(pSh, pHp, '#94A3B8');
-        drawSegment(pSh, pEl, '#94A3B8');
-        drawSegment(pEl, pWr, '#94A3B8');
-        drawPoint(pSh, '#94A3B8');
-        drawPoint(pEl, '#94A3B8');
-        drawPoint(pWr, '#94A3B8');
+        if (isLowerBody) {
+          drawSegment(pSh, pHp, '#94A3B8');
+          drawSegment(pHp, pKn, '#94A3B8');
+          drawSegment(pKn, pAk, '#94A3B8');
+        } else {
+          drawSegment(pSh, pHp, '#94A3B8');
+          drawSegment(pSh, pEl, '#94A3B8');
+          drawSegment(pEl, pWr, '#94A3B8');
+        }
       }
       ctx.restore();
 
-      // Puntos articulares clave en color nítido
+            // Puntos articulares clave en color nítido
       drawPoint(pHp, '#38BDF8');
       drawPoint(pKn, '#10B981');
       drawPoint(pAk, '#38BDF8');
@@ -900,8 +984,136 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
     selectedExerciseId.includes('kas_glute') ||
     selectedExerciseId.includes('bridge');
 
-  const primaryJointName = isLowerBody ? 'Cadera' : 'Hombro';
-  const secondaryJointName = isLowerBody ? 'Rodilla' : 'Codo';
+  const kinematicMeta = useMemo(() => {
+    const groupId = selectedMuscleGroupId;
+    const exId = selectedExerciseId.toLowerCase();
+
+    if (groupId === 'chest' || exId.includes('bench') || exId.includes('chest') || exId.includes('pec') || exId.includes('dip')) {
+      return {
+        isLowerBody: false,
+        primaryJointName: 'Codo',
+        secondaryJointName: 'Hombro',
+        primaryMetric: 'Flexión/Extensión Codo',
+        secondaryMetric: 'Apertura Glenohumeral',
+        dominantLabel: 'Pectoral Mayor',
+        rows: [
+          { label: 'Alineación Glenohumeral:', value: 'Ángulo codo-torso ~50°-60° (sin pinzamiento)', color: 'text-emerald-400' },
+          { label: 'Bloqueo Concéntrico:', value: 'Extensión completa sin hiperextensión pasiva', color: 'text-cyan-300' },
+          { label: 'Control Excéntrico:', value: 'Descenso sostenido con escápulas retraídas', color: 'text-slate-200' },
+        ],
+        torqueTitle: 'Reparto de Torque y Palancas',
+        torqueShare: '76% Pectoral vs 24% Tríceps / Hombro',
+        barLabel1: 'Brazo Pectoral: 76%',
+        barLabel2: 'Brazo Tríceps / Hombro: 24%',
+        torqueFocus: 'PECTORAL MAYOR'
+      };
+    }
+    if (groupId === 'back' || exId.includes('row') || exId.includes('pulldown') || exId.includes('pullup') || exId.includes('pullover')) {
+      return {
+        isLowerBody: false,
+        primaryJointName: 'Codo',
+        secondaryJointName: 'Torso',
+        primaryMetric: 'Tracción de Codo',
+        secondaryMetric: 'Inclinación de Torso',
+        dominantLabel: 'Dorsal Ancho',
+        rows: [
+          { label: 'Retracción Escapular:', value: 'Depresión y aducción escapular activa', color: 'text-emerald-400' },
+          { label: 'Rigidez de Torso:', value: 'Columna neutra sin balanceo lumbar', color: 'text-cyan-300' },
+          { label: 'Recorrido de Tracción:', value: 'Codos superando la línea del torso', color: 'text-slate-200' },
+        ],
+        torqueTitle: 'Reparto de Palanca y Tracción',
+        torqueShare: '82% Dorsal Ancho vs 18% Flexores de Codo',
+        barLabel1: 'Brazo Dorsal: 82%',
+        barLabel2: 'Brazo Bíceps: 18%',
+        torqueFocus: 'DORSAL ANCHO'
+      };
+    }
+    if (groupId === 'shoulders' || exId.includes('shoulder') || exId.includes('overhead') || exId.includes('lateral') || exId.includes('raise') || exId.includes('face_pull') || exId.includes('rear_delt')) {
+      const isRaise = exId.includes('lateral') || exId.includes('raise') || exId.includes('rear_delt');
+      return {
+        isLowerBody: false,
+        primaryJointName: isRaise ? 'Hombro' : 'Codo',
+        secondaryJointName: isRaise ? 'Torso' : 'Hombro',
+        primaryMetric: isRaise ? 'Abducción Humeral' : 'Empuje Vertical',
+        secondaryMetric: isRaise ? 'Estabilidad Torso' : 'Plano Escapular',
+        dominantLabel: 'Deltoides',
+        rows: [
+          { label: 'Plano Escapular:', value: 'Húmero guiado en 30° anterior', color: 'text-emerald-400' },
+          { label: 'Estabilidad de Torso:', value: 'Pelvis y columna neutras sin arqueo lumbar', color: 'text-cyan-300' },
+          { label: 'Bloqueo Articular:', value: 'Carga centrada sobre coronilla', color: 'text-slate-200' },
+        ],
+        torqueTitle: 'Enfoque Muscular y Palanca',
+        torqueShare: '85% Deltoides vs 15% Asistente',
+        barLabel1: 'Brazo Deltoides: 85%',
+        barLabel2: 'Brazo Asistente: 15%',
+        torqueFocus: 'DELTOIDES'
+      };
+    }
+    if (groupId === 'quadriceps' || exId.includes('squat') || exId.includes('hack') || exId.includes('leg_press') || exId.includes('bulgarian') || exId.includes('leg_extension')) {
+      return {
+        isLowerBody: true,
+        primaryJointName: 'Rodilla',
+        secondaryJointName: 'Cadera',
+        primaryMetric: 'Flexión de Rodilla',
+        secondaryMetric: 'Flexión de Cadera',
+        dominantLabel: 'Cuádriceps',
+        rows: [
+          { label: 'Profundidad Articular:', value: 'Pliegue de cadera bajo la rodilla (≤90°)', color: 'text-emerald-400' },
+          { label: 'Desplazamiento Tibial:', value: 'Avance de rodilla coordinado sobre empeine', color: 'text-cyan-300' },
+          { label: 'Estabilidad de Apoyo:', value: 'Apoyo plantar trípode firme sin valgo', color: 'text-slate-200' },
+        ],
+        torqueTitle: 'Reparto de Torque y Palancas',
+        torqueShare: '78% Rodilla (Cuádriceps) vs 22% Cadera (Glúteo)',
+        barLabel1: 'Brazo Rodilla: 78%',
+        barLabel2: 'Brazo Cadera: 22%',
+        torqueFocus: 'CUÁDRICEPS'
+      };
+    }
+    if (groupId === 'arms' || exId.includes('biceps') || exId.includes('triceps') || exId.includes('curl') || exId.includes('pushdown')) {
+      const isTriceps = exId.includes('triceps') || exId.includes('pushdown') || exId.includes('skull');
+      return {
+        isLowerBody: false,
+        primaryJointName: 'Codo',
+        secondaryJointName: 'Hombro',
+        primaryMetric: 'Flexión / Extensión',
+        secondaryMetric: 'Oscilación Humeral',
+        dominantLabel: isTriceps ? 'Tríceps Braquial' : 'Bíceps Braquial',
+        rows: [
+          { label: 'Aislamiento Humeral:', value: 'Codos bloqueados al torso sin balanceo', color: 'text-emerald-400' },
+          { label: 'Rango de Movimiento:', value: 'Flexión y extensión articular completa', color: 'text-cyan-300' },
+          { label: 'Tensión Continua:', value: 'Cadencia sostenida sin tirones inerciales', color: 'text-slate-200' },
+        ],
+        torqueTitle: 'Aislamiento y Palanca',
+        torqueShare: '90% Brazo vs 10% Inercia / Balanceo',
+        barLabel1: isTriceps ? 'Tríceps: 90%' : 'Bíceps: 90%',
+        barLabel2: 'Inercia: 10%',
+        torqueFocus: isTriceps ? 'TRÍCEPS BRAQUIAL' : 'BÍCEPS BRAQUIAL'
+      };
+    }
+    // Default Glúteo e Isquios
+    const isCurl = exId.includes('curl');
+    return {
+      isLowerBody: true,
+      primaryJointName: isCurl ? 'Rodilla' : 'Cadera',
+      secondaryJointName: isCurl ? 'Cadera' : 'Rodilla',
+      primaryMetric: isCurl ? 'Flexión Isquios' : 'Extensión de Cadera',
+      secondaryMetric: isCurl ? 'Estabilidad Pelvis' : 'Alineación Tibial',
+      dominantLabel: 'Glúteo Mayor',
+      rows: [
+        { label: 'Estabilidad Tibial:', value: 'Vertical fija (sin deslizamiento anterior)', color: 'text-emerald-400' },
+        { label: 'Bloqueo Pélvico:', value: 'Retroversión completa en lockout (≥158°)', color: 'text-cyan-300' },
+        { label: 'Control Excéntrico:', value: 'Cadencia sostenida con bisagra de cadera', color: 'text-slate-200' },
+      ],
+      torqueTitle: 'Palanca Articular y Enfoque',
+      torqueShare: 'Alineación Tibial: ~90° en rodilla',
+      barLabel1: 'Extensión Cadera: ≥158°',
+      barLabel2: 'Alineación Tibial: ~90°',
+      torqueFocus: 'GLÚTEO MAYOR'
+    };
+  }, [selectedMuscleGroupId, selectedExerciseId]);
+
+  const primaryJointName = kinematicMeta.primaryJointName;
+  const secondaryJointName = kinematicMeta.secondaryJointName;
 
   // Real clinical statistics from repetition summaries
   const minRomAngle = analysisData?.repetitions_summary?.length
@@ -1471,18 +1683,12 @@ export const VideoPoseAnalysisModal: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
 
                   <div className="space-y-1.5 pt-1 border-t border-slate-800/60 text-[11px]">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
-                      <span className="shrink-0 font-medium">Estabilidad Tibial:</span>
-                      <span className="font-bold text-emerald-400 break-words whitespace-normal">Vertical fija (sin deslizamiento)</span>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
-                      <span className="shrink-0 font-medium">Bloqueo Pélvico:</span>
-                      <span className="font-bold text-cyan-300 break-words whitespace-normal">Retroversión completa (≥158°)</span>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
-                      <span className="shrink-0 font-medium">Control Excéntrico:</span>
-                      <span className="font-bold text-slate-200 break-words whitespace-normal">Cadencia sostenida</span>
-                    </div>
+                    {kinematicMeta.rows.map((row: { label: string; value: string; color: string }, rIdx: number) => (
+                      <div key={rIdx} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 text-slate-400 break-words whitespace-normal leading-relaxed">
+                        <span className="shrink-0 font-medium">{row.label}</span>
+                        <span className={`font-bold ${row.color} break-words whitespace-normal`}>{row.value}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
 

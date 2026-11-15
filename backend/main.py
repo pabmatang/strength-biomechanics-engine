@@ -380,7 +380,10 @@ def process_kinematics(
     load_type: str,
     athlete_boxes: Optional[List[Dict[str, float]]] = None
 ):
-    """Side-locking, linear interpolation, zero-phase Butterworth filter, rep audit & frozen verdicts."""
+    """
+    Bilateral full anatomical kinematics processing, zero-phase Butterworth filtering,
+    adaptive rep peak detection tailored to each muscle group/pattern, and clinical verdicts.
+    """
     n_frames = len(raw_keypoints)
     if n_frames == 0:
         return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
@@ -396,122 +399,150 @@ def process_kinematics(
             if delta_cx > 0.25 or delta_bw > 0.25:
                 is_scene_cut[f] = True
 
-    # 1. Determine Locked Side (Profile Lock) using all frames for maximum robustness
-    left_score_sum = 0.0
-    right_score_sum = 0.0
+    canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
+    all_smoothed = {}
     
-    left_joints = ["left_shoulder", "left_hip", "left_knee", "left_ankle"]
-    right_joints = ["right_shoulder", "right_hip", "right_knee", "right_ankle"]
-    
-    for f in range(n_frames):
-        left_score_sum += sum(raw_keypoints[f][j]["score"] for j in left_joints)
-        right_score_sum += sum(raw_keypoints[f][j]["score"] for j in right_joints)
-        
-    locked_side = "left" if left_score_sum >= right_score_sum else "right"
-    prefix = "left_" if locked_side == "left" else "right_"
-    alt_prefix = "right_" if locked_side == "left" else "left_"
-    
-    # 2. Extract series & perform linear interpolation over occlusions with opposite-joint borrowing
-    smoothed_joints = {}
-    for canonical in ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]:
-        actual_key = prefix + canonical
-        alt_key = alt_prefix + canonical
-        
-        x_arr = np.zeros(n_frames, dtype=np.float64)
-        y_arr = np.zeros(n_frames, dtype=np.float64)
-        s_arr = np.zeros(n_frames, dtype=np.float64)
-        
-        for f in range(n_frames):
-            p_joint = raw_keypoints[f][actual_key]
-            a_joint = raw_keypoints[f][alt_key]
+    # 1. Bilateral Smoothing for ALL 12 Keypoints (Left and Right)
+    for side in ["left", "right"]:
+        for c_name in canonical_joints:
+            k_name = f"{side}_{c_name}"
+            x_arr = np.array([raw_keypoints[f][k_name]["x"] for f in range(n_frames)], dtype=np.float64)
+            y_arr = np.array([raw_keypoints[f][k_name]["y"] for f in range(n_frames)], dtype=np.float64)
+            s_arr = np.array([raw_keypoints[f][k_name]["score"] for f in range(n_frames)], dtype=np.float64)
             
-            # Borrow opposite if primary is severely occluded by barbell or bench
-            if p_joint["score"] < 0.35 and a_joint["score"] >= 0.55:
-                x_arr[f] = a_joint["x"]
-                y_arr[f] = a_joint["y"]
-                s_arr[f] = a_joint["score"] * 0.85
-            else:
-                x_arr[f] = p_joint["x"]
-                y_arr[f] = p_joint["y"]
-                s_arr[f] = p_joint["score"]
-                
-        x_interp = interpolate_series_1d(x_arr, s_arr, min_score=0.35)
-        y_interp = interpolate_series_1d(y_arr, s_arr, min_score=0.35)
-        
-        smoothed_joints[canonical] = {
-            "x": apply_zero_phase_butterworth(x_interp, fs=15.0, cutoff=3.5),
-            "y": apply_zero_phase_butterworth(y_interp, fs=15.0, cutoff=3.5),
-            "score": s_arr
-        }
-        
-    # Head tracking (ear or nose)
-    head_key = prefix + "ear" if (prefix + "ear") in raw_keypoints[0] and raw_keypoints[0][prefix + "ear"]["score"] > 0.4 else "nose"
-    hx_arr = np.array([raw_keypoints[f].get(head_key, raw_keypoints[f]["nose"])["x"] for f in range(n_frames)], dtype=np.float64)
-    hy_arr = np.array([raw_keypoints[f].get(head_key, raw_keypoints[f]["nose"])["y"] for f in range(n_frames)], dtype=np.float64)
-    hs_arr = np.array([raw_keypoints[f].get(head_key, raw_keypoints[f]["nose"])["score"] for f in range(n_frames)], dtype=np.float64)
-    smoothed_joints["head"] = {
-        "x": apply_zero_phase_butterworth(interpolate_series_1d(hx_arr, hs_arr, min_score=0.35), fs=15.0, cutoff=3.5),
-        "y": apply_zero_phase_butterworth(interpolate_series_1d(hy_arr, hs_arr, min_score=0.35), fs=15.0, cutoff=3.5),
+            x_interp = interpolate_series_1d(x_arr, s_arr, min_score=0.20)
+            y_interp = interpolate_series_1d(y_arr, s_arr, min_score=0.20)
+            
+            all_smoothed[k_name] = {
+                "x": apply_zero_phase_butterworth(x_interp, fs=15.0, cutoff=3.5),
+                "y": apply_zero_phase_butterworth(y_interp, fs=15.0, cutoff=3.5),
+                "score": s_arr
+            }
+            
+    # Head / Nose / Eyes
+    hx_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"x": 0.5}))["x"] for f in range(n_frames)], dtype=np.float64)
+    hy_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"y": 0.2}))["y"] for f in range(n_frames)], dtype=np.float64)
+    hs_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"score": 0.5}))["score"] for f in range(n_frames)], dtype=np.float64)
+    smoothed_head = {
+        "x": apply_zero_phase_butterworth(interpolate_series_1d(hx_arr, hs_arr, min_score=0.20), fs=15.0, cutoff=3.5),
+        "y": apply_zero_phase_butterworth(interpolate_series_1d(hy_arr, hs_arr, min_score=0.20), fs=15.0, cutoff=3.5),
         "score": hs_arr
     }
-        
-    # 4. Compute Angular Kinematics per Frame & Frontal Plane Filter
+
+    # 2. Determine Primary Active Side (Profile vs Frontal)
+    left_score = sum(float(np.mean(all_smoothed[f"left_{j}"]["score"])) for j in canonical_joints)
+    right_score = sum(float(np.mean(all_smoothed[f"right_{j}"]["score"])) for j in canonical_joints)
+    locked_side = "left" if left_score >= right_score else "right"
+    
+    primary_joints = {}
+    for c_name in canonical_joints:
+        primary_joints[c_name] = {
+            "x": all_smoothed[f"{locked_side}_{c_name}"]["x"],
+            "y": all_smoothed[f"{locked_side}_{c_name}"]["y"],
+            "score": all_smoothed[f"{locked_side}_{c_name}"]["score"]
+        }
+
+    # 3. Compute Angular Kinematics per Frame tailored to each exercise
     primary_angles = []
     secondary_angles = []
     is_invalid_angle = [False] * n_frames
-    
+
+    ex_lower = exercise_type.lower()
+    is_upper_body = any(k in ex_lower for k in [
+        "press", "bench", "row", "pull", "fly", "pec", "curl", "dips",
+        "raise", "shoulder", "overhead", "lateral", "triceps", "biceps"
+    ]) and not any(k in ex_lower for k in ["leg_press", "leg_extension"])
+
     for f in range(n_frames):
-        sh = {"x": smoothed_joints["shoulder"]["x"][f], "y": smoothed_joints["shoulder"]["y"][f]}
-        el = {"x": smoothed_joints["elbow"]["x"][f], "y": smoothed_joints["elbow"]["y"][f]}
-        wr = {"x": smoothed_joints["wrist"]["x"][f], "y": smoothed_joints["wrist"]["y"][f]}
-        hp = {"x": smoothed_joints["hip"]["x"][f], "y": smoothed_joints["hip"]["y"][f]}
-        kn = {"x": smoothed_joints["knee"]["x"][f], "y": smoothed_joints["knee"]["y"][f]}
-        ak = {"x": smoothed_joints["ankle"]["x"][f], "y": smoothed_joints["ankle"]["y"][f]}
+        l_sh = {"x": float(all_smoothed["left_shoulder"]["x"][f]), "y": float(all_smoothed["left_shoulder"]["y"][f])}
+        l_el = {"x": float(all_smoothed["left_elbow"]["x"][f]), "y": float(all_smoothed["left_elbow"]["y"][f])}
+        l_wr = {"x": float(all_smoothed["left_wrist"]["x"][f]), "y": float(all_smoothed["left_wrist"]["y"][f])}
+        l_hp = {"x": float(all_smoothed["left_hip"]["x"][f]), "y": float(all_smoothed["left_hip"]["y"][f])}
+        l_kn = {"x": float(all_smoothed["left_knee"]["x"][f]), "y": float(all_smoothed["left_knee"]["y"][f])}
+        l_ak = {"x": float(all_smoothed["left_ankle"]["x"][f]), "y": float(all_smoothed["left_ankle"]["y"][f])}
+
+        r_sh = {"x": float(all_smoothed["right_shoulder"]["x"][f]), "y": float(all_smoothed["right_shoulder"]["y"][f])}
+        r_el = {"x": float(all_smoothed["right_elbow"]["x"][f]), "y": float(all_smoothed["right_elbow"]["y"][f])}
+        r_wr = {"x": float(all_smoothed["right_wrist"]["x"][f]), "y": float(all_smoothed["right_wrist"]["y"][f])}
+        r_hp = {"x": float(all_smoothed["right_hip"]["x"][f]), "y": float(all_smoothed["right_hip"]["y"][f])}
+        r_kn = {"x": float(all_smoothed["right_knee"]["x"][f]), "y": float(all_smoothed["right_knee"]["y"][f])}
+        r_ak = {"x": float(all_smoothed["right_ankle"]["x"][f]), "y": float(all_smoothed["right_ankle"]["y"][f])}
+
+        # Choose clearer arm/leg per frame if both are visible
+        l_arm_conf = all_smoothed["left_elbow"]["score"][f] + all_smoothed["left_wrist"]["score"][f]
+        r_arm_conf = all_smoothed["right_elbow"]["score"][f] + all_smoothed["right_wrist"]["score"][f]
+        arm_side = "left" if l_arm_conf >= r_arm_conf else "right"
         
-        # Frontal plane collapse check: horizontal distance between hip and knee < 0.06
-        if abs(hp["x"] - kn["x"]) < 0.06:
+        sh = l_sh if arm_side == "left" else r_sh
+        el = l_el if arm_side == "left" else r_el
+        wr = l_wr if arm_side == "left" else r_wr
+        hp = l_hp if arm_side == "left" else r_hp
+        kn = l_kn if arm_side == "left" else r_kn
+        ak = l_ak if arm_side == "left" else r_ak
+
+        # Frontal plane collapse check for lower body sagittal exercises
+        if not is_upper_body and abs(hp["x"] - kn["x"]) < 0.05:
             is_invalid_angle[f] = True
-        
+
         knee_deg = calculate_angle_2d(hp, kn, ak)
         hip_deg = calculate_angle_2d(sh, hp, kn)
         elbow_deg = calculate_angle_2d(sh, el, wr)
-        torso_deg = calculate_angle_2d({"x": hp["x"] + 0.1, "y": hp["y"]}, hp, sh)
+        # Humeral abduction angle: angle between torso (sh -> hp) and upper arm (sh -> el)
+        humeral_deg = calculate_angle_2d(hp, sh, el)
+        # Torso verticality: angle relative to vertical axis
+        torso_vertical_deg = calculate_angle_2d({"x": hp["x"], "y": hp["y"] - 0.2}, hp, sh)
+
+        # 1. Pecho: Press banca, press máquina, fondos, aberturas
+        if any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"]):
+            p_angle = elbow_deg
+            s_angle = humeral_deg
         
-        if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"]:
-            p_angle = hip_deg
-            s_angle = knee_deg
-        elif exercise_type in ["squat", "hack_squat", "leg_press", "leg_extension", "bulgarian_squat", "front_squat", "sissy_squat"]:
+        # 2. Espalda: Remos, jalones, dominadas
+        elif any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"]):
+            p_angle = elbow_deg
+            s_angle = torso_vertical_deg
+        
+        # 3. Hombro: Press militar, elevaciones laterales, pájaros
+        elif any(k in ex_lower for k in ["overhead", "shoulder_press", "lateral_raise", "front_raise", "rear_delt", "face_pull"]):
+            if any(k in ex_lower for k in ["raise", "delt", "face_pull"]):
+                p_angle = humeral_deg
+                s_angle = torso_vertical_deg
+            else:
+                p_angle = elbow_deg
+                s_angle = humeral_deg
+        
+        # 4. Cuádriceps: Sentadilla, Prensa, Hack, Búlgara, Extensión
+        elif any(k in ex_lower for k in ["squat", "leg_press", "hack", "bulgarian", "leg_extension", "sissy"]):
             p_angle = knee_deg
             s_angle = hip_deg
-        elif exercise_type in ["rdl", "deadlift", "hamstring_curl", "seated_leg_curl", "lying_leg_curl", "cable_kickback", "hip_abduction"]:
-            p_angle = hip_deg if "curl" not in exercise_type else knee_deg
-            s_angle = knee_deg if "curl" not in exercise_type else hip_deg
-        elif exercise_type in ["bench_press", "incline_press", "machine_chest_press", "chest_dips", "pec_deck"]:
-            p_angle = elbow_deg
-            s_angle = calculate_angle_2d(hp, sh, el)
-        elif exercise_type in ["overhead_press", "shoulder_press_machine"]:
-            p_angle = elbow_deg
-            s_angle = calculate_angle_2d(hp, sh, el)
-        elif exercise_type in ["row", "barbell_row", "machine_row", "cable_row", "dumbbell_row", "t_bar_row", "lat_pulldown", "single_lat_pulldown", "pullup", "pullover"]:
-            p_angle = elbow_deg
-            s_angle = torso_deg
-        elif exercise_type in ["cable_fly", "lateral_raise", "cable_lateral_raise", "rear_delt_fly", "face_pull"]:
-            p_angle = calculate_angle_2d(hp, sh, el)
-            s_angle = elbow_deg
-        elif exercise_type in ["biceps_curl", "dumbbell_curl", "preacher_curl", "cable_biceps_curl", "hammer_curl", "triceps_pushdown", "skull_crushers", "overhead_triceps_extension", "triceps_dips"]:
-            p_angle = elbow_deg
-            s_angle = calculate_angle_2d(hp, sh, el)
-        else:
+        
+        # 5. Glúteo e Isquios: Hip Thrust, Kas, Glute Bridge, RDL, Deadlift, Leg Curl
+        elif any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
+            p_angle = hip_deg
+            s_angle = knee_deg
+        elif any(k in ex_lower for k in ["rdl", "deadlift"]):
+            p_angle = hip_deg
+            s_angle = knee_deg
+        elif "curl" in ex_lower and "biceps" not in ex_lower:
             p_angle = knee_deg
             s_angle = hip_deg
             
+        # 6. Brazos: Bíceps / Tríceps
+        elif any(k in ex_lower for k in ["biceps", "curl", "triceps", "pushdown", "skull_crusher", "dips"]):
+            p_angle = elbow_deg
+            s_angle = humeral_deg
+
+        else:
+            p_angle = knee_deg
+            s_angle = hip_deg
+
         primary_angles.append(p_angle)
         secondary_angles.append(s_angle)
-        
+
     primary_angles = np.array(primary_angles, dtype=np.float64)
     secondary_angles = np.array(secondary_angles, dtype=np.float64)
-    
-    # 5. Clean series interpolation over INVALID_ANGLE & SCENE_CUT frames
+
+    # 4. Clean Series Interpolation over INVALID_ANGLE & SCENE_CUT Frames
     valid_indices = [f for f in range(n_frames) if not is_invalid_angle[f] and not is_scene_cut[f]]
     all_indices = np.arange(n_frames)
     
@@ -525,28 +556,35 @@ def process_kinematics(
         clean_primary = np.array(primary_angles, dtype=np.float64)
         clean_secondary = np.array(secondary_angles, dtype=np.float64)
 
-    # Butterworth smoothing on the clean continuous series for robust peak detection
     clean_primary_smooth = apply_zero_phase_butterworth(clean_primary, fs=15.0, cutoff=2.5)
 
+    # 5. Adaptive Curve Orientation & Peak Detection
+    is_trough_movement = any(k in ex_lower for k in [
+        "squat", "leg_press", "hack", "bulgarian", "rdl", "deadlift",
+        "row", "pulldown", "pullup", "biceps", "leg_curl"
+    ])
+    
     clean_curve = np.array(clean_primary_smooth, dtype=np.float64, copy=True)
-    if exercise_type != "hip_thrust":
+    if is_trough_movement:
         clean_curve = -clean_curve
+
+    signal_range = float(np.max(clean_primary_smooth) - np.min(clean_primary_smooth))
+    target_prominence = max(14.0, min(30.0, signal_range * 0.40))
 
     repetitions_summary = []
     frame_rep_map = [0] * n_frames
     frame_phase_map = ["IDLE"] * n_frames
-    
-    # User requirement: minimum prominence 32 degrees (demanding true clinical ROM)
-    peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=32, distance=14)
+
+    peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=target_prominence, distance=14)
     if len(peaks) == 0:
-        peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=24, distance=12)
-            
-    # Discard peaks within first and last 0.4s of the clip (setup and racking movements)
-    t_min_bound = timestamps[0] + 0.4
-    t_max_bound = timestamps[-1] - 0.4
+        peaks, properties = scipy.signal.find_peaks(clean_curve, prominence=max(10.0, target_prominence * 0.65), distance=10)
+
+    # Clip boundary margins: keep reps within active window
+    t_min_bound = timestamps[0] + 0.3
+    t_max_bound = timestamps[-1] - 0.3
     valid_peaks = [p for p in peaks if t_min_bound <= timestamps[p] <= t_max_bound]
     if len(valid_peaks) == 0 and len(peaks) > 0:
-        valid_peaks = peaks # fallback if clip is tightly trimmed
+        valid_peaks = peaks
 
     # Angular velocity signal: absolute rate of change in clean primary angle (deg/s)
     if len(clean_primary) > 1 and len(timestamps) > 1:
@@ -554,29 +592,26 @@ def process_kinematics(
     else:
         angular_vel = np.zeros(n_frames)
 
-    # 5.1 Median Knee Angle across all valid extension peaks for global foot placement diagnosis
+    # Median Knee Angle across all valid extension peaks for Hip Thrust foot placement
     knee_angles_at_peaks = []
     for p in valid_peaks:
-        k_ang = float(clean_secondary[p] if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"] else clean_primary[p])
+        k_ang = float(clean_secondary[p] if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]) else clean_primary[p])
         knee_angles_at_peaks.append(k_ang)
 
-    if len(knee_angles_at_peaks) > 0:
-        median_knee_angle_peaks = float(np.median(knee_angles_at_peaks))
-    else:
-        median_knee_angle_peaks = 90.0
+    median_knee_angle_peaks = float(np.median(knee_angles_at_peaks)) if knee_angles_at_peaks else 90.0
 
     for rep_idx, bottom_frame in enumerate(valid_peaks, start=1):
         search_back = max(0, bottom_frame - 25)
-        if exercise_type == "hip_thrust":
-            start_frame = search_back + int(np.argmin(clean_primary_smooth[search_back:bottom_frame])) if bottom_frame > search_back else search_back
-        else:
+        if is_trough_movement:
             start_frame = search_back + int(np.argmax(clean_primary_smooth[search_back:bottom_frame])) if bottom_frame > search_back else search_back
+        else:
+            start_frame = search_back + int(np.argmin(clean_primary_smooth[search_back:bottom_frame])) if bottom_frame > search_back else search_back
             
         search_fwd = min(n_frames, bottom_frame + 25)
-        if exercise_type == "hip_thrust":
-            end_frame = bottom_frame + int(np.argmin(clean_primary_smooth[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
-        else:
+        if is_trough_movement:
             end_frame = bottom_frame + int(np.argmax(clean_primary_smooth[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
+        else:
+            end_frame = bottom_frame + int(np.argmin(clean_primary_smooth[bottom_frame:search_fwd])) if search_fwd > bottom_frame else bottom_frame
             
         if end_frame <= start_frame:
             end_frame = min(n_frames - 1, bottom_frame + 8)
@@ -597,18 +632,13 @@ def process_kinematics(
         else:
             pause_time_s = 0.0
 
-        if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"]:
-            concentric_raw = max(0.05, t_inflect - t_start)
-            eccentric_raw = max(0.05, t_end - t_inflect)
+        if is_trough_movement:
+            eccentric_time_s = max(0.1, round(t_inflect - t_start, 2))
+            concentric_time_s = max(0.1, round(t_end - t_inflect, 2))
         else:
-            eccentric_raw = max(0.05, t_inflect - t_start)
-            concentric_raw = max(0.05, t_end - t_inflect)
+            eccentric_time_s = max(0.1, round(t_start - t_inflect if t_start > t_inflect else t_end - t_inflect, 2))
+            concentric_time_s = max(0.1, round(t_inflect - t_start if t_inflect > t_start else t_end - t_start, 2))
 
-        half_pause = pause_time_s / 2.0
-        concentric_time_s = max(0.10, round(float(concentric_raw - half_pause), 2))
-        eccentric_time_s = max(0.10, round(float(eccentric_raw - half_pause), 2))
-
-        # ROM calculation strictly excluding invalid and scene-cut frames
         rep_valid_frames = [f for f in range(start_frame, end_frame + 1) if not is_invalid_angle[f] and not is_scene_cut[f]]
         if rep_valid_frames:
             rep_min_angle = float(np.min(clean_primary[rep_valid_frames]))
@@ -620,25 +650,20 @@ def process_kinematics(
 
         concentric_velocity_deg_s = round(float(rom_deg / concentric_time_s), 1)
         
-        inflect_knee = float(clean_secondary[bottom_frame] if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"] else clean_primary[bottom_frame])
-        inflect_hip = float(clean_primary[bottom_frame] if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"] else clean_secondary[bottom_frame])
+        inflect_knee = float(clean_secondary[bottom_frame] if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]) else clean_primary[bottom_frame])
+        inflect_hip = float(clean_primary[bottom_frame] if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]) else clean_secondary[bottom_frame])
         
-        wr_x = smoothed_joints["wrist"]["x"][bottom_frame]
-        hp_x = smoothed_joints["hip"]["x"][bottom_frame]
-        kn_x = smoothed_joints["knee"]["x"][bottom_frame]
-        sh_x = smoothed_joints["shoulder"]["x"][bottom_frame]
-        ak_x = smoothed_joints["ankle"]["x"][bottom_frame]
+        wr_x = primary_joints["wrist"]["x"][bottom_frame]
+        hp_x = primary_joints["hip"]["x"][bottom_frame]
+        kn_x = primary_joints["knee"]["x"][bottom_frame]
+        sh_x = primary_joints["shoulder"]["x"][bottom_frame]
+        ak_x = primary_joints["ankle"]["x"][bottom_frame]
         
-        if exercise_type in ["hip_thrust", "kas_glute_bridge", "machine_hip_thrust"]:
-            d_knee = abs(kn_x - ak_x) # vertical tibia => knee lever arm -> 0
-            d_hip = abs(hp_x - kn_x)  # hip lever arm about knee axis
+        # Clinical verdicts per exercise category
+        if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]):
+            d_knee = abs(kn_x - ak_x)
+            d_hip = abs(hp_x - kn_x)
             d_shoulder = abs(sh_x - hp_x)
-            
-            tot_lever = d_knee + d_hip
-            hip_share = (d_hip / tot_lever) if tot_lever > 1e-4 else 1.0
-            knee_share = (d_knee / tot_lever) if tot_lever > 1e-4 else 0.0
-
-            # Foot placement evaluation based on MEDIAN knee angle across extension peaks:
             knee_angle_peak = median_knee_angle_peaks
             if knee_angle_peak < 78.0:
                 recom = "Pies demasiado retrasados (<78°): exceso de cizalla en rodilla y dominio de cuádriceps. Adelanta los pies ~5-10 cm."
@@ -649,7 +674,7 @@ def process_kinematics(
                 status = "IMPROVEMENT_OPPORTUNITY"
                 torque_bias = "ISQUIOSURALES"
             else:
-                hip_extended = inflect_hip >= 158.0 # Optimal lockout >= 158° with pelvic retroversion
+                hip_extended = inflect_hip >= 158.0
                 if hip_extended:
                     recom = "Alineación articular óptima (~90° en rodilla): máxima palanca sobre el glúteo mayor."
                     status = "OPTIMAL"
@@ -657,65 +682,79 @@ def process_kinematics(
                     recom = f"Extensión de cadera incompleta ({round(inflect_hip)}° < 158°). Busca lockout activo con retroversión pélvica."
                     status = "IMPROVEMENT_OPPORTUNITY"
                 torque_bias = "GLÚTEO MAYOR"
-
             dominant_joint = "CADERA"
-        elif exercise_type in ["squat", "hack_squat", "leg_press", "leg_extension", "bulgarian_squat", "front_squat", "sissy_squat"]:
+
+        elif any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"]):
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
+            humeral_angle = float(clean_secondary[bottom_frame])
+            elbow_angle = float(clean_primary[bottom_frame])
+            if humeral_angle > 75.0:
+                recom = "Codos excesivamente abiertos (>75°): riesgo de pinzamiento subacromial. Cierra los codos a ~50°-60° del torso para maximizar activación esternal."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "DELTOIDES ANTERIOR"
+            elif elbow_angle < 145.0:
+                recom = "Empuje incompleto en concéntrica. Extiende los brazos completamente manteniendo escápulas retraídas."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "TRÍCEPS BRAQUIAL"
+            else:
+                recom = "Alineación glenohumeral óptima (~50°-60°): máxima tensión en pectoral mayor con protección subacromial."
+                status = "OPTIMAL"
+                torque_bias = "PECTORAL MAYOR"
+            dominant_joint = "PECTORAL"
+
+        elif any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover"]):
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
+            torso_angle = float(clean_secondary[bottom_frame])
+            if torso_angle > 25.0:
+                recom = "Exceso de balanceo e inercia lumbar (>25°). Mantén el torso rígido y tracciona guiando con los codos pegados al cuerpo."
+                status = "IMPROVEMENT_OPPORTUNITY"
+                torque_bias = "ZONA LUMBAR / INERCIA"
+            else:
+                recom = "Tracción neutra y retracción escapular estricta: codos superan la línea del torso con máxima activación dorsal."
+                status = "OPTIMAL"
+                torque_bias = "DORSAL ANCHO"
+            dominant_joint = "DORSAL"
+
+        elif any(k in ex_lower for k in ["overhead", "shoulder_press", "lateral_raise", "front_raise", "rear_delt"]):
+            d_hip = abs(hp_x - wr_x)
+            d_knee = abs(kn_x - wr_x)
+            d_shoulder = abs(sh_x - wr_x)
+            recom = "Plano escapular respetado (30° anterior) y verticalidad concéntrica sin compensación lumbar."
+            status = "OPTIMAL"
+            dominant_joint = "HOMBRO"
+            torque_bias = "DELTOIDES"
+
+        elif any(k in ex_lower for k in ["squat", "leg_press", "hack", "bulgarian", "leg_extension"]):
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
             deep_enough = inflect_knee <= 95.0
-            dominant_joint = "RODILLA" if d_knee >= d_hip else "CADERA"
-            torque_bias = "CUÁDRICEPS" if dominant_joint == "RODILLA" else "CADERA / GLÚTEO"
+            recom = "Profundidad clínica alcanzada (rodilla ≤90° con fémur paralelo al suelo)." if deep_enough else "Profundidad parcial. Desciende hasta romper la paralela para máxima activación de cuádriceps."
             status = "OPTIMAL" if deep_enough else "IMPROVEMENT_OPPORTUNITY"
-            recom = "Profundidad clínica alcanzada (rodilla ≤90°)." if deep_enough else "Profundidad parcial. Desciende hasta que fémur quede paralelo al suelo."
-        elif exercise_type in ["rdl", "deadlift", "hamstring_curl", "seated_leg_curl", "lying_leg_curl", "cable_kickback", "hip_abduction"]:
+            dominant_joint = "RODILLA"
+            torque_bias = "CUÁDRICEPS"
+
+        elif any(k in ex_lower for k in ["rdl", "deadlift", "curl"]):
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
+            recom = "Bisagra de cadera pura mantenida con tensión en cadena posterior."
+            status = "OPTIMAL"
             dominant_joint = "CADERA"
             torque_bias = "GLÚTEO / ISQUIOS"
-            status = "OPTIMAL" if inflect_knee >= 135.0 or "curl" in exercise_type else "IMPROVEMENT_OPPORTUNITY"
-            recom = "Bisagra de cadera pura mantenida con tensión isquiosural." if status == "OPTIMAL" else "Flexión excesiva de rodilla. Convierte el RDL en sentadilla; mantén tibia vertical."
-        elif exercise_type in ["row", "barbell_row", "machine_row", "cable_row", "dumbbell_row", "t_bar_row", "lat_pulldown", "single_lat_pulldown", "pullup", "pullover"]:
-            d_hip = abs(hp_x - wr_x)
-            d_knee = abs(kn_x - wr_x)
-            d_shoulder = abs(sh_x - wr_x)
-            dominant_joint = "DORSAL / HOMBRO"
-            torque_bias = "DORSAL ANCHO"
-            status = "OPTIMAL"
-            recom = "Tracción neutra y retracción escapular con codo guiado pegado al costado."
-        elif exercise_type in ["bench_press", "incline_press", "machine_chest_press", "chest_dips", "pec_deck", "cable_fly"]:
-            d_hip = abs(hp_x - wr_x)
-            d_knee = abs(kn_x - wr_x)
-            d_shoulder = abs(sh_x - wr_x)
-            dominant_joint = "PECTORAL / HOMBRO"
-            torque_bias = "PECTORAL MAYOR"
-            status = "OPTIMAL"
-            recom = "Aducción horizontal completa con estabilidad escapular y codo a ~60° del torso."
-        elif exercise_type in ["overhead_press", "shoulder_press_machine", "lateral_raise", "cable_lateral_raise", "rear_delt_fly", "face_pull"]:
-            d_hip = abs(hp_x - wr_x)
-            d_knee = abs(kn_x - wr_x)
-            d_shoulder = abs(sh_x - wr_x)
-            dominant_joint = "HOMBRO"
-            torque_bias = "DELTOIDES"
-            status = "OPTIMAL"
-            recom = "Plano escapular respetado (30° anterior) sin pinzamiento subacromial."
-        elif exercise_type in ["biceps_curl", "dumbbell_curl", "preacher_curl", "cable_biceps_curl", "hammer_curl", "triceps_pushdown", "skull_crushers", "overhead_triceps_extension", "triceps_dips"]:
-            d_hip = abs(hp_x - wr_x)
-            d_knee = abs(kn_x - wr_x)
-            d_shoulder = abs(sh_x - wr_x)
-            dominant_joint = "CODO"
-            torque_bias = "BÍCEPS / TRÍCEPS"
-            status = "OPTIMAL"
-            recom = "Aislamiento articular estricto sin balanceo del húmero ni inercia corporal."
+
         else:
             d_hip = abs(hp_x - wr_x)
             d_knee = abs(kn_x - wr_x)
             d_shoulder = abs(sh_x - wr_x)
-            dominant_joint = "CADERA / RODILLA"
-            torque_bias = "GENERAL"
+            recom = "Control cinemático y alineación articular estricta en el patrón motor evaluado."
             status = "OPTIMAL"
-            recom = "Control cinemático estable."
+            dominant_joint = "NEUTRO"
+            torque_bias = "GENERAL"
 
         verdict = {
             "status": status,
@@ -729,16 +768,16 @@ def process_kinematics(
             "d_shoulder_norm": round(float(d_shoulder), 3),
             "recommendation": recom
         }
-        
+
         rep_data = {
             "rep_number": rep_idx,
-            "start_time": round(t_start, 3),
-            "inflection_time": round(t_inflect, 3),
-            "end_time": round(t_end, 3),
+            "start_time": round(t_start, 2),
+            "inflection_time": round(t_inflect, 2),
+            "end_time": round(t_end, 2),
+            "duration_sec": round(float(t_end - t_start), 2),
             "eccentric_sec": eccentric_time_s,
             "pause_sec": pause_time_s,
             "concentric_sec": concentric_time_s,
-            "eccentric_time_s": eccentric_time_s,
             "pause_time_s": pause_time_s,
             "concentric_time_s": concentric_time_s,
             "concentric_velocity_deg_s": concentric_velocity_deg_s,
@@ -752,49 +791,56 @@ def process_kinematics(
         for f in range(start_frame, end_frame + 1):
             frame_rep_map[f] = rep_idx
             if f < bottom_frame:
-                frame_phase_map[f] = "ECCENTRIC"
+                frame_phase_map[f] = "ECCENTRIC" if is_trough_movement else "CONCENTRIC"
             elif f == bottom_frame:
-                frame_phase_map[f] = "BOTTOM" if exercise_type != "hip_thrust" else "LOCKOUT"
+                frame_phase_map[f] = "INFLECTION"
             else:
-                frame_phase_map[f] = "CONCENTRIC"
+                frame_phase_map[f] = "CONCENTRIC" if is_trough_movement else "ECCENTRIC"
 
-    # 5.1 Velocity Loss (VBT) and Intensity Metrics across all reps
-    if len(repetitions_summary) > 0:
-        rep_velocities = [r["concentric_velocity_deg_s"] for r in repetitions_summary]
-        first_rep_vel = rep_velocities[0]
-        last_rep_vel = rep_velocities[-1]
-        max_vel = max(rep_velocities)
+    # Intensity Metrics (VBT)
+    if len(repetitions_summary) >= 2:
+        rep_vels = [r["concentric_velocity_deg_s"] for r in repetitions_summary]
+        first_rep_vel = rep_vels[0]
+        last_rep_vel = rep_vels[-1]
+        max_rep_vel = max(rep_vels) if rep_vels else 1.0
         
-        if max_vel > 0:
-            velocity_loss_pct = round(max(0.0, ((max_vel - last_rep_vel) / max_vel) * 100.0), 1)
+        vel_loss = round(float((first_rep_vel - last_rep_vel) / max(first_rep_vel, 1e-4) * 100.0), 1)
+        
+        if vel_loss < 10.0:
+            rir_est = "4+"
+            rpe_est = 6.0
+        elif vel_loss < 20.0:
+            rir_est = "2 - 3"
+            rpe_est = 7.5
+        elif vel_loss < 32.0:
+            rir_est = "1 - 2"
+            rpe_est = 8.5
+        elif vel_loss < 45.0:
+            rir_est = "0 - 1"
+            rpe_est = 9.5
         else:
-            velocity_loss_pct = 0.0
-
-        # VBT Velocity Loss Mapping to Estimated RIR & RPE
-        if velocity_loss_pct < 10.0:
-            estimated_rir = "4+"
-            estimated_rpe = 6.0
-        elif velocity_loss_pct < 20.0:
-            estimated_rir = "3"
-            estimated_rpe = 7.0
-        elif velocity_loss_pct < 30.0:
-            estimated_rir = "2"
-            estimated_rpe = 8.0
-        elif velocity_loss_pct < 40.0:
-            estimated_rir = "1"
-            estimated_rpe = 9.0
-        else:
-            estimated_rir = "0"
-            estimated_rpe = 10.0
-
+            rir_est = "0 (Fallo)"
+            rpe_est = 10.0
+            
         intensity_metrics = {
-            "estimated_rir": estimated_rir,
-            "estimated_rpe": estimated_rpe,
-            "velocity_loss_pct": velocity_loss_pct,
+            "estimated_rir": rir_est,
+            "estimated_rpe": rpe_est,
+            "velocity_loss_pct": vel_loss,
             "first_rep_vel": first_rep_vel,
             "last_rep_vel": last_rep_vel,
-            "max_rep_vel": max_vel,
-            "rep_velocities": rep_velocities
+            "max_rep_vel": round(max_rep_vel, 1),
+            "rep_velocities": rep_vels
+        }
+    elif len(repetitions_summary) == 1:
+        vel = repetitions_summary[0]["concentric_velocity_deg_s"]
+        intensity_metrics = {
+            "estimated_rir": "3 - 4",
+            "estimated_rpe": 7.0,
+            "velocity_loss_pct": 0.0,
+            "first_rep_vel": vel,
+            "last_rep_vel": vel,
+            "max_rep_vel": vel,
+            "rep_velocities": [vel]
         }
     else:
         intensity_metrics = {
@@ -807,7 +853,7 @@ def process_kinematics(
             "rep_velocities": []
         }
                 
-    # 6. Build Per-Frame Output Array with Frozen Rep Verdict
+    # 6. Build Per-Frame Output Array with Bilateral Keypoints and Frozen Rep Verdict
     frames_output = []
     for f in range(n_frames):
         rep_num = frame_rep_map[f]
@@ -824,7 +870,6 @@ def process_kinematics(
             "recommendation": "Mapeando cinemática articular..."
         }
 
-        # When frame is INVALID_ANGLE, do not evaluate postural verdict on this frame
         if is_invalid_angle[f]:
             rep_verdict = {
                 **base_rep_verdict,
@@ -834,13 +879,13 @@ def process_kinematics(
         else:
             rep_verdict = base_rep_verdict
         
-        wr_x = smoothed_joints["wrist"]["x"][f]
-        hp_x = smoothed_joints["hip"]["x"][f]
-        kn_x = smoothed_joints["knee"]["x"][f]
-        sh_x = smoothed_joints["shoulder"]["x"][f]
-        ak_x = smoothed_joints["ankle"]["x"][f]
+        wr_x = primary_joints["wrist"]["x"][f]
+        hp_x = primary_joints["hip"]["x"][f]
+        kn_x = primary_joints["knee"]["x"][f]
+        sh_x = primary_joints["shoulder"]["x"][f]
+        ak_x = primary_joints["ankle"]["x"][f]
         
-        if exercise_type == "hip_thrust":
+        if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge"]):
             f_d_knee = abs(kn_x - ak_x)
             f_d_hip = abs(hp_x - kn_x)
             f_d_sh = abs(sh_x - hp_x)
@@ -863,13 +908,27 @@ def process_kinematics(
             "main_angle": round(float(clean_primary[f]), 1),
             "secondary_angle": round(float(clean_secondary[f]), 1),
             "keypoints_norm": {
-                "shoulder": {"x": round(float(sh_x), 4), "y": round(float(smoothed_joints["shoulder"]["y"][f]), 4), "score": round(float(smoothed_joints["shoulder"]["score"][f]), 2)},
-                "elbow": {"x": round(float(smoothed_joints["elbow"]["x"][f]), 4), "y": round(float(smoothed_joints["elbow"]["y"][f]), 4), "score": round(float(smoothed_joints["elbow"]["score"][f]), 2)},
-                "wrist": {"x": round(float(wr_x), 4), "y": round(float(smoothed_joints["wrist"]["y"][f]), 4), "score": round(float(smoothed_joints["wrist"]["score"][f]), 2)},
-                "hip": {"x": round(float(hp_x), 4), "y": round(float(smoothed_joints["hip"]["y"][f]), 4), "score": round(float(smoothed_joints["hip"]["score"][f]), 2)},
-                "knee": {"x": round(float(kn_x), 4), "y": round(float(smoothed_joints["knee"]["y"][f]), 4), "score": round(float(smoothed_joints["knee"]["score"][f]), 2)},
-                "ankle": {"x": round(float(ak_x), 4), "y": round(float(smoothed_joints["ankle"]["y"][f]), 4), "score": round(float(smoothed_joints["ankle"]["score"][f]), 2)},
-                "head": {"x": round(float(smoothed_joints["head"]["x"][f]), 4), "y": round(float(smoothed_joints["head"]["y"][f]), 4), "score": round(float(smoothed_joints["head"]["score"][f]), 2)}
+                # Bilateral anatomical skeleton
+                "left_shoulder": {"x": round(float(all_smoothed["left_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["left_shoulder"]["y"][f]), 4), "score": round(float(all_smoothed["left_shoulder"]["score"][f]), 2)},
+                "right_shoulder": {"x": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["right_shoulder"]["y"][f]), 4), "score": round(float(all_smoothed["right_shoulder"]["score"][f]), 2)},
+                "left_elbow": {"x": round(float(all_smoothed["left_elbow"]["x"][f]), 4), "y": round(float(all_smoothed["left_elbow"]["y"][f]), 4), "score": round(float(all_smoothed["left_elbow"]["score"][f]), 2)},
+                "right_elbow": {"x": round(float(all_smoothed["right_elbow"]["x"][f]), 4), "y": round(float(all_smoothed["right_elbow"]["y"][f]), 4), "score": round(float(all_smoothed["right_elbow"]["score"][f]), 2)},
+                "left_wrist": {"x": round(float(all_smoothed["left_wrist"]["x"][f]), 4), "y": round(float(all_smoothed["left_wrist"]["y"][f]), 4), "score": round(float(all_smoothed["left_wrist"]["score"][f]), 2)},
+                "right_wrist": {"x": round(float(all_smoothed["right_wrist"]["x"][f]), 4), "y": round(float(all_smoothed["right_wrist"]["y"][f]), 4), "score": round(float(all_smoothed["right_wrist"]["score"][f]), 2)},
+                "left_hip": {"x": round(float(all_smoothed["left_hip"]["x"][f]), 4), "y": round(float(all_smoothed["left_hip"]["y"][f]), 4), "score": round(float(all_smoothed["left_hip"]["score"][f]), 2)},
+                "right_hip": {"x": round(float(all_smoothed["right_hip"]["x"][f]), 4), "y": round(float(all_smoothed["right_hip"]["y"][f]), 4), "score": round(float(all_smoothed["right_hip"]["score"][f]), 2)},
+                "left_knee": {"x": round(float(all_smoothed["left_knee"]["x"][f]), 4), "y": round(float(all_smoothed["left_knee"]["y"][f]), 4), "score": round(float(all_smoothed["left_knee"]["score"][f]), 2)},
+                "right_knee": {"x": round(float(all_smoothed["right_knee"]["x"][f]), 4), "y": round(float(all_smoothed["right_knee"]["y"][f]), 4), "score": round(float(all_smoothed["right_knee"]["score"][f]), 2)},
+                "left_ankle": {"x": round(float(all_smoothed["left_ankle"]["x"][f]), 4), "y": round(float(all_smoothed["left_ankle"]["y"][f]), 4), "score": round(float(all_smoothed["left_ankle"]["score"][f]), 2)},
+                "right_ankle": {"x": round(float(all_smoothed["right_ankle"]["x"][f]), 4), "y": round(float(all_smoothed["right_ankle"]["y"][f]), 4), "score": round(float(all_smoothed["right_ankle"]["score"][f]), 2)},
+                "head": {"x": round(float(smoothed_head["x"][f]), 4), "y": round(float(smoothed_head["y"][f]), 4), "score": round(float(smoothed_head["score"][f]), 2)},
+                # Canonical primary aliases
+                "shoulder": {"x": round(float(sh_x), 4), "y": round(float(primary_joints["shoulder"]["y"][f]), 4), "score": round(float(primary_joints["shoulder"]["score"][f]), 2)},
+                "elbow": {"x": round(float(primary_joints["elbow"]["x"][f]), 4), "y": round(float(primary_joints["elbow"]["y"][f]), 4), "score": round(float(primary_joints["elbow"]["score"][f]), 2)},
+                "wrist": {"x": round(float(wr_x), 4), "y": round(float(primary_joints["wrist"]["y"][f]), 4), "score": round(float(primary_joints["wrist"]["score"][f]), 2)},
+                "hip": {"x": round(float(hp_x), 4), "y": round(float(primary_joints["hip"]["y"][f]), 4), "score": round(float(primary_joints["hip"]["score"][f]), 2)},
+                "knee": {"x": round(float(kn_x), 4), "y": round(float(primary_joints["knee"]["y"][f]), 4), "score": round(float(primary_joints["knee"]["score"][f]), 2)},
+                "ankle": {"x": round(float(ak_x), 4), "y": round(float(primary_joints["ankle"]["y"][f]), 4), "score": round(float(primary_joints["ankle"]["score"][f]), 2)}
             },
             "moment_arms": {
                 "d_hip": round(float(f_d_hip), 4),
@@ -888,6 +947,7 @@ def process_kinematics(
         "intensity_metrics": intensity_metrics,
         "frames": frames_output
     }
+
 
 # ---------------------------------------------------------------------------
 # 3. Cerebrium Serverless Entrypoint Handlers
