@@ -23,9 +23,7 @@ import requests
 # ---------------------------------------------------------------------------
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-torch_dtype = torch.float16 if device == "cuda" else torch.float32
-
-print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()} ({torch_dtype})...")
+print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()}...")
 
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
 # ViTPose-Base-Simple: 340 MB (loads 4x faster into VRAM with identical occlusion robustness)
@@ -35,7 +33,7 @@ print(f"[Cerebrium Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
 det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
 det_model = AutoModelForObjectDetection.from_pretrained(
     DET_MODEL_NAME,
-    torch_dtype=torch_dtype
+    torch_dtype=torch.float32
 ).to(device)
 det_model.eval()
 
@@ -43,7 +41,7 @@ print(f"[Cerebrium Startup] Loading ViTPose-Base ({POSE_MODEL_NAME})...")
 pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
 pose_model = VitPoseForPoseEstimation.from_pretrained(
     POSE_MODEL_NAME,
-    torch_dtype=torch_dtype
+    torch_dtype=torch.float32
 ).to(device)
 pose_model.eval()
 
@@ -270,24 +268,38 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 32):
             batch_pil = [Image.fromarray(f) for f in batch_np]
             h, w = batch_np[0].shape[:2]
             
-            # Step A: RT-DETR Athlete Box Detection
+            # Step A: RT-DETR Athlete Box Detection (Native float32)
             det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
-            if device == "cuda":
-                with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    det_outputs = det_model(**det_inputs)
-            else:
-                det_outputs = det_model(**det_inputs)
+            det_outputs = det_model(**det_inputs)
             
-            target_sizes = torch.tensor([[h, w]] * len(batch_np)).to(device)
+            # Ensure detection outputs are float32 before post-processing
+            if hasattr(det_outputs, "logits") and det_outputs.logits is not None:
+                det_outputs.logits = det_outputs.logits.to(torch.float32)
+            if hasattr(det_outputs, "pred_boxes") and det_outputs.pred_boxes is not None:
+                det_outputs.pred_boxes = det_outputs.pred_boxes.to(torch.float32)
+
+            target_sizes = torch.tensor([[h, w]] * len(batch_np), dtype=torch.float32).to(device)
             det_results = det_processor.post_process_object_detection(
                 det_outputs, target_sizes=target_sizes, threshold=0.25
             )
             
             batch_boxes = []
             for res in det_results:
-                boxes = res["boxes"].detach().cpu().numpy()
-                scores = res["scores"].detach().cpu().numpy()
-                labels = res["labels"].detach().cpu().numpy()
+                boxes = res["boxes"]
+                scores = res["scores"]
+                labels = res["labels"]
+                if hasattr(boxes, "detach"):
+                    boxes = boxes.detach().cpu().to(torch.float32).numpy()
+                else:
+                    boxes = np.asarray(boxes, dtype=np.float32)
+                if hasattr(scores, "detach"):
+                    scores = scores.detach().cpu().to(torch.float32).numpy()
+                else:
+                    scores = np.asarray(scores, dtype=np.float32)
+                if hasattr(labels, "detach"):
+                    labels = labels.detach().cpu().numpy()
+                else:
+                    labels = np.asarray(labels)
                 
                 # Person class is 0 in COCO
                 person_indices = [idx for idx, lbl in enumerate(labels) if lbl == 0]
@@ -313,31 +325,38 @@ def run_inference_batches(frames_rgb: List[np.ndarray], batch_size: int = 32):
                     batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
                     all_boxes.append({"cx": 0.5, "bw": 1.0})
             
-            # Step B: ViTPose-Base 17 Keypoints
+            # Step B: ViTPose-Base 17 Keypoints (Native float32 to prevent SciPy correlate1d float16 rejection)
             pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
             num_boxes = pose_inputs["pixel_values"].shape[0]
             dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
             
-            if device == "cuda":
-                with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    try:
-                        pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
-                    except (TypeError, ValueError):
-                        pose_outputs = pose_model(**pose_inputs)
-            else:
-                try:
-                    pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
-                except (TypeError, ValueError):
-                    pose_outputs = pose_model(**pose_inputs)
+            try:
+                pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
+            except (TypeError, ValueError):
+                pose_outputs = pose_model(**pose_inputs)
             
+            # CRITICAL: Ensure heatmaps are strictly float32 before SciPy DARK post-processing
+            if hasattr(pose_outputs, "heatmaps") and pose_outputs.heatmaps is not None:
+                pose_outputs.heatmaps = pose_outputs.heatmaps.to(torch.float32)
+            if isinstance(pose_outputs, dict) and "heatmaps" in pose_outputs:
+                pose_outputs["heatmaps"] = pose_outputs["heatmaps"].to(torch.float32)
+
             try:
                 pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
             except TypeError:
                 pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes, dataset_index=0)
             
             for p_res in pose_results:
-                kps = p_res[0]["keypoints"].detach().cpu().numpy()
-                scs = p_res[0]["scores"].detach().cpu().numpy()
+                kps = p_res[0]["keypoints"]
+                scs = p_res[0]["scores"]
+                if hasattr(kps, "detach"):
+                    kps = kps.detach().cpu().to(torch.float32).numpy()
+                else:
+                    kps = np.asarray(kps, dtype=np.float32)
+                if hasattr(scs, "detach"):
+                    scs = scs.detach().cpu().to(torch.float32).numpy()
+                else:
+                    scs = np.asarray(scs, dtype=np.float32)
                 
                 frame_kps = {}
                 for kp_idx, name in enumerate(COCO_KEYPOINTS):
@@ -489,16 +508,16 @@ def process_kinematics(
         primary_angles.append(p_angle)
         secondary_angles.append(s_angle)
         
-    primary_angles = np.array(primary_angles)
-    secondary_angles = np.array(secondary_angles)
+    primary_angles = np.array(primary_angles, dtype=np.float64)
+    secondary_angles = np.array(secondary_angles, dtype=np.float64)
     
     # 5. Repetition Segmentation with SciPy find_peaks (excluding scene cuts & invalid frames)
-    clean_curve = primary_angles.copy()
+    clean_curve = np.array(primary_angles, dtype=np.float64, copy=True)
     if exercise_type != "hip_thrust":
         clean_curve = -clean_curve
         
     # Mask out scene cuts and invalid angles from peak detection
-    neutral_val = np.median(clean_curve)
+    neutral_val = float(np.median(clean_curve))
     for f in range(n_frames):
         if is_scene_cut[f] or is_invalid_angle[f]:
             clean_curve[f] = neutral_val
