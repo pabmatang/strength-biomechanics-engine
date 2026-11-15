@@ -492,6 +492,16 @@ def process_kinematics(
         # Torso verticality: angle relative to vertical axis
         torso_vertical_deg = calculate_angle_2d({"x": hp["x"], "y": hp["y"] - 0.2}, hp, sh)
 
+        # Foreshortening & Oblique Camera Correction:
+        # In Hip Thrust / Bridge, anatomical hip angle cannot fold below 55°.
+        # When filmed from a rear diagonal, the 2D projection folds into acute angles (< 55°).
+        # We recover the true clinical extension via supplementary angle (180° - theta).
+        if any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge"]):
+            if hip_deg < 55.0:
+                hip_deg = 180.0 - hip_deg
+            if knee_deg < 45.0:
+                knee_deg = 180.0 - knee_deg
+
         # 1. Pecho: Press banca, press máquina, fondos, aberturas
         if any(k in ex_lower for k in ["bench", "chest_press", "machine_chest_press", "incline", "pec_deck", "chest_dips", "cable_fly"]):
             p_angle = elbow_deg
