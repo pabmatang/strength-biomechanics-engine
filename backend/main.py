@@ -221,6 +221,29 @@ def sample_video_frames(
     total_dur_ret = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
     return frames_rgb, timestamps, total_dur_ret
 
+def detect_content_bbox(frame: np.ndarray, threshold: int = 15) -> Tuple[int, int, int, int]:
+    """Detect non-black bounding box to strip pillarboxing/letterboxing."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY) if len(frame.shape) == 3 else frame
+    h, w = gray.shape[:2]
+    row_max = np.max(gray, axis=1)
+    col_max = np.max(gray, axis=0)
+    non_zero_rows = np.where(row_max > threshold)[0]
+    non_zero_cols = np.where(col_max > threshold)[0]
+    if len(non_zero_rows) == 0 or len(non_zero_cols) == 0:
+        return 0, 0, w, h
+    y_min, y_max = int(non_zero_rows[0]), int(non_zero_rows[-1])
+    x_min, x_max = int(non_zero_cols[0]), int(non_zero_cols[-1])
+    cw = x_max - x_min + 1
+    ch = y_max - y_min + 1
+    # Only crop if substantial bars exist (>8% of width or height is black)
+    if (cw < w * 0.92) or (ch < h * 0.92):
+        x_min = max(0, x_min - 4)
+        y_min = max(0, y_min - 4)
+        x_max = min(w - 1, x_max + 4)
+        y_max = min(h - 1, y_max + 4)
+        return x_min, y_min, x_max - x_min + 1, y_max - y_min + 1
+    return 0, 0, w, h
+
 def run_inference_batches(
     frames_rgb: List[np.ndarray],
     batch_size: int = 32
@@ -228,6 +251,7 @@ def run_inference_batches(
     """
     Batched neural inference across video frames with RT-DETR and ViTPose.
     Runs on full FP32 tensor cores to avoid underflow in keypoint heatmaps.
+    Automatically removes pillarboxing/letterboxing for 3x higher resolution.
     """
     n_frames = len(frames_rgb)
     all_raw_keypoints = []
@@ -237,17 +261,24 @@ def run_inference_batches(
         return all_raw_keypoints, all_boxes
 
     h, w = frames_rgb[0].shape[:2]
+    crop_x, crop_y, crop_w, crop_h = detect_content_bbox(frames_rgb[0])
+    has_crop = (crop_w < w or crop_h < h)
+    eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
     
     for i in range(0, n_frames, batch_size):
         batch_rgb = frames_rgb[i : i + batch_size]
-        batch_pil = [Image.fromarray(f) for f in batch_rgb]
+        if has_crop:
+            batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
+        else:
+            batch_crop = batch_rgb
+        batch_pil = [Image.fromarray(f) for f in batch_crop]
         
         # Step A: RT-DETR Primary Athlete Bounding Box Detection
         det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
         with torch.inference_mode():
             det_outputs = det_model(**det_inputs)
             
-        target_sizes = torch.tensor([[h, w]] * len(batch_pil), device=device)
+        target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), device=device)
         det_results = det_processor.post_process_object_detection(
             det_outputs, target_sizes=target_sizes, threshold=0.25
         )
@@ -266,7 +297,7 @@ def run_inference_batches(
                 for p_idx in person_indices:
                     b = boxes[p_idx]
                     area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
-                    b_cx = (b[0] + b[2]) / (2.0 * w)
+                    b_cx = (b[0] + b[2]) / (2.0 * eff_w)
                     center_weight = max(0.3, 1.0 - abs(b_cx - 0.5))
                     metric = scores[p_idx] * area * center_weight
                     if metric > best_metric:
@@ -282,16 +313,16 @@ def run_inference_batches(
                     ]
                 
                 batch_boxes.append([chosen_box])
-                cx = float((chosen_box[0] + chosen_box[2]) / (2.0 * w))
-                cy = float((chosen_box[1] + chosen_box[3]) / (2.0 * h))
+                cx = float((crop_x + (chosen_box[0] + chosen_box[2]) / 2.0) / float(w))
+                cy = float((crop_y + (chosen_box[1] + chosen_box[3]) / 2.0) / float(h))
                 bw = float((chosen_box[2] - chosen_box[0]) / float(w))
                 bh = float((chosen_box[3] - chosen_box[1]) / float(h))
                 all_boxes.append({"cx": cx, "cy": cy, "bw": bw, "bh": bh})
             elif len(boxes) > 0:
-                batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
+                batch_boxes.append([[0.0, 0.0, float(eff_w), float(eff_h)]])
                 all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
             else:
-                batch_boxes.append([[0.0, 0.0, float(w), float(h)]])
+                batch_boxes.append([[0.0, 0.0, float(eff_w), float(eff_h)]])
                 all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
         
         # Step B: ViTPose-Base 17 Keypoints (Pure FP32)
@@ -329,8 +360,8 @@ def run_inference_batches(
             
             frame_kps = {}
             for kp_idx, name in enumerate(COCO_KEYPOINTS):
-                x_norm = float(kps[kp_idx, 0]) / float(w)
-                y_norm = float(kps[kp_idx, 1]) / float(h)
+                x_norm = float(crop_x + kps[kp_idx, 0]) / float(w)
+                y_norm = float(crop_y + kps[kp_idx, 1]) / float(h)
                 score = float(scs[kp_idx])
                 frame_kps[name] = {
                     "x": min(1.0, max(0.0, x_norm)),
@@ -399,25 +430,9 @@ def process_kinematics(
     is_upper_body = is_pattern_a or is_pattern_b
     is_hip_thrust = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
 
-    # 1. Strict Global Side Lock (prevent profile flickering behind bumper plates or limbs)
-    left_scores = []
-    right_scores = []
-    for f in range(n_frames):
-        if is_upper_body:
-            left_scores.append(raw_keypoints[f]["left_elbow"]["score"] * 2.0 + raw_keypoints[f]["left_wrist"]["score"] + raw_keypoints[f]["left_shoulder"]["score"])
-            right_scores.append(raw_keypoints[f]["right_elbow"]["score"] * 2.0 + raw_keypoints[f]["right_wrist"]["score"] + raw_keypoints[f]["right_shoulder"]["score"])
-        else:
-            left_scores.append(raw_keypoints[f]["left_knee"]["score"] * 2.5 + raw_keypoints[f]["left_hip"]["score"] * 1.5 + raw_keypoints[f]["left_ankle"]["score"])
-            right_scores.append(raw_keypoints[f]["right_knee"]["score"] * 2.5 + raw_keypoints[f]["right_hip"]["score"] * 1.5 + raw_keypoints[f]["right_ankle"]["score"])
-
-    mean_left_score = float(np.mean(left_scores)) if left_scores else 0.0
-    mean_right_score = float(np.mean(right_scores)) if right_scores else 0.0
-    locked_side = "left" if mean_left_score >= mean_right_score else "right"
-    other_side = "right" if locked_side == "left" else "left"
-
     all_smoothed = {}
     
-    # 2. Bilateral Initial Interpolation & Smoothing
+    # 1. Bilateral Initial Interpolation & Smoothing
     for side in ["left", "right"]:
         for c_name in canonical_joints:
             k_name = f"{side}_{c_name}"
@@ -444,13 +459,151 @@ def process_kinematics(
         "score": hs_arr
     }
 
+    # 2. Dynamic Active Limb Selector + Anti-Arm-Flipping Spatial Continuity Tracker
     primary_joints = {}
-    for c_name in canonical_joints:
-        primary_joints[c_name] = {
-            "x": all_smoothed[f"{locked_side}_{c_name}"]["x"].copy(),
-            "y": all_smoothed[f"{locked_side}_{c_name}"]["y"].copy(),
-            "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
+    is_unilateral_flag = False
+
+    if is_upper_body:
+        side_rom = {}
+        side_wrist_disp = {}
+        side_elbow_disp = {}
+        side_arm_len = {}
+        side_conf = {}
+
+        for side in ["left", "right"]:
+            side_angles = []
+            for f in range(n_frames):
+                s_pt = {"x": all_smoothed[f"{side}_shoulder"]["x"][f], "y": all_smoothed[f"{side}_shoulder"]["y"][f]}
+                e_pt = {"x": all_smoothed[f"{side}_elbow"]["x"][f], "y": all_smoothed[f"{side}_elbow"]["y"][f]}
+                w_pt = {"x": all_smoothed[f"{side}_wrist"]["x"][f], "y": all_smoothed[f"{side}_wrist"]["y"][f]}
+                side_angles.append(calculate_angle_2d(s_pt, e_pt, w_pt))
+            side_angles = np.array(side_angles)
+            side_rom[side] = float(np.max(side_angles) - np.min(side_angles))
+
+            w_x = all_smoothed[f"{side}_wrist"]["x"]
+            w_y = all_smoothed[f"{side}_wrist"]["y"]
+            side_wrist_disp[side] = float(np.ptp(w_x) + np.ptp(w_y))
+
+            e_x = all_smoothed[f"{side}_elbow"]["x"]
+            e_y = all_smoothed[f"{side}_elbow"]["y"]
+            side_elbow_disp[side] = float(np.ptp(e_x) + np.ptp(e_y))
+
+            s_x = all_smoothed[f"{side}_shoulder"]["x"]
+            s_y = all_smoothed[f"{side}_shoulder"]["y"]
+            lengths = np.hypot(e_x - s_x, e_y - s_y) + np.hypot(w_x - e_x, w_y - e_y)
+            side_arm_len[side] = float(np.median(lengths))
+
+            side_conf[side] = float(np.mean(all_smoothed[f"{side}_elbow"]["score"] + all_smoothed[f"{side}_wrist"]["score"]))
+
+        rom_l = side_rom["left"]
+        rom_r = side_rom["right"]
+        disp_l = side_wrist_disp["left"]
+        disp_r = side_wrist_disp["right"]
+
+        # Check for unilateral exercise (one active arm with large ROM, one passive resting arm)
+        is_unilateral_r = (rom_r >= 28.0 and (rom_r > 1.35 * rom_l or disp_r > 1.40 * disp_l)) or (disp_r > 1.8 * disp_l and rom_r >= 20.0)
+        is_unilateral_l = (rom_l >= 28.0 and (rom_l > 1.35 * rom_r or disp_l > 1.40 * disp_r)) or (disp_l > 1.8 * disp_r and rom_l >= 20.0)
+
+        if is_unilateral_r and not is_unilateral_l:
+            active_side_init = "right"
+            is_unilateral_flag = True
+        elif is_unilateral_l and not is_unilateral_r:
+            active_side_init = "left"
+            is_unilateral_flag = True
+        else:
+            is_unilateral_flag = False
+            # Bilateral movement: select foreground arm using 2D arm segment length and joint confidence
+            len_l = side_arm_len["left"]
+            len_r = side_arm_len["right"]
+            metric_l = len_l * 2.0 + side_conf["left"]
+            metric_r = len_r * 2.0 + side_conf["right"]
+            active_side_init = "left" if metric_l >= metric_r else "right"
+
+        # Anti-Arm-Flipping Spatial Continuity Tracker
+        tracked_sh = np.zeros((n_frames, 2), dtype=np.float64)
+        tracked_el = np.zeros((n_frames, 2), dtype=np.float64)
+        tracked_wr = np.zeros((n_frames, 2), dtype=np.float64)
+        tracked_sc = {"shoulder": np.zeros(n_frames), "elbow": np.zeros(n_frames), "wrist": np.zeros(n_frames)}
+
+        s0 = active_side_init
+        tracked_sh[0] = [all_smoothed[f"{s0}_shoulder"]["x"][0], all_smoothed[f"{s0}_shoulder"]["y"][0]]
+        tracked_el[0] = [all_smoothed[f"{s0}_elbow"]["x"][0], all_smoothed[f"{s0}_elbow"]["y"][0]]
+        tracked_wr[0] = [all_smoothed[f"{s0}_wrist"]["x"][0], all_smoothed[f"{s0}_wrist"]["y"][0]]
+        tracked_sc["shoulder"][0] = all_smoothed[f"{s0}_shoulder"]["score"][0]
+        tracked_sc["elbow"][0] = all_smoothed[f"{s0}_elbow"]["score"][0]
+        tracked_sc["wrist"][0] = all_smoothed[f"{s0}_wrist"]["score"][0]
+
+        for f in range(1, n_frames):
+            prev_el = tracked_el[f - 1]
+            prev_wr = tracked_wr[f - 1]
+
+            cand_l_sh = np.array([all_smoothed["left_shoulder"]["x"][f], all_smoothed["left_shoulder"]["y"][f]])
+            cand_l_el = np.array([all_smoothed["left_elbow"]["x"][f], all_smoothed["left_elbow"]["y"][f]])
+            cand_l_wr = np.array([all_smoothed["left_wrist"]["x"][f], all_smoothed["left_wrist"]["y"][f]])
+
+            cand_r_sh = np.array([all_smoothed["right_shoulder"]["x"][f], all_smoothed["right_shoulder"]["y"][f]])
+            cand_r_el = np.array([all_smoothed["right_elbow"]["x"][f], all_smoothed["right_elbow"]["y"][f]])
+            cand_r_wr = np.array([all_smoothed["right_wrist"]["x"][f], all_smoothed["right_wrist"]["y"][f]])
+
+            dist_l = np.linalg.norm(cand_l_el - prev_el) + 0.7 * np.linalg.norm(cand_l_wr - prev_wr)
+            dist_r = np.linalg.norm(cand_r_el - prev_el) + 0.7 * np.linalg.norm(cand_r_wr - prev_wr)
+
+            if is_unilateral_flag:
+                chosen_side = active_side_init
+            else:
+                chosen_side = "left" if dist_l <= dist_r else "right"
+
+            if chosen_side == "left":
+                tracked_sh[f] = cand_l_sh
+                tracked_el[f] = cand_l_el
+                tracked_wr[f] = cand_l_wr
+                tracked_sc["shoulder"][f] = all_smoothed["left_shoulder"]["score"][f]
+                tracked_sc["elbow"][f] = all_smoothed["left_elbow"]["score"][f]
+                tracked_sc["wrist"][f] = all_smoothed["left_wrist"]["score"][f]
+            else:
+                tracked_sh[f] = cand_r_sh
+                tracked_el[f] = cand_r_el
+                tracked_wr[f] = cand_r_wr
+                tracked_sc["shoulder"][f] = all_smoothed["right_shoulder"]["score"][f]
+                tracked_sc["elbow"][f] = all_smoothed["right_elbow"]["score"][f]
+                tracked_sc["wrist"][f] = all_smoothed["right_wrist"]["score"][f]
+
+        primary_joints["shoulder"] = {
+            "x": apply_zero_phase_butterworth(tracked_sh[:, 0], fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth(tracked_sh[:, 1], fs=15.0, cutoff=1.8),
+            "score": tracked_sc["shoulder"]
         }
+        primary_joints["elbow"] = {
+            "x": apply_zero_phase_butterworth(tracked_el[:, 0], fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth(tracked_el[:, 1], fs=15.0, cutoff=1.8),
+            "score": tracked_sc["elbow"]
+        }
+        primary_joints["wrist"] = {
+            "x": apply_zero_phase_butterworth(tracked_wr[:, 0], fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth(tracked_wr[:, 1], fs=15.0, cutoff=1.8),
+            "score": tracked_sc["wrist"]
+        }
+        for c_name in ["hip", "knee", "ankle"]:
+            primary_joints[c_name] = {
+                "x": all_smoothed[f"{active_side_init}_{c_name}"]["x"].copy(),
+                "y": all_smoothed[f"{active_side_init}_{c_name}"]["y"].copy(),
+                "score": all_smoothed[f"{active_side_init}_{c_name}"]["score"].copy()
+            }
+        locked_side = active_side_init
+        other_side = "right" if locked_side == "left" else "left"
+    else:
+        is_unilateral_flag = False
+        mean_left_score = float(np.mean(all_smoothed["left_knee"]["score"] * 2.5 + all_smoothed["left_hip"]["score"] * 1.5 + all_smoothed["left_ankle"]["score"]))
+        mean_right_score = float(np.mean(all_smoothed["right_knee"]["score"] * 2.5 + all_smoothed["right_hip"]["score"] * 1.5 + all_smoothed["right_ankle"]["score"]))
+        locked_side = "left" if mean_left_score >= mean_right_score else "right"
+        other_side = "right" if locked_side == "left" else "left"
+
+        for c_name in canonical_joints:
+            primary_joints[c_name] = {
+                "x": all_smoothed[f"{locked_side}_{c_name}"]["x"].copy(),
+                "y": all_smoothed[f"{locked_side}_{c_name}"]["y"].copy(),
+                "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
+            }
 
     # 3. Anatomical Kinematic Stabilizer & Plate Occlusion Reconstructor (Femur Constraint)
     if is_hip_thrust:
@@ -1166,6 +1319,7 @@ def process_kinematics(
             "time": timestamps[f],
             "rep_number": rep_num,
             "phase": phase,
+            "is_unilateral": bool(is_unilateral_flag),
             "main_angle": round(float(clean_primary[f]), 1),
             "secondary_angle": round(float(clean_secondary[f]), 1),
             "force_vector": {

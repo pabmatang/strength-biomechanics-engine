@@ -704,8 +704,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const pLAk = kp.left_ankle ? { x: px(kp.left_ankle.x), y: py(kp.left_ankle.y), score: kp.left_ankle.score } : pAk;
     const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y), score: kp.right_ankle.score } : pAk;
 
+
+    const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
+    const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
+
+    // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
+    const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
+
     // Both sides must have reasonable confidence to render bilateral skeleton, otherwise use primary tracked limbs
-    const hasBilateral = Boolean(
+    const hasBilateral = !isUnilateralMotion && Boolean(
       (kp.left_shoulder?.score ?? 0) >= 0.28 && (kp.right_shoulder?.score ?? 0) >= 0.28 &&
       (kp.left_elbow?.score ?? 0) >= 0.28 && (kp.right_elbow?.score ?? 0) >= 0.28
     );
@@ -771,8 +778,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
-    const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
-    const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
     const isUpperBody = (
       grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
