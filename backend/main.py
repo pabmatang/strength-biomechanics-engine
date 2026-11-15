@@ -950,8 +950,11 @@ def process_kinematics(
         wr_x_inf = primary_joints["wrist"]["x"][bottom_frame]
         wr_y_inf = primary_joints["wrist"]["y"][bottom_frame]
         hp_x_inf = primary_joints["hip"]["x"][bottom_frame]
+        hp_y_inf = primary_joints["hip"]["y"][bottom_frame]
         kn_x_inf = primary_joints["knee"]["x"][bottom_frame]
+        kn_y_inf = primary_joints["knee"]["y"][bottom_frame]
         ak_x_inf = primary_joints["ankle"]["x"][bottom_frame]
+        ak_y_inf = primary_joints["ankle"]["y"][bottom_frame]
 
         inflect_elbow = float(clean_el[bottom_frame])
         inflect_hip = float(clean_hp[bottom_frame])
@@ -964,27 +967,7 @@ def process_kinematics(
 
         if is_pattern_a:
             # Pattern A — Tracción / Flexión
-            dominant_joint = "DORSAL ANCHO"
-            if inflect_elbow <= 85.0:
-                dorsal_share = min(88.0, 80.0 + (85.0 - inflect_elbow) * 0.5)
-                biceps_share = round(100.0 - dorsal_share, 1)
-                recom = "Contracción completa: codo supera la línea del torso"
-                status = "OPTIMAL"
-                torque_bias = "DORSAL ANCHO"
-            elif inflect_elbow <= 95.0:
-                dorsal_share = 78.0
-                biceps_share = 22.0
-                recom = "Rango adecuado: tracción fluida en plano escapular"
-                status = "OPTIMAL"
-                torque_bias = "DORSAL ANCHO"
-            else:
-                dorsal_share = 60.0
-                biceps_share = 40.0
-                recom = "Tracción parcial: lleva los codos más atrás"
-                status = "IMPROVEMENT_OPPORTUNITY"
-                torque_bias = "DORSAL ANCHO (RECORRIDO CORTO)"
-
-            # Perpendicular moment arms: vertical distance if horizontal pull, horizontal if vertical pull
+            # Perpendicular moment arms relative to the line of force
             if force_dir_name.startswith("horizontal"):
                 d_sh = float(abs(sh_y_inf - wr_y_inf))
                 d_el = float(abs(el_y_inf - wr_y_inf))
@@ -993,29 +976,61 @@ def process_kinematics(
                 d_el = float(abs(el_x_inf - wr_x_inf))
             d_hp = 0.0
             d_kn = 0.0
+
+            # Dynamic classification: Elbow flared from torso (Upper Back) vs Tucked to torso (Lats)
+            sh_v = np.array([sh_x_inf - hp_x_inf, sh_y_inf - hp_y_inf])
+            t_len = float(np.linalg.norm(sh_v)) + 1e-6
+            el_torso_dist = abs((sh_y_inf - hp_y_inf) * el_x_inf - (sh_x_inf - hp_x_inf) * el_y_inf + sh_x_inf * hp_y_inf - sh_y_inf * hp_x_inf) / t_len
+            rel_el_dist = el_torso_dist / t_len
+
+            arm_v = np.array([el_x_inf - sh_x_inf, el_y_inf - sh_y_inf])
+            torso_down_v = np.array([hp_x_inf - sh_x_inf, hp_y_inf - sh_y_inf])
+            norm_arm = float(np.linalg.norm(arm_v)) + 1e-6
+            norm_torso = float(np.linalg.norm(torso_down_v)) + 1e-6
+            cos_a = float(np.dot(arm_v, torso_down_v) / (norm_arm * norm_torso))
+            elbow_torso_deg = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
+
+            is_upper_back = bool(elbow_torso_deg >= 38.0 or rel_el_dist >= 0.35 or "t_bar" in ex_lower or target_muscle.lower() in ["upper_back", "traps", "rhomboids"])
+
+            # Torque distribution strictly from moment arms relative to the line of force (Sin depender del ángulo del codo)
+            tot_d = d_sh + d_el
+            if tot_d > 0.005:
+                el_ratio = d_el / tot_d
+                if el_ratio <= 0.10 or d_el <= 0.015:
+                    # Line of force passes through/close to elbow -> Todo Espalda
+                    biceps_share = 0.0
+                    back_share = 100.0
+                    if is_upper_back:
+                        dominant_joint = "ESPALDA ALTA"
+                        torque_bias = "ESPALDA ALTA (TODO ESPALDA)"
+                        recom = "Todo Espalda: línea de fuerza alineada con el codo. Carga 100% sobre trapecio y romboides (bíceps neutro)."
+                    else:
+                        dominant_joint = "DORSAL ANCHO"
+                        torque_bias = "DORSAL ANCHO (TODO ESPALDA)"
+                        recom = "Todo Espalda: línea de fuerza alineada con el codo. Carga 100% sobre dorsal ancho (bíceps neutro)."
+                else:
+                    back_share = round((d_sh / tot_d) * 100.0, 1)
+                    biceps_share = round((d_el / tot_d) * 100.0, 1)
+                    if is_upper_back:
+                        dominant_joint = "ESPALDA ALTA"
+                        torque_bias = "ESPALDA ALTA (ROMBOIDES / TRAPECIO)"
+                        recom = f"Codo separado del torso: palanca en espalda alta ({back_share}%) con brazo de momento activo en codo ({biceps_share}% bíceps)."
+                    else:
+                        dominant_joint = "DORSAL ANCHO"
+                        torque_bias = "DORSAL ANCHO (CODO PEGADO AL TORSO)"
+                        recom = f"Codo junto al torso: palanca en dorsal ancho ({back_share}%) con brazo de momento activo en codo ({biceps_share}% bíceps)."
+            else:
+                back_share = 85.0
+                biceps_share = 15.0
+                dominant_joint = "ESPALDA ALTA" if is_upper_back else "DORSAL ANCHO"
+                torque_bias = dominant_joint
+                recom = "Tracción fluida con escápulas activas."
+
+            status = "OPTIMAL"
+            dorsal_share = back_share
 
         elif is_pattern_b:
             # Pattern B — Empuje / Extensión
-            dominant_joint = "PECTORAL MAYOR"
-            if inflect_elbow < 78.0:
-                triceps_share = min(68.0, 52.0 + (78.0 - inflect_elbow) * 1.1)
-                pectoral_share = round(100.0 - triceps_share, 1)
-                recom = f"Ángulo de codo cerrado ({round(inflect_elbow)}° < 78°): sobrecarga en Tríceps Braquial ({round(triceps_share)}%). Abre ligeramente el agarre para mayor estímulo pectoral."
-                status = "IMPROVEMENT_OPPORTUNITY"
-                torque_bias = "TRÍCEPS BRAQUIAL"
-            elif inflect_elbow <= 96.0:
-                pectoral_share = min(84.0, 76.0 + (96.0 - abs(inflect_elbow - 88.0)) * 0.7)
-                triceps_share = round(100.0 - pectoral_share, 1)
-                recom = f"Palanca óptima sobre Pectoral Mayor ({round(pectoral_share)}%): antebrazo perpendicular con mínima palanca parásita de tríceps."
-                status = "OPTIMAL"
-                torque_bias = "PECTORAL MAYOR"
-            else:
-                pectoral_share = 72.0
-                triceps_share = 28.0
-                recom = f"Profundidad parcial en excéntrica ({round(inflect_elbow)}° > 96°). Desciende a ~90° para estiramiento óptimo de fibras esternales."
-                status = "IMPROVEMENT_OPPORTUNITY"
-                torque_bias = "PECTORAL MAYOR (RECORRIDO CORTO)"
-
             if force_dir_name.startswith("horizontal"):
                 d_sh = float(abs(sh_y_inf - wr_y_inf))
                 d_el = float(abs(el_y_inf - wr_y_inf))
@@ -1024,6 +1039,27 @@ def process_kinematics(
                 d_el = float(abs(el_x_inf - wr_x_inf))
             d_hp = 0.0
             d_kn = 0.0
+
+            dominant_joint = "PECTORAL MAYOR"
+            tot_d = d_sh + d_el
+            if tot_d > 0.005:
+                el_ratio = d_el / tot_d
+                if el_ratio <= 0.10 or d_el <= 0.015:
+                    triceps_share = 0.0
+                    pectoral_share = 100.0
+                    torque_bias = "PECTORAL MAYOR (TODO PECHO)"
+                    recom = "Palanca óptima: línea de fuerza alineada con el codo. Carga 100% en pectoral mayor (tríceps neutro)."
+                else:
+                    pectoral_share = round((d_sh / tot_d) * 100.0, 1)
+                    triceps_share = round((d_el / tot_d) * 100.0, 1)
+                    torque_bias = "PECTORAL MAYOR" if pectoral_share >= 60.0 else "TRÍCEPS BRAQUIAL"
+                    recom = f"Reparto de palanca: {pectoral_share}% sobre pectoral mayor y {triceps_share}% sobre tríceps braquial."
+            else:
+                pectoral_share = 78.0
+                triceps_share = 22.0
+                torque_bias = "PECTORAL MAYOR"
+                recom = "Empuje fluido en plano escapular."
+            status = "OPTIMAL"
 
         else:
             # Pattern C — Tren Inferior
@@ -1071,7 +1107,7 @@ def process_kinematics(
         verdict = {
             "status": status,
             "dominant_joint": dominant_joint,
-            "target_alignment": (status == "OPTIMAL"),
+            "target_alignment": bool(status == "OPTIMAL"),
             "primary_torque_bias": torque_bias,
             "inflection_knee_deg": round(inflect_knee, 1),
             "inflection_hip_deg": round(inflect_hip, 1),
@@ -1080,6 +1116,7 @@ def process_kinematics(
             "triceps_share": round(triceps_share, 1) if triceps_share else None,
             "dorsal_share": round(dorsal_share, 1) if dorsal_share else None,
             "biceps_share": round(biceps_share, 1) if biceps_share else None,
+            "is_upper_back": bool(is_upper_back) if is_pattern_a else False,
             "d_hip_norm": round(d_hp, 3),
             "d_knee_norm": round(d_kn, 3),
             "d_shoulder_norm": round(d_sh, 3),
@@ -1187,58 +1224,84 @@ def process_kinematics(
             med_elbow = float(np.median(clean_el))
             
             if is_pattern_a:
-                if med_elbow <= 85.0:
-                    fb_dor = 82.0
-                    fb_bic = 18.0
-                    fb_bias = "DORSAL ANCHO"
-                    fb_rec = "Contracción completa: codo supera la línea del torso"
-                elif med_elbow <= 95.0:
-                    fb_dor = 78.0
-                    fb_bic = 22.0
-                    fb_bias = "DORSAL ANCHO"
-                    fb_rec = "Rango adecuado: tracción fluida en plano escapular"
+                # Relationship with line of force
+                cur_d_sh = float(abs(sh_y - wr_y) if force_dir_name.startswith("horizontal") else abs(sh_x - wr_x))
+                cur_d_el = float(abs(el_y - wr_y) if force_dir_name.startswith("horizontal") else abs(el_x - wr_x))
+                
+                sh_v = np.array([sh_x - hp_x, sh_y - hp_y])
+                t_len = float(np.linalg.norm(sh_v)) + 1e-6
+                el_torso_dist = abs((sh_y - hp_y) * el_x - (sh_x - hp_x) * el_y + sh_x * hp_y - sh_y * hp_x) / t_len
+                rel_el_dist = el_torso_dist / t_len
+                arm_v = np.array([el_x - sh_x, el_y - sh_y])
+                torso_down_v = np.array([hp_x - sh_x, hp_y - sh_y])
+                norm_arm = float(np.linalg.norm(arm_v)) + 1e-6
+                norm_torso = float(np.linalg.norm(torso_down_v)) + 1e-6
+                cos_a = float(np.dot(arm_v, torso_down_v) / (norm_arm * norm_torso))
+                elbow_torso_deg = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
+                is_upper_back = bool(elbow_torso_deg >= 38.0 or rel_el_dist >= 0.35 or "t_bar" in ex_lower or target_muscle.lower() in ["upper_back", "traps", "rhomboids"])
+
+                tot_d = cur_d_sh + cur_d_el
+                if tot_d > 0.005:
+                    el_ratio = cur_d_el / tot_d
+                    if el_ratio <= 0.10 or cur_d_el <= 0.015:
+                        fb_bic = 0.0
+                        fb_dor = 100.0
+                        fb_bias = "ESPALDA ALTA (TODO ESPALDA)" if is_upper_back else "DORSAL ANCHO (TODO ESPALDA)"
+                        fb_rec = "Línea de fuerza alineada con el codo: carga sobre la espalda (bíceps neutro)."
+                    else:
+                        fb_dor = round((cur_d_sh / tot_d) * 100.0, 1)
+                        fb_bic = round((cur_d_el / tot_d) * 100.0, 1)
+                        fb_bias = "ESPALDA ALTA (ROMBOIDES / TRAPECIO)" if is_upper_back else "DORSAL ANCHO (CODO PEGADO AL TORSO)"
+                        fb_rec = f"Brazo de momento activo en codo ({fb_bic}% bíceps) y hombro ({fb_dor}% espalda)."
                 else:
-                    fb_dor = 60.0
-                    fb_bic = 40.0
-                    fb_bias = "DORSAL ANCHO (RECORRIDO CORTO)"
-                    fb_rec = "Tracción parcial: lleva los codos más atrás"
+                    fb_dor = 85.0
+                    fb_bic = 15.0
+                    fb_bias = "ESPALDA ALTA" if is_upper_back else "DORSAL ANCHO"
+                    fb_rec = "Tracción fluida."
 
                 base_rep_verdict = {
-                    "status": "OPTIMAL" if med_elbow <= 95.0 else "IMPROVEMENT_OPPORTUNITY",
-                    "dominant_joint": "DORSAL ANCHO",
-                    "target_alignment": (med_elbow <= 95.0),
+                    "status": "OPTIMAL",
+                    "dominant_joint": "ESPALDA ALTA" if is_upper_back else "DORSAL ANCHO",
+                    "target_alignment": True,
                     "primary_torque_bias": fb_bias,
                     "inflection_knee_deg": 90.0,
                     "inflection_hip_deg": 180.0,
                     "inflection_elbow_deg": round(med_elbow, 1),
                     "dorsal_share": round(fb_dor, 1),
                     "biceps_share": round(fb_bic, 1),
+                    "is_upper_back": bool(is_upper_back),
                     "d_hip_norm": 0.0,
                     "d_knee_norm": 0.0,
-                    "d_shoulder_norm": round(float(abs(sh_y - wr_y) if force_dir_name.startswith("horizontal") else abs(sh_x - wr_x)), 3),
+                    "d_shoulder_norm": round(cur_d_sh, 4),
+                    "d_elbow_norm": round(cur_d_el, 4),
                     "recommendation": fb_rec
                 }
             elif is_pattern_b:
-                if med_elbow < 78.0:
-                    fb_tri = min(68.0, 52.0 + (78.0 - med_elbow) * 1.1)
-                    fb_pec = round(100.0 - fb_tri, 1)
-                    fb_bias = "TRÍCEPS BRAQUIAL"
-                    fb_rec = f"Ángulo de codo cerrado ({round(med_elbow)}° < 78°): sobrecarga en Tríceps Braquial ({round(fb_tri)}%). Abre ligeramente el agarre para mayor estímulo pectoral."
-                elif med_elbow <= 96.0:
-                    fb_pec = min(84.0, 76.0 + (96.0 - abs(med_elbow - 88.0)) * 0.7)
-                    fb_tri = round(100.0 - fb_pec, 1)
-                    fb_bias = "PECTORAL MAYOR"
-                    fb_rec = f"Palanca óptima sobre Pectoral Mayor ({round(fb_pec)}%): antebrazo perpendicular con mínima palanca parásita de tríceps."
+                cur_d_sh = float(abs(sh_y - wr_y) if force_dir_name.startswith("horizontal") else abs(sh_x - wr_x))
+                cur_d_el = float(abs(el_y - wr_y) if force_dir_name.startswith("horizontal") else abs(el_x - wr_x))
+                tot_d = cur_d_sh + cur_d_el
+                if tot_d > 0.005:
+                    el_ratio = cur_d_el / tot_d
+                    if el_ratio <= 0.10 or cur_d_el <= 0.015:
+                        fb_tri = 0.0
+                        fb_pec = 100.0
+                        fb_bias = "PECTORAL MAYOR (TODO PECHO)"
+                        fb_rec = "Palanca óptima: línea de fuerza alineada con el codo. Carga 100% en pectoral mayor (tríceps neutro)."
+                    else:
+                        fb_pec = round((cur_d_sh / tot_d) * 100.0, 1)
+                        fb_tri = round((cur_d_el / tot_d) * 100.0, 1)
+                        fb_bias = "PECTORAL MAYOR" if fb_pec >= 60.0 else "TRÍCEPS BRAQUIAL"
+                        fb_rec = f"Reparto de palanca: {fb_pec}% sobre pectoral mayor y {fb_tri}% sobre tríceps."
                 else:
-                    fb_pec = 72.0
-                    fb_tri = 28.0
-                    fb_bias = "PECTORAL MAYOR (RECORRIDO CORTO)"
-                    fb_rec = f"Profundidad parcial en excéntrica ({round(med_elbow)}° > 96°). Desciende a ~90° para estiramiento óptimo de fibras esternales."
+                    fb_pec = 78.0
+                    fb_tri = 22.0
+                    fb_bias = "PECTORAL MAYOR"
+                    fb_rec = "Empuje fluido en plano escapular."
 
                 base_rep_verdict = {
-                    "status": "OPTIMAL" if (78.0 <= med_elbow <= 96.0) else "IMPROVEMENT_OPPORTUNITY",
+                    "status": "OPTIMAL",
                     "dominant_joint": "PECTORAL MAYOR",
-                    "target_alignment": (78.0 <= med_elbow <= 96.0),
+                    "target_alignment": True,
                     "primary_torque_bias": fb_bias,
                     "inflection_knee_deg": 90.0,
                     "inflection_hip_deg": 180.0,
@@ -1247,7 +1310,8 @@ def process_kinematics(
                     "triceps_share": round(fb_tri, 1),
                     "d_hip_norm": 0.0,
                     "d_knee_norm": 0.0,
-                    "d_shoulder_norm": round(float(abs(sh_y - wr_y) if force_dir_name.startswith("horizontal") else abs(sh_x - wr_x)), 3),
+                    "d_shoulder_norm": round(cur_d_sh, 4),
+                    "d_elbow_norm": round(cur_d_el, 4),
                     "recommendation": fb_rec
                 }
             elif is_hip_thrust:

@@ -864,11 +864,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pLWr, '#6EE7B7');
           drawPoint(pRWr, '#6EE7B7');
 
-          // Arco y etiqueta limpia de Codo en el brazo activo (despeja hombro y torso)
-          drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
-          if (options.showCanvasText) {
-            drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
-          }
+          // Segmentos anatómicos limpios sin arco en codo
         }
       } else {
         // Fallback unilateral suave y centrado en la articulación dominante
@@ -895,10 +891,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pEl, '#6EE7B7');
           drawPoint(pWr, '#6EE7B7');
           drawPoint(pHp, '#10B981');
-          drawAngleArc(pEl, pSh, pWr, 20, '#38BDF8');
-          if (options.showCanvasText) {
-            drawPillTag(pEl.x + 12, pEl.y - 12, `Codo: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
-          }
         }
       }
     } else {
@@ -949,9 +941,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pHp, '#64748B');
         }
 
-        // Live Elbow Angle Arc
-        drawAngleArc(pEl, pSh, pWr, 24, '#10B981');
-
         // Vector de fuerza realista y brazos de momento según load_type y cinemática (Controlados por toggle)
         if (options.showLeverArms) {
           const fv = (frame as any).force_vector;
@@ -965,7 +954,20 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             (exIdStr.includes('pulldown') || exIdStr.includes('pullup'));
 
           const isBack = grpId === 'back' || exIdStr.includes('row') || exIdStr.includes('t_bar') || exIdStr.includes('gironda') || exIdStr.includes('pull');
-          const labelSh = isBack ? 'Brazo Espalda' : 'Brazo Pectoral';
+          let isUpperBackCanvas = false;
+          if (isBack) {
+            const tx = pSh.x - pHp.x, ty = pSh.y - pHp.y;
+            const tLen = Math.hypot(tx, ty) + 1e-6;
+            const elDist = Math.abs(ty * pEl.x - tx * pEl.y + pSh.x * pHp.y - pSh.y * pHp.x) / tLen;
+            const relDist = elDist / tLen;
+            const ux = pEl.x - pSh.x, uy = pEl.y - pSh.y;
+            const vx = pHp.x - pSh.x, vy = pHp.y - pSh.y;
+            const cosA = (ux * vx + uy * vy) / ((Math.hypot(ux, uy) + 1e-6) * (Math.hypot(vx, vy) + 1e-6));
+            const elbowTorsoDeg = Math.acos(Math.max(-1, Math.min(1, cosA))) * (180 / Math.PI);
+            isUpperBackCanvas = (elbowTorsoDeg >= 38.0 || relDist >= 0.35 || exIdStr.includes('t_bar') || exIdStr.includes('upper_back'));
+          }
+
+          const labelSh = isBack ? (isUpperBackCanvas ? 'Brazo Espalda Alta' : 'Brazo Dorsal') : 'Brazo Pectoral';
           const labelEl = isBack ? 'Brazo Bíceps' : 'Brazo Tríceps';
 
           if (isHorizontalResistance) {
@@ -1013,8 +1015,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 (((frame.moment_arms as any)?.d_elbow !== undefined ? (frame.moment_arms as any).d_elbow : (Math.abs(pEl.y - lineY) / (drawH * 0.4))) * 100)
               );
 
+              const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
+                ? `${labelEl}: 0 (Todo ${isBack ? 'Espalda' : 'Pecho'})`
+                : `${labelEl}: ${dEl}`;
+
               drawPillTag(pSh.x - 55, (pSh.y + lineY) / 2, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(pEl.x - 55, (pEl.y + lineY) / 2, `${labelEl}: ${dEl}`, '#10B981', '#6EE7B7');
+              drawPillTag(pEl.x - 55, (pEl.y + lineY) / 2, elLabelText, '#10B981', '#6EE7B7');
             }
           } else {
             // Vector de resistencia vertical (Peso libre por gravedad o Jalón en polea vertical)
@@ -1080,8 +1086,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 }
               }
 
+              const elLabelText = (dEl <= 2 || (dEl / (dSh + dEl) <= 0.10))
+                ? `${labelEl}: 0 (Todo ${isBack ? 'Espalda' : 'Pecho'})`
+                : `${labelEl}: ${dEl}`;
+
               drawPillTag(midShX - 55, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(midElX - 55, tagElY, `${labelEl}: ${dEl}`, '#10B981', '#6EE7B7');
+              drawPillTag(midElX - 55, tagElY, elLabelText, '#10B981', '#6EE7B7');
             }
           }
         }
@@ -1330,23 +1340,26 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       };
     }
     if (groupId === 'back' || exId.includes('row') || exId.includes('pulldown') || exId.includes('pullup') || exId.includes('pullover') || exId.includes('t_bar') || exId.includes('gironda')) {
+      const isDefaultUpperBack = exId.includes('t_bar') || exId.includes('upper_back') || exId.includes('face_pull');
+      const backName = isDefaultUpperBack ? 'Espalda Alta' : 'Dorsal Ancho';
+      const backLever = isDefaultUpperBack ? 'Brazo Espalda Alta' : 'Brazo Dorsal';
       return {
         isLowerBody: false,
         primaryJointName: 'Codo',
         secondaryJointName: 'Torso',
-        primaryMetric: 'Tracción de Codo',
+        primaryMetric: 'Tracción Escapular',
         secondaryMetric: 'Inclinación de Torso',
-        dominantLabel: 'Dorsal Ancho',
+        dominantLabel: backName,
         rows: [
           { label: 'Retracción Escapular:', value: 'Depresión y aducción escapular activa', color: 'text-emerald-400' },
-          { label: 'Rigidez de Torso:', value: 'Columna neutra sin balanceo lumbar', color: 'text-cyan-300' },
+          { label: 'Separación Humeral:', value: isDefaultUpperBack ? 'Codos separados del torso (enfoque espalda alta)' : 'Codos guiados junto al torso (enfoque dorsal ancho)', color: 'text-cyan-300' },
           { label: 'Recorrido de Tracción:', value: 'Codos superando la línea del torso', color: 'text-slate-200' },
         ],
-        torqueTitle: 'Reparto de Torque Dorsal / Bíceps',
-        torqueShare: '82% Dorsal Ancho vs 18% Flexores de Codo',
-        barLabel1: 'Brazo Dorsal',
+        torqueTitle: `Reparto de Torque ${backName} / Bíceps`,
+        torqueShare: `82% ${backName} vs 18% Bíceps`,
+        barLabel1: backLever,
         barLabel2: 'Brazo Bíceps',
-        torqueFocus: 'DORSAL ANCHO'
+        torqueFocus: isDefaultUpperBack ? 'ESPALDA ALTA (TRAPECIO / ROMBOIDES)' : 'DORSAL ANCHO (CODO PEGADO AL TORSO)'
       };
     }
     if (groupId === 'shoulders' || exId.includes('shoulder') || exId.includes('overhead') || exId.includes('lateral') || exId.includes('raise') || exId.includes('face_pull') || exId.includes('rear_delt')) {
@@ -1477,49 +1490,70 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     if (selectedMuscleGroupId === 'chest' || safeExerciseId.includes('bench') || safeExerciseId.includes('chest') || safeExerciseId.includes('press')) {
       let pectShare = 78;
       let tricShare = 22;
-      if (rawVerdict?.pectoral_share && rawVerdict?.triceps_share) {
+      const totD = d_sh_val + d_el_val;
+      if (totD > 0.005) {
+        if (d_el_val / totD <= 0.10 || d_el_val <= 0.015) {
+          pectShare = 100;
+          tricShare = 0;
+        } else {
+          pectShare = Math.max(10, Math.min(95, Math.round((d_sh_val / totD) * 100)));
+          tricShare = 100 - pectShare;
+        }
+      } else if (rawVerdict?.pectoral_share && rawVerdict?.triceps_share) {
         pectShare = Math.round(rawVerdict.pectoral_share);
         tricShare = Math.round(rawVerdict.triceps_share);
-      } else {
-        if (curElbowDeg < 78) {
-          tricShare = Math.min(68, Math.round(52 + (78 - curElbowDeg) * 1.1));
-          pectShare = 100 - tricShare;
-        } else if (curElbowDeg <= 96) {
-          pectShare = Math.min(84, Math.round(76 + (96 - Math.abs(curElbowDeg - 88)) * 0.7));
-          tricShare = 100 - pectShare;
-        } else {
-          pectShare = 72;
-          tricShare = 28;
-        }
       }
       primaryLeverName = 'Brazo Pectoral';
       secondaryLeverName = 'Brazo Tríceps';
       primaryLeverShare = pectShare;
       secondaryLeverShare = tricShare;
-      torqueBadgeText = `${pectShare}% Pectoral vs ${tricShare}% Tríceps`;
+      torqueBadgeText = tricShare === 0 ? '100% Pectoral (Todo Pecho)' : `${pectShare}% Pectoral vs ${tricShare}% Tríceps`;
     } else if (selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull') || safeExerciseId.includes('t_bar') || safeExerciseId.includes('gironda')) {
-      let dorsShare = 82;
-      let bicShare = 18;
-      if (rawVerdict?.dorsal_share && rawVerdict?.biceps_share) {
-        dorsShare = Math.round(rawVerdict.dorsal_share);
-        bicShare = Math.round(rawVerdict.biceps_share);
-      } else {
-        if (curElbowDeg < 80) {
-          bicShare = Math.min(65, Math.round(50 + (80 - curElbowDeg) * 1.0));
-          dorsShare = 100 - bicShare;
-        } else if (curElbowDeg <= 112) {
-          dorsShare = Math.min(88, Math.round(82 + (112 - Math.abs(curElbowDeg - 95)) * 0.5));
-          bicShare = 100 - dorsShare;
-        } else {
-          dorsShare = 75;
-          bicShare = 25;
-        }
+      // Check elbow-torso clearance to classify Upper Back (codo alejado) vs Latissimus Dorsi (codo pegado)
+      const kp = currentFrame?.keypoints_norm as any;
+      let isUpperBack = rawVerdict?.is_upper_back ?? (safeExerciseId.includes('t_bar') || safeExerciseId.includes('upper_back'));
+      if (kp?.shoulder && kp?.elbow && kp?.hip) {
+        const shX = kp.shoulder.x, shY = kp.shoulder.y;
+        const elX = kp.elbow.x, elY = kp.elbow.y;
+        const hpX = kp.hip.x, hpY = kp.hip.y;
+        const tx = shX - hpX, ty = shY - hpY;
+        const tLen = Math.hypot(tx, ty) + 1e-6;
+        const elDist = Math.abs(ty * elX - tx * elY + shX * hpY - shY * hpX) / tLen;
+        const relDist = elDist / tLen;
+        const ux = elX - shX, uy = elY - shY;
+        const vx = hpX - shX, vy = hpY - shY;
+        const cosA = (ux * vx + uy * vy) / ((Math.hypot(ux, uy) + 1e-6) * (Math.hypot(vx, vy) + 1e-6));
+        const elbowTorsoDeg = Math.acos(Math.max(-1, Math.min(1, cosA))) * (180 / Math.PI);
+        isUpperBack = (elbowTorsoDeg >= 38.0 || relDist >= 0.35 || safeExerciseId.includes('t_bar') || safeExerciseId.includes('upper_back'));
       }
-      primaryLeverName = 'Brazo Dorsal';
+
+      const backName = isUpperBack ? 'Espalda Alta' : 'Dorsal';
+      const backLeverName = isUpperBack ? 'Brazo Espalda Alta' : 'Brazo Dorsal';
+
+      // Pure Moment Arm Relationship with Line of Force (Sin depender del ángulo del codo)
+      const totD = d_sh_val + d_el_val;
+      let backShare = 85;
+      let bicShare = 15;
+      if (totD > 0.005) {
+        if (d_el_val / totD <= 0.10 || d_el_val <= 0.015) {
+          backShare = 100;
+          bicShare = 0;
+        } else {
+          backShare = Math.max(10, Math.min(95, Math.round((d_sh_val / totD) * 100)));
+          bicShare = 100 - backShare;
+        }
+      } else if (rawVerdict?.dorsal_share !== undefined && rawVerdict?.biceps_share !== undefined) {
+        backShare = Math.round(rawVerdict.dorsal_share);
+        bicShare = Math.round(rawVerdict.biceps_share);
+      }
+
+      primaryLeverName = backLeverName;
       secondaryLeverName = 'Brazo Bíceps';
-      primaryLeverShare = dorsShare;
+      primaryLeverShare = backShare;
       secondaryLeverShare = bicShare;
-      torqueBadgeText = `${dorsShare}% Dorsal vs ${bicShare}% Bíceps`;
+      torqueBadgeText = bicShare === 0
+        ? `100% ${backName} (Todo Espalda)`
+        : `${backShare}% ${backName} vs ${bicShare}% Bíceps`;
     } else if (selectedMuscleGroupId === 'shoulders') {
       primaryLeverName = 'Brazo Deltoides';
       secondaryLeverName = 'Brazo Asistente';
@@ -1542,15 +1576,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   }
 
   // Active verdict read directly from frozen rep verdict with high-confidence fallbacks
+  const isBackExercise = selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull') || safeExerciseId.includes('t_bar') || safeExerciseId.includes('gironda');
+  const isUpperBackActive = primaryLeverName.includes('Espalda Alta');
+
   const activeVerdict = {
     status: rawVerdict?.status || 'OPTIMAL',
-    dominant_joint: (rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
-      ? rawVerdict.dominant_joint
-      : kinematicMeta.dominantLabel.toUpperCase(),
+    dominant_joint: isBackExercise
+      ? (isUpperBackActive ? 'ESPALDA ALTA' : 'DORSAL ANCHO')
+      : ((rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
+          ? rawVerdict.dominant_joint
+          : kinematicMeta.dominantLabel.toUpperCase()),
     target_alignment: rawVerdict?.target_alignment ?? true,
-    primary_torque_bias: (rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
-      ? rawVerdict.primary_torque_bias
-      : kinematicMeta.torqueFocus,
+    primary_torque_bias: isBackExercise
+      ? (isUpperBackActive
+          ? (secondaryLeverShare === 0 ? 'ESPALDA ALTA (TODO ESPALDA)' : 'ESPALDA ALTA (ROMBOIDES / TRAPECIO)')
+          : (secondaryLeverShare === 0 ? 'DORSAL ANCHO (TODO ESPALDA)' : 'DORSAL ANCHO (CODO PEGADO AL TORSO)'))
+      : ((rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
+          ? rawVerdict.primary_torque_bias
+          : kinematicMeta.torqueFocus),
     inflection_knee_deg: rawVerdict?.inflection_knee_deg ?? 90.0,
     inflection_hip_deg: rawVerdict?.inflection_hip_deg ?? 180.0,
     inflection_elbow_deg: rawVerdict?.inflection_elbow_deg ?? curElbowDeg,
@@ -1938,9 +1981,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold shadow-md">
                     {currentFrame?.phase || 'IDLE'}
                   </span>
-                  <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-purple-500/40 text-purple-200 text-[10px] font-mono font-bold shadow-md">
-                    {primaryJointName}: {Math.round(currentFrame?.main_angle ?? currentPrimaryAngle)}° · {secondaryJointName}: {Math.round(currentFrame?.secondary_angle ?? 0)}°
-                  </span>
+                  {!isLowerBody ? (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
+                      Torso: {Math.round(currentFrame?.secondary_angle ?? 0)}° · Palanca: {
+                        secondaryLeverShare === 0
+                          ? `100% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} (Todo ${isBackExercise ? 'Espalda' : 'Pecho'})`
+                          : `${primaryLeverShare}% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} / ${secondaryLeverShare}% ${isBackExercise ? 'Bíceps' : 'Tríceps'}`
+                      }
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-purple-500/40 text-purple-200 text-[10px] font-mono font-bold shadow-md">
+                      {primaryJointName}: {Math.round(currentFrame?.main_angle ?? currentPrimaryAngle)}° · {secondaryJointName}: {Math.round(currentFrame?.secondary_angle ?? 0)}°
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -2232,7 +2285,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                       <Scale className="w-4 h-4 text-blue-400" />
-                      {isHipThrustVariant ? 'Palanca Articular y Enfoque' : kinematicMeta.torqueTitle}
+                      {isHipThrustVariant
+                        ? 'Palanca Articular y Enfoque'
+                        : (isBackExercise
+                            ? `Reparto de Torque ${isUpperBackActive ? 'Espalda Alta' : 'Dorsal'} / Bíceps`
+                            : kinematicMeta.torqueTitle)}
                     </span>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
                       {isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : torqueBadgeText}
