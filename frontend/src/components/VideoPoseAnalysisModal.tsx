@@ -714,8 +714,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
 
     const pHand = {
-      x: kp.hand_grip ? px(kp.hand_grip.x) : pWr.x + 0.18 * (pWr.x - pEl.x),
-      y: kp.hand_grip ? py(kp.hand_grip.y) : pWr.y + 0.18 * (pWr.y - pEl.y),
+      x: pWr.x,
+      y: pWr.y,
       score: pWr.score
     };
 
@@ -924,12 +924,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawSegment(pSh, pHp, '#10B981');
           drawSegment(pSh, pEl, '#6EE7B7');
           drawSegment(pEl, pWr, '#6EE7B7');
-          drawSegment(pWr, pHand, '#FBBF24');
           drawPoint(pHd, '#34D399');
           drawPoint(pSh, '#10B981');
           drawPoint(pEl, '#6EE7B7');
-          drawPoint(pWr, '#6EE7B7');
-          drawPoint(pHand, '#FBBF24');
+          drawPoint(pWr, '#FBBF24');
           drawPoint(pHp, '#10B981');
         }
       }
@@ -962,7 +960,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         } else {
           drawSegment(pSh, pEl, '#94A3B8');
           drawSegment(pEl, pWr, '#94A3B8');
-          drawSegment(pWr, pHand, '#FBBF24');
         }
         if (!isEquipmentOccludedUpper && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
           drawSegment(pHp, pKn, '#94A3B8');
@@ -1035,10 +1032,20 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               uY = 0;
             }
 
-            // Línea de fuerza discontinua amarilla atravesando el agarre
-            const lineSpan = 90;
-            const p1 = { x: pHand.x - uX * lineSpan, y: pHand.y - uY * lineSpan };
-            const p2 = { x: pHand.x + uX * lineSpan, y: pHand.y + uY * lineSpan };
+            // Proyecciones ortogonales sobre la línea de fuerza del antebrazo / máquina
+            const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
+            const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };
+            const dSh = Math.round(Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX));
+
+            const tEl = (pEl.x - pHand.x) * uX + (pEl.y - pHand.y) * uY;
+            const pElProj = { x: pHand.x + tEl * uX, y: pHand.y + tEl * uY, score: pEl.score };
+            const dEl = Math.round(Math.abs((pEl.x - pHand.x) * uY - (pEl.y - pHand.y) * uX));
+
+            // La línea de fuerza amarilla abarca de manera continua y elegante desde el plano del hombro hasta la carga
+            const minT = Math.min(-30, tSh - 20, tEl - 20);
+            const maxT = Math.max(70, tSh + 20, tEl + 20);
+            const p1 = { x: pHand.x + uX * minT, y: pHand.y + uY * minT };
+            const p2 = { x: pHand.x + uX * maxT, y: pHand.y + uY * maxT };
 
             ctx.beginPath();
             ctx.setLineDash([6, 3]);
@@ -1059,16 +1066,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             ctx.fillStyle = '#FBBF24';
             ctx.fill();
 
-            // Proyecciones ortogonales sobre la línea de fuerza
-            const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
-            const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };
-            const dSh = Math.round(Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX));
-
-            const tEl = (pEl.x - pHand.x) * uX + (pEl.y - pHand.y) * uY;
-            const pElProj = { x: pHand.x + tEl * uX, y: pHand.y + tEl * uY, score: pEl.score };
-            const dEl = Math.round(Math.abs((pEl.x - pHand.x) * uY - (pEl.y - pHand.y) * uX));
-
-            // Brazo de momento Hombro (AZUL) y Codo (VERDE)
+            // Brazos de momento que conectan perfectamente la articulación a la línea de fuerza amarilla
             drawSegment(pSh, pShProj, '#3B82F6', true);
             drawSegment(pEl, pElProj, '#10B981', true);
 

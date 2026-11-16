@@ -571,6 +571,16 @@ def process_kinematics(
 
             side_conf[side] = float(np.mean(all_smoothed[f"{side}_elbow"]["score"] + all_smoothed[f"{side}_wrist"]["score"]))
 
+        # In horizontal rows / pulls, the rowing hand is at chest/torso height.
+        # A hand above the shoulder (wy < sy - 0.05) is touching the head/ear/hair and is NOT rowing.
+        if is_pattern_a:
+            for side in ["left", "right"]:
+                hand_at_head_fraction = float(np.mean(all_smoothed[f"{side}_wrist"]["y"] < all_smoothed[f"{side}_shoulder"]["y"] - 0.05))
+                if hand_at_head_fraction > 0.25:
+                    side_conf[side] *= 0.05
+                    side_rom[side] *= 0.05
+                    side_wrist_disp[side] *= 0.05
+
         rom_l = side_rom["left"]
         rom_r = side_rom["right"]
         disp_l = side_wrist_disp["left"]
@@ -789,11 +799,12 @@ def process_kinematics(
         valid_wrist_frames = np.where(~is_wrist_occluded)[0]
         if len(valid_wrist_frames) >= 4 and np.any(is_wrist_occluded):
             try:
-                cs_wr_x = scipy.interpolate.CubicSpline(valid_wrist_frames, wr_x[valid_wrist_frames], bc_type='natural')
-                cs_wr_y = scipy.interpolate.CubicSpline(valid_wrist_frames, wr_y[valid_wrist_frames], bc_type='natural')
+                # Monotonic shape-preserving PCHIP interpolation avoids CubicSpline oscillations/overshoots
+                pchip_wr_x = scipy.interpolate.PchipInterpolator(valid_wrist_frames, wr_x[valid_wrist_frames])
+                pchip_wr_y = scipy.interpolate.PchipInterpolator(valid_wrist_frames, wr_y[valid_wrist_frames])
                 all_f_idx = np.arange(n_frames)
-                interp_wr_x = cs_wr_x(all_f_idx)
-                interp_wr_y = cs_wr_y(all_f_idx)
+                interp_wr_x = pchip_wr_x(all_f_idx)
+                interp_wr_y = pchip_wr_y(all_f_idx)
             except Exception:
                 all_f_idx = np.arange(n_frames)
                 interp_wr_x = np.interp(all_f_idx, valid_wrist_frames, wr_x[valid_wrist_frames])
@@ -804,6 +815,10 @@ def process_kinematics(
                     # Project along elbow-to-wrist vector to enforce exact rigid L_forearm
                     vx = interp_wr_x[f] - el_x[f]
                     vy = interp_wr_y[f] - el_y[f]
+                    if is_pattern_b:
+                        # In presses/dips, wrist is vertically above or level with elbow (vy <= 0)
+                        if vy > 0.02:
+                            vy = -abs(vy)
                     v_mag = math.hypot(vx, vy)
                     if v_mag > 1e-5:
                         wr_x[f] = el_x[f] + (vx / v_mag) * l_forearm_median
@@ -816,19 +831,11 @@ def process_kinematics(
         primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=1.8)
         primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=1.8)
 
-        # 3C. Hand Grip Center Projection (Exact center of palm / dumbbell handle / machine grip)
-        hand_x = np.zeros(n_frames, dtype=np.float64)
-        hand_y = np.zeros(n_frames, dtype=np.float64)
-        for f in range(n_frames):
-            vx = wr_x[f] - el_x[f]
-            vy = wr_y[f] - el_y[f]
-            hand_x[f] = wr_x[f] + 0.18 * vx
-            hand_y[f] = wr_y[f] + 0.18 * vy
-
+        # 3C. Hand Grip is physically locked to the wrist keypoint (center of dumbbell/bar handle)
         primary_joints["hand"] = {
-            "x": apply_zero_phase_butterworth(hand_x, fs=15.0, cutoff=1.8),
-            "y": apply_zero_phase_butterworth(hand_y, fs=15.0, cutoff=1.8),
-            "score": primary_joints["wrist"]["score"]
+            "x": primary_joints["wrist"]["x"].copy(),
+            "y": primary_joints["wrist"]["y"].copy(),
+            "score": primary_joints["wrist"]["score"].copy()
         }
     else:
         l_humerus_median = 0.20
