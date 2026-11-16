@@ -589,7 +589,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setVideoCurrentTime(currentTime);
 
       // Seamless video loop inside trimmed range [trimStart, trimEnd]
-      if (!video.seeking && trimEnd > trimStart && (currentTime >= trimEnd || currentTime < trimStart - 0.2)) {
+      const maxAnalyzedTime = analysisData?.frames?.length
+        ? analysisData.frames[analysisData.frames.length - 1].time
+        : trimEnd;
+      const effectiveLoopEnd = Math.min(trimEnd, maxAnalyzedTime > 0 ? maxAnalyzedTime : trimEnd);
+      if (!video.seeking && effectiveLoopEnd > trimStart && (currentTime >= effectiveLoopEnd || currentTime < trimStart - 0.2)) {
         video.currentTime = trimStart;
       }
 
@@ -718,6 +722,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
     const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
+    const isUpperBody = (
+      grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
+      exIdStr.includes('bench') || exIdStr.includes('chest') ||
+      (exIdStr.includes('press') && !exIdStr.includes('leg_press')) ||
+      exIdStr.includes('row') || exIdStr.includes('pulldown') || exIdStr.includes('pullup') ||
+      exIdStr.includes('pullover') || exIdStr.includes('curl') || exIdStr.includes('triceps') ||
+      exIdStr.includes('dips') || exIdStr.includes('t_bar') || exIdStr.includes('gironda')
+    ) && !exIdStr.includes('leg_press') && !exIdStr.includes('leg_extension');
+    const isLowerBody = !isUpperBody;
+
     // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
     const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
 
@@ -729,6 +743,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const hipSpanX = Math.abs(pLHp.x - pRHp.x);
     const isProfileView = isUnilateralMotion || (shoulderSpanX < drawW * 0.08 && hipSpanX < drawW * 0.08);
 
+    // Human outlier span rejection: if shoulders or hips span across > 40% of canvas, it's connecting to background people
+    const isSpuriousBackgroundSpan = shoulderSpanX > drawW * 0.40 || hipSpanX > drawW * 0.40;
+
+    const isEquipmentOccludedUpper = isUpperBody && (
+      exIdStr.includes('row') || exIdStr.includes('bench') || exIdStr.includes('press') ||
+      exIdStr.includes('dip') || exIdStr.includes('seated') || exIdStr.includes('t_bar')
+    );
+
     // Anatomical segment check: limb segment must be within plausible human bounds [0.10, 1.15] * torsoLen
     const isLimbPlausible = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
       if (torsoLen < 20) return true;
@@ -737,14 +759,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     };
 
     // Both sides must have reasonable confidence to render bilateral skeleton, otherwise use primary tracked limbs
-    const hasBilateral = !isProfileView && Boolean(
-      (kp.left_shoulder?.score ?? 0) >= 0.35 && (kp.right_shoulder?.score ?? 0) >= 0.35 &&
-      (kp.left_elbow?.score ?? 0) >= 0.35 && (kp.right_elbow?.score ?? 0) >= 0.35 &&
+    const hasBilateral = !isProfileView && !isSpuriousBackgroundSpan && Boolean(
+      (kp.left_shoulder?.score ?? 0) >= 0.40 && (kp.right_shoulder?.score ?? 0) >= 0.40 &&
+      (kp.left_elbow?.score ?? 0) >= 0.40 && (kp.right_elbow?.score ?? 0) >= 0.40 &&
       isLimbPlausible(pLSh, pLEl) && isLimbPlausible(pRSh, pREl)
     );
 
     const drawPoint = (p: { x: number; y: number; score?: number }, color: string) => {
-      if (p.score !== undefined && p.score < 0.25) return;
+      if (p.score !== undefined && p.score < 0.35) return;
       ctx.beginPath();
       ctx.arc(p.x, p.y, 4.0, 0, 2 * Math.PI);
       ctx.fillStyle = color;
@@ -755,7 +777,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     };
 
     const drawSegment = (p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, color: string, dashed: boolean = false) => {
-      if ((p1.score !== undefined && p1.score < 0.25) || (p2.score !== undefined && p2.score < 0.25)) return;
+      if ((p1.score !== undefined && p1.score < 0.35) || (p2.score !== undefined && p2.score < 0.35)) return;
       if (!isLimbPlausible(p1, p2)) return; // Suppress spurious limbs connecting to background gym members
       ctx.beginPath();
       if (dashed) ctx.setLineDash([4, 4]);
@@ -805,17 +827,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
-
-    const isUpperBody = (
-      grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
-      exIdStr.includes('bench') || exIdStr.includes('chest') ||
-      (exIdStr.includes('press') && !exIdStr.includes('leg_press')) ||
-      exIdStr.includes('row') || exIdStr.includes('pulldown') || exIdStr.includes('pullup') ||
-      exIdStr.includes('pullover') || exIdStr.includes('curl') || exIdStr.includes('triceps') ||
-      exIdStr.includes('dips') || exIdStr.includes('t_bar') || exIdStr.includes('gironda')
-    ) && !exIdStr.includes('leg_press') && !exIdStr.includes('leg_extension');
-    const isLowerBody = !isUpperBody;
-
     if (mode === 'technique') {
       // -------------------------------------------------------------
       // MODO 1: CORRECCIÓN TÉCNICA (ESQUELETO COMPLETO Y AJUSTADO AL CUERPO)
@@ -863,12 +874,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         } else {
           // Tren superior: brazos, codos, hombros y torso resaltados
-          drawSegment(pLHp, pLKn, 'rgba(148, 163, 184, 0.35)');
-          drawSegment(pLKn, pLAk, 'rgba(148, 163, 184, 0.35)');
-          drawSegment(pRHp, pRKn, 'rgba(148, 163, 184, 0.35)');
-          drawSegment(pRKn, pRAk, 'rgba(148, 163, 184, 0.35)');
-          drawPoint(pLKn, '#94A3B8');
-          drawPoint(pRKn, '#94A3B8');
+          const legsConfident = (pLKn.score ?? 0) >= 0.45 && (pLHp.score ?? 0) >= 0.45 && (pLAk.score ?? 0) >= 0.45;
+          if (legsConfident && !isEquipmentOccludedUpper) {
+            drawSegment(pLHp, pLKn, 'rgba(148, 163, 184, 0.35)');
+            drawSegment(pLKn, pLAk, 'rgba(148, 163, 184, 0.35)');
+            drawSegment(pRHp, pRKn, 'rgba(148, 163, 184, 0.35)');
+            drawSegment(pRKn, pRAk, 'rgba(148, 163, 184, 0.35)');
+            drawPoint(pLKn, '#94A3B8');
+            drawPoint(pRKn, '#94A3B8');
+          }
 
           // Torso y pelvis
           drawSegment(pLSh, pLHp, '#10B981');
@@ -886,6 +900,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pREl, '#38BDF8');
           drawPoint(pLWr, '#6EE7B7');
           drawPoint(pRWr, '#6EE7B7');
+          drawPoint(pHand, '#FBBF24');
 
           // Segmentos anatómicos limpios sin arco en codo
         }
@@ -923,7 +938,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       // MODO 2: OPTIMIZACIÓN BIOMECÁNICA
       // -------------------------------------------------------------
       ctx.save();
-      ctx.globalAlpha = 0.28;
+      ctx.globalAlpha = 0.65;
       if (isLowerBody) {
         if (!isProfileView && hasBilateral) {
           drawSegment(pLSh, pLHp, '#94A3B8');
@@ -939,7 +954,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         }
       } else {
         drawSegment(pSh, pHp, '#94A3B8');
-        if (!isProfileView && hasBilateral) {
+        if (!isProfileView && hasBilateral && !isEquipmentOccludedUpper) {
           drawSegment(pLSh, pLEl, '#94A3B8');
           drawSegment(pLEl, pLWr, '#94A3B8');
           drawSegment(pRSh, pREl, '#94A3B8');
@@ -947,9 +962,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         } else {
           drawSegment(pSh, pEl, '#94A3B8');
           drawSegment(pEl, pWr, '#94A3B8');
+          drawSegment(pWr, pHand, '#FBBF24');
         }
-        drawSegment(pHp, pKn, '#94A3B8');
-        drawSegment(pKn, pAk, '#94A3B8');
+        if (!isEquipmentOccludedUpper && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
+          drawSegment(pHp, pKn, '#94A3B8');
+          drawSegment(pKn, pAk, '#94A3B8');
+        }
       }
       ctx.restore();
 
@@ -1000,7 +1018,70 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           const labelSh = isBack ? (isUpperBackCanvas ? 'Espalda Alta' : 'Dorsal') : 'Pectoral';
           const labelEl = isBack ? 'Bíceps' : 'Tríceps';
 
-          if (isHorizontalResistance) {
+          if (isBack) {
+            // Vector dinámico de resistencia a lo largo del antebrazo / máquina pasando por pHand (Grip)
+            let uX = pHand.x - pEl.x;
+            let uY = pHand.y - pEl.y;
+            let uNorm = Math.hypot(uX, uY);
+            if (uNorm > 5) {
+              uX /= uNorm;
+              uY /= uNorm;
+            } else if (fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0)) {
+              const fn = Math.hypot(fv.dx, fv.dy);
+              uX = fv.dx / fn;
+              uY = fv.dy / fn;
+            } else {
+              uX = 1;
+              uY = 0;
+            }
+
+            // Línea de fuerza discontinua amarilla atravesando el agarre
+            const lineSpan = 90;
+            const p1 = { x: pHand.x - uX * lineSpan, y: pHand.y - uY * lineSpan };
+            const p2 = { x: pHand.x + uX * lineSpan, y: pHand.y + uY * lineSpan };
+
+            ctx.beginPath();
+            ctx.setLineDash([6, 3]);
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.strokeStyle = '#FBBF24';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Flecha indicando el vector de tracción en p2
+            const arrowAngle = Math.atan2(uY, uX);
+            ctx.beginPath();
+            ctx.moveTo(p2.x, p2.y);
+            ctx.lineTo(p2.x - 10 * Math.cos(arrowAngle - Math.PI / 6), p2.y - 10 * Math.sin(arrowAngle - Math.PI / 6));
+            ctx.lineTo(p2.x - 10 * Math.cos(arrowAngle + Math.PI / 6), p2.y - 10 * Math.sin(arrowAngle + Math.PI / 6));
+            ctx.closePath();
+            ctx.fillStyle = '#FBBF24';
+            ctx.fill();
+
+            // Proyecciones ortogonales sobre la línea de fuerza
+            const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
+            const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };
+            const dSh = Math.round(Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX));
+
+            const tEl = (pEl.x - pHand.x) * uX + (pEl.y - pHand.y) * uY;
+            const pElProj = { x: pHand.x + tEl * uX, y: pHand.y + tEl * uY, score: pEl.score };
+            const dEl = Math.round(Math.abs((pEl.x - pHand.x) * uY - (pEl.y - pHand.y) * uX));
+
+            // Brazo de momento Hombro (AZUL) y Codo (VERDE)
+            drawSegment(pSh, pShProj, '#3B82F6', true);
+            drawSegment(pEl, pElProj, '#10B981', true);
+
+            if (options.showCanvasText) {
+              const tagShX = (pSh.x + pShProj.x) / 2 + (uY > 0 ? 10 : -75);
+              const tagShY = (pSh.y + pShProj.y) / 2 - 9;
+              const tagElX = (pEl.x + pElProj.x) / 2 + (uY > 0 ? 10 : -75);
+              const tagElY = (pEl.y + pElProj.y) / 2 - 9;
+
+              drawPillTag(tagShX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(tagElX, tagElY, `Bíceps: ${dEl}`, '#10B981', '#6EE7B7');
+            }
+          } else if (isHorizontalResistance) {
             // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
             // Pin directly to Hand Grip center (machine handle / dumbbell grip)
             const lineY = pHand.y;
@@ -1350,9 +1431,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         secondaryMetric: 'Apertura Glenohumeral',
         dominantLabel: 'Pectoral Mayor',
         rows: [
-          { label: 'Alineación Glenohumeral:', value: 'Ángulo codo-torso ~50°-60° (sin pinzamiento)', color: 'text-emerald-400' },
-          { label: 'Bloqueo Concéntrico:', value: 'Extensión completa sin hiperextensión pasiva', color: 'text-cyan-300' },
-          { label: 'Control Excéntrico:', value: 'Descenso sostenido con escápulas retraídas', color: 'text-slate-200' },
+          { label: 'Apoyo de Pies (Leg Drive):', value: 'Pies firmes en el suelo transfiriendo fuerza estable (o fuera de plano)', color: 'text-emerald-400' },
+          { label: 'Arqueo Lumbar y Torso:', value: 'Retracción escapular activa con arco neutro fisiológico (evitar hiperextensión lumbar)', color: 'text-cyan-300' },
+          { label: 'Alineación Glenohumeral (~50°-60°):', value: 'Codos en plano escapular (~50°); evitar abrir a 90° o cerrar excesivo (<35°)', color: 'text-amber-300' },
+          { label: 'Profundidad Excéntrica (ROM):', value: 'Descenso completo a clavículas (flexión codo ≤85°); evitar medias repeticiones', color: 'text-slate-200' },
         ],
         torqueTitle: 'Reparto de Torque Pectoral / Tríceps',
         torqueShare: '76% Pectoral vs 24% Tríceps / Hombro',
@@ -2277,7 +2359,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed break-words whitespace-normal">
-                    {activeVerdict.recommendation}
+                    {activeVerdict.recommendation?.startsWith('Reparto de palanca')
+                      ? (isBackExercise
+                          ? (isUpperBackActive
+                              ? 'Tracción con codos separados (~60°-70°), retracción escapular activa y torso estable.'
+                              : 'Tracción fluida con codos pegados al torso, depresión escapular activa y columna neutra.')
+                          : 'Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas.')
+                      : activeVerdict.recommendation}
                   </div>
 
                   <div className="space-y-1.5 pt-1 border-t border-slate-800/60 text-[11px]">

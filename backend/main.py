@@ -1034,17 +1034,17 @@ def process_kinematics(
     # - machine / cable horizontal pull (row): resistance pulls horizontal forward (dx=facing_forward_x, dy=0)
     # - machine / cable horizontal push (press): resistance pulls horizontal backward (dx=-facing_forward_x, dy=0)
     # - vertical pull (pulldown, pullup): resistance pulls vertical upwards (dx=0, dy=-1)
-    if load_lower in ["machine", "cable"]:
+    if load_lower in ["machine", "cable"] or any(k in ex_lower for k in ["t_bar", "row"]):
         if any(k in ex_lower for k in ["lat_pulldown", "pulldown", "pullup"]):
             force_dir_name = "vertical_up"
             force_dx = 0.0
             force_dy = -1.0
-            force_origin = "wrist"
-        elif is_pattern_a: # Horizontal pull (rowing, gironda, t-bar)
-            force_dir_name = "horizontal_forward"
+            force_origin = "hand_grip"
+        elif is_pattern_a: # Horizontal pull (rowing, gironda, t-bar): follows machine & forearm direction
+            force_dir_name = "along_pull"
             force_dx = float(facing_forward_x)
             force_dy = 0.0
-            force_origin = "wrist"
+            force_origin = "hand_grip"
         elif is_pattern_b: # Horizontal push (machine press, fly)
             force_dir_name = "horizontal_backward"
             force_dx = float(-facing_forward_x)
@@ -1156,12 +1156,20 @@ def process_kinematics(
         if is_pattern_a:
             # Pattern A — Tracción / Flexión
             # Perpendicular moment arms relative to the line of force passing through hand grip
-            if force_dir_name.startswith("horizontal"):
-                d_sh = float(abs(sh_y_inf - hy_inf))
-                d_el = float(abs(el_y_inf - hy_inf))
+            # In T-bar and rowing machines, resistance pulls along the machine lever and forearm
+            u_fx = hx_inf - el_x_inf
+            u_fy = hy_inf - el_y_inf
+            u_fnorm = math.hypot(u_fx, u_fy)
+            if u_fnorm > 1e-4:
+                u_fx /= u_fnorm
+                u_fy /= u_fnorm
             else:
-                d_sh = float(abs(sh_x_inf - hx_inf))
-                d_el = float(abs(el_x_inf - hx_inf))
+                u_fx = float(facing_forward_x)
+                u_fy = 0.0
+
+            # Perpendicular distance formula to line passing through hand: d = |(Px - Hx)*uy - (Py - Hy)*ux|
+            d_sh = float(abs((sh_x_inf - hx_inf) * u_fy - (sh_y_inf - hy_inf) * u_fx))
+            d_el = float(abs((el_x_inf - hx_inf) * u_fy - (el_y_inf - hy_inf) * u_fx))
             d_hp = 0.0
             d_kn = 0.0
 
@@ -1238,12 +1246,13 @@ def process_kinematics(
                     triceps_share = 5.0
                     pectoral_share = 95.0
                 torque_bias = "PECTORAL MAYOR" if pectoral_share >= 60.0 else "TRÍCEPS BRAQUIAL"
-                recom = f"Reparto de palanca: {pectoral_share}% sobre pectoral mayor y {triceps_share}% sobre tríceps braquial."
             else:
                 pectoral_share = 78.0
                 triceps_share = 22.0
                 torque_bias = "PECTORAL MAYOR"
-                recom = "Empuje fluido en plano escapular."
+
+            # Clinical Technical Coaching Recommendation (Modo 1: Corrección Técnica)
+            recom = "Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas."
             status = "OPTIMAL"
 
         else:
@@ -1346,25 +1355,36 @@ def process_kinematics(
         vel_loss = round(float(max(0.0, ((first_rep_vel - last_rep_vel) / max(first_rep_vel, 1e-4)) * 100.0)), 1)
 
         penult_rep_vel = rep_vels[-2] if len(rep_vels) >= 3 else last_rep_vel
-        is_terminal_grinder = (last_rep_vel <= min(rep_vels) * 1.02) and (len(rep_vels) < 3 or last_rep_vel <= penult_rep_vel * 0.92)
         is_terminal_accel = (len(rep_vels) >= 3 and last_rep_vel > penult_rep_vel * 1.05)
 
-        if vel_loss >= 48.0 and is_terminal_grinder:
+        # RIR 0 / RPE 10 requires true terminal grind: last rep strictly the slowest, at least 18% slower than penult, and >= 50% velocity loss
+        is_true_failure_grind = (
+            len(rep_vels) >= 2 and
+            last_rep_vel == min(rep_vels) and
+            (len(rep_vels) < 3 or last_rep_vel <= penult_rep_vel * 0.82) and
+            vel_loss >= 50.0
+        )
+
+        if is_true_failure_grind:
             rir_est = "0"
             rpe_est = 10.0
-        elif vel_loss >= 38.0:
-            if is_terminal_accel:
+        elif vel_loss >= 42.0:
+            if is_terminal_accel or last_rep_vel > penult_rep_vel:
                 rir_est = "2"
-                rpe_est = 8.5
-            elif is_terminal_grinder:
+                rpe_est = 8.0
+            elif last_rep_vel <= penult_rep_vel * 0.90:
                 rir_est = "1"
                 rpe_est = 9.5
             else:
                 rir_est = "1"
                 rpe_est = 9.0
-        elif vel_loss >= 28.0:
-            rir_est = "3" if is_terminal_accel else "2"
-            rpe_est = 7.5 if is_terminal_accel else 8.0
+        elif vel_loss >= 30.0:
+            if is_terminal_accel or last_rep_vel > penult_rep_vel:
+                rir_est = "3"
+                rpe_est = 7.5
+            else:
+                rir_est = "2"
+                rpe_est = 8.0
         elif vel_loss >= 18.0:
             rir_est = "3"
             rpe_est = 7.0
@@ -1422,9 +1442,18 @@ def process_kinematics(
             med_elbow = float(np.median(clean_el))
             
             if is_pattern_a:
-                # Relationship with line of force
-                cur_d_sh = float(abs(sh_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(sh_x - cur_hx))
-                cur_d_el = float(abs(el_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(el_x - cur_hx))
+                # Relationship with line of force along machine & forearm pull
+                u_fx = cur_hx - el_x
+                u_fy = cur_hy - el_y
+                u_fnorm = math.hypot(u_fx, u_fy)
+                if u_fnorm > 1e-4:
+                    u_fx /= u_fnorm
+                    u_fy /= u_fnorm
+                else:
+                    u_fx = float(facing_forward_x)
+                    u_fy = 0.0
+                cur_d_sh = float(abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx))
+                cur_d_el = float(abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx))
                 
                 sh_v = np.array([sh_x - hp_x, sh_y - hp_y])
                 t_len = float(np.linalg.norm(sh_v)) + 1e-6
@@ -1485,12 +1514,10 @@ def process_kinematics(
                         fb_tri = 5.0
                         fb_pec = 95.0
                     fb_bias = "PECTORAL MAYOR" if fb_pec >= 60.0 else "TRÍCEPS BRAQUIAL"
-                    fb_rec = f"Reparto de palanca: {fb_pec}% sobre pectoral mayor y {fb_tri}% sobre tríceps."
                 else:
                     fb_pec = 78.0
                     fb_tri = 22.0
                     fb_bias = "PECTORAL MAYOR"
-                    fb_rec = "Empuje fluido en plano escapular."
 
                 base_rep_verdict = {
                     "status": "OPTIMAL",
@@ -1506,7 +1533,7 @@ def process_kinematics(
                     "d_knee_norm": 0.0,
                     "d_shoulder_norm": round(cur_d_sh, 4),
                     "d_elbow_norm": round(cur_d_el, 4),
-                    "recommendation": fb_rec
+                    "recommendation": "Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas."
                 }
             elif is_hip_thrust:
                 base_rep_verdict = {
@@ -1553,22 +1580,50 @@ def process_kinematics(
 
         # Projected 2D Moment Arms for Canvas Overlay
         if is_upper_body:
-            if force_dir_name.startswith("horizontal"):
+            if is_pattern_a:
+                # Along forearm & machine pull:
+                u_fx = cur_hx - el_x
+                u_fy = cur_hy - el_y
+                u_fnorm = math.hypot(u_fx, u_fy)
+                if u_fnorm > 1e-4:
+                    u_fx /= u_fnorm
+                    u_fy /= u_fnorm
+                else:
+                    u_fx = float(facing_forward_x)
+                    u_fy = 0.0
+                f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
+                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+                cur_force_dx = u_fx
+                cur_force_dy = u_fy
+                cur_force_dir = "along_pull"
+            elif force_dir_name.startswith("horizontal"):
                 # Perpendicular to horizontal line is vertical distance dy
                 f_d_sh = abs(sh_y - cur_hy)
                 f_d_el = abs(el_y - cur_hy)
+                cur_force_dx = force_dx
+                cur_force_dy = force_dy
+                cur_force_dir = force_dir_name
             else:
                 # Perpendicular to vertical line is horizontal distance dx
                 f_d_sh = abs(sh_x - cur_hx)
                 f_d_el = abs(el_x - cur_hx)
+                cur_force_dx = force_dx
+                cur_force_dy = force_dy
+                cur_force_dir = force_dir_name
             f_d_hip = 0.0
             f_d_knee = 0.0
         elif is_hip_thrust:
+            cur_force_dx = force_dx
+            cur_force_dy = force_dy
+            cur_force_dir = force_dir_name
             f_d_knee = 0.0
             f_d_hip = 0.0
             f_d_sh = 0.0
             f_d_el = 0.0
         else:
+            cur_force_dx = force_dx
+            cur_force_dy = force_dy
+            cur_force_dir = force_dir_name
             f_d_knee = abs(kn_x - hp_x)
             f_d_hip = abs(hp_x - ak_x) if not any(k in ex_lower for k in ["deadlift", "rdl"]) else abs(hp_x - wr_x)
             f_d_sh = 0.0
@@ -1599,9 +1654,9 @@ def process_kinematics(
             "secondary_angle": round(float(clean_secondary[f]), 1),
             "force_vector": {
                 "origin": force_origin,
-                "direction": force_dir_name,
-                "dx": round(float(force_dx), 2),
-                "dy": round(float(force_dy), 2)
+                "direction": cur_force_dir,
+                "dx": round(float(cur_force_dx), 2),
+                "dy": round(float(cur_force_dy), 2)
             },
             "keypoints_norm": {
                 # Bilateral anatomical skeleton
