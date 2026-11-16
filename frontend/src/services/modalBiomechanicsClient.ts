@@ -12,6 +12,9 @@ export interface ExerciseConfig {
   targetMuscle: string;
   loadType: string;
   customNotes?: string;
+  weightKg?: number;
+  targetReps?: number;
+  anthropometry?: any;
 }
 
 export interface Keypoint2D {
@@ -54,11 +57,42 @@ export interface RepetitionVerdict {
 export interface IntensityMetrics {
   estimated_rir: string;
   estimated_rpe: number;
+  exact_rir?: number;
+  exact_rpe?: number;
+  v_fail?: number;
+  delta_v_rep?: number;
+  estimated_1rm_kg?: number;
   velocity_loss_pct: number;
   first_rep_vel: number;
+  v_best?: number;
   last_rep_vel: number;
   max_rep_vel: number;
   rep_velocities: number[];
+  status_text?: string;
+}
+
+export interface AnthropometricRatios {
+  femur_to_torso: number;
+  tibia_to_femur: number;
+  arm_to_torso: number;
+  clavicle_to_pelvis: number;
+}
+
+export interface AnthropometricProfile {
+  success: boolean;
+  ratios: AnthropometricRatios;
+  population_means: AnthropometricRatios;
+  archetype: string;
+  archetype_description: string;
+  custom_thresholds: {
+    squat_torso_tolerance_deg: number;
+    press_elbow_depth_deg: number;
+    rdl_hip_hinge_depth_deg: number;
+    archetype: string;
+  };
+  frontImage?: string;
+  sideImage?: string;
+  date?: string;
 }
 
 export interface RepetitionSummary {
@@ -89,6 +123,8 @@ export interface BiomechanicsFrame {
   keypoints_norm: NormalizedKeypoints;
   moment_arms: MomentArms;
   verdict: RepetitionVerdict;
+  force_vector?: { origin?: string; direction?: string; dx?: number; dy?: number };
+  [key: string]: any;
 }
 
 export interface BiomechanicsAnalysisResponse {
@@ -215,7 +251,10 @@ export async function analyzeVideoWithModal(
           target_muscle: String(config.targetMuscle),
           load_type: String(config.loadType),
           start_time: startTime,
-          end_time: endTime
+          end_time: endTime,
+          weight_kg: config.weightKg,
+          target_reps: config.targetReps,
+          anthropometry: config.anthropometry
         })
       });
     } else {
@@ -266,4 +305,50 @@ export async function analyzeVideoWithModal(
       activeAbortController = null;
     }
   }
+}
+
+/**
+ * Dispatches client calibration photos (frontal and lateral) to Cerebrium to evaluate
+ * distance-invariant anatomical ratios and classify structural archetype.
+ */
+export async function analyzeAnthropometry(
+  frontBase64: string,
+  sideBase64: string
+): Promise<AnthropometricProfile> {
+  const endpointUrl =
+    (import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL as string | undefined)?.trim() ||
+    'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
+
+  const apiKey =
+    (import.meta.env.VITE_CEREBRIUM_API_KEY as string | undefined)?.trim() ||
+    (import.meta.env.VITE_CEREBRIUM_TOKEN as string | undefined)?.trim() ||
+    '';
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const payload = {
+    action: 'anthropometry',
+    front_image_base64: frontBase64,
+    side_image_base64: sideBase64
+  };
+
+  const response = await fetch(endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Error al analizar antropometría (${response.status}): ${errorText || response.statusText}`);
+  }
+
+  const rawJson = await response.json();
+  const data = (rawJson.result || rawJson.data || rawJson) as AnthropometricProfile;
+  return data;
 }

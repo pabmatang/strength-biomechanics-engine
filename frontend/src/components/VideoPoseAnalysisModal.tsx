@@ -29,14 +29,19 @@ import {
   Settings2,
   Loader2,
   Eye,
-  EyeOff
+  EyeOff,
+  Dna,
+  Flame
 } from 'lucide-react';
+import { AnthropometricProfileModal } from './AnthropometricProfileModal';
+import { EffectiveVolumeAudit } from './EffectiveVolumeAudit';
 import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
   analyzeVideoWithModal,
   BiomechanicsAnalysisResponse,
   BiomechanicsFrame,
   ExerciseConfig,
+  IntensityMetrics,
   RepetitionSummary
 } from '../services/modalBiomechanicsClient';
 import {
@@ -391,6 +396,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [showEngineSettings, setShowEngineSettings] = useState<boolean>(false);
   const [showConfigBottomSheet, setShowConfigBottomSheet] = useState<boolean>(false);
 
+  // VBT & Clinical Personalization States
+  const [weightKg, setWeightKg] = useState<number | undefined>(undefined);
+  const [targetReps, setTargetReps] = useState<number | undefined>(undefined);
+  const [showAnthropometryModal, setShowAnthropometryModal] = useState<boolean>(false);
+  const [showVolumeAuditModal, setShowVolumeAuditModal] = useState<boolean>(false);
+  const [showGhostSkeleton, setShowGhostSkeleton] = useState<boolean>(false);
+  const [previousSessionData, setPreviousSessionData] = useState<any>(null);
+
   // Pipeline execution & analysis state
   const [pipelineState, setPipelineState] = useState<'idle' | 'compressing' | 'analyzing' | 'ready' | 'error'>('idle');
   const [pipelineMessage, setPipelineMessage] = useState<string>('');
@@ -441,6 +454,21 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   }, [isOpen]);
 
+  // Load previous session for ghost skeleton
+  useEffect(() => {
+    const exId = selectedExerciseId || activeExercise?.id || 'exercise';
+    try {
+      const saved = localStorage.getItem(`biomechanics_history_${exId}`);
+      if (saved) {
+        setPreviousSessionData(JSON.parse(saved));
+      } else {
+        setPreviousSessionData(null);
+      }
+    } catch (e) {
+      setPreviousSessionData(null);
+    }
+  }, [selectedExerciseId, activeExercise]);
+
   // Execute Analysis when video or exercise config changes
   const runPipelineAnalysis = useCallback(async (
     blob: Blob,
@@ -458,10 +486,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       if (load === 'cable') backendLoad = 'cable';
       else if (load === 'machine') backendLoad = 'machine';
 
+      let userProfile = null;
+      try {
+        const pSaved = localStorage.getItem('client_anthropometric_profile');
+        if (pSaved) userProfile = JSON.parse(pSaved);
+      } catch (e) {}
+
       const config: ExerciseConfig = {
         exerciseType: exType,
         targetMuscle: muscle,
-        loadType: backendLoad
+        loadType: backendLoad,
+        weightKg: weightKg && weightKg > 0 ? weightKg : undefined,
+        targetReps: targetReps && targetReps > 0 ? targetReps : undefined,
+        anthropometry: userProfile
       };
 
       const result = await analyzeVideoWithModal(blob, config, fileId, { range });
@@ -469,6 +506,38 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setRepCount(result.total_reps);
       setPipelineState('ready');
       setPipelineMessage('');
+
+      // Persist session to local history for zero-storage ghost comparison
+      try {
+        const histKey = `biomechanics_history_${exType}`;
+        const lastVerdict = result.repetitions_summary?.[result.repetitions_summary.length - 1]?.verdict;
+        const dSh = lastVerdict?.d_shoulder_norm || 0;
+        const dEl = lastVerdict?.d_knee_norm || lastVerdict?.d_hip_norm || 0;
+        const totalD = dSh + dEl;
+        const primaryPct = totalD > 0 ? Math.round((dSh / totalD) * 100) : 65;
+
+        const histRecord = {
+          date: new Date().toISOString(),
+          exerciseId: exType,
+          weightKg,
+          targetReps,
+          v_best: result.intensity_metrics?.v_best,
+          exact_rir: result.intensity_metrics?.exact_rir,
+          exact_rpe: result.intensity_metrics?.exact_rpe,
+          torque_split: `${primaryPct}% vs ${100 - primaryPct}%`,
+          frames: result.frames.filter((_, idx) => idx % 3 === 0).map(f => ({
+            time: f.time,
+            phase: f.phase,
+            main_angle: f.main_angle,
+            keypoints_norm: f.keypoints_norm,
+            force_vector: f.force_vector
+          }))
+        };
+        localStorage.setItem(histKey, JSON.stringify(histRecord));
+        setPreviousSessionData(histRecord);
+      } catch (e) {
+        console.warn('Could not save session to local history', e);
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         console.info('[Pipeline] Análisis cancelado por nueva petición.');
@@ -478,7 +547,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineState('error');
       setPipelineMessage(err?.message || 'Error al conectar con el microservicio GPU.');
     }
-  }, []);
+  }, [weightKg, targetReps]);
 
   // Video File Upload Handler - Loads video preview and shows Trimmer before analyzing
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -610,6 +679,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             panOffset,
             showLeverArms,
             showCanvasText,
+            showGhost: showGhostSkeleton,
+            previousSession: previousSessionData,
             exerciseId: selectedExerciseId || activeExercise?.id || '',
             muscleGroupId: selectedMuscleGroupId
           });
@@ -629,7 +700,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       cancelled = true;
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, selectedMuscleGroupId, selectedExerciseId, activeExercise, trimStart, trimEnd]);
+  }, [analysisData, analysisMode, zoom, panOffset, showLeverArms, showCanvasText, showGhostSkeleton, previousSessionData, selectedMuscleGroupId, selectedExerciseId, activeExercise, trimStart, trimEnd]);
 
   /**
    * Surgical 1:1 Canvas Projection and Clean Visual Layer Separation
@@ -644,6 +715,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       panOffset: { x: number; y: number };
       showLeverArms: boolean;
       showCanvasText: boolean;
+      showGhost?: boolean;
+      previousSession?: any;
       exerciseId: string;
       muscleGroupId?: string;
     }
@@ -1308,6 +1381,76 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       }
     }
 
+    // -------------------------------------------------------------
+    // MÓDULO 3: FANTASMA BIOMECÁNICO (ZERO-STORAGE SESSION COMPARISON)
+    // -------------------------------------------------------------
+    if (options.showGhost && options.previousSession?.frames?.length > 0) {
+      const ghostFrames = options.previousSession.frames;
+      const totalDur = Math.max(0.1, (analysisData?.frames[analysisData.frames.length - 1]?.time || 1) - (analysisData?.frames[0]?.time || 0));
+      const curProg = Math.max(0, Math.min(1, (frame.time - (analysisData?.frames[0]?.time || 0)) / totalDur));
+      const gIdx = Math.min(ghostFrames.length - 1, Math.max(0, Math.floor(curProg * (ghostFrames.length - 1))));
+      const gFrame = ghostFrames[gIdx];
+      const gKp = gFrame?.keypoints_norm;
+
+      if (gKp) {
+        const gSh = { x: px(gKp.shoulder?.x ?? 0.5), y: py(gKp.shoulder?.y ?? 0.5) };
+        const gEl = { x: px(gKp.elbow?.x ?? 0.5), y: py(gKp.elbow?.y ?? 0.5) };
+        const gWr = { x: px(gKp.wrist?.x ?? 0.5), y: py(gKp.wrist?.y ?? 0.5) };
+        const gHp = { x: px(gKp.hip?.x ?? 0.5), y: py(gKp.hip?.y ?? 0.5) };
+        const gKn = { x: px(gKp.knee?.x ?? 0.5), y: py(gKp.knee?.y ?? 0.5) };
+        const gAk = { x: px(gKp.ankle?.x ?? 0.5), y: py(gKp.ankle?.y ?? 0.5) };
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.45)';
+        ctx.lineWidth = 2.0;
+        ctx.setLineDash([4, 4]);
+
+        if (isUpperBody) {
+          ctx.beginPath();
+          ctx.moveTo(gSh.x, gSh.y);
+          ctx.lineTo(gEl.x, gEl.y);
+          ctx.lineTo(gWr.x, gWr.y);
+          ctx.stroke();
+          if ((gKp.hip?.score ?? 1) >= 0.5) {
+            ctx.beginPath();
+            ctx.moveTo(gSh.x, gSh.y);
+            ctx.lineTo(gHp.x, gHp.y);
+            ctx.stroke();
+          }
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(gHp.x, gHp.y);
+          ctx.lineTo(gKn.x, gKn.y);
+          ctx.lineTo(gAk.x, gAk.y);
+          ctx.stroke();
+        }
+
+        // Ghost wrist point
+        ctx.beginPath();
+        ctx.arc(gWr.x, gWr.y, 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.6)';
+        ctx.fill();
+
+        ctx.restore();
+
+        // Comparison HUD Tag
+        const prevV = options.previousSession.v_best || 0;
+        const currV = analysisData?.intensity_metrics?.v_best || 0;
+        const vDiff = prevV > 0 ? Math.round(((currV - prevV) / prevV) * 100) : 0;
+        const vDiffText = vDiff >= 0 ? `+${vDiff}%` : `${vDiff}%`;
+        const prevRir = options.previousSession.exact_rir ?? '2.0';
+        const currRir = analysisData?.intensity_metrics?.exact_rir ?? '0.0';
+
+        drawPillTag(
+          offsetX + 12,
+          offsetY + 12,
+          `👻 Fantasma vs Anterior: Vel ${vDiffText} · RIR ${prevRir} → ${currRir}`,
+          'rgba(34, 211, 238, 0.8)',
+          '#22D3EE'
+        );
+      }
+    }
+
     ctx.restore();
   };
 
@@ -1751,13 +1894,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     : '1.1';
 
   // Velocity Based Training (VBT) & Intensity metrics
-  const intensity = analysisData?.intensity_metrics || (() => {
+  const intensity: IntensityMetrics = analysisData?.intensity_metrics || (() => {
     if (!analysisData?.repetitions_summary?.length || analysisData.repetitions_summary.length < 2) {
       return {
         estimated_rir: 'N/A',
         estimated_rpe: 0,
+        exact_rir: undefined,
+        exact_rpe: undefined,
+        v_fail: undefined,
+        delta_v_rep: undefined,
+        estimated_1rm_kg: undefined,
         velocity_loss_pct: 0,
         first_rep_vel: 0,
+        v_best: 0,
         last_rep_vel: 0,
         max_rep_vel: 0,
         rep_velocities: []
@@ -1797,8 +1946,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     return {
       estimated_rir: rir,
       estimated_rpe: rpe,
+      exact_rir: undefined,
+      exact_rpe: undefined,
+      v_fail: undefined,
+      delta_v_rep: undefined,
+      estimated_1rm_kg: undefined,
       velocity_loss_pct: loss,
       first_rep_vel: vels[0] || 0,
+      v_best: maxV,
       last_rep_vel: lastV,
       max_rep_vel: maxV,
       rep_velocities: vels
@@ -1973,6 +2128,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   {showLeverArms ? <Eye className="w-3.5 h-3.5 text-amber-300" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
                   <span>{showLeverArms ? 'Brazos: ON' : 'Brazos: OFF'}</span>
                 </button>
+
+                {/* Ghost Skeleton Toggle */}
+                {previousSessionData && (
+                  <button
+                    type="button"
+                    onClick={() => setShowGhostSkeleton(prev => !prev)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition active:scale-95 ${
+                      showGhostSkeleton
+                        ? 'bg-cyan-500/25 text-cyan-300 border-cyan-400/50 shadow-sm shadow-cyan-500/20'
+                        : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
+                    }`}
+                    title={showGhostSkeleton ? 'Ocultar Fantasma de Sesión Anterior' : 'Comparar con Esqueleto Fantasma de Sesión Anterior'}
+                  >
+                    <span>👻</span>
+                    <span>{showGhostSkeleton ? 'Fantasma: ON' : 'Fantasma: OFF'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2295,9 +2467,63 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
             {/* Muscle Group & Exercise Catalog Selector */}
             <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                Grupo Muscular y Ejercicio Evaluado
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Grupo Muscular y Ejercicio Evaluado
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAnthropometryModal(true)}
+                    className="px-2.5 py-1 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/90 border border-cyan-800/70 text-cyan-300 text-[10px] font-bold flex items-center gap-1 transition active:scale-95 shadow-sm"
+                    title="Configurar Pasaporte Biomecánico del Atleta"
+                  >
+                    <Dna className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Pasaporte</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowVolumeAuditModal(true)}
+                    className="px-2.5 py-1 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-800/70 text-emerald-300 text-[10px] font-bold flex items-center gap-1 transition active:scale-95 shadow-sm"
+                    title="Auditoría de Volumen Efectivo Real por Músculo"
+                  >
+                    <Flame className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Volumen Real</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* VBT Compact Configuration: Peso (kg) y Reps objetivo */}
+              <div className="grid grid-cols-2 gap-2 p-2 rounded-xl bg-slate-950/80 border border-slate-800/90 text-xs">
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                    Carga / Peso (kg)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    placeholder="Opcional (e1RM)"
+                    value={weightKg ?? ''}
+                    onChange={(e) => setWeightKg(e.target.value ? parseFloat(e.target.value) : undefined)}
+                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                    Reps Objetivo
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Opcional"
+                    value={targetReps ?? ''}
+                    onChange={(e) => setTargetReps(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
 
               {/* Muscle Group Tabs */}
               <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-800">
@@ -2498,9 +2724,22 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     }`}>
                       {(analysisData?.total_reps ?? 0) < 2
                         ? 'VBT: Requiere ≥ 2 reps'
-                        : `RIR ${intensity.estimated_rir} · RPE ${intensity.estimated_rpe.toFixed(1)}`}
+                        : `RIR ${intensity.exact_rir !== undefined ? intensity.exact_rir : intensity.estimated_rir} · RPE ${(intensity.exact_rpe !== undefined ? intensity.exact_rpe : intensity.estimated_rpe).toFixed(1)}`}
                     </span>
                   </div>
+
+                  {/* e1RM Badge if available */}
+                  {intensity.estimated_1rm_kg && (
+                    <div className="p-2 rounded-xl bg-gradient-to-r from-cyan-950/40 to-slate-950/80 border border-cyan-800/50 flex items-center justify-between text-xs">
+                      <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                        <Flame className="w-3.5 h-3.5 text-amber-400" />
+                        1RM Estimado (e1RM):
+                      </span>
+                      <span className="font-mono font-black text-cyan-300 text-sm">
+                        {intensity.estimated_1rm_kg} kg
+                      </span>
+                    </div>
+                  )}
 
                   {(analysisData?.total_reps ?? 0) < 2 ? (
                     <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-center">
@@ -2518,14 +2757,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         <span className="text-sm font-black text-amber-300 font-mono">
                           -{intensity.velocity_loss_pct}%
                         </span>
-                        <span className="text-[9px] text-slate-500 block">Fatiga concéntrica en serie</span>
+                        <span className="text-[9px] text-slate-500 block">
+                          {intensity.delta_v_rep ? `Pérdida: ${intensity.delta_v_rep}°/s por rep` : 'Fatiga concéntrica en serie'}
+                        </span>
                       </div>
                       <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                         <span className="text-[9px] text-slate-400 font-bold uppercase block">Velocidad Ini / Fin</span>
                         <span className="text-sm font-black text-cyan-300 font-mono">
                           {Math.round(intensity.first_rep_vel)}°/s → {Math.round(intensity.last_rep_vel)}°/s
                         </span>
-                        <span className="text-[9px] text-slate-500 block">Velocidad angular media</span>
+                        <span className="text-[9px] text-slate-500 block">
+                          {intensity.v_fail ? `V_fail crítica: ${intensity.v_fail}°/s` : 'Velocidad angular media'}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -2548,12 +2791,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           const maxV = Math.max(...vels, 1);
                           const minV = Math.max(0, Math.min(...vels) * 0.7);
                           const rangeV = Math.max(maxV - minV, 10);
-                          const pts = vels.map((v, i) => {
+                          const pts = vels.map((v: number, i: number) => {
                             const x = vels.length === 1 ? 50 : (i / (vels.length - 1)) * 92 + 4;
                             const y = 38 - ((v - minV) / rangeV) * 32;
                             return { x, y, v };
                           });
-                          const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                          const pathD = pts.map((p: any, i: number) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
                           const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} 44 L ${pts[0].x.toFixed(1)} 44 Z`;
                           return (
                             <svg className="w-full h-full overflow-visible block" viewBox="0 0 100 44" preserveAspectRatio="none">
@@ -2565,7 +2808,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                               </defs>
                               <path d={areaD} fill="url(#fatigueAreaGrad)" />
                               <path d={pathD} fill="none" stroke="#22D3EE" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                              {pts.map((p, i) => (
+                              {pts.map((p: any, i: number) => (
                                 <g key={i}>
                                   <circle
                                     cx={p.x}
@@ -2584,7 +2827,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
                       {/* Rep Bar Indicators with guaranteed heights and labels */}
                       <div className="h-10 w-full flex items-end gap-1.5 pt-1 border-t border-slate-900">
-                        {intensity.rep_velocities.map((vel, idx) => {
+                        {intensity.rep_velocities.map((vel: number, idx: number) => {
                           const maxV = intensity.max_rep_vel || 1;
                           const barHeightPct = Math.max(20, Math.min(100, Math.round((vel / maxV) * 100)));
                           const isLast = idx === intensity.rep_velocities.length - 1;
@@ -2713,6 +2956,20 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             )}
           </div>
         </div>
+
+        {/* MÓDULO 2 & 4: Modales Clínicos Especializados */}
+        <AnthropometricProfileModal
+          isOpen={showAnthropometryModal}
+          onClose={() => setShowAnthropometryModal(false)}
+        />
+        <EffectiveVolumeAudit
+          isOpen={showVolumeAuditModal}
+          onClose={() => setShowVolumeAuditModal(false)}
+          currentAnalysis={analysisData}
+          exerciseId={selectedExerciseId || activeExercise?.id || ''}
+          weightKg={weightKg}
+          targetReps={targetReps}
+        />
       </div>
     </div>
   );

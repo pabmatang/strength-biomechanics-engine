@@ -14,6 +14,7 @@ os.environ["HF_HOME"] = "/persistent-storage/hf_cache"
 os.environ["TORCH_HOME"] = "/persistent-storage/hf_cache/torch"
 
 import base64
+import io
 import tempfile
 import math
 from typing import Dict, List, Any, Optional, Tuple
@@ -384,8 +385,8 @@ def run_inference_batches(
         sb = smoothed_boxes[f_idx]
         bw = sb[2] - sb[0]
         bh = sb[3] - sb[1]
-        pad_w = 0.08 * bw
-        pad_h = 0.08 * bh
+        pad_w = 0.12 * bw
+        pad_h = 0.15 * bh
         x1_pad = max(0.0, sb[0] - pad_w)
         y1_pad = max(0.0, sb[1] - pad_h)
         x2_pad = min(float(eff_w), sb[2] + pad_w)
@@ -638,7 +639,10 @@ def process_kinematics(
     load_type: str,
     athlete_boxes: Optional[List[Dict[str, float]]] = None,
     img_w: int = 1280,
-    img_h: int = 720
+    img_h: int = 720,
+    weight_kg: Optional[float] = None,
+    target_reps: Optional[int] = None,
+    anthropometry: Optional[Dict[str, Any]] = None
 ):
     """
     High-density kinematic pipeline organized around 3 Universal Biomechanical Patterns:
@@ -1913,59 +1917,99 @@ def process_kinematics(
                 rom_pen = (last_r["rom_deg"] / max(best_rom, 1.0)) ** 2
                 last_r["concentric_velocity_deg_s"] = round(float(np.clip(last_r["concentric_velocity_deg_s"] * rom_pen, 25.0, 140.0)), 1)
 
-    # 8. Velocity-Based Training (VBT) Intensity Estimation
-    if len(repetitions_summary) >= 2:
-        rep_vels = [r["concentric_velocity_deg_s"] for r in repetitions_summary]
-        # Bug 5 Fix: Use median of first 2 reps as v_ref (not polluted by initial jerk)
-        v_ref = float(np.median(rep_vels[:min(2, len(rep_vels))]))
-        first_rep_vel = rep_vels[0]
-        last_rep_vel = rep_vels[-1]
-        max_rep_vel = max(rep_vels) if rep_vels else 1.0
+    # 8. Velocity-Based Training (VBT) Precision Engine
+    # Map V_fail by mechanical movement pattern:
+    # - press / bench_press / chest_press_machine / dips: 28.0 °/s
+    # - squat / bulgarian / leg_press: 35.0 °/s
+    # - hip_thrust / rdl / deadlift: 26.0 °/s
+    # - rowing / pulldown / curl: 42.0 °/s
+    if is_pattern_c:
+        if is_hip_thrust or any(k in ex_lower for k in ["rdl", "deadlift", "peso_muerto"]):
+            v_fail = 26.0
+        else:
+            v_fail = 35.0
+    elif is_pattern_b:
+        v_fail = 28.0
+    else:
+        v_fail = 42.0
 
-        vel_loss = round(float(max(0.0, ((v_ref - last_rep_vel) / max(v_ref, 1e-4)) * 100.0)), 1)
+    if len(repetitions_summary) >= 2:
+        rep_vels = [float(r["concentric_velocity_deg_s"]) for r in repetitions_summary]
+        N = len(rep_vels)
+        # Reference velocity v_best from fastest of first min(3, N) reps
+        v_best = float(max(rep_vels[:min(3, N)]))
+        v_last = float(rep_vels[-1])
+        first_rep_vel = float(rep_vels[0])
+        max_rep_vel = float(max(rep_vels))
+
+        # Velocity decay slope per rep towards terminal failure
+        delta_v_rep = float(max(1.5, (v_best - v_last) / max(1, N - 1)))
+
+        # Exact RIR & RPE calculation via linear decay towards critical failure velocity
+        exact_rir = round(float(max(0.0, min(5.0, (v_last - v_fail) / delta_v_rep))), 1)
+        exact_rpe = round(float(10.0 - exact_rir), 1)
+
+        vel_loss = round(float(max(0.0, ((v_best - v_last) / max(v_best, 1e-4)) * 100.0)), 1)
         med_rom_val = float(np.median([r["rom_deg"] for r in repetitions_summary]))
         has_rom_failure = bool(repetitions_summary[-1]["rom_deg"] < 0.70 * med_rom_val)
 
-        # Bug 5 Fix: Realistic Gym Fatigue Calibration
-        # < 15% -> RIR 3+ · RPE 6.5 - 7.0
-        # 15% - 25% -> RIR 2 · RPE 8.0
-        # 25% - 38% -> RIR 1 · RPE 8.5 - 9.0
-        # > 38% (o fallo de ROM < 70%) -> RIR 0 · RPE 9.5 - 10.0
-        if vel_loss > 38.0 or has_rom_failure:
-            rir_est = "0"
-            rpe_est = 10.0 if (vel_loss >= 45.0 or has_rom_failure) else 9.5
-        elif vel_loss >= 25.0:
-            rir_est = "1"
-            rpe_est = 9.0 if vel_loss >= 32.0 else 8.5
-        elif vel_loss >= 15.0:
-            rir_est = "2"
-            rpe_est = 8.0
-        else:
-            rir_est = "3+"
-            rpe_est = 7.0 if vel_loss >= 8.0 else 6.5
+        if has_rom_failure or v_last <= v_fail:
+            exact_rir = 0.0
+            exact_rpe = 10.0
+
+        estimated_1rm_kg = None
+        if weight_kg is not None:
+            try:
+                w_val = float(weight_kg)
+                if w_val > 0:
+                    estimated_1rm_kg = round(w_val * (1.0 + (N + exact_rir) / 30.0), 1)
+            except (ValueError, TypeError):
+                estimated_1rm_kg = None
 
         intensity_metrics = {
-            "estimated_rir": rir_est,
-            "estimated_rpe": rpe_est,
+            "estimated_rir": f"RIR {exact_rir}",
+            "estimated_rpe": exact_rpe,
+            "exact_rir": exact_rir,
+            "exact_rpe": exact_rpe,
+            "v_fail": v_fail,
+            "delta_v_rep": round(delta_v_rep, 1),
+            "estimated_1rm_kg": estimated_1rm_kg,
             "velocity_loss_pct": vel_loss,
-            "first_rep_vel": round(v_ref, 1),
-            "v_best": round(v_ref, 1),
-            "last_rep_vel": last_rep_vel,
+            "first_rep_vel": round(first_rep_vel, 1),
+            "v_best": round(v_best, 1),
+            "last_rep_vel": round(v_last, 1),
             "max_rep_vel": round(max_rep_vel, 1),
             "rep_velocities": rep_vels,
-            "status_text": "VBT Óptimo"
+            "status_text": "VBT Óptimo (Linear V_fail)"
         }
     else:
-        # Fallback for 0 or 1 repetition: requires >= 2 reps for true fatigue evaluation
+        v_last = float(repetitions_summary[0]["concentric_velocity_deg_s"]) if repetitions_summary else 0.0
+        delta_v_rep = 5.0
+        exact_rir = round(float(max(0.0, min(5.0, (v_last - v_fail) / delta_v_rep))), 1) if v_last > 0 else 3.0
+        exact_rpe = round(float(10.0 - exact_rir), 1)
+        estimated_1rm_kg = None
+        if weight_kg is not None:
+            try:
+                w_val = float(weight_kg)
+                if w_val > 0:
+                    estimated_1rm_kg = round(w_val * (1.0 + (1 + exact_rir) / 30.0), 1)
+            except (ValueError, TypeError):
+                estimated_1rm_kg = None
+
         intensity_metrics = {
-            "estimated_rir": "N/A",
-            "estimated_rpe": 0.0,
+            "estimated_rir": f"RIR {exact_rir}" if len(repetitions_summary) == 1 else "N/A",
+            "estimated_rpe": exact_rpe if len(repetitions_summary) == 1 else 0.0,
+            "exact_rir": exact_rir if len(repetitions_summary) == 1 else None,
+            "exact_rpe": exact_rpe if len(repetitions_summary) == 1 else None,
+            "v_fail": v_fail,
+            "delta_v_rep": delta_v_rep,
+            "estimated_1rm_kg": estimated_1rm_kg,
             "velocity_loss_pct": 0.0,
-            "first_rep_vel": 0.0,
-            "last_rep_vel": 0.0,
-            "max_rep_vel": 0.0,
-            "rep_velocities": [],
-            "status_text": "VBT: Requiere ≥ 2 reps"
+            "first_rep_vel": round(v_last, 1),
+            "last_rep_vel": round(v_last, 1),
+            "max_rep_vel": round(v_last, 1),
+            "rep_velocities": [v_last] if repetitions_summary else [],
+            "status_text": "VBT: Estimado (1 rep)" if len(repetitions_summary) == 1 else "VBT: Requiere ≥ 2 reps"
         }
 
     # 9. Per-Frame Output Projection
@@ -2295,6 +2339,161 @@ def _extract_video_to_tempfile(
         
     raise ValueError("No valid video payload provided (expected base64 or video_url).")
 
+def _decode_b64_image(b64_str: Any) -> Optional[np.ndarray]:
+    if not b64_str or not isinstance(b64_str, str):
+        return None
+    raw_str = b64_str.strip()
+    if "," in raw_str:
+        raw_str = raw_str.split(",", 1)[1]
+    try:
+        raw_bytes = base64.b64decode(raw_str)
+        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        return np.array(pil_img)
+    except Exception as e:
+        print(f"[Anthropometry] Image decode failed: {e}")
+        return None
+
+def analyze_anthropometry(
+    front_image_base64=None,
+    side_image_base64=None,
+    **kwargs
+) -> dict:
+    """
+    Analyzes client anthropometric proportions from frontal and lateral calibration photos.
+    Uses RT-DETR + ViTPose to extract 17 anatomical keypoints and calculates
+    distance-invariant bone ratios:
+    - femur_to_torso_ratio: ||hip - knee|| / ||shoulder - hip|| (Population Mean ~0.82)
+    - tibia_to_femur_ratio: ||knee - ankle|| / ||hip - knee|| (Population Mean ~0.88)
+    - arm_to_torso_ratio: (||shoulder - elbow|| + ||elbow - wrist||) / ||shoulder - hip|| (Population Mean ~1.12)
+    - clavicle_to_pelvis_ratio: ||left_shoulder - right_shoulder|| / ||left_hip - right_hip|| (Population Mean ~1.35)
+    Returns structural archetype classification and custom biomechanical thresholds.
+    """
+    if isinstance(front_image_base64, dict):
+        payload = front_image_base64
+        front_image_base64 = payload.get("front_image_base64")
+        side_image_base64 = payload.get("side_image_base64")
+    else:
+        front_image_base64 = front_image_base64 or kwargs.get("front_image_base64")
+        side_image_base64 = side_image_base64 or kwargs.get("side_image_base64")
+
+    front_rgb = _decode_b64_image(front_image_base64)
+    side_rgb = _decode_b64_image(side_image_base64)
+
+    images_to_process = []
+    tags = []
+    if front_rgb is not None:
+        images_to_process.append(front_rgb)
+        tags.append("front")
+    if side_rgb is not None:
+        images_to_process.append(side_rgb)
+        tags.append("side")
+
+    if not images_to_process:
+        raise ValueError("At least one valid image (front_image_base64 or side_image_base64) must be provided.")
+
+    keypoints_per_tag = {}
+    for img, tag in zip(images_to_process, tags):
+        kps_list, _ = run_inference_batches([img], batch_size=1)
+        if kps_list:
+            keypoints_per_tag[tag] = kps_list[0]
+
+    ref_side = keypoints_per_tag.get("side") or keypoints_per_tag.get("front")
+    ref_front = keypoints_per_tag.get("front") or keypoints_per_tag.get("side")
+
+    def pt(kps, name):
+        p = kps.get(name, {"x": 0.5, "y": 0.5, "score": 0.0})
+        return np.array([p["x"], p["y"]], dtype=np.float64)
+
+    # 1. Torso length
+    sh_side = 0.5 * (pt(ref_side, "left_shoulder") + pt(ref_side, "right_shoulder"))
+    hp_side = 0.5 * (pt(ref_side, "left_hip") + pt(ref_side, "right_hip"))
+    torso_len = max(0.10, float(np.linalg.norm(sh_side - hp_side)))
+
+    # 2. Femur length
+    l_femur = float(np.linalg.norm(pt(ref_side, "left_hip") - pt(ref_side, "left_knee")))
+    r_femur = float(np.linalg.norm(pt(ref_side, "right_hip") - pt(ref_side, "right_knee")))
+    femur_len = max(l_femur, r_femur) if (l_femur > 0.05 and r_femur > 0.05) else (l_femur or r_femur or 0.25)
+
+    # 3. Tibia length
+    l_tibia = float(np.linalg.norm(pt(ref_side, "left_knee") - pt(ref_side, "left_ankle")))
+    r_tibia = float(np.linalg.norm(pt(ref_side, "right_knee") - pt(ref_side, "right_ankle")))
+    tibia_len = max(l_tibia, r_tibia) if (l_tibia > 0.05 and r_tibia > 0.05) else (l_tibia or r_tibia or 0.22)
+
+    # 4. Arm length
+    l_arm = float(np.linalg.norm(pt(ref_side, "left_shoulder") - pt(ref_side, "left_elbow")) + np.linalg.norm(pt(ref_side, "left_elbow") - pt(ref_side, "left_wrist")))
+    r_arm = float(np.linalg.norm(pt(ref_side, "right_shoulder") - pt(ref_side, "right_elbow")) + np.linalg.norm(pt(ref_side, "right_elbow") - pt(ref_side, "right_wrist")))
+    arm_len = max(l_arm, r_arm) if (l_arm > 0.05 and r_arm > 0.05) else (l_arm or r_arm or 0.35)
+
+    # 5. Clavicle vs Pelvis width
+    clavicle_w = float(np.linalg.norm(pt(ref_front, "left_shoulder") - pt(ref_front, "right_shoulder")))
+    pelvis_w = max(0.04, float(np.linalg.norm(pt(ref_front, "left_hip") - pt(ref_front, "right_hip"))))
+
+    femur_to_torso = float(femur_len / torso_len)
+    tibia_to_femur = float(tibia_len / max(0.05, femur_len))
+    arm_to_torso = float(arm_len / torso_len)
+    clavicle_to_pelvis = float(clavicle_w / pelvis_w)
+
+    archetypes = []
+    if femur_to_torso > 0.88:
+        archetypes.append("Fémur Largo / Torso Corto")
+    elif femur_to_torso < 0.76:
+        archetypes.append("Fémur Corto / Torso Largo")
+
+    if arm_to_torso > 1.18:
+        archetypes.append("Envergadura Larga")
+    elif arm_to_torso < 1.04:
+        archetypes.append("Brazos Cortos")
+
+    if clavicle_to_pelvis > 1.45:
+        archetypes.append("Estructura en V")
+
+    primary_archetype = " · ".join(archetypes) if archetypes else "Proporciones Equilibradas / Neutras"
+
+    archetype_desc = []
+    squat_torso_tol = 0.0
+    press_elbow_depth = 0.0
+    rdl_depth = 0.0
+
+    if femur_to_torso > 0.88:
+        squat_torso_tol += 10.0
+        rdl_depth += 6.0
+        archetype_desc.append("Palanca dominante de cadera: mayor inclinación de torso biomecánicamente óptima y segura en sentadilla/RDL.")
+    elif femur_to_torso < 0.76:
+        squat_torso_tol -= 5.0
+        archetype_desc.append("Palanca ideal para sentadilla profunda vertical con mínimo momento flexor lumbar.")
+
+    if arm_to_torso > 1.18:
+        press_elbow_depth += 8.0
+        archetype_desc.append("Mayor recorrido en ejercicios de empuje: se tolera mayor flexión de codo sin riesgo glenohumeral.")
+    elif arm_to_torso < 1.04:
+        archetype_desc.append("Palanca favorable de empuje con trayectoria compacta y óptima producción de fuerza.")
+
+    custom_thresholds = {
+        "squat_torso_tolerance_deg": squat_torso_tol,
+        "press_elbow_depth_deg": press_elbow_depth,
+        "rdl_hip_hinge_depth_deg": rdl_depth,
+        "archetype": primary_archetype
+    }
+
+    return {
+        "success": True,
+        "ratios": {
+            "femur_to_torso": round(femur_to_torso, 2),
+            "tibia_to_femur": round(tibia_to_femur, 2),
+            "arm_to_torso": round(arm_to_torso, 2),
+            "clavicle_to_pelvis": round(clavicle_to_pelvis, 2)
+        },
+        "population_means": {
+            "femur_to_torso": 0.82,
+            "tibia_to_femur": 0.88,
+            "arm_to_torso": 1.12,
+            "clavicle_to_pelvis": 1.35
+        },
+        "archetype": primary_archetype,
+        "archetype_description": " ".join(archetype_desc) if archetype_desc else "Proporciones anatómicas estándar con palancas equilibradas entre articulaciones.",
+        "custom_thresholds": custom_thresholds
+    }
+
 def analyze(
     video_base64=None,
     video_url=None,
@@ -2304,6 +2503,9 @@ def analyze(
     load_type="free_weight",
     start_time=0.0,
     end_time=None,
+    weight_kg=None,
+    target_reps=None,
+    anthropometry=None,
     **kwargs
 ) -> dict:
     """
@@ -2313,6 +2515,12 @@ def analyze(
     """
     if isinstance(video_base64, dict):
         payload = video_base64
+        # Route to anthropometry if requested
+        if payload.get("action") == "anthropometry" or (payload.get("front_image_base64") is not None and not payload.get("video_base64") and not payload.get("video_url") and not payload.get("video")):
+            return analyze_anthropometry(
+                front_image_base64=payload.get("front_image_base64"),
+                side_image_base64=payload.get("side_image_base64")
+            )
         video_base64 = payload.get("video_base64")
         video_url = payload.get("video_url")
         video = payload.get("video")
@@ -2321,12 +2529,18 @@ def analyze(
         load_type = payload.get("load_type", load_type or "free_weight")
         start_time_val = payload.get("start_time", 0.0)
         end_time_val = payload.get("end_time", None)
+        weight_kg = payload.get("weight_kg", payload.get("weightKg", weight_kg))
+        target_reps = payload.get("target_reps", payload.get("targetReps", target_reps))
+        anthropometry = payload.get("anthropometry", anthropometry)
     else:
         exercise_type = exercise_type or kwargs.get("exercise_type", "hip_thrust")
         target_muscle = target_muscle or kwargs.get("target_muscle", "glutes")
         load_type = load_type or kwargs.get("load_type", "free_weight")
         start_time_val = kwargs.get("start_time", start_time if start_time is not None else 0.0)
         end_time_val = kwargs.get("end_time", end_time)
+        weight_kg = weight_kg or kwargs.get("weight_kg", kwargs.get("weightKg"))
+        target_reps = target_reps or kwargs.get("target_reps", kwargs.get("targetReps"))
+        anthropometry = anthropometry or kwargs.get("anthropometry")
 
     exercise_type = str(exercise_type)
     target_muscle = str(target_muscle)
@@ -2365,7 +2579,10 @@ def analyze(
             load_type=load_type,
             athlete_boxes=athlete_boxes,
             img_w=w,
-            img_h=h
+            img_h=h,
+            weight_kg=weight_kg,
+            target_reps=target_reps,
+            anthropometry=anthropometry
         )
         return result
     finally:
