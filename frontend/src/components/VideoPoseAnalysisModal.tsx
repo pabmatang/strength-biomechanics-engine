@@ -1033,6 +1033,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               }
             }
 
+            // En tracción, la carga tira hacia donde la mano está más lejos del hombro (hacia los discos/máquina)
+            const toHandX = pHand.x - pSh.x;
+            const toHandY = pHand.y - pSh.y;
+            if (toHandX * uX + toHandY * uY < 0) {
+              uX = -uX;
+              uY = -uY;
+            }
+
             // Proyecciones ortogonales sobre la línea de fuerza del antebrazo / máquina
             const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
             const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };

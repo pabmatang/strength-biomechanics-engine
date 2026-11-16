@@ -709,9 +709,14 @@ def process_kinematics(
             box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
             l_torso_median = float(max(0.24, min(0.48, box_h * 0.40)))
 
-        # B. Detect Plate Occlusion: hip_score < 0.52 or femur length deviating > 10%
-        femur_ratio_dev = np.abs(femur_lengths - l_femur_median) / max(l_femur_median, 1e-4)
-        is_plate_occluded = (hip_score < 0.52) | (femur_ratio_dev > 0.10)
+        # B. Detect Outlier Jumps (> 0.12) or Severe Occlusion (score < 0.45)
+        hip_jumps = np.zeros(n_frames, dtype=bool)
+        for f in range(1, n_frames):
+            if math.hypot(hip_x[f] - hip_x[f - 1], hip_y[f] - hip_y[f - 1]) > 0.12:
+                hip_jumps[f] = True
+
+        # Activate geometric reconstruction exclusively when score < 0.45 or sudden jump outlier
+        is_plate_occluded = (hip_score < 0.45) | (hip_jumps & (hip_score < 0.50))
 
         # C. Reconstruct Occluded Hip Coordinates via 2-Circle Intersection & Monotonic PCHIP
         valid_frames = np.where(~is_plate_occluded)[0]
@@ -731,7 +736,8 @@ def process_kinematics(
             r2 = l_femur_median
 
             for f in range(n_frames):
-                if is_plate_occluded[f]:
+                # Regla de no-interferencia: si score >= 0.50 y no es salto brusco, mantener ViTPose intacto
+                if is_plate_occluded[f] and hip_score[f] < 0.50:
                     # Circle 1: Center P1 = Shoulder, radius r1 = L_torso
                     p1x = float(sh_x[f])
                     p1y = float(sh_y[f])
@@ -789,9 +795,9 @@ def process_kinematics(
                     primary_joints["hip"]["y"][f] = float(sol_y)
                     primary_joints["hip"]["score"][f] = 0.85
 
-            # Re-smooth with zero-phase Butterworth filter post reconstruction
-            primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=1.8)
-            primary_joints["hip"]["y"] = apply_zero_phase_butterworth(primary_joints["hip"]["y"], fs=15.0, cutoff=1.8)
+            # Re-smooth with zero-phase Butterworth filter post reconstruction (2.2 Hz)
+            primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=2.2)
+            primary_joints["hip"]["y"] = apply_zero_phase_butterworth(primary_joints["hip"]["y"], fs=15.0, cutoff=2.2)
 
         # D. Tibial Verticality & Knee Recovery
         for f in range(n_frames):
@@ -813,7 +819,7 @@ def process_kinematics(
                     primary_joints["knee"]["y"][f] = max(0.15, primary_joints["ankle"]["y"][f] - tibia_len)
                     primary_joints["knee"]["score"][f] = 0.85
 
-    # 3B. Upper Body Chained Forward Kinematics (Root Shoulder -> Elbow -> Wrist)
+    # 3B. Upper Body Kinematic Stabilizer & Occlusion Guard (Perspective-Safe)
     if is_upper_body:
         wr_x = primary_joints["wrist"]["x"]
         wr_y = primary_joints["wrist"]["y"]
@@ -825,102 +831,97 @@ def process_kinematics(
         el_score = primary_joints["elbow"]["score"]
         sh_score = primary_joints["shoulder"]["score"]
 
-        # 1. Clamp Shoulder maximum frame-to-frame velocity to max_delta = 0.035
-        max_sh_delta = 0.035
+        # 1. Stable Virtual Hip Anchor if Hip is Obscured by Machine / T-Bar Pad (score_medio < 0.50)
+        avg_wr_x_init = float(np.median(wr_x))
+        avg_sh_x_init = float(np.median(sh_x))
+        facing_dir = 1.0 if avg_wr_x_init > avg_sh_x_init else -1.0
+        
+        mean_hip_score = float(np.mean(primary_joints["hip"]["score"]))
+        if mean_hip_score < 0.50:
+            for f in range(n_frames):
+                primary_joints["hip"]["x"][f] = float(sh_x[f] - 0.08 * facing_dir)
+                primary_joints["hip"]["y"][f] = float(min(0.92, sh_y[f] + 0.32))
+                primary_joints["hip"]["score"][f] = 0.85
+            primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=2.2)
+            primary_joints["hip"]["y"] = apply_zero_phase_butterworth(primary_joints["hip"]["y"], fs=15.0, cutoff=2.2)
+
+        # 2. Detect Outlier Jumps (> 0.12) or Severe Occlusions (score < 0.45)
+        # NUNCA sobrescribe coordenadas donde ViTPose tiene score >= 0.50 (respeta acortamiento por perspectiva 2D)
+        sh_jumps = np.zeros(n_frames, dtype=bool)
+        el_jumps = np.zeros(n_frames, dtype=bool)
+        wr_jumps = np.zeros(n_frames, dtype=bool)
         for f in range(1, n_frames):
-            d_sh_x = sh_x[f] - sh_x[f - 1]
-            d_sh_y = sh_y[f] - sh_y[f - 1]
-            d_sh_dist = math.hypot(d_sh_x, d_sh_y)
-            if d_sh_dist > max_sh_delta:
-                sh_x[f] = sh_x[f - 1] + (d_sh_x / d_sh_dist) * max_sh_delta
-                sh_y[f] = sh_y[f - 1] + (d_sh_y / d_sh_dist) * max_sh_delta
+            if math.hypot(sh_x[f] - sh_x[f - 1], sh_y[f] - sh_y[f - 1]) > 0.12:
+                sh_jumps[f] = True
+            if math.hypot(el_x[f] - el_x[f - 1], el_y[f] - el_y[f - 1]) > 0.12:
+                el_jumps[f] = True
+            if math.hypot(wr_x[f] - wr_x[f - 1], wr_y[f] - wr_y[f - 1]) > 0.12:
+                wr_jumps[f] = True
 
-        primary_joints["shoulder"]["x"] = apply_zero_phase_butterworth(sh_x, fs=15.0, cutoff=1.8)
-        primary_joints["shoulder"]["y"] = apply_zero_phase_butterworth(sh_y, fs=15.0, cutoff=1.8)
-        sh_x = primary_joints["shoulder"]["x"]
-        sh_y = primary_joints["shoulder"]["y"]
+        sh_occluded = (sh_score < 0.45) | (sh_jumps & (sh_score < 0.50))
+        el_occluded = (el_score < 0.45) | (el_jumps & (el_score < 0.50))
+        wr_occluded = (wr_score < 0.45) | (wr_jumps & (wr_score < 0.50))
 
-        # 2. Extract median bone lengths from clean unoccluded frames (score >= 0.65)
-        forearm_lengths = np.hypot(wr_x - el_x, wr_y - el_y)
-        unoccluded_wrist_mask = (wr_score >= 0.65) & (el_score >= 0.65) & (forearm_lengths >= 0.08)
-
-        if np.any(unoccluded_wrist_mask):
-            l_forearm_median = float(np.median(forearm_lengths[unoccluded_wrist_mask]))
-        else:
-            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
-            l_forearm_median = float(max(0.14, min(0.28, box_h * 0.22)))
-
-        humerus_lengths = np.hypot(el_x - sh_x, el_y - sh_y)
-        unoccluded_elbow_mask = (el_score >= 0.65) & (sh_score >= 0.65) & (humerus_lengths >= 0.08)
-        if np.any(unoccluded_elbow_mask):
-            l_humerus_median = float(np.median(humerus_lengths[unoccluded_elbow_mask]))
-        else:
-            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
-            l_humerus_median = float(max(0.16, min(0.32, box_h * 0.25)))
-
-        # 3. Detect Dumbbell / Barbell plate occlusion: score < 0.52 or forearm length deviating > 10%
-        forearm_ratio_dev = np.abs(forearm_lengths - l_forearm_median) / max(l_forearm_median, 1e-4)
-        is_wrist_occluded = (wr_score < 0.52) | (forearm_ratio_dev > 0.10)
-
-        valid_wrist_frames = np.where(~is_wrist_occluded)[0]
-        if len(valid_wrist_frames) >= 2 and np.any(is_wrist_occluded):
+        # Reconstruct occluded shoulder via PCHIP exclusively when occluded
+        valid_sh = np.where(~sh_occluded)[0]
+        if len(valid_sh) >= 2 and np.any(sh_occluded):
             try:
-                # Monotonic shape-preserving PCHIP interpolation avoids CubicSpline oscillations/overshoots
-                pchip_wr_x = scipy.interpolate.PchipInterpolator(valid_wrist_frames, wr_x[valid_wrist_frames])
-                pchip_wr_y = scipy.interpolate.PchipInterpolator(valid_wrist_frames, wr_y[valid_wrist_frames])
-                all_f_idx = np.arange(n_frames)
-                interp_wr_x = pchip_wr_x(all_f_idx)
-                interp_wr_y = pchip_wr_y(all_f_idx)
+                pchip_sh_x = scipy.interpolate.PchipInterpolator(valid_sh, sh_x[valid_sh])
+                pchip_sh_y = scipy.interpolate.PchipInterpolator(valid_sh, sh_y[valid_sh])
+                all_f = np.arange(n_frames)
+                interp_sh_x = pchip_sh_x(all_f)
+                interp_sh_y = pchip_sh_y(all_f)
+                for f in range(n_frames):
+                    if sh_occluded[f]:
+                        sh_x[f] = float(interp_sh_x[f])
+                        sh_y[f] = float(interp_sh_y[f])
+                        primary_joints["shoulder"]["score"][f] = 0.80
             except Exception:
-                all_f_idx = np.arange(n_frames)
-                interp_wr_x = np.interp(all_f_idx, valid_wrist_frames, wr_x[valid_wrist_frames])
-                interp_wr_y = np.interp(all_f_idx, valid_wrist_frames, wr_y[valid_wrist_frames])
-        else:
-            interp_wr_x = wr_x.copy()
-            interp_wr_y = wr_y.copy()
+                pass
 
-        # 4. Strict Forward-Chained Projection: Root Shoulder -> project Elbow at L_humerus -> project Wrist at L_forearm
-        for f in range(n_frames):
-            sh_x_f = sh_x[f]
-            sh_y_f = sh_y[f]
+        # Reconstruct occluded elbow via PCHIP exclusively when occluded
+        valid_el = np.where(~el_occluded)[0]
+        if len(valid_el) >= 2 and np.any(el_occluded):
+            try:
+                pchip_el_x = scipy.interpolate.PchipInterpolator(valid_el, el_x[valid_el])
+                pchip_el_y = scipy.interpolate.PchipInterpolator(valid_el, el_y[valid_el])
+                all_f = np.arange(n_frames)
+                interp_el_x = pchip_el_x(all_f)
+                interp_el_y = pchip_el_y(all_f)
+                for f in range(n_frames):
+                    if el_occluded[f]:
+                        el_x[f] = float(interp_el_x[f])
+                        el_y[f] = float(interp_el_y[f])
+                        primary_joints["elbow"]["score"][f] = 0.80
+            except Exception:
+                pass
 
-            # A. Project Elbow at radio L_humerus from Shoulder
-            vx_el = el_x[f] - sh_x_f
-            vy_el = el_y[f] - sh_y_f
-            mag_el = math.hypot(vx_el, vy_el)
-            if mag_el > 1e-5:
-                el_x[f] = sh_x_f + (vx_el / mag_el) * l_humerus_median
-                el_y[f] = sh_y_f + (vy_el / mag_el) * l_humerus_median
+        # Reconstruct occluded wrist via PCHIP exclusively when occluded
+        valid_wr = np.where(~wr_occluded)[0]
+        if len(valid_wr) >= 2 and np.any(wr_occluded):
+            try:
+                pchip_wr_x = scipy.interpolate.PchipInterpolator(valid_wr, wr_x[valid_wr])
+                pchip_wr_y = scipy.interpolate.PchipInterpolator(valid_wr, wr_y[valid_wr])
+                all_f = np.arange(n_frames)
+                interp_wr_x = pchip_wr_x(all_f)
+                interp_wr_y = pchip_wr_y(all_f)
+                for f in range(n_frames):
+                    if wr_occluded[f]:
+                        wr_x[f] = float(interp_wr_x[f])
+                        wr_y[f] = float(interp_wr_y[f])
+                        primary_joints["wrist"]["score"][f] = 0.80
+            except Exception:
+                pass
 
-            # B. Project Wrist at radio L_forearm from Elbow
-            target_wx = interp_wr_x[f] if is_wrist_occluded[f] else wr_x[f]
-            target_wy = interp_wr_y[f] if is_wrist_occluded[f] else wr_y[f]
-            vx_wr = target_wx - el_x[f]
-            vy_wr = target_wy - el_y[f]
+        # 3. Temporal smoothing exclusively (2.2 Hz) - zero artificial displacement
+        primary_joints["shoulder"]["x"] = apply_zero_phase_butterworth(sh_x, fs=15.0, cutoff=2.2)
+        primary_joints["shoulder"]["y"] = apply_zero_phase_butterworth(sh_y, fs=15.0, cutoff=2.2)
+        primary_joints["elbow"]["x"] = apply_zero_phase_butterworth(el_x, fs=15.0, cutoff=2.2)
+        primary_joints["elbow"]["y"] = apply_zero_phase_butterworth(el_y, fs=15.0, cutoff=2.2)
+        primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=2.2)
+        primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=2.2)
 
-            if is_pattern_b:
-                # In presses/dips, wrist stays vertically above or level with elbow (vy <= 0)
-                if vy_wr > 0.02:
-                    vy_wr = -abs(vy_wr)
-
-            mag_wr = math.hypot(vx_wr, vy_wr)
-            if mag_wr > 1e-5:
-                wr_x[f] = el_x[f] + (vx_wr / mag_wr) * l_forearm_median
-                wr_y[f] = el_y[f] + (vy_wr / mag_wr) * l_forearm_median
-            else:
-                wr_x[f] = el_x[f]
-                wr_y[f] = el_y[f] - l_forearm_median
-
-            if is_wrist_occluded[f]:
-                primary_joints["wrist"]["score"][f] = 0.85
-
-        # Re-smooth elbow and wrist with Butterworth filter
-        primary_joints["elbow"]["x"] = apply_zero_phase_butterworth(el_x, fs=15.0, cutoff=1.8)
-        primary_joints["elbow"]["y"] = apply_zero_phase_butterworth(el_y, fs=15.0, cutoff=1.8)
-        primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=1.8)
-        primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=1.8)
-
-        # 3C. Hand Grip is physically locked to the wrist keypoint (center of dumbbell/bar handle)
+        # 4. Hand Grip is physically locked to the wrist keypoint
         primary_joints["hand"] = {
             "x": primary_joints["wrist"]["x"].copy(),
             "y": primary_joints["wrist"]["y"].copy(),
@@ -1137,6 +1138,8 @@ def process_kinematics(
         if len(active_f) >= 4:
             wx_act = primary_joints["wrist"]["x"][active_f]
             wy_act = primary_joints["wrist"]["y"][active_f]
+            shx_act = primary_joints["shoulder"]["x"][active_f]
+            shy_act = primary_joints["shoulder"]["y"][active_f]
             W = np.column_stack([wx_act - np.mean(wx_act), wy_act - np.mean(wy_act)])
             try:
                 _, _, vh = np.linalg.svd(W, full_matrices=False)
@@ -1145,21 +1148,27 @@ def process_kinematics(
                 if norm_v0 > 1e-4:
                     ux = float(v0[0] / norm_v0)
                     uy = float(v0[1] / norm_v0)
+                    u_vec = np.array([ux, uy])
 
-                    # Orient vector in the direction of the eccentric pull (towards load / machine resistance)
-                    if any(k in ex_lower for k in ["lat_pulldown", "pulldown", "pullup"]):
-                        # Vertical pull: resistance pulls upward (uy < 0 in image coordinates)
-                        if uy > 0:
-                            ux, uy = -ux, -uy
-                    elif is_pattern_b:
-                        # Horizontal push (machine press): resistance pulls backward against athlete facing direction
-                        if ux * (-facing_forward_x) < 0:
-                            ux, uy = -ux, -uy
+                    # Orient vector towards load / machine resistance:
+                    # En tracción (rowing / pulldown / curl): la carga tira hacia donde la muñeca está más lejos del hombro (hacia los discos/polea)
+                    dist_to_sh = np.hypot(wx_act - shx_act, wy_act - shy_act)
+                    p_stretched = np.array([wx_act[np.argmax(dist_to_sh)], wy_act[np.argmax(dist_to_sh)]])
+                    p_contracted = np.array([wx_act[np.argmin(dist_to_sh)], wy_act[np.argmin(dist_to_sh)]])
+                    load_dir = p_stretched - p_contracted
+                    norm_ld = float(np.linalg.norm(load_dir))
+                    if norm_ld > 1e-4:
+                        if is_pattern_b:
+                            # En empuje (presses): la carga tira hacia el pecho/origen del empuje (opuesto a la extensión concéntrica)
+                            load_dir = -load_dir
+                        if np.dot(u_vec, load_dir) < 0:
+                            u_vec = -u_vec
                     else:
-                        # Horizontal pull (machine row, t-bar): resistance pulls forward towards machine anchor
+                        # Fallback por dirección del atleta si el recorrido es minúsculo
                         if ux * facing_forward_x < 0:
-                            ux, uy = -ux, -uy
-                    svd_force_u = (ux, uy)
+                            u_vec = -u_vec
+
+                    svd_force_u = (float(u_vec[0]), float(u_vec[1]))
             except Exception:
                 svd_force_u = None
 
