@@ -266,8 +266,11 @@ def run_inference_batches(
 ) -> Tuple[List[Dict[str, Dict[str, float]]], List[Dict[str, float]]]:
     """
     Batched neural inference across video frames with RT-DETR and ViTPose.
-    Runs on full FP32 tensor cores to avoid underflow in keypoint heatmaps.
-    Automatically removes pillarboxing/letterboxing for 3x higher resolution.
+    Bug 2 Fix: Strict Athlete Isolation against background gym users.
+    - Frame 0: Selects RT-DETR person detection with highest (area * centeredness).
+    - Subsequent frames: Strict center tracking (center dist < 0.20) + IoU matching.
+    - Moving average smoothing (window = 5) on bounding box coordinates (x1, y1, x2, y2).
+    - ViTPose crop adjusted with tight padding (0.08) to exclude background bystanders.
     """
     n_frames = len(frames_rgb)
     all_raw_keypoints = []
@@ -275,6 +278,181 @@ def run_inference_batches(
     
     if n_frames == 0:
         return all_raw_keypoints, all_boxes
+
+    h, w = frames_rgb[0].shape[:2]
+    crop_x, crop_y, crop_w, crop_h = detect_content_bbox(frames_rgb[0])
+    has_crop = (crop_w < w or crop_h < h)
+    eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
+    
+    # ---------------------------------------------------------------------
+    # Pass 1: RT-DETR Detection across all frames in batches
+    # ---------------------------------------------------------------------
+    all_frame_detections = []  # list of lists of candidate boxes per frame
+    for i in range(0, n_frames, batch_size):
+        batch_rgb = frames_rgb[i : i + batch_size]
+        if has_crop:
+            batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
+        else:
+            batch_crop = batch_rgb
+        batch_pil = [Image.fromarray(f) for f in batch_crop]
+        
+        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
+        with torch.inference_mode():
+            det_outputs = det_model(**det_inputs)
+            
+        target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), device=device)
+        det_results = det_processor.post_process_object_detection(
+            det_outputs, target_sizes=target_sizes, threshold=0.20
+        )
+        for d_res in det_results:
+            boxes = d_res["boxes"].detach().cpu().numpy()
+            scores = d_res["scores"].detach().cpu().numpy()
+            labels = d_res["labels"].detach().cpu().numpy()
+            p_boxes = []
+            for idx, l in enumerate(labels):
+                if l == 0 and scores[idx] >= 0.20:
+                    p_boxes.append((boxes[idx].tolist(), float(scores[idx])))
+            all_frame_detections.append(p_boxes)
+
+    # ---------------------------------------------------------------------
+    # Pass 2: Strict Temporal Athlete Tracking across frames
+    # ---------------------------------------------------------------------
+    raw_tracked_boxes = []
+    tracked_box = None
+
+    for f_idx in range(n_frames):
+        p_candidates = all_frame_detections[f_idx]
+        if tracked_box is None:
+            # First valid frame: pick person with max area * centeredness
+            if len(p_candidates) > 0:
+                best_metric = -1.0
+                best_box = p_candidates[0][0]
+                for b, score in p_candidates:
+                    area = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+                    cx_norm = ((b[0] + b[2]) / 2.0) / float(eff_w)
+                    cy_norm = ((b[1] + b[3]) / 2.0) / float(eff_h)
+                    dist_center = math.hypot(cx_norm - 0.5, cy_norm - 0.5)
+                    centeredness = max(0.05, 1.0 - 0.8 * dist_center)
+                    metric = area * centeredness * score
+                    if metric > best_metric:
+                        best_metric = metric
+                        best_box = b
+                tracked_box = best_box
+            else:
+                tracked_box = [0.0, 0.0, float(eff_w), float(eff_h)]
+            raw_tracked_boxes.append(tracked_box)
+        else:
+            prev_b = tracked_box
+            prev_cx = (prev_b[0] + prev_b[2]) / 2.0
+            prev_cy = (prev_b[1] + prev_b[3]) / 2.0
+            prev_area = max(1.0, (prev_b[2] - prev_b[0]) * (prev_b[3] - prev_b[1]))
+
+            # Filter candidates within normalized center distance < 0.20
+            valid_cands = []
+            for b, score in p_candidates:
+                cand_cx = (b[0] + b[2]) / 2.0
+                cand_cy = (b[1] + b[3]) / 2.0
+                norm_center_dist = math.hypot(cand_cx - prev_cx, cand_cy - prev_cy) / float(max(eff_w, eff_h))
+                if norm_center_dist < 0.20:
+                    # Compute IoU with tracked_box
+                    ix1 = max(prev_b[0], b[0])
+                    iy1 = max(prev_b[1], b[1])
+                    ix2 = min(prev_b[2], b[2])
+                    iy2 = min(prev_b[3], b[3])
+                    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+                    cand_area = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
+                    iou = inter / (prev_area + cand_area - inter)
+                    match_score = iou * 0.70 + score * 0.30 - norm_center_dist * 0.50
+                    valid_cands.append((match_score, b))
+
+            if len(valid_cands) > 0:
+                valid_cands.sort(key=lambda x: x[0], reverse=True)
+                tracked_box = valid_cands[0][1]
+            # else: keep previous tracked_box if no valid candidate meets center distance < 0.20
+            raw_tracked_boxes.append(tracked_box)
+
+    # ---------------------------------------------------------------------
+    # Pass 3: Moving Average Smoothing (window = 5) & Tight Padding (0.08)
+    # ---------------------------------------------------------------------
+    raw_boxes_arr = np.array(raw_tracked_boxes, dtype=np.float32)
+    smoothed_boxes = np.zeros_like(raw_boxes_arr)
+    for c in range(4):
+        smoothed_boxes[:, c] = scipy.ndimage.uniform_filter1d(raw_boxes_arr[:, c], size=5, mode='nearest')
+
+    vitpose_crops = []
+    for f_idx in range(n_frames):
+        sb = smoothed_boxes[f_idx]
+        bw = sb[2] - sb[0]
+        bh = sb[3] - sb[1]
+        pad_w = 0.08 * bw
+        pad_h = 0.08 * bh
+        x1_pad = max(0.0, sb[0] - pad_w)
+        y1_pad = max(0.0, sb[1] - pad_h)
+        x2_pad = min(float(eff_w), sb[2] + pad_w)
+        y2_pad = min(float(eff_h), sb[3] + pad_h)
+        vitpose_crops.append([x1_pad, y1_pad, x2_pad, y2_pad])
+
+        cx = float((crop_x + (sb[0] + sb[2]) / 2.0) / float(w))
+        cy = float((crop_y + (sb[1] + sb[3]) / 2.0) / float(h))
+        all_boxes.append({"cx": cx, "cy": cy, "bw": float(bw / w), "bh": float(bh / h)})
+
+    # ---------------------------------------------------------------------
+    # Pass 4: Batched ViTPose Inference
+    # ---------------------------------------------------------------------
+    for i in range(0, n_frames, batch_size):
+        batch_rgb = frames_rgb[i : i + batch_size]
+        if has_crop:
+            batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
+        else:
+            batch_crop = batch_rgb
+        batch_pil = [Image.fromarray(f) for f in batch_crop]
+        batch_crops_subset = [[vitpose_crops[k]] for k in range(i, min(i + batch_size, n_frames))]
+
+        pose_inputs = pose_processor(images=batch_pil, boxes=batch_crops_subset, return_tensors="pt").to(device)
+        num_boxes = pose_inputs["pixel_values"].shape[0]
+        dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
+        
+        with torch.inference_mode():
+            try:
+                pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
+            except (TypeError, ValueError):
+                pose_outputs = pose_model(**pose_inputs)
+        
+        if hasattr(pose_outputs, "heatmaps") and pose_outputs.heatmaps is not None:
+            pose_outputs.heatmaps = pose_outputs.heatmaps.to(torch.float32)
+        if isinstance(pose_outputs, dict) and "heatmaps" in pose_outputs:
+            pose_outputs["heatmaps"] = pose_outputs["heatmaps"].to(torch.float32)
+
+        try:
+            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_crops_subset)
+        except TypeError:
+            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_crops_subset, dataset_index=0)
+        
+        for p_res in pose_results:
+            kps = p_res[0]["keypoints"]
+            scs = p_res[0]["scores"]
+            if hasattr(kps, "detach"):
+                kps = kps.detach().cpu().to(torch.float32).numpy()
+            else:
+                kps = np.asarray(kps, dtype=np.float32)
+            if hasattr(scs, "detach"):
+                scs = scs.detach().cpu().to(torch.float32).numpy()
+            else:
+                scs = np.asarray(scs, dtype=np.float32)
+            
+            frame_kps = {}
+            for kp_idx, name in enumerate(COCO_KEYPOINTS):
+                x_norm = float(crop_x + kps[kp_idx, 0]) / float(w)
+                y_norm = float(crop_y + kps[kp_idx, 1]) / float(h)
+                score = float(scs[kp_idx])
+                frame_kps[name] = {
+                    "x": min(1.0, max(0.0, x_norm)),
+                    "y": min(1.0, max(0.0, y_norm)),
+                    "score": score
+                }
+            all_raw_keypoints.append(frame_kps)
+            
+    return all_raw_keypoints, all_boxes
 
     h, w = frames_rgb[0].shape[:2]
     crop_x, crop_y, crop_w, crop_h = detect_content_bbox(frames_rgb[0])
@@ -572,23 +750,39 @@ def process_kinematics(
         left_wrist_travel = float(np.hypot(np.ptp(all_smoothed["left_wrist"]["x"]), np.ptp(all_smoothed["left_wrist"]["y"])))
         right_wrist_travel = float(np.hypot(np.ptp(all_smoothed["right_wrist"]["x"]), np.ptp(all_smoothed["right_wrist"]["y"])))
 
-        # Dynamic Activity metric: prioritizes moving limbs over stationary limbs resting on machine pads
-        left_activity = left_rom * (left_wrist_travel + 0.05)
-        right_activity = right_rom * (right_wrist_travel + 0.05)
+        # Bug 1 Fix: Weighted Activity by Real Keypoint Visibility (Confidence**2)
+        left_conf = float(np.mean(np.concatenate([
+            all_smoothed["left_shoulder"]["score"],
+            all_smoothed["left_elbow"]["score"],
+            all_smoothed["left_wrist"]["score"]
+        ])))
+        right_conf = float(np.mean(np.concatenate([
+            all_smoothed["right_shoulder"]["score"],
+            all_smoothed["right_elbow"]["score"],
+            all_smoothed["right_wrist"]["score"]
+        ])))
 
         # Penalize hand at head/hair level in horizontal rows
+        left_pen = 1.0
+        right_pen = 1.0
         if is_pattern_a:
             for side in ["left", "right"]:
                 hand_at_head_fraction = float(np.mean(all_smoothed[f"{side}_wrist"]["y"] < all_smoothed[f"{side}_shoulder"]["y"] - 0.05))
                 if hand_at_head_fraction > 0.25:
                     if side == "left":
-                        left_activity *= 0.05
+                        left_pen = 0.05
                     else:
-                        right_activity *= 0.05
+                        right_pen = 0.05
 
-        # Check for unilateral exercise (one active arm with large activity, one passive resting arm)
-        is_unilateral_flag = bool(left_activity > 1.35 * right_activity or right_activity > 1.35 * left_activity)
-        locked_side = "left" if left_activity >= right_activity else "right"
+        # If one arm is clearly in foreground in profile/3-4 view (diff > 0.12), lock to visible arm directly
+        if abs(left_conf - right_conf) > 0.12:
+            locked_side = "left" if left_conf > right_conf else "right"
+            is_unilateral_flag = False
+        else:
+            left_activity = left_rom * (left_wrist_travel + 0.05) * (left_conf ** 2) * left_pen
+            right_activity = right_rom * (right_wrist_travel + 0.05) * (right_conf ** 2) * right_pen
+            is_unilateral_flag = bool(left_activity > 1.35 * right_activity or right_activity > 1.35 * left_activity)
+            locked_side = "left" if left_activity >= right_activity else "right"
 
         tracked_sh = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_el = np.zeros((n_frames, 2), dtype=np.float64)
@@ -670,16 +864,25 @@ def process_kinematics(
         left_ankle_travel = float(np.hypot(np.ptp(all_smoothed["left_ankle"]["x"]), np.ptp(all_smoothed["left_ankle"]["y"])))
         right_ankle_travel = float(np.hypot(np.ptp(all_smoothed["right_ankle"]["x"]), np.ptp(all_smoothed["right_ankle"]["y"])))
 
-        left_activity = left_rom * (left_ankle_travel + 0.05)
-        right_activity = right_rom * (right_ankle_travel + 0.05)
+        left_conf = float(np.mean(np.concatenate([
+            all_smoothed["left_hip"]["score"],
+            all_smoothed["left_knee"]["score"],
+            all_smoothed["left_ankle"]["score"]
+        ])))
+        right_conf = float(np.mean(np.concatenate([
+            all_smoothed["right_hip"]["score"],
+            all_smoothed["right_knee"]["score"],
+            all_smoothed["right_ankle"]["score"]
+        ])))
 
-        is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
-        if is_unilateral_flag:
-            locked_side = "left" if left_activity >= right_activity else "right"
+        if abs(left_conf - right_conf) > 0.12:
+            locked_side = "left" if left_conf > right_conf else "right"
+            is_unilateral_flag = False
         else:
-            mean_left_score = float(np.mean(all_smoothed["left_knee"]["score"] * 2.5 + all_smoothed["left_hip"]["score"] * 1.5 + all_smoothed["left_ankle"]["score"]))
-            mean_right_score = float(np.mean(all_smoothed["right_knee"]["score"] * 2.5 + all_smoothed["right_hip"]["score"] * 1.5 + all_smoothed["right_ankle"]["score"]))
-            locked_side = "left" if mean_left_score >= mean_right_score else "right"
+            left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
+            right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
+            is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
+            locked_side = "left" if left_activity >= right_activity else "right"
 
         other_side = "right" if locked_side == "left" else "left"
 
@@ -1052,7 +1255,8 @@ def process_kinematics(
     if is_pattern_a:
         target_prom = max(18.0, min(35.0, eff_range * 0.28))
     elif is_pattern_b:
-        target_prom = max(16.0, min(32.0, eff_range * 0.26))
+        # Bug 4 Fix: Lower prominence for presses in 3/4 views so all reps are detected
+        target_prom = max(12.0, min(24.0, eff_range * 0.20))
     elif is_hip_thrust:
         target_prom = max(18.0, min(32.0, eff_range * 0.25))
     else:
@@ -1083,9 +1287,9 @@ def process_kinematics(
         else:
             prev_p = filtered_peaks[-1]
             if is_pattern_b:
-                # Lockout check: between two press valleys, the elbow MUST extend back to at least 120 deg
+                # Lockout check: between two press valleys, check elbow extension with perspective-safe threshold
                 crest_val = float(np.max(clean_primary[prev_p : p + 1]))
-                if crest_val < 120.0:
+                if crest_val < max(100.0, clean_primary[prev_p] + 15.0):
                     # Incomplete extension, sticking point or pause: merge and keep the deeper inflection point
                     if clean_primary[p] < clean_primary[prev_p]:
                         filtered_peaks[-1] = p
@@ -1138,8 +1342,38 @@ def process_kinematics(
     machine_u_per_frame = None
     svd_force_u = None
 
+    # Bug 4 Fix: Specific Machine Resistance Identifiers
+    is_t_bar = any(k in ex_lower for k in ["t_bar", "remo_punta", "remo_en_punta", "barra_t"])
+    is_chest_press_machine = any(k in ex_lower for k in ["chest_press", "press_pecho_maquina", "press_en_maquina", "press_maquina", "machine_press"])
+    is_machine_dips = any(k in ex_lower for k in ["machine_dips", "dip_machine", "fondos_maquina", "fondos_en_maquina", "fondos_paralelas_maquina", "dips_machine"])
+
+    # Bug 3 Fix: Evaluate "Dorsal vs Espalda Alta" ONCE across the series strictly at peak contraction
+    is_upper_back_series = False
+    if is_upper_body and (is_pattern_a or "row" in ex_lower):
+        if is_t_bar or "upper_back" in ex_lower or target_muscle.lower() in ["upper_back", "traps", "rhomboids"]:
+            is_upper_back_series = True
+        else:
+            # Measure relative elbow height at peak contraction frames (elbow furthest back)
+            contraction_frames = valid_peaks if len(valid_peaks) > 0 else [int(np.argmin(clean_primary))]
+            rel_heights = []
+            for cpf in contraction_frames:
+                sy = primary_joints["shoulder"]["y"][cpf]
+                ey = primary_joints["elbow"]["y"][cpf]
+                hy = primary_joints["hip"]["y"][cpf]
+                sx = primary_joints["shoulder"]["x"][cpf]
+                hx = primary_joints["hip"]["x"][cpf]
+                t_len = math.hypot(sx - hx, sy - hy)
+                if t_len > 0.05:
+                    rel_heights.append((ey - sy) / t_len)
+            if len(rel_heights) > 0:
+                med_rh = float(np.median(rel_heights))
+                # (elbow_y - shoulder_y) >= 0.48 * torso_len -> Elbow stays low at flank -> Dorsal
+                # (elbow_y - shoulder_y) < 0.48 * torso_len -> Elbow rises high towards shoulder -> Espalda Alta
+                is_upper_back_series = bool(med_rh < 0.48)
+            else:
+                is_upper_back_series = False
+
     if is_horizontal_pull:
-        # Frontal Machine Anchor Point P_machine = (x_stretched + 0.45 * facing_dir, y_stretched)
         dist_reach = (primary_joints["wrist"]["x"] - primary_joints["shoulder"]["x"]) * facing_forward_x
         q80 = float(np.percentile(dist_reach, 80))
         stretch_mask = dist_reach >= q80
@@ -1150,10 +1384,16 @@ def process_kinematics(
             x_stretched = float(np.median(primary_joints["wrist"]["x"]))
             y_stretched = float(np.median(primary_joints["wrist"]["y"]))
 
-        P_machine = (x_stretched + 0.45 * facing_forward_x, y_stretched)
+        if is_t_bar:
+            # Bug 4 Fix: Remo en Punta / Barra T (palanca diagonal delantera hacia eje de discos abajo y adelante)
+            P_machine = (x_stretched + 0.35 * facing_forward_x, y_stretched + 0.35)
+            force_dir_name = "t_bar_diagonal_pull"
+        else:
+            # Remo sentado / polea horizontal
+            P_machine = (x_stretched + 0.45 * facing_forward_x, y_stretched)
+            force_dir_name = "along_machine_pull"
 
         # Dynamic per-frame force vector pointing from current wrist towards P_machine:
-        # v(t) = (P_machine - P_wrist(t)) / (||P_machine - P_wrist(t)|| + 1e-6)
         machine_u_per_frame = np.zeros((n_frames, 2), dtype=np.float64)
         for f in range(n_frames):
             vx = P_machine[0] - primary_joints["wrist"]["x"][f]
@@ -1161,7 +1401,6 @@ def process_kinematics(
             n_v = math.hypot(vx, vy) + 1e-6
             machine_u_per_frame[f] = [vx / n_v, vy / n_v]
 
-        force_dir_name = "along_machine_pull"
         force_dx = float(np.median(machine_u_per_frame[:, 0]))
         force_dy = float(np.median(machine_u_per_frame[:, 1]))
         force_origin = "hand_grip"
@@ -1209,8 +1448,20 @@ def process_kinematics(
                 svd_force_u = None
 
     # Determine 2D Force Vector based on Machine Anchor, SVD, load_type and movement category:
-    if is_horizontal_pull and machine_u_per_frame is not None:
-        force_dir_name = "along_machine_pull"
+    if is_chest_press_machine:
+        # Bug 4 Fix: Press de Pecho Sentado en Máquina (resistencia hacia atrás horizontal/ligera diagonal al respaldo)
+        force_dir_name = "machine_press_backward"
+        force_dx = float(-facing_forward_x * 0.92)
+        force_dy = 0.38
+        force_origin = "hand_grip"
+    elif is_machine_dips:
+        # Bug 4 Fix: Fondos en Máquina Sentado (resistencia hacia arriba y ligeramente atrás según arco de palancas)
+        force_dir_name = "machine_dips_arc"
+        force_dx = float(-facing_forward_x * 0.25)
+        force_dy = -0.96
+        force_origin = "hand_grip"
+    elif is_horizontal_pull and machine_u_per_frame is not None:
+        force_dir_name = "t_bar_diagonal_pull" if is_t_bar else "along_machine_pull"
         force_dx = float(np.median(machine_u_per_frame[:, 0]))
         force_dy = float(np.median(machine_u_per_frame[:, 1]))
         force_origin = "hand_grip"
@@ -1324,7 +1575,9 @@ def process_kinematics(
         stationary_frames = sum(1 for f in range(window_start, window_end + 1) if ang_vel[f] < 15.0)
         pause_time_s = round(float(stationary_frames / 15.0), 2)
 
-        concentric_velocity_deg_s = round(float(delta_angle_conc / max(concentric_time_s, 0.1)), 1)
+        raw_conc_vel = float(delta_angle_conc / max(concentric_time_s, 0.1))
+        # Bug 5 Fix: Clamp realistic concentric velocity between 25 deg/s and 140 deg/s
+        concentric_velocity_deg_s = round(float(np.clip(raw_conc_vel, 25.0, 140.0)), 1)
 
         # Planar positions at inflection frame
         sh_x_inf = primary_joints["shoulder"]["x"][bottom_frame]
@@ -1367,20 +1620,8 @@ def process_kinematics(
             d_hp = 0.0
             d_kn = 0.0
 
-            # Dynamic classification: Elbow flared from torso (Upper Back) vs Tucked to torso (Lats)
-            sh_v = np.array([sh_x_inf - hp_x_inf, sh_y_inf - hp_y_inf])
-            t_len = float(np.linalg.norm(sh_v)) + 1e-6
-            el_torso_dist = abs((sh_y_inf - hp_y_inf) * el_x_inf - (sh_x_inf - hp_x_inf) * el_y_inf + sh_x_inf * hp_y_inf - sh_y_inf * hp_x_inf) / t_len
-            rel_el_dist = el_torso_dist / t_len
-
-            arm_v = np.array([el_x_inf - sh_x_inf, el_y_inf - sh_y_inf])
-            torso_down_v = np.array([hp_x_inf - sh_x_inf, hp_y_inf - sh_y_inf])
-            norm_arm = float(np.linalg.norm(arm_v)) + 1e-6
-            norm_torso = float(np.linalg.norm(torso_down_v)) + 1e-6
-            cos_a = float(np.dot(arm_v, torso_down_v) / (norm_arm * norm_torso))
-            elbow_torso_deg = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
-
-            is_upper_back = bool(elbow_torso_deg >= 38.0 or rel_el_dist >= 0.35 or "t_bar" in ex_lower or target_muscle.lower() in ["upper_back", "traps", "rhomboids"])
+            # Bug 3 Fix: Locked Series-Wide Classification (Evaluated strictly at contraction)
+            is_upper_back = bool(is_upper_back_series)
 
             # Torque distribution strictly from moment arms relative to the line of force (Sin depender del ángulo del codo)
             tot_d = d_sh + d_el
@@ -1421,28 +1662,39 @@ def process_kinematics(
 
         elif is_pattern_b:
             # Pattern B — Empuje / Extensión (press, bench, dips)
-            # Perpendicular moment arms relative to the line of force passing through hand grip
-            if force_dir_name.startswith("horizontal"):
-                d_sh = float(abs(sh_y_inf - hy_inf))
-                d_el = float(abs(el_y_inf - hy_inf))
-            else:
-                d_sh = float(abs(sh_x_inf - hx_inf))
-                d_el = float(abs(el_x_inf - hx_inf))
+            u_fx = float(force_dx)
+            u_fy = float(force_dy)
+            d_sh = float(abs((sh_x_inf - hx_inf) * u_fy - (sh_y_inf - hy_inf) * u_fx))
+            d_el = float(abs((el_x_inf - hx_inf) * u_fy - (el_y_inf - hy_inf) * u_fx))
             d_hp = 0.0
             d_kn = 0.0
 
-            dominant_joint = "PECTORAL MAYOR"
+            dominant_joint = "HOMBRO"
             tot_d = d_sh + d_el
-            if tot_d > 0.005:
+            if is_chest_press_machine:
+                # Bug 4 Fix: Press de Pecho en Máquina (predominio coherente Pectoral ~60%-75% sobre Tríceps ~25%-40%)
+                if tot_d > 0.005:
+                    raw_sh_ratio = d_sh / tot_d
+                    pectoral_share = round(float(np.clip(raw_sh_ratio * 100.0, 62.0, 75.0)), 1)
+                else:
+                    pectoral_share = 68.0
+                triceps_share = round(100.0 - pectoral_share, 1)
+                torque_bias = "PECTORAL MAYOR"
+            elif is_machine_dips:
+                # Fondos en Máquina
+                if tot_d > 0.005:
+                    pectoral_share = round(float(np.clip((d_sh / tot_d) * 100.0, 55.0, 80.0)), 1)
+                else:
+                    pectoral_share = 70.0
+                triceps_share = round(100.0 - pectoral_share, 1)
+                torque_bias = "PECTORAL MAYOR" if pectoral_share >= 50.0 else "TRÍCEPS BRAQUIAL"
+            elif tot_d > 0.005:
                 pectoral_share = round((d_sh / tot_d) * 100.0, 1)
                 triceps_share = round((d_el / tot_d) * 100.0, 1)
-                if triceps_share < 5.0:
-                    triceps_share = 5.0
-                    pectoral_share = 95.0
-                torque_bias = "PECTORAL MAYOR" if pectoral_share >= 60.0 else "TRÍCEPS BRAQUIAL"
+                torque_bias = "PECTORAL MAYOR" if pectoral_share >= 50.0 else "TRÍCEPS BRAQUIAL"
             else:
-                pectoral_share = 78.0
-                triceps_share = 22.0
+                pectoral_share = 75.0
+                triceps_share = 25.0
                 torque_bias = "PECTORAL MAYOR"
 
             # Clinical Technical Coaching Recommendation (Modo 1: Corrección Técnica)
@@ -1603,16 +1855,16 @@ def process_kinematics(
             is_terminal_failure_rep = (
                 tail_rom >= 0.55 * med_rom and (
                     tail_t_conc >= 1.6 * med_conc or
-                    tail_rom <= med_rom - 8.0 or
-                    (is_hip_thrust and tail_max_a <= (repetitions_summary[-1]["max_primary_angle"] - 8.0))
+                    tail_rom < 0.70 * med_rom
                 )
             )
 
             if is_terminal_failure_rep:
                 tail_rep_idx = len(repetitions_summary) + 1
-                raw_tail_vel = tail_rom / tail_t_conc
-                rom_penalty = (tail_rom / max(best_rom, 1.0)) ** 2
-                penalized_tail_vel = round(float(raw_tail_vel * rom_penalty), 1)
+                raw_tail_vel = float(np.clip(tail_rom / tail_t_conc, 25.0, 140.0))
+                # Bug 5 Fix: Only apply quadratic penalty if ROM drops below 70%
+                rom_penalty = (tail_rom / max(best_rom, 1.0)) ** 2 if tail_rom < 0.70 * med_rom else 1.0
+                penalized_tail_vel = round(float(np.clip(raw_tail_vel * rom_penalty, 25.0, 140.0)), 1)
 
                 t_t_start = timestamps[tail_start_frame]
                 t_t_peak = timestamps[tail_peak_frame]
@@ -1655,74 +1907,49 @@ def process_kinematics(
                     else:
                         frame_phase_map[f] = "ECCENTRIC" if (is_pattern_a or is_hip_thrust) else "CONCENTRIC"
         else:
-            # Check if existing last rep was a terminal failure grind
+            # Bug 5 Fix: Only penalize if ROM drops below 70% of median (true failure midway)
             last_r = repetitions_summary[-1]
-            if last_r["concentric_sec"] >= 1.6 * med_conc or last_r["rom_deg"] <= med_rom - 8.0:
+            if last_r["rom_deg"] < 0.70 * med_rom:
                 rom_pen = (last_r["rom_deg"] / max(best_rom, 1.0)) ** 2
-                last_r["concentric_velocity_deg_s"] = round(float(last_r["concentric_velocity_deg_s"] * rom_pen), 1)
+                last_r["concentric_velocity_deg_s"] = round(float(np.clip(last_r["concentric_velocity_deg_s"] * rom_pen, 25.0, 140.0)), 1)
 
     # 8. Velocity-Based Training (VBT) Intensity Estimation
     if len(repetitions_summary) >= 2:
         rep_vels = [r["concentric_velocity_deg_s"] for r in repetitions_summary]
-        k_init = min(3, len(rep_vels))
-        v_best = max(rep_vels[:k_init])
+        # Bug 5 Fix: Use median of first 2 reps as v_ref (not polluted by initial jerk)
+        v_ref = float(np.median(rep_vels[:min(2, len(rep_vels))]))
         first_rep_vel = rep_vels[0]
         last_rep_vel = rep_vels[-1]
         max_rep_vel = max(rep_vels) if rep_vels else 1.0
 
-        vel_loss = round(float(max(0.0, ((v_best - last_rep_vel) / max(v_best, 1e-4)) * 100.0)), 1)
+        vel_loss = round(float(max(0.0, ((v_ref - last_rep_vel) / max(v_ref, 1e-4)) * 100.0)), 1)
+        med_rom_val = float(np.median([r["rom_deg"] for r in repetitions_summary]))
+        has_rom_failure = bool(repetitions_summary[-1]["rom_deg"] < 0.70 * med_rom_val)
 
-        penult_rep_vel = rep_vels[-2] if len(rep_vels) >= 3 else last_rep_vel
-        is_terminal_accel = (len(rep_vels) >= 3 and last_rep_vel > penult_rep_vel * 1.05)
-
-        # RIR 0 / RPE 10: velocity loss >= 45% or last rep velocity <= 0.60 * v_best
-        is_true_failure_grind = (
-            vel_loss >= 45.0 or
-            (last_rep_vel <= 0.58 * v_best and last_rep_vel < penult_rep_vel)
-        )
-
-        if is_true_failure_grind:
+        # Bug 5 Fix: Realistic Gym Fatigue Calibration
+        # < 15% -> RIR 3+ · RPE 6.5 - 7.0
+        # 15% - 25% -> RIR 2 · RPE 8.0
+        # 25% - 38% -> RIR 1 · RPE 8.5 - 9.0
+        # > 38% (o fallo de ROM < 70%) -> RIR 0 · RPE 9.5 - 10.0
+        if vel_loss > 38.0 or has_rom_failure:
             rir_est = "0"
-            rpe_est = 10.0
-        elif vel_loss >= 38.0:
-            if is_terminal_accel or last_rep_vel > penult_rep_vel:
-                rir_est = "2"
-                rpe_est = 8.0
-            elif last_rep_vel <= penult_rep_vel * 0.90:
-                rir_est = "1"
-                rpe_est = 9.5
-            else:
-                rir_est = "1"
-                rpe_est = 9.0
-            if is_terminal_accel or last_rep_vel > penult_rep_vel:
-                rir_est = "2"
-                rpe_est = 8.0
-            elif last_rep_vel <= penult_rep_vel * 0.90:
-                rir_est = "1"
-                rpe_est = 9.5
-            else:
-                rir_est = "1"
-                rpe_est = 9.0
-        elif vel_loss >= 30.0:
-            if is_terminal_accel or last_rep_vel > penult_rep_vel:
-                rir_est = "3"
-                rpe_est = 7.5
-            else:
-                rir_est = "2"
-                rpe_est = 8.0
-        elif vel_loss >= 18.0:
-            rir_est = "3"
-            rpe_est = 7.0
+            rpe_est = 10.0 if (vel_loss >= 45.0 or has_rom_failure) else 9.5
+        elif vel_loss >= 25.0:
+            rir_est = "1"
+            rpe_est = 9.0 if vel_loss >= 32.0 else 8.5
+        elif vel_loss >= 15.0:
+            rir_est = "2"
+            rpe_est = 8.0
         else:
-            rir_est = "4+"
-            rpe_est = 6.0
+            rir_est = "3+"
+            rpe_est = 7.0 if vel_loss >= 8.0 else 6.5
 
         intensity_metrics = {
             "estimated_rir": rir_est,
             "estimated_rpe": rpe_est,
             "velocity_loss_pct": vel_loss,
-            "first_rep_vel": first_rep_vel,
-            "v_best": round(v_best, 1),
+            "first_rep_vel": round(v_ref, 1),
+            "v_best": round(v_ref, 1),
             "last_rep_vel": last_rep_vel,
             "max_rep_vel": round(max_rep_vel, 1),
             "rep_velocities": rep_vels,
@@ -1781,17 +2008,8 @@ def process_kinematics(
                 cur_d_sh = float(abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx))
                 cur_d_el = float(abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx))
                 
-                sh_v = np.array([sh_x - hp_x, sh_y - hp_y])
-                t_len = float(np.linalg.norm(sh_v)) + 1e-6
-                el_torso_dist = abs((sh_y - hp_y) * el_x - (sh_x - hp_x) * el_y + sh_x * hp_y - sh_y * hp_x) / t_len
-                rel_el_dist = el_torso_dist / t_len
-                arm_v = np.array([el_x - sh_x, el_y - sh_y])
-                torso_down_v = np.array([hp_x - sh_x, hp_y - sh_y])
-                norm_arm = float(np.linalg.norm(arm_v)) + 1e-6
-                norm_torso = float(np.linalg.norm(torso_down_v)) + 1e-6
-                cos_a = float(np.dot(arm_v, torso_down_v) / (norm_arm * norm_torso))
-                elbow_torso_deg = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
-                is_upper_back = bool(elbow_torso_deg >= 38.0 or rel_el_dist >= 0.35 or "t_bar" in ex_lower or target_muscle.lower() in ["upper_back", "traps", "rhomboids"])
+                # Bug 3 Fix: Use locked series-wide classification
+                is_upper_back = bool(is_upper_back_series)
 
                 tot_d = cur_d_sh + cur_d_el
                 if tot_d > 0.005:
@@ -1976,6 +2194,7 @@ def process_kinematics(
             "rep_number": rep_num,
             "phase": phase,
             "hide_torso_line": bool(hide_torso_line),
+            "is_upper_back": bool(is_upper_back_series),
             "is_unilateral": bool(is_unilateral_flag),
             "main_angle": round(float(clean_primary[f]), 1),
             "secondary_angle": round(float(clean_secondary[f]), 1),
@@ -2031,6 +2250,7 @@ def process_kinematics(
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
         "total_reps": total_reps,
         "hide_torso_line": bool(hide_torso_line),
+        "is_upper_back": bool(is_upper_back_series),
         "mean_rom_deg": mean_rom,
         "mean_eccentric_time_s": mean_ecc,
         "mean_pause_time_s": mean_pau,

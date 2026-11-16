@@ -1006,27 +1006,33 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             (exIdStr.includes('pulldown') || exIdStr.includes('pullup'));
 
           const isBack = grpId === 'back' || exIdStr.includes('row') || exIdStr.includes('t_bar') || exIdStr.includes('gironda') || exIdStr.includes('pull');
+          
+          // Bug 3 Fix: Locked series-wide classification from backend
           let isUpperBackCanvas = false;
           if (isBack) {
-            const tx = pSh.x - pHp.x, ty = pSh.y - pHp.y;
-            const tLen = Math.hypot(tx, ty) + 1e-6;
-            const elDist = Math.abs(ty * pEl.x - tx * pEl.y + pSh.x * pHp.y - pSh.y * pHp.x) / tLen;
-            const relDist = elDist / tLen;
-            const ux = pEl.x - pSh.x, uy = pEl.y - pSh.y;
-            const vx = pHp.x - pSh.x, vy = pHp.y - pSh.y;
-            const cosA = (ux * vx + uy * vy) / ((Math.hypot(ux, uy) + 1e-6) * (Math.hypot(vx, vy) + 1e-6));
-            const elbowTorsoDeg = Math.acos(Math.max(-1, Math.min(1, cosA))) * (180 / Math.PI);
-            isUpperBackCanvas = (elbowTorsoDeg >= 38.0 || relDist >= 0.35 || exIdStr.includes('t_bar') || exIdStr.includes('upper_back'));
+            if ((frame as any)?.is_upper_back !== undefined) {
+              isUpperBackCanvas = Boolean((frame as any).is_upper_back);
+            } else if ((analysisData as any)?.is_upper_back !== undefined) {
+              isUpperBackCanvas = Boolean((analysisData as any).is_upper_back);
+            } else if (exIdStr.includes('t_bar') || exIdStr.includes('upper_back')) {
+              isUpperBackCanvas = true;
+            } else {
+              const ty = pSh.y - pHp.y;
+              const tLen = Math.abs(ty) + 1e-6;
+              isUpperBackCanvas = ((pEl.y - pSh.y) < 0.48 * tLen);
+            }
           }
 
           const labelSh = isBack ? (isUpperBackCanvas ? 'Espalda Alta' : 'Dorsal') : 'Pectoral';
           const labelEl = isBack ? 'Bíceps' : 'Tríceps';
 
-          if (isBack) {
-            // Vector dinámico de resistencia estable calculado por SVD / trayectoria pasando por pHand (Grip)
+          const hasExplicitDirection = Boolean(fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0));
+
+          // Bug 4 Fix: Directional force vector and moment arms for T-Bar, Machine Press, and Machine Dips
+          if (isBack || hasExplicitDirection) {
             let uX = 1;
             let uY = 0;
-            if (fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0)) {
+            if (hasExplicitDirection) {
               const fn = Math.hypot(fv.dx, fv.dy);
               uX = fv.dx / fn;
               uY = fv.dy / fn;
@@ -1040,9 +1046,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               }
             }
 
-            // Vector de fuerza calculado por el backend hacia el eje de tracción / anclaje frontal P_machine
-
-            // Proyecciones ortogonales sobre la línea de fuerza del antebrazo / máquina
+            // Proyecciones ortogonales sobre la línea de fuerza
             const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
             const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };
             const dSh = Math.round(Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX));
@@ -1051,9 +1055,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             const pElProj = { x: pHand.x + tEl * uX, y: pHand.y + tEl * uY, score: pEl.score };
             const dEl = Math.round(Math.abs((pEl.x - pHand.x) * uY - (pEl.y - pHand.y) * uX));
 
-            // La línea de fuerza amarilla abarca de manera continua y elegante desde el plano del hombro hasta la carga
-            const minT = Math.min(-30, tSh - 20, tEl - 20);
-            const maxT = Math.max(70, tSh + 20, tEl + 20);
+            // La línea de fuerza abarca continuamente desde el lado opuesto de las articulaciones hasta la carga/máquina
+            const minT = Math.min(-30, tSh - 25, tEl - 25);
+            const maxT = Math.max(70, tSh + 35, tEl + 35);
             const p1 = { x: pHand.x + uX * minT, y: pHand.y + uY * minT };
             const p2 = { x: pHand.x + uX * maxT, y: pHand.y + uY * maxT };
 
@@ -1066,7 +1070,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Flecha indicando el vector de tracción en p2
+            // Flecha indicando el vector en p2
             const arrowAngle = Math.atan2(uY, uX);
             ctx.beginPath();
             ctx.moveTo(p2.x, p2.y);
@@ -1087,7 +1091,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               const tagElY = (pEl.y + pElProj.y) / 2 - 9;
 
               drawPillTag(tagShX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(tagElX, tagElY, `Bíceps: ${dEl}`, '#10B981', '#6EE7B7');
+              drawPillTag(tagElX, tagElY, `${labelEl}: ${dEl}`, '#10B981', '#6EE7B7');
             }
           } else if (isHorizontalResistance) {
             // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
