@@ -535,78 +535,60 @@ def process_kinematics(
         "score": hs_arr
     }
 
-    # 2. Dynamic Active Limb Selector + Anti-Arm-Flipping Spatial Continuity Tracker
+    # Safe universal fallbacks for all anatomical bone length medians (Guarantees no UnboundLocalError)
+    box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
+    l_humerus_median = float(max(0.16, min(0.35, box_h * 0.26)))
+    l_forearm_median = float(max(0.14, min(0.32, box_h * 0.22)))
+    l_femur_median = float(max(0.18, min(0.42, box_h * 0.32)))
+    l_torso_median = float(max(0.24, min(0.52, box_h * 0.40)))
+    l_tibia_median = float(max(0.16, min(0.36, box_h * 0.28)))
+
+    # 2. Dynamic Active Limb Selector based on Real Movement Dynamic Activity (ROM + Distal Travel)
     primary_joints = {}
     is_unilateral_flag = False
 
     if is_upper_body:
-        side_rom = {}
-        side_wrist_disp = {}
-        side_elbow_disp = {}
-        side_arm_len = {}
-        side_conf = {}
+        left_elbow_angles = []
+        right_elbow_angles = []
+        for f in range(n_frames):
+            ls = {"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}
+            le = {"x": all_smoothed["left_elbow"]["x"][f], "y": all_smoothed["left_elbow"]["y"][f]}
+            lw = {"x": all_smoothed["left_wrist"]["x"][f], "y": all_smoothed["left_wrist"]["y"][f]}
+            left_elbow_angles.append(calculate_angle_2d(ls, le, lw))
 
-        for side in ["left", "right"]:
-            side_angles = []
-            for f in range(n_frames):
-                s_pt = {"x": all_smoothed[f"{side}_shoulder"]["x"][f], "y": all_smoothed[f"{side}_shoulder"]["y"][f]}
-                e_pt = {"x": all_smoothed[f"{side}_elbow"]["x"][f], "y": all_smoothed[f"{side}_elbow"]["y"][f]}
-                w_pt = {"x": all_smoothed[f"{side}_wrist"]["x"][f], "y": all_smoothed[f"{side}_wrist"]["y"][f]}
-                side_angles.append(calculate_angle_2d(s_pt, e_pt, w_pt))
-            side_angles = np.array(side_angles)
-            side_rom[side] = float(np.max(side_angles) - np.min(side_angles))
+            rs = {"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}
+            re = {"x": all_smoothed["right_elbow"]["x"][f], "y": all_smoothed["right_elbow"]["y"][f]}
+            rw = {"x": all_smoothed["right_wrist"]["x"][f], "y": all_smoothed["right_wrist"]["y"][f]}
+            right_elbow_angles.append(calculate_angle_2d(rs, re, rw))
 
-            w_x = all_smoothed[f"{side}_wrist"]["x"]
-            w_y = all_smoothed[f"{side}_wrist"]["y"]
-            side_wrist_disp[side] = float(np.ptp(w_x) + np.ptp(w_y))
+        left_elbow_angles = np.array(left_elbow_angles)
+        right_elbow_angles = np.array(right_elbow_angles)
 
-            e_x = all_smoothed[f"{side}_elbow"]["x"]
-            e_y = all_smoothed[f"{side}_elbow"]["y"]
-            side_elbow_disp[side] = float(np.ptp(e_x) + np.ptp(e_y))
+        # Dynamic ROM between 90th and 10th percentiles to eliminate camera/noise spikes
+        left_rom = float(np.percentile(left_elbow_angles, 90) - np.percentile(left_elbow_angles, 10))
+        right_rom = float(np.percentile(right_elbow_angles, 90) - np.percentile(right_elbow_angles, 10))
 
-            s_x = all_smoothed[f"{side}_shoulder"]["x"]
-            s_y = all_smoothed[f"{side}_shoulder"]["y"]
-            lengths = np.hypot(e_x - s_x, e_y - s_y) + np.hypot(w_x - e_x, w_y - e_y)
-            side_arm_len[side] = float(np.median(lengths))
+        left_wrist_travel = float(np.hypot(np.ptp(all_smoothed["left_wrist"]["x"]), np.ptp(all_smoothed["left_wrist"]["y"])))
+        right_wrist_travel = float(np.hypot(np.ptp(all_smoothed["right_wrist"]["x"]), np.ptp(all_smoothed["right_wrist"]["y"])))
 
-            side_conf[side] = float(np.mean(all_smoothed[f"{side}_elbow"]["score"] + all_smoothed[f"{side}_wrist"]["score"]))
+        # Dynamic Activity metric: prioritizes moving limbs over stationary limbs resting on machine pads
+        left_activity = left_rom * (left_wrist_travel + 0.05)
+        right_activity = right_rom * (right_wrist_travel + 0.05)
 
-        # In horizontal rows / pulls, the rowing hand is at chest/torso height.
-        # A hand above the shoulder (wy < sy - 0.05) is touching the head/ear/hair and is NOT rowing.
+        # Penalize hand at head/hair level in horizontal rows
         if is_pattern_a:
             for side in ["left", "right"]:
                 hand_at_head_fraction = float(np.mean(all_smoothed[f"{side}_wrist"]["y"] < all_smoothed[f"{side}_shoulder"]["y"] - 0.05))
                 if hand_at_head_fraction > 0.25:
-                    side_conf[side] *= 0.05
-                    side_rom[side] *= 0.05
-                    side_wrist_disp[side] *= 0.05
+                    if side == "left":
+                        left_activity *= 0.05
+                    else:
+                        right_activity *= 0.05
 
-        rom_l = side_rom["left"]
-        rom_r = side_rom["right"]
-        disp_l = side_wrist_disp["left"]
-        disp_r = side_wrist_disp["right"]
+        # Check for unilateral exercise (one active arm with large activity, one passive resting arm)
+        is_unilateral_flag = bool(left_activity > 1.35 * right_activity or right_activity > 1.35 * left_activity)
+        locked_side = "left" if left_activity >= right_activity else "right"
 
-        # Check for unilateral exercise (one active arm with large ROM, one passive resting arm)
-        is_unilateral_r = (rom_r >= 28.0 and (rom_r > 1.35 * rom_l or disp_r > 1.40 * disp_l)) or (disp_r > 1.8 * disp_l and rom_r >= 20.0)
-        is_unilateral_l = (rom_l >= 28.0 and (rom_l > 1.35 * rom_r or disp_l > 1.40 * disp_r)) or (disp_l > 1.8 * disp_r and rom_l >= 20.0)
-
-        if is_unilateral_r and not is_unilateral_l:
-            active_side_init = "right"
-            is_unilateral_flag = True
-        elif is_unilateral_l and not is_unilateral_r:
-            active_side_init = "left"
-            is_unilateral_flag = True
-        else:
-            is_unilateral_flag = False
-            # Bilateral movement: select foreground arm using 2D arm segment length and joint confidence
-            len_l = side_arm_len["left"]
-            len_r = side_arm_len["right"]
-            metric_l = len_l * 2.0 + side_conf["left"]
-            metric_r = len_r * 2.0 + side_conf["right"]
-            active_side_init = "left" if metric_l >= metric_r else "right"
-
-        # Strict Active Arm Lock: eliminate mid-video arm hopping and jitter
-        locked_side = active_side_init
         tracked_sh = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_el = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_wr = np.zeros((n_frames, 2), dtype=np.float64)
@@ -666,10 +648,38 @@ def process_kinematics(
             }
         other_side = "right" if locked_side == "left" else "left"
     else:
-        is_unilateral_flag = False
-        mean_left_score = float(np.mean(all_smoothed["left_knee"]["score"] * 2.5 + all_smoothed["left_hip"]["score"] * 1.5 + all_smoothed["left_ankle"]["score"]))
-        mean_right_score = float(np.mean(all_smoothed["right_knee"]["score"] * 2.5 + all_smoothed["right_hip"]["score"] * 1.5 + all_smoothed["right_ankle"]["score"]))
-        locked_side = "left" if mean_left_score >= mean_right_score else "right"
+        left_knee_angles = []
+        right_knee_angles = []
+        for f in range(n_frames):
+            lk = {"x": all_smoothed["left_knee"]["x"][f], "y": all_smoothed["left_knee"]["y"][f]}
+            lh = {"x": all_smoothed["left_hip"]["x"][f], "y": all_smoothed["left_hip"]["y"][f]}
+            la = {"x": all_smoothed["left_ankle"]["x"][f], "y": all_smoothed["left_ankle"]["y"][f]}
+            left_knee_angles.append(calculate_angle_2d(lh, lk, la))
+
+            rk = {"x": all_smoothed["right_knee"]["x"][f], "y": all_smoothed["right_knee"]["y"][f]}
+            rh = {"x": all_smoothed["right_hip"]["x"][f], "y": all_smoothed["right_hip"]["y"][f]}
+            ra = {"x": all_smoothed["right_ankle"]["x"][f], "y": all_smoothed["right_ankle"]["y"][f]}
+            right_knee_angles.append(calculate_angle_2d(rh, rk, ra))
+
+        left_knee_angles = np.array(left_knee_angles)
+        right_knee_angles = np.array(right_knee_angles)
+
+        left_rom = float(np.percentile(left_knee_angles, 90) - np.percentile(left_knee_angles, 10))
+        right_rom = float(np.percentile(right_knee_angles, 90) - np.percentile(right_knee_angles, 10))
+        left_ankle_travel = float(np.hypot(np.ptp(all_smoothed["left_ankle"]["x"]), np.ptp(all_smoothed["left_ankle"]["y"])))
+        right_ankle_travel = float(np.hypot(np.ptp(all_smoothed["right_ankle"]["x"]), np.ptp(all_smoothed["right_ankle"]["y"])))
+
+        left_activity = left_rom * (left_ankle_travel + 0.05)
+        right_activity = right_rom * (right_ankle_travel + 0.05)
+
+        is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
+        if is_unilateral_flag:
+            locked_side = "left" if left_activity >= right_activity else "right"
+        else:
+            mean_left_score = float(np.mean(all_smoothed["left_knee"]["score"] * 2.5 + all_smoothed["left_hip"]["score"] * 1.5 + all_smoothed["left_ankle"]["score"]))
+            mean_right_score = float(np.mean(all_smoothed["right_knee"]["score"] * 2.5 + all_smoothed["right_hip"]["score"] * 1.5 + all_smoothed["right_ankle"]["score"]))
+            locked_side = "left" if mean_left_score >= mean_right_score else "right"
+
         other_side = "right" if locked_side == "left" else "left"
 
         for c_name in canonical_joints:
@@ -921,15 +931,21 @@ def process_kinematics(
         primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=2.2)
         primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=2.2)
 
-        # 4. Hand Grip is physically locked to the wrist keypoint
+        # 4. Update limb length medians from tracked coordinates
+        hl_all = np.hypot(el_x - sh_x, el_y - sh_y)
+        if len(hl_all) > 0 and np.median(hl_all) > 0.05:
+            l_humerus_median = float(np.median(hl_all))
+        fl_all = np.hypot(wr_x - el_x, wr_y - el_y)
+        if len(fl_all) > 0 and np.median(fl_all) > 0.05:
+            l_forearm_median = float(np.median(fl_all))
+
+        # 5. Hand Grip is physically locked to the wrist keypoint
         primary_joints["hand"] = {
             "x": primary_joints["wrist"]["x"].copy(),
             "y": primary_joints["wrist"]["y"].copy(),
             "score": primary_joints["wrist"]["score"].copy()
         }
     else:
-        l_humerus_median = 0.20
-        l_forearm_median = 0.18
         primary_joints["hand"] = {
             "x": primary_joints["wrist"]["x"].copy(),
             "y": primary_joints["wrist"]["y"].copy(),
