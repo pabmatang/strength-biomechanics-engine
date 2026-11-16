@@ -1016,20 +1016,21 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           const labelEl = isBack ? 'Bíceps' : 'Tríceps';
 
           if (isBack) {
-            // Vector dinámico de resistencia a lo largo del antebrazo / máquina pasando por pHand (Grip)
-            let uX = pHand.x - pEl.x;
-            let uY = pHand.y - pEl.y;
-            let uNorm = Math.hypot(uX, uY);
-            if (uNorm > 5) {
-              uX /= uNorm;
-              uY /= uNorm;
-            } else if (fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0)) {
+            // Vector dinámico de resistencia estable calculado por SVD / trayectoria pasando por pHand (Grip)
+            let uX = 1;
+            let uY = 0;
+            if (fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0)) {
               const fn = Math.hypot(fv.dx, fv.dy);
               uX = fv.dx / fn;
               uY = fv.dy / fn;
             } else {
-              uX = 1;
-              uY = 0;
+              const vx = pHand.x - pEl.x;
+              const vy = pHand.y - pEl.y;
+              const uNorm = Math.hypot(vx, vy);
+              if (uNorm > 5) {
+                uX = vx / uNorm;
+                uY = vy / uNorm;
+              }
             }
 
             // Proyecciones ortogonales sobre la línea de fuerza del antebrazo / máquina

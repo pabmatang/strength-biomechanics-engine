@@ -679,53 +679,115 @@ def process_kinematics(
                 "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
             }
 
-    # 3. Anatomical Kinematic Stabilizer & Plate Occlusion Reconstructor (Femur Constraint)
+    # 3. Anatomical Kinematic Stabilizer & Plate Occlusion Reconstructor (2-Circle Intersection)
     if is_hip_thrust:
-        # A. Calculate Median Unoccluded Femur Length L_femur
+        # A. Calculate Median Unoccluded Femur & Torso Lengths (score >= 0.65)
         knee_x = primary_joints["knee"]["x"]
         knee_y = primary_joints["knee"]["y"]
         hip_x = primary_joints["hip"]["x"]
         hip_y = primary_joints["hip"]["y"]
+        sh_x = primary_joints["shoulder"]["x"]
+        sh_y = primary_joints["shoulder"]["y"]
         hip_score = primary_joints["hip"]["score"]
         knee_score = primary_joints["knee"]["score"]
+        sh_score = primary_joints["shoulder"]["score"]
 
         femur_lengths = np.hypot(hip_x - knee_x, hip_y - knee_y)
-        unoccluded_mask = (hip_score >= 0.50) & (knee_score >= 0.50)
+        torso_lengths = np.hypot(hip_x - sh_x, hip_y - sh_y)
+        unoccluded_femur_mask = (hip_score >= 0.65) & (knee_score >= 0.65)
+        unoccluded_torso_mask = (hip_score >= 0.65) & (sh_score >= 0.65)
 
-        if np.any(unoccluded_mask):
-            l_femur_median = float(np.median(femur_lengths[unoccluded_mask]))
+        if np.any(unoccluded_femur_mask):
+            l_femur_median = float(np.median(femur_lengths[unoccluded_femur_mask]))
         else:
             box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
             l_femur_median = float(max(0.18, min(0.35, box_h * 0.32)))
 
-        # B. Detect Plate Occlusion: hip_score < 0.45 or femur length deviating > 20%
-        femur_ratio_dev = np.abs(femur_lengths - l_femur_median) / max(l_femur_median, 1e-4)
-        is_plate_occluded = (hip_score < 0.45) | (femur_ratio_dev > 0.20)
+        if np.any(unoccluded_torso_mask):
+            l_torso_median = float(np.median(torso_lengths[unoccluded_torso_mask]))
+        else:
+            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
+            l_torso_median = float(max(0.24, min(0.48, box_h * 0.40)))
 
-        # C. Reconstruct Occluded Hip Coordinates via Cubic Spline and Rigid Length Projection
+        # B. Detect Plate Occlusion: hip_score < 0.52 or femur length deviating > 10%
+        femur_ratio_dev = np.abs(femur_lengths - l_femur_median) / max(l_femur_median, 1e-4)
+        is_plate_occluded = (hip_score < 0.52) | (femur_ratio_dev > 0.10)
+
+        # C. Reconstruct Occluded Hip Coordinates via 2-Circle Intersection & Monotonic PCHIP
         valid_frames = np.where(~is_plate_occluded)[0]
-        if len(valid_frames) >= 4 and np.any(is_plate_occluded):
+        if len(valid_frames) >= 2 and np.any(is_plate_occluded):
             try:
-                cs_x = scipy.interpolate.CubicSpline(valid_frames, hip_x[valid_frames], bc_type='natural')
-                cs_y = scipy.interpolate.CubicSpline(valid_frames, hip_y[valid_frames], bc_type='natural')
+                pchip_x = scipy.interpolate.PchipInterpolator(valid_frames, hip_x[valid_frames])
+                pchip_y = scipy.interpolate.PchipInterpolator(valid_frames, hip_y[valid_frames])
                 all_idx = np.arange(n_frames)
-                interp_hip_x = cs_x(all_idx)
-                interp_hip_y = cs_y(all_idx)
+                interp_hip_x = pchip_x(all_idx)
+                interp_hip_y = pchip_y(all_idx)
             except Exception:
                 all_idx = np.arange(n_frames)
                 interp_hip_x = np.interp(all_idx, valid_frames, hip_x[valid_frames])
                 interp_hip_y = np.interp(all_idx, valid_frames, hip_y[valid_frames])
 
+            r1 = l_torso_median
+            r2 = l_femur_median
+
             for f in range(n_frames):
                 if is_plate_occluded[f]:
-                    # Project along knee-to-hip vector to enforce exact rigid L_femur
-                    vx = interp_hip_x[f] - knee_x[f]
-                    vy = interp_hip_y[f] - knee_y[f]
-                    v_mag = math.hypot(vx, vy)
-                    if v_mag > 1e-5:
-                        primary_joints["hip"]["x"][f] = float(knee_x[f] + (vx / v_mag) * l_femur_median)
-                        primary_joints["hip"]["y"][f] = float(knee_y[f] + (vy / v_mag) * l_femur_median)
-                        primary_joints["hip"]["score"][f] = 0.80
+                    # Circle 1: Center P1 = Shoulder, radius r1 = L_torso
+                    p1x = float(sh_x[f])
+                    p1y = float(sh_y[f])
+                    # Circle 2: Center P2 = Knee, radius r2 = L_femur
+                    p2x = float(knee_x[f])
+                    p2y = float(knee_y[f])
+
+                    dx = p2x - p1x
+                    dy = p2y - p1y
+                    d = math.hypot(dx, dy)
+
+                    cand_x = interp_hip_x[f]
+                    cand_y = interp_hip_y[f]
+
+                    if d > 1e-4:
+                        if d > r1 + r2:
+                            # Circles too far apart: scale radii proportionally so they meet tangentially
+                            ratio = r1 / (r1 + r2)
+                            sol_x = p1x + ratio * dx
+                            sol_y = p1y + ratio * dy
+                        elif d < abs(r1 - r2):
+                            # One circle strictly inside the other
+                            if r1 > r2:
+                                sol_x = p1x + (dx / d) * r1
+                                sol_y = p1y + (dy / d) * r1
+                            else:
+                                sol_x = p2x - (dx / d) * r2
+                                sol_y = p2y - (dy / d) * r2
+                        else:
+                            # Standard 2-circle intersection
+                            a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d)
+                            h = math.sqrt(max(0.0, r1 * r1 - a * a))
+                            p0x = p1x + (a / d) * dx
+                            p0y = p1y + (a / d) * dy
+                            rx = -(dy / d) * h
+                            ry = (dx / d) * h
+
+                            int_a_x = p0x + rx
+                            int_a_y = p0y + ry
+                            int_b_x = p0x - rx
+                            int_b_y = p0y - ry
+
+                            # Pick whichever intersection is closest to monotonic PCHIP candidate
+                            dist_a = math.hypot(int_a_x - cand_x, int_a_y - cand_y)
+                            dist_b = math.hypot(int_b_x - cand_x, int_b_y - cand_y)
+
+                            if dist_a <= dist_b:
+                                sol_x, sol_y = int_a_x, int_a_y
+                            else:
+                                sol_x, sol_y = int_b_x, int_b_y
+                    else:
+                        sol_x, sol_y = cand_x, cand_y
+
+                    primary_joints["hip"]["x"][f] = float(sol_x)
+                    primary_joints["hip"]["y"][f] = float(sol_y)
+                    primary_joints["hip"]["score"][f] = 0.85
 
             # Re-smooth with zero-phase Butterworth filter post reconstruction
             primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=1.8)
@@ -751,7 +813,7 @@ def process_kinematics(
                     primary_joints["knee"]["y"][f] = max(0.15, primary_joints["ankle"]["y"][f] - tibia_len)
                     primary_joints["knee"]["score"][f] = 0.85
 
-    # 3B. Anatomical Rigid Forearm Stabilizer & Dumbbell/Barbell Plate Occlusion Reconstructor
+    # 3B. Upper Body Chained Forward Kinematics (Root Shoulder -> Elbow -> Wrist)
     if is_upper_body:
         wr_x = primary_joints["wrist"]["x"]
         wr_y = primary_joints["wrist"]["y"]
@@ -763,9 +825,24 @@ def process_kinematics(
         el_score = primary_joints["elbow"]["score"]
         sh_score = primary_joints["shoulder"]["score"]
 
-        # 3B. Anatomical Rigid Forearm and Humerus Stabilizer
+        # 1. Clamp Shoulder maximum frame-to-frame velocity to max_delta = 0.035
+        max_sh_delta = 0.035
+        for f in range(1, n_frames):
+            d_sh_x = sh_x[f] - sh_x[f - 1]
+            d_sh_y = sh_y[f] - sh_y[f - 1]
+            d_sh_dist = math.hypot(d_sh_x, d_sh_y)
+            if d_sh_dist > max_sh_delta:
+                sh_x[f] = sh_x[f - 1] + (d_sh_x / d_sh_dist) * max_sh_delta
+                sh_y[f] = sh_y[f - 1] + (d_sh_y / d_sh_dist) * max_sh_delta
+
+        primary_joints["shoulder"]["x"] = apply_zero_phase_butterworth(sh_x, fs=15.0, cutoff=1.8)
+        primary_joints["shoulder"]["y"] = apply_zero_phase_butterworth(sh_y, fs=15.0, cutoff=1.8)
+        sh_x = primary_joints["shoulder"]["x"]
+        sh_y = primary_joints["shoulder"]["y"]
+
+        # 2. Extract median bone lengths from clean unoccluded frames (score >= 0.65)
         forearm_lengths = np.hypot(wr_x - el_x, wr_y - el_y)
-        unoccluded_wrist_mask = (wr_score >= 0.40) & (el_score >= 0.40) & (forearm_lengths >= 0.08)
+        unoccluded_wrist_mask = (wr_score >= 0.65) & (el_score >= 0.65) & (forearm_lengths >= 0.08)
 
         if np.any(unoccluded_wrist_mask):
             l_forearm_median = float(np.median(forearm_lengths[unoccluded_wrist_mask]))
@@ -774,30 +851,19 @@ def process_kinematics(
             l_forearm_median = float(max(0.14, min(0.28, box_h * 0.22)))
 
         humerus_lengths = np.hypot(el_x - sh_x, el_y - sh_y)
-        unoccluded_elbow_mask = (el_score >= 0.40) & (sh_score >= 0.40) & (humerus_lengths >= 0.08)
+        unoccluded_elbow_mask = (el_score >= 0.65) & (sh_score >= 0.65) & (humerus_lengths >= 0.08)
         if np.any(unoccluded_elbow_mask):
             l_humerus_median = float(np.median(humerus_lengths[unoccluded_elbow_mask]))
         else:
             box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
             l_humerus_median = float(max(0.16, min(0.32, box_h * 0.25)))
 
-        # Fine-tune elbow joint: enforce rigid humerus length to eliminate drift from muscle bulge / loose clothing
-        for f in range(n_frames):
-            cur_hl = math.hypot(el_x[f] - sh_x[f], el_y[f] - sh_y[f])
-            if cur_hl > 1e-4 and abs(cur_hl - l_humerus_median) / max(l_humerus_median, 1e-4) > 0.15:
-                ratio = l_humerus_median / cur_hl
-                el_x[f] = sh_x[f] + (el_x[f] - sh_x[f]) * (0.35 + 0.65 * ratio)
-                el_y[f] = sh_y[f] + (el_y[f] - sh_y[f]) * (0.35 + 0.65 * ratio)
-
-        primary_joints["elbow"]["x"] = apply_zero_phase_butterworth(el_x, fs=15.0, cutoff=1.8)
-        primary_joints["elbow"]["y"] = apply_zero_phase_butterworth(el_y, fs=15.0, cutoff=1.8)
-
-        # Detect Dumbbell / Barbell plate occlusion: wrist score drops or forearm length collapses > 20%
+        # 3. Detect Dumbbell / Barbell plate occlusion: score < 0.52 or forearm length deviating > 10%
         forearm_ratio_dev = np.abs(forearm_lengths - l_forearm_median) / max(l_forearm_median, 1e-4)
-        is_wrist_occluded = (wr_score < 0.35) | (forearm_ratio_dev > 0.20)
+        is_wrist_occluded = (wr_score < 0.52) | (forearm_ratio_dev > 0.10)
 
         valid_wrist_frames = np.where(~is_wrist_occluded)[0]
-        if len(valid_wrist_frames) >= 4 and np.any(is_wrist_occluded):
+        if len(valid_wrist_frames) >= 2 and np.any(is_wrist_occluded):
             try:
                 # Monotonic shape-preserving PCHIP interpolation avoids CubicSpline oscillations/overshoots
                 pchip_wr_x = scipy.interpolate.PchipInterpolator(valid_wrist_frames, wr_x[valid_wrist_frames])
@@ -809,25 +875,48 @@ def process_kinematics(
                 all_f_idx = np.arange(n_frames)
                 interp_wr_x = np.interp(all_f_idx, valid_wrist_frames, wr_x[valid_wrist_frames])
                 interp_wr_y = np.interp(all_f_idx, valid_wrist_frames, wr_y[valid_wrist_frames])
+        else:
+            interp_wr_x = wr_x.copy()
+            interp_wr_y = wr_y.copy()
 
-            for f in range(n_frames):
-                if is_wrist_occluded[f]:
-                    # Project along elbow-to-wrist vector to enforce exact rigid L_forearm
-                    vx = interp_wr_x[f] - el_x[f]
-                    vy = interp_wr_y[f] - el_y[f]
-                    if is_pattern_b:
-                        # In presses/dips, wrist is vertically above or level with elbow (vy <= 0)
-                        if vy > 0.02:
-                            vy = -abs(vy)
-                    v_mag = math.hypot(vx, vy)
-                    if v_mag > 1e-5:
-                        wr_x[f] = el_x[f] + (vx / v_mag) * l_forearm_median
-                        wr_y[f] = el_y[f] + (vy / v_mag) * l_forearm_median
-                    else:
-                        wr_x[f] = el_x[f]
-                        wr_y[f] = el_y[f] - l_forearm_median
-                    primary_joints["wrist"]["score"][f] = 0.85
+        # 4. Strict Forward-Chained Projection: Root Shoulder -> project Elbow at L_humerus -> project Wrist at L_forearm
+        for f in range(n_frames):
+            sh_x_f = sh_x[f]
+            sh_y_f = sh_y[f]
 
+            # A. Project Elbow at radio L_humerus from Shoulder
+            vx_el = el_x[f] - sh_x_f
+            vy_el = el_y[f] - sh_y_f
+            mag_el = math.hypot(vx_el, vy_el)
+            if mag_el > 1e-5:
+                el_x[f] = sh_x_f + (vx_el / mag_el) * l_humerus_median
+                el_y[f] = sh_y_f + (vy_el / mag_el) * l_humerus_median
+
+            # B. Project Wrist at radio L_forearm from Elbow
+            target_wx = interp_wr_x[f] if is_wrist_occluded[f] else wr_x[f]
+            target_wy = interp_wr_y[f] if is_wrist_occluded[f] else wr_y[f]
+            vx_wr = target_wx - el_x[f]
+            vy_wr = target_wy - el_y[f]
+
+            if is_pattern_b:
+                # In presses/dips, wrist stays vertically above or level with elbow (vy <= 0)
+                if vy_wr > 0.02:
+                    vy_wr = -abs(vy_wr)
+
+            mag_wr = math.hypot(vx_wr, vy_wr)
+            if mag_wr > 1e-5:
+                wr_x[f] = el_x[f] + (vx_wr / mag_wr) * l_forearm_median
+                wr_y[f] = el_y[f] + (vy_wr / mag_wr) * l_forearm_median
+            else:
+                wr_x[f] = el_x[f]
+                wr_y[f] = el_y[f] - l_forearm_median
+
+            if is_wrist_occluded[f]:
+                primary_joints["wrist"]["score"][f] = 0.85
+
+        # Re-smooth elbow and wrist with Butterworth filter
+        primary_joints["elbow"]["x"] = apply_zero_phase_butterworth(el_x, fs=15.0, cutoff=1.8)
+        primary_joints["elbow"]["y"] = apply_zero_phase_butterworth(el_y, fs=15.0, cutoff=1.8)
         primary_joints["wrist"]["x"] = apply_zero_phase_butterworth(wr_x, fs=15.0, cutoff=1.8)
         primary_joints["wrist"]["y"] = apply_zero_phase_butterworth(wr_y, fs=15.0, cutoff=1.8)
 
@@ -1036,23 +1125,61 @@ def process_kinematics(
     else:
         facing_forward_x = 1.0 if float(np.median(primary_joints["knee"]["x"])) > avg_hp_x else -1.0
 
-    # Determine 2D Force Vector based on load_type and movement category:
-    # - free_weight: gravity vertical downwards (dx=0, dy=1)
-    # - machine / cable horizontal pull (row): resistance pulls horizontal forward (dx=facing_forward_x, dy=0)
-    # - machine / cable horizontal push (press): resistance pulls horizontal backward (dx=-facing_forward_x, dy=0)
-    # - vertical pull (pulldown, pullup): resistance pulls vertical upwards (dx=0, dy=-1)
-    if load_lower in ["machine", "cable"] or any(k in ex_lower for k in ["t_bar", "row"]):
+    # SVD / PCA on active wrist trajectory to extract stable line of resistance u
+    is_machine_or_cable_pattern = (load_lower in ["machine", "cable"] or any(k in ex_lower for k in ["t_bar", "row"]))
+    svd_force_u = None
+
+    if is_upper_body and is_machine_or_cable_pattern:
+        # Collect active wrist coordinates: frames where movement is occurring and score is reliable
+        active_f = [f for f in range(n_frames) if ang_vel[f] >= 8.0 and primary_joints["wrist"]["score"][f] >= 0.35]
+        if len(active_f) < 6:
+            active_f = [f for f in range(n_frames) if primary_joints["wrist"]["score"][f] >= 0.35]
+        if len(active_f) >= 4:
+            wx_act = primary_joints["wrist"]["x"][active_f]
+            wy_act = primary_joints["wrist"]["y"][active_f]
+            W = np.column_stack([wx_act - np.mean(wx_act), wy_act - np.mean(wy_act)])
+            try:
+                _, _, vh = np.linalg.svd(W, full_matrices=False)
+                v0 = vh[0]  # First principal component (axis of maximal motion variance)
+                norm_v0 = math.hypot(v0[0], v0[1])
+                if norm_v0 > 1e-4:
+                    ux = float(v0[0] / norm_v0)
+                    uy = float(v0[1] / norm_v0)
+
+                    # Orient vector in the direction of the eccentric pull (towards load / machine resistance)
+                    if any(k in ex_lower for k in ["lat_pulldown", "pulldown", "pullup"]):
+                        # Vertical pull: resistance pulls upward (uy < 0 in image coordinates)
+                        if uy > 0:
+                            ux, uy = -ux, -uy
+                    elif is_pattern_b:
+                        # Horizontal push (machine press): resistance pulls backward against athlete facing direction
+                        if ux * (-facing_forward_x) < 0:
+                            ux, uy = -ux, -uy
+                    else:
+                        # Horizontal pull (machine row, t-bar): resistance pulls forward towards machine anchor
+                        if ux * facing_forward_x < 0:
+                            ux, uy = -ux, -uy
+                    svd_force_u = (ux, uy)
+            except Exception:
+                svd_force_u = None
+
+    # Determine 2D Force Vector based on SVD, load_type and movement category:
+    if svd_force_u is not None:
+        force_dx, force_dy = svd_force_u
+        force_dir_name = "along_svd_pull"
+        force_origin = "hand_grip"
+    elif is_machine_or_cable_pattern:
         if any(k in ex_lower for k in ["lat_pulldown", "pulldown", "pullup"]):
             force_dir_name = "vertical_up"
             force_dx = 0.0
             force_dy = -1.0
             force_origin = "hand_grip"
-        elif is_pattern_a: # Horizontal pull (rowing, gironda, t-bar): follows machine & forearm direction
+        elif is_pattern_a:  # Horizontal pull (rowing, gironda, t-bar)
             force_dir_name = "along_pull"
             force_dx = float(facing_forward_x)
             force_dy = 0.0
             force_origin = "hand_grip"
-        elif is_pattern_b: # Horizontal push (machine press, fly)
+        elif is_pattern_b:  # Horizontal push (machine press, fly)
             force_dir_name = "horizontal_backward"
             force_dx = float(-facing_forward_x)
             force_dy = 0.0
@@ -1062,7 +1189,7 @@ def process_kinematics(
             force_dx = 0.0
             force_dy = 1.0
             force_origin = "hand_grip" if is_upper_body else "load"
-    else: # free_weight / gravity
+    else:  # free_weight / gravity
         force_dir_name = "vertical_down"
         force_dx = 0.0
         force_dy = 1.0
@@ -1162,17 +1289,9 @@ def process_kinematics(
 
         if is_pattern_a:
             # Pattern A — Tracción / Flexión
-            # Perpendicular moment arms relative to the line of force passing through hand grip
-            # In T-bar and rowing machines, resistance pulls along the machine lever and forearm
-            u_fx = hx_inf - el_x_inf
-            u_fy = hy_inf - el_y_inf
-            u_fnorm = math.hypot(u_fx, u_fy)
-            if u_fnorm > 1e-4:
-                u_fx /= u_fnorm
-                u_fy /= u_fnorm
-            else:
-                u_fx = float(facing_forward_x)
-                u_fy = 0.0
+            # Perpendicular moment arms relative to the stable SVD/machine line of force passing through hand grip
+            u_fx = float(force_dx)
+            u_fy = float(force_dy)
 
             # Perpendicular distance formula to line passing through hand: d = |(Px - Hx)*uy - (Py - Hy)*ux|
             d_sh = float(abs((sh_x_inf - hx_inf) * u_fy - (sh_y_inf - hy_inf) * u_fx))
@@ -1355,11 +1474,13 @@ def process_kinematics(
     # 8. Velocity-Based Training (VBT) Intensity Estimation
     if len(repetitions_summary) >= 2:
         rep_vels = [r["concentric_velocity_deg_s"] for r in repetitions_summary]
+        k_init = min(3, len(rep_vels))
+        v_best = max(rep_vels[:k_init])
         first_rep_vel = rep_vels[0]
         last_rep_vel = rep_vels[-1]
         max_rep_vel = max(rep_vels) if rep_vels else 1.0
 
-        vel_loss = round(float(max(0.0, ((first_rep_vel - last_rep_vel) / max(first_rep_vel, 1e-4)) * 100.0)), 1)
+        vel_loss = round(float(max(0.0, ((v_best - last_rep_vel) / max(v_best, 1e-4)) * 100.0)), 1)
 
         penult_rep_vel = rep_vels[-2] if len(rep_vels) >= 3 else last_rep_vel
         is_terminal_accel = (len(rep_vels) >= 3 and last_rep_vel > penult_rep_vel * 1.05)
@@ -1404,6 +1525,7 @@ def process_kinematics(
             "estimated_rpe": rpe_est,
             "velocity_loss_pct": vel_loss,
             "first_rep_vel": first_rep_vel,
+            "v_best": round(v_best, 1),
             "last_rep_vel": last_rep_vel,
             "max_rep_vel": round(max_rep_vel, 1),
             "rep_velocities": rep_vels,
@@ -1587,22 +1709,14 @@ def process_kinematics(
 
         # Projected 2D Moment Arms for Canvas Overlay
         if is_upper_body:
-            if is_pattern_a:
-                # Along forearm & machine pull:
-                u_fx = cur_hx - el_x
-                u_fy = cur_hy - el_y
-                u_fnorm = math.hypot(u_fx, u_fy)
-                if u_fnorm > 1e-4:
-                    u_fx /= u_fnorm
-                    u_fy /= u_fnorm
-                else:
-                    u_fx = float(facing_forward_x)
-                    u_fy = 0.0
+            if svd_force_u is not None or is_machine_or_cable_pattern:
+                u_fx = float(force_dx)
+                u_fy = float(force_dy)
                 f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
                 f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
                 cur_force_dx = u_fx
                 cur_force_dy = u_fy
-                cur_force_dir = "along_pull"
+                cur_force_dir = force_dir_name
             elif force_dir_name.startswith("horizontal"):
                 # Perpendicular to horizontal line is vertical distance dy
                 f_d_sh = abs(sh_y - cur_hy)
