@@ -546,6 +546,7 @@ def process_kinematics(
     # 2. Dynamic Active Limb Selector based on Real Movement Dynamic Activity (ROM + Distal Travel)
     primary_joints = {}
     is_unilateral_flag = False
+    hide_torso_line = False
 
     if is_upper_body:
         left_elbow_angles = []
@@ -846,7 +847,8 @@ def process_kinematics(
         avg_sh_x_init = float(np.median(sh_x))
         facing_dir = 1.0 if avg_wr_x_init > avg_sh_x_init else -1.0
         
-        mean_hip_score = float(np.mean(primary_joints["hip"]["score"]))
+        mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
+        hide_torso_line = bool(is_upper_body and mean_hip_score < 0.60)
         if mean_hip_score < 0.50:
             for f in range(n_frames):
                 primary_joints["hip"]["x"][f] = float(sh_x[f] - 0.08 * facing_dir)
@@ -990,22 +992,8 @@ def process_kinematics(
             if raw_h < 65.0:
                 raw_h = 180.0 - raw_h
             
-            # Clinical tibial alignment in Hip Thrust:
-            tibial_tilt = math.degrees(math.atan2(abs(ak["x"] - kn["x"]), max(0.01, ak["y"] - kn["y"])))
-            is_facing_left = (hp["x"] > kn["x"])
-            if is_facing_left:
-                foot_forward = (ak["x"] < kn["x"] - 0.018)
-                foot_back = (ak["x"] > kn["x"] + 0.018)
-            else:
-                foot_forward = (ak["x"] > kn["x"] + 0.018)
-                foot_back = (ak["x"] < kn["x"] - 0.018)
-            
-            if foot_forward:
-                raw_k = float(np.clip(90.0 + tibial_tilt, 70.0, 125.0))
-            elif foot_back:
-                raw_k = float(np.clip(90.0 - tibial_tilt, 55.0, 110.0))
-            else:
-                raw_k = 90.0
+            # Dynamic continuous knee angle: preserve raw_k = calculate_angle_2d(hp, kn, ak)
+            # so frames[t].secondary_angle updates live on canvas during ascent/descent.
 
         kn_2d[f] = raw_k
         hp_2d[f] = raw_h
@@ -1142,9 +1130,41 @@ def process_kinematics(
     else:
         facing_forward_x = 1.0 if float(np.median(primary_joints["knee"]["x"])) > avg_hp_x else -1.0
 
-    # SVD / PCA on active wrist trajectory to extract stable line of resistance u
+    # Dynamic Frontal Machine Force Vector for Horizontal Pulling (Rowing, T-Bar, Machine Rows)
+    is_horizontal_pull = is_upper_body and (
+        is_pattern_a or any(k in ex_lower for k in ["row", "t_bar", "gironda"])
+    )
     is_machine_or_cable_pattern = (load_lower in ["machine", "cable"] or any(k in ex_lower for k in ["t_bar", "row"]))
+    machine_u_per_frame = None
     svd_force_u = None
+
+    if is_horizontal_pull:
+        # Frontal Machine Anchor Point P_machine = (x_stretched + 0.45 * facing_dir, y_stretched)
+        dist_reach = (primary_joints["wrist"]["x"] - primary_joints["shoulder"]["x"]) * facing_forward_x
+        q80 = float(np.percentile(dist_reach, 80))
+        stretch_mask = dist_reach >= q80
+        if np.any(stretch_mask):
+            x_stretched = float(np.median(primary_joints["wrist"]["x"][stretch_mask]))
+            y_stretched = float(np.median(primary_joints["wrist"]["y"][stretch_mask]))
+        else:
+            x_stretched = float(np.median(primary_joints["wrist"]["x"]))
+            y_stretched = float(np.median(primary_joints["wrist"]["y"]))
+
+        P_machine = (x_stretched + 0.45 * facing_forward_x, y_stretched)
+
+        # Dynamic per-frame force vector pointing from current wrist towards P_machine:
+        # v(t) = (P_machine - P_wrist(t)) / (||P_machine - P_wrist(t)|| + 1e-6)
+        machine_u_per_frame = np.zeros((n_frames, 2), dtype=np.float64)
+        for f in range(n_frames):
+            vx = P_machine[0] - primary_joints["wrist"]["x"][f]
+            vy = P_machine[1] - primary_joints["wrist"]["y"][f]
+            n_v = math.hypot(vx, vy) + 1e-6
+            machine_u_per_frame[f] = [vx / n_v, vy / n_v]
+
+        force_dir_name = "along_machine_pull"
+        force_dx = float(np.median(machine_u_per_frame[:, 0]))
+        force_dy = float(np.median(machine_u_per_frame[:, 1]))
+        force_origin = "hand_grip"
 
     if is_upper_body and is_machine_or_cable_pattern:
         # Collect active wrist coordinates: frames where movement is occurring and score is reliable
@@ -1188,8 +1208,13 @@ def process_kinematics(
             except Exception:
                 svd_force_u = None
 
-    # Determine 2D Force Vector based on SVD, load_type and movement category:
-    if svd_force_u is not None:
+    # Determine 2D Force Vector based on Machine Anchor, SVD, load_type and movement category:
+    if is_horizontal_pull and machine_u_per_frame is not None:
+        force_dir_name = "along_machine_pull"
+        force_dx = float(np.median(machine_u_per_frame[:, 0]))
+        force_dy = float(np.median(machine_u_per_frame[:, 1]))
+        force_origin = "hand_grip"
+    elif svd_force_u is not None:
         force_dx, force_dy = svd_force_u
         force_dir_name = "along_svd_pull"
         force_origin = "hand_grip"
@@ -1268,12 +1293,26 @@ def process_kinematics(
         rep_max_angle = float(np.max(clean_primary[start_frame : end_frame + 1]))
         rom_deg = max(0.0, rep_max_angle - rep_min_angle)
 
-        if is_trough_movement:
-            eccentric_time_s = round(max(0.2, t_inflect - t_start), 2)
-            concentric_time_s = round(max(0.2, t_end - t_inflect), 2)
+        if is_pattern_a:
+            # Pattern A (Tracción/Remo): Pulling to body is concentric, returning forward is eccentric
+            concentric_time_s = round(max(0.25, t_inflect - t_start), 2)
+            eccentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+            delta_angle_conc = abs(clean_primary[bottom_frame] - clean_primary[start_frame])
+        elif is_pattern_b:
+            # Pattern B (Empuje/Presses): Lowering is eccentric, pressing up is concentric
+            eccentric_time_s = round(max(0.25, t_inflect - t_start), 2)
+            concentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+            delta_angle_conc = abs(clean_primary[end_frame] - clean_primary[bottom_frame])
         else:
-            concentric_time_s = round(max(0.2, t_inflect - t_start), 2)
-            eccentric_time_s = round(max(0.2, t_end - t_inflect), 2)
+            # Pattern C (Tren inferior):
+            if is_hip_thrust:
+                concentric_time_s = round(max(0.25, t_inflect - t_start), 2)
+                eccentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+                delta_angle_conc = abs(clean_primary[bottom_frame] - clean_primary[start_frame])
+            else:
+                eccentric_time_s = round(max(0.25, t_inflect - t_start), 2)
+                concentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+                delta_angle_conc = abs(clean_primary[end_frame] - clean_primary[bottom_frame])
 
         # Reject micro-reps, twitches, or incomplete hesitations
         if rom_deg < 22.0 or (t_end - t_start) < 1.25 or (is_pattern_b and concentric_time_s < 0.28):
@@ -1285,7 +1324,7 @@ def process_kinematics(
         stationary_frames = sum(1 for f in range(window_start, window_end + 1) if ang_vel[f] < 15.0)
         pause_time_s = round(float(stationary_frames / 15.0), 2)
 
-        concentric_velocity_deg_s = round(float(rom_deg / max(concentric_time_s, 0.1)), 1)
+        concentric_velocity_deg_s = round(float(delta_angle_conc / max(concentric_time_s, 0.1)), 1)
 
         # Planar positions at inflection frame
         sh_x_inf = primary_joints["shoulder"]["x"][bottom_frame]
@@ -1314,9 +1353,13 @@ def process_kinematics(
 
         if is_pattern_a:
             # Pattern A — Tracción / Flexión
-            # Perpendicular moment arms relative to the stable SVD/machine line of force passing through hand grip
-            u_fx = float(force_dx)
-            u_fy = float(force_dy)
+            # Perpendicular moment arms relative to the dynamic machine line of force passing through hand grip
+            if is_horizontal_pull and machine_u_per_frame is not None:
+                u_fx = float(machine_u_per_frame[bottom_frame, 0])
+                u_fy = float(machine_u_per_frame[bottom_frame, 1])
+            else:
+                u_fx = float(force_dx)
+                u_fy = float(force_dy)
 
             # Perpendicular distance formula to line passing through hand: d = |(Px - Hx)*uy - (Py - Hy)*ux|
             d_sh = float(abs((sh_x_inf - hx_inf) * u_fy - (sh_y_inf - hy_inf) * u_fx))
@@ -1410,18 +1453,35 @@ def process_kinematics(
             # Pattern C — Tren Inferior
             if is_hip_thrust:
                 dominant_joint = "CADERA"
-                if inflect_knee < 78.0:
-                    recom = f"Pies demasiado retrasados ({round(inflect_knee)}° < 78°): sobrecarga de cuádriceps. Adelanta los pies ~5-8 cm."
+                tibial_tilt = math.degrees(math.atan2(abs(ak_x_inf - kn_x_inf), max(0.01, ak_y_inf - kn_y_inf)))
+                is_facing_left = (hp_x_inf > kn_x_inf)
+                if is_facing_left:
+                    foot_forward = (ak_x_inf < kn_x_inf - 0.018)
+                    foot_back = (ak_x_inf > kn_x_inf + 0.018)
+                else:
+                    foot_forward = (ak_x_inf > kn_x_inf + 0.018)
+                    foot_back = (ak_x_inf < kn_x_inf - 0.018)
+                
+                if foot_forward:
+                    eval_knee = float(np.clip(90.0 + tibial_tilt, 70.0, 125.0))
+                elif foot_back:
+                    eval_knee = float(np.clip(90.0 - tibial_tilt, 55.0, 110.0))
+                else:
+                    eval_knee = 90.0
+
+                if eval_knee < 78.0:
+                    recom = f"Pies demasiado retrasados ({round(eval_knee)}° < 78°): sobrecarga de cuádriceps. Adelanta los pies ~5-8 cm."
                     status = "IMPROVEMENT_OPPORTUNITY"
                     torque_bias = "CUÁDRICEPS"
-                elif inflect_knee <= 102.0:
-                    recom = f"Alineación articular óptima ({round(inflect_knee)}° en rodilla). Bloqueo concéntrico directo sobre glúteo mayor."
+                elif eval_knee <= 102.0:
+                    recom = f"Alineación articular óptima ({round(eval_knee)}° en rodilla). Bloqueo concéntrico directo sobre glúteo mayor."
                     status = "OPTIMAL"
                     torque_bias = "GLÚTEO MAYOR"
                 else:
-                    recom = f"Pies demasiado adelantados ({round(inflect_knee)}° > 102°): sobrecarga de isquiosurales. Retrasa los pies ~5-8 cm."
+                    recom = f"Pies demasiado adelantados ({round(eval_knee)}° > 102°): sobrecarga de isquiosurales. Retrasa los pies ~5-8 cm."
                     status = "IMPROVEMENT_OPPORTUNITY"
                     torque_bias = "ISQUIOSURALES"
+                inflect_knee = eval_knee
                 d_sh = 0.0
                 d_el = 0.0
                 d_hp = 0.0
@@ -1489,12 +1549,117 @@ def process_kinematics(
         
         for f in range(start_frame, end_frame + 1):
             frame_rep_map[f] = rep_idx
-            if f < bottom_frame:
-                frame_phase_map[f] = "ECCENTRIC" if is_trough_movement else "CONCENTRIC"
-            elif f == bottom_frame:
-                frame_phase_map[f] = "INFLECTION"
+            if is_pattern_a:
+                if f < bottom_frame:
+                    frame_phase_map[f] = "CONCENTRIC"
+                elif f == bottom_frame:
+                    frame_phase_map[f] = "INFLECTION"
+                else:
+                    frame_phase_map[f] = "ECCENTRIC"
+            elif is_pattern_b:
+                if f < bottom_frame:
+                    frame_phase_map[f] = "ECCENTRIC"
+                elif f == bottom_frame:
+                    frame_phase_map[f] = "INFLECTION"
+                else:
+                    frame_phase_map[f] = "CONCENTRIC"
             else:
-                frame_phase_map[f] = "CONCENTRIC" if is_trough_movement else "ECCENTRIC"
+                if is_hip_thrust:
+                    if f < bottom_frame:
+                        frame_phase_map[f] = "CONCENTRIC"
+                    elif f == bottom_frame:
+                        frame_phase_map[f] = "INFLECTION"
+                    else:
+                        frame_phase_map[f] = "ECCENTRIC"
+                else:
+                    if f < bottom_frame:
+                        frame_phase_map[f] = "ECCENTRIC"
+                    elif f == bottom_frame:
+                        frame_phase_map[f] = "INFLECTION"
+                    else:
+                        frame_phase_map[f] = "CONCENTRIC"
+
+    # Terminal Repetition Detection at Muscle Failure (Agonizing grind / sticking point / partial rep at set completion)
+    if len(repetitions_summary) >= 1:
+        last_rep_end = end_frame
+        med_rom = float(np.median([r["rom_deg"] for r in repetitions_summary]))
+        med_conc = float(np.median([r["concentric_sec"] for r in repetitions_summary]))
+        best_rom = float(np.max([r["rom_deg"] for r in repetitions_summary]))
+
+        # Check for uncompleted agonizing attempt in remaining frames
+        if (n_frames - 1) - last_rep_end >= 12:
+            tail_curve = clean_curve[last_rep_end : n_frames]
+            tail_peak_rel = int(np.argmax(tail_curve))
+            tail_peak_frame = last_rep_end + tail_peak_rel
+            
+            tail_start_rel = int(np.argmin(clean_curve[last_rep_end : tail_peak_frame + 1])) if tail_peak_frame > last_rep_end else 0
+            tail_start_frame = last_rep_end + tail_start_rel
+
+            tail_min_a = float(np.min(clean_primary[tail_start_frame : min(n_frames, tail_peak_frame + 6)]))
+            tail_max_a = float(np.max(clean_primary[tail_start_frame : min(n_frames, tail_peak_frame + 6)]))
+            tail_rom = max(0.0, tail_max_a - tail_min_a)
+
+            tail_t_conc = max(0.25, timestamps[tail_peak_frame] - timestamps[tail_start_frame])
+            is_terminal_failure_rep = (
+                tail_rom >= 0.55 * med_rom and (
+                    tail_t_conc >= 1.6 * med_conc or
+                    tail_rom <= med_rom - 8.0 or
+                    (is_hip_thrust and tail_max_a <= (repetitions_summary[-1]["max_primary_angle"] - 8.0))
+                )
+            )
+
+            if is_terminal_failure_rep:
+                tail_rep_idx = len(repetitions_summary) + 1
+                raw_tail_vel = tail_rom / tail_t_conc
+                rom_penalty = (tail_rom / max(best_rom, 1.0)) ** 2
+                penalized_tail_vel = round(float(raw_tail_vel * rom_penalty), 1)
+
+                t_t_start = timestamps[tail_start_frame]
+                t_t_peak = timestamps[tail_peak_frame]
+                t_t_end = timestamps[min(n_frames - 1, tail_peak_frame + 8)]
+
+                tail_rep_data = {
+                    "rep_number": tail_rep_idx,
+                    "start_time": round(t_t_start, 2),
+                    "inflection_time": round(t_t_peak, 2),
+                    "end_time": round(t_t_end, 2),
+                    "duration_sec": round(float(t_t_end - t_t_start), 2),
+                    "eccentric_sec": round(max(0.2, t_t_end - t_t_peak), 2) if is_pattern_a or is_hip_thrust else round(max(0.2, t_t_peak - t_t_start), 2),
+                    "pause_sec": 0.0,
+                    "concentric_sec": round(tail_t_conc, 2),
+                    "pause_time_s": 0.0,
+                    "concentric_time_s": round(tail_t_conc, 2),
+                    "concentric_velocity_deg_s": penalized_tail_vel,
+                    "min_primary_angle": round(tail_min_a, 1),
+                    "max_primary_angle": round(tail_max_a, 1),
+                    "rom_deg": round(tail_rom, 1),
+                    "verdict": {
+                        "status": "IMPROVEMENT_OPPORTUNITY",
+                        "dominant_joint": repetitions_summary[-1]["verdict"].get("dominant_joint", "CADERA"),
+                        "target_alignment": False,
+                        "primary_torque_bias": repetitions_summary[-1]["verdict"].get("primary_torque_bias", "FALLO MUSCULAR"),
+                        "inflection_knee_deg": repetitions_summary[-1]["verdict"].get("inflection_knee_deg", 90.0),
+                        "inflection_hip_deg": repetitions_summary[-1]["verdict"].get("inflection_hip_deg", 170.0),
+                        "inflection_elbow_deg": repetitions_summary[-1]["verdict"].get("inflection_elbow_deg", 90.0),
+                        "recommendation": "Fallo concéntrico real (RIR 0 / RPE 10) alcanzado. Repetición terminal al límite."
+                    }
+                }
+                repetitions_summary.append(tail_rep_data)
+
+                for f in range(tail_start_frame, min(n_frames, tail_peak_frame + 8)):
+                    frame_rep_map[f] = tail_rep_idx
+                    if f < tail_peak_frame:
+                        frame_phase_map[f] = "CONCENTRIC" if (is_pattern_a or is_hip_thrust) else "ECCENTRIC"
+                    elif f == tail_peak_frame:
+                        frame_phase_map[f] = "INFLECTION"
+                    else:
+                        frame_phase_map[f] = "ECCENTRIC" if (is_pattern_a or is_hip_thrust) else "CONCENTRIC"
+        else:
+            # Check if existing last rep was a terminal failure grind
+            last_r = repetitions_summary[-1]
+            if last_r["concentric_sec"] >= 1.6 * med_conc or last_r["rom_deg"] <= med_rom - 8.0:
+                rom_pen = (last_r["rom_deg"] / max(best_rom, 1.0)) ** 2
+                last_r["concentric_velocity_deg_s"] = round(float(last_r["concentric_velocity_deg_s"] * rom_pen), 1)
 
     # 8. Velocity-Based Training (VBT) Intensity Estimation
     if len(repetitions_summary) >= 2:
@@ -1510,18 +1675,25 @@ def process_kinematics(
         penult_rep_vel = rep_vels[-2] if len(rep_vels) >= 3 else last_rep_vel
         is_terminal_accel = (len(rep_vels) >= 3 and last_rep_vel > penult_rep_vel * 1.05)
 
-        # RIR 0 / RPE 10 requires true terminal grind: last rep strictly the slowest, at least 18% slower than penult, and >= 50% velocity loss
+        # RIR 0 / RPE 10: velocity loss >= 45% or last rep velocity <= 0.60 * v_best
         is_true_failure_grind = (
-            len(rep_vels) >= 2 and
-            last_rep_vel == min(rep_vels) and
-            (len(rep_vels) < 3 or last_rep_vel <= penult_rep_vel * 0.82) and
-            vel_loss >= 50.0
+            vel_loss >= 45.0 or
+            (last_rep_vel <= 0.58 * v_best and last_rep_vel < penult_rep_vel)
         )
 
         if is_true_failure_grind:
             rir_est = "0"
             rpe_est = 10.0
-        elif vel_loss >= 42.0:
+        elif vel_loss >= 38.0:
+            if is_terminal_accel or last_rep_vel > penult_rep_vel:
+                rir_est = "2"
+                rpe_est = 8.0
+            elif last_rep_vel <= penult_rep_vel * 0.90:
+                rir_est = "1"
+                rpe_est = 9.5
+            else:
+                rir_est = "1"
+                rpe_est = 9.0
             if is_terminal_accel or last_rep_vel > penult_rep_vel:
                 rir_est = "2"
                 rpe_est = 8.0
@@ -1596,13 +1768,13 @@ def process_kinematics(
             med_elbow = float(np.median(clean_el))
             
             if is_pattern_a:
-                # Relationship with line of force along machine & forearm pull
-                u_fx = cur_hx - el_x
-                u_fy = cur_hy - el_y
-                u_fnorm = math.hypot(u_fx, u_fy)
-                if u_fnorm > 1e-4:
-                    u_fx /= u_fnorm
-                    u_fy /= u_fnorm
+                # Relationship with dynamic machine line of force
+                if is_horizontal_pull and machine_u_per_frame is not None:
+                    u_fx = float(machine_u_per_frame[f, 0])
+                    u_fy = float(machine_u_per_frame[f, 1])
+                elif svd_force_u is not None:
+                    u_fx = float(force_dx)
+                    u_fy = float(force_dy)
                 else:
                     u_fx = float(facing_forward_x)
                     u_fy = 0.0
@@ -1734,7 +1906,15 @@ def process_kinematics(
 
         # Projected 2D Moment Arms for Canvas Overlay
         if is_upper_body:
-            if svd_force_u is not None or is_machine_or_cable_pattern:
+            if is_horizontal_pull and machine_u_per_frame is not None:
+                u_fx = float(machine_u_per_frame[f, 0])
+                u_fy = float(machine_u_per_frame[f, 1])
+                f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
+                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+                cur_force_dx = u_fx
+                cur_force_dy = u_fy
+                cur_force_dir = "along_machine_pull"
+            elif svd_force_u is not None or is_machine_or_cable_pattern:
                 u_fx = float(force_dx)
                 u_fy = float(force_dy)
                 f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
@@ -1795,6 +1975,7 @@ def process_kinematics(
             "time": timestamps[f],
             "rep_number": rep_num,
             "phase": phase,
+            "hide_torso_line": bool(hide_torso_line),
             "is_unilateral": bool(is_unilateral_flag),
             "main_angle": round(float(clean_primary[f]), 1),
             "secondary_angle": round(float(clean_secondary[f]), 1),
@@ -1849,6 +2030,7 @@ def process_kinematics(
         "fps": 15.0,
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
         "total_reps": total_reps,
+        "hide_torso_line": bool(hide_torso_line),
         "mean_rom_deg": mean_rom,
         "mean_eccentric_time_s": mean_ecc,
         "mean_pause_time_s": mean_pau,

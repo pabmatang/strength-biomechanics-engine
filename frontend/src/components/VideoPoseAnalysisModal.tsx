@@ -734,6 +734,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
     // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
     const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
+    const hideTorsoLine = Boolean((frame as any)?.hide_torso_line) || (isUpperBody && (pHp.score ?? 0) < 0.60);
 
     // Torso reference length for anatomical outlier rejection
     const torsoLen = Math.hypot(pSh.x - pHp.x, pSh.y - pHp.y);
@@ -852,11 +853,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawPoint(pREl, '#94A3B8');
 
           // Torso y pelvis
-          drawSegment(pLSh, pLHp, '#10B981');
-          drawSegment(pRSh, pRHp, '#10B981');
-          drawSegment(pLHp, pRHp, '#10B981');
-          drawPoint(pLHp, '#10B981');
-          drawPoint(pRHp, '#10B981');
+          if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
+            drawSegment(pLSh, pLHp, '#10B981');
+            drawSegment(pRSh, pRHp, '#10B981');
+            drawSegment(pLHp, pRHp, '#10B981');
+            drawPoint(pLHp, '#10B981');
+            drawPoint(pRHp, '#10B981');
+          }
 
           // Piernas
           drawSegment(pLHp, pLKn, '#10B981');
@@ -921,14 +924,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         } else {
           drawSegment(pHd, pSh, '#34D399');
-          drawSegment(pSh, pHp, '#10B981');
+          if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
+            drawSegment(pSh, pHp, '#10B981');
+            drawPoint(pHp, '#10B981');
+          }
           drawSegment(pSh, pEl, '#6EE7B7');
           drawSegment(pEl, pWr, '#6EE7B7');
           drawPoint(pHd, '#34D399');
           drawPoint(pSh, '#10B981');
           drawPoint(pEl, '#6EE7B7');
           drawPoint(pWr, '#FBBF24');
-          drawPoint(pHp, '#10B981');
         }
       }
     } else {
@@ -951,7 +956,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawSegment(pKn, pAk, '#94A3B8');
         }
       } else {
-        drawSegment(pSh, pHp, '#94A3B8');
+        if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
+          drawSegment(pSh, pHp, '#94A3B8');
+        }
         if (!isProfileView && hasBilateral && !isEquipmentOccludedUpper) {
           drawSegment(pLSh, pLEl, '#94A3B8');
           drawSegment(pLEl, pLWr, '#94A3B8');
@@ -961,7 +968,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           drawSegment(pSh, pEl, '#94A3B8');
           drawSegment(pEl, pWr, '#94A3B8');
         }
-        if (!isEquipmentOccludedUpper && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
+        if (!isEquipmentOccludedUpper && !hideTorsoLine && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
           drawSegment(pHp, pKn, '#94A3B8');
           drawSegment(pKn, pAk, '#94A3B8');
         }
@@ -982,7 +989,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pEl, '#10B981');
         // Anchor yellow load marker directly at Hand Grip center (dumbbell/bar/machine handle)
         drawPoint(pHand, '#FBBF24');
-        if (pHp.score !== undefined && pHp.score > 0.35) {
+        if (!hideTorsoLine && pHp.score !== undefined && pHp.score >= 0.60) {
           drawPoint(pHp, '#64748B');
         }
 
@@ -1033,13 +1040,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               }
             }
 
-            // En tracción, la carga tira hacia donde la mano está más lejos del hombro (hacia los discos/máquina)
-            const toHandX = pHand.x - pSh.x;
-            const toHandY = pHand.y - pSh.y;
-            if (toHandX * uX + toHandY * uY < 0) {
-              uX = -uX;
-              uY = -uY;
-            }
+            // Vector de fuerza calculado por el backend hacia el eje de tracción / anclaje frontal P_machine
 
             // Proyecciones ortogonales sobre la línea de fuerza del antebrazo / máquina
             const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
