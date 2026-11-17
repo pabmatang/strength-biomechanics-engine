@@ -7,6 +7,8 @@
  * guarantees 0 ms and €0 cost switches between Analysis Views.
  */
 
+import { blobToBase64 } from '../utils/videoCompressor';
+
 export interface ExerciseConfig {
   exerciseType: string;
   targetMuscle: string;
@@ -161,20 +163,6 @@ export function getBiomechanicsCacheKey(
 
 export function clearBiomechanicsCache(): void {
   analysisCache.clear();
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = (reader.result as string) || '';
-      const commaIdx = result.indexOf(',');
-      const cleanB64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
-      resolve(cleanB64);
-    };
-    reader.onerror = () => reject(new Error('Fallo al leer el archivo de vídeo para codificación Base64.'));
-    reader.readAsDataURL(blob);
-  });
 }
 
 /**

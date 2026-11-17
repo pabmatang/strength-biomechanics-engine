@@ -32,7 +32,9 @@ export function getNotificationSettings(): NotificationSettings {
 export function saveNotificationSettings(settings: NotificationSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  } catch {}
+  } catch (e) {
+    try { localStorage.clear(); } catch {}
+  }
 }
 
 export function isNotificationSupported(): boolean {

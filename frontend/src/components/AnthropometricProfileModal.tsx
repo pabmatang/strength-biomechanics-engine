@@ -97,7 +97,12 @@ export const AnthropometricProfileModal: React.FC<AnthropometricProfileModalProp
         date: new Date().toISOString()
       };
       setProfile(fullProfile);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fullProfile));
+      try {
+        const toSave = { ...fullProfile, frontImage: undefined, sideImage: undefined };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+      } catch (e) {
+        try { localStorage.clear(); } catch {}
+      }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
       if (onProfileUpdated) onProfileUpdated(fullProfile);
@@ -111,7 +116,12 @@ export const AnthropometricProfileModal: React.FC<AnthropometricProfileModalProp
 
   const handleSaveManual = () => {
     if (!profile) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+    try {
+      const toSave = { ...profile, frontImage: undefined, sideImage: undefined };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
     if (onProfileUpdated) onProfileUpdated(profile);

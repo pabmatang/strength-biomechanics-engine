@@ -441,7 +441,11 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
 
     const updated = [newComment, ...savedComments];
     setSavedComments(updated);
-    localStorage.setItem(`mia_comments_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    try {
+      localStorage.setItem(`mia_comments_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
     setCommentText('');
     setPinSetting('');
   };
@@ -449,7 +453,11 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
   const handleDeleteComment = (id: string) => {
     const updated = savedComments.filter(c => c.id !== id);
     setSavedComments(updated);
-    localStorage.setItem(`mia_comments_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    try {
+      localStorage.setItem(`mia_comments_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
   };
 
   const handleToggleTipLike = (tipId: string) => {
@@ -465,7 +473,11 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
       return t;
     });
     setCommunityTips(updated);
-    localStorage.setItem(`mia_community_tips_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    try {
+      localStorage.setItem(`mia_community_tips_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
   };
 
   const handleAddCommunityTip = () => {
@@ -484,7 +496,11 @@ export const ExerciseDetailModal: React.FC<ExerciseDetailModalProps> = ({
 
     const updated = [newTip, ...communityTips];
     setCommunityTips(updated);
-    localStorage.setItem(`mia_community_tips_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    try {
+      localStorage.setItem(`mia_community_tips_${exercise.exercise_template_id}`, JSON.stringify(updated));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
     setNewCommunityTip('');
   };
 

@@ -49,7 +49,11 @@ function getUsersRegistry(): Record<string, { user: UserProfile; passwordHash: s
         passwordHash: btoa('pablo123'),
         created_at: '2026-01-01T00:00:00.000Z'
       };
-      localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(registry));
+      try {
+        localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(registry));
+      } catch (e) {
+        try { localStorage.clear(); } catch {}
+      }
     }
 
     return registry;
@@ -110,8 +114,8 @@ export function setCurrentUser(user: UserProfile | null): void {
       localStorage.removeItem(AUTH_USER_KEY);
       setToken(null);
     }
-  } catch {
-    // Ignore storage failures
+  } catch (e) {
+    try { localStorage.clear(); } catch {}
   }
 }
 
@@ -306,7 +310,8 @@ export async function saveSnapshotLocally(snapshot: UserDataSnapshot): Promise<b
       JSON.stringify(snapshot)
     );
     return true;
-  } catch {
+  } catch (e) {
+    try { localStorage.clear(); } catch {}
     return false;
   }
 }

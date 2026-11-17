@@ -17,7 +17,9 @@ function saveToLocalCache(key: string, item: FoodItem) {
     const cache = getLocalCache();
     cache[key] = item;
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch {}
+  } catch (e) {
+    try { localStorage.clear(); } catch {}
+  }
 }
 
 /**

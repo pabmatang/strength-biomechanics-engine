@@ -70,7 +70,11 @@ export const ExerciseSelectorModal: React.FC<ExerciseSelectorModalProps> = ({
   const handleCreateCustom = (newTemplate: ExerciseTemplate) => {
     const updated = [newTemplate, ...customList];
     setCustomList(updated);
-    localStorage.setItem('mia_custom_exercises', JSON.stringify(updated));
+    try {
+      localStorage.setItem('mia_custom_exercises', JSON.stringify(updated));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
     onSelect(newTemplate);
     onClose();
   };

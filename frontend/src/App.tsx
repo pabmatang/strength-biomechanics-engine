@@ -270,7 +270,9 @@ function getStoredJson<T>(key: string, defaultValue: T): T {
 function setStoredJson(key: string, value: any): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
+  } catch (e) {
+    try { localStorage.clear(); } catch {}
+  }
 }
 
 export function App() {
@@ -346,13 +348,17 @@ export function App() {
   useEffect(() => {
     try {
       localStorage.setItem('mia_active_tab', activeTab);
-    } catch {}
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
   }, [activeTab]);
 
   useEffect(() => {
     try {
       localStorage.setItem('mia_health_sub_tab', healthSubTab);
-    } catch {}
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
   }, [healthSubTab]);
 
   // Persist to localStorage

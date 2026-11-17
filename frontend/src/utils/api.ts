@@ -82,8 +82,8 @@ export function setToken(token: string | null): void {
     } else {
       localStorage.removeItem(TOKEN_KEY);
     }
-  } catch {
-    // Storage can be disabled (private mode); the session then lives in memory only.
+  } catch (e) {
+    try { localStorage.clear(); } catch {}
   }
 }
 

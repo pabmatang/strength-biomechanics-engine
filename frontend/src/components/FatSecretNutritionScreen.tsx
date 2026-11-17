@@ -133,7 +133,11 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
 
   // Save to localStorage
   useEffect(() => {
-    localStorage.setItem('mia_fatsecret_meals', JSON.stringify(mealPlans));
+    try {
+      localStorage.setItem('mia_fatsecret_meals', JSON.stringify(mealPlans));
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
   }, [mealPlans]);
 
   // Current day meal plan
@@ -224,7 +228,9 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
     setCustomFoods(updated);
     try {
       localStorage.setItem('chance_custom_foods', JSON.stringify(updated));
-    } catch {}
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
 
     setSelectedFoodItem(newFood);
     setServingGramsInput(newFood.serving_grams);
@@ -297,7 +303,9 @@ export const FatSecretNutritionScreen: React.FC<FatSecretNutritionScreenProps> =
     };
     try {
       localStorage.setItem('mia_fatsecret_target_macros', JSON.stringify(targets));
-    } catch {}
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
 
     setMealPlans(prev => ({
       ...prev,

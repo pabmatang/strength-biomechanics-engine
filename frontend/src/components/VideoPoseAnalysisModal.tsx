@@ -516,6 +516,26 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         const totalD = dSh + dEl;
         const primaryPct = totalD > 0 ? Math.round((dSh / totalD) * 100) : 65;
 
+        const allF = result.frames || [];
+        const step = Math.max(1, Math.ceil(allF.length / 30));
+        const r3 = (n: any) => typeof n === 'number' ? Math.round(n * 1000) / 1000 : n;
+        const sampledFrames = allF.filter((_, idx) => idx % step === 0).slice(0, 30).map(f => {
+          const kp = f.keypoints_norm || {};
+          return {
+            time: r3(f.time),
+            phase: f.phase,
+            main_angle: r3(f.main_angle),
+            keypoints_norm: {
+              shoulder: kp.shoulder ? { x: r3(kp.shoulder.x), y: r3(kp.shoulder.y) } : undefined,
+              elbow: kp.elbow ? { x: r3(kp.elbow.x), y: r3(kp.elbow.y) } : undefined,
+              wrist: kp.wrist ? { x: r3(kp.wrist.x), y: r3(kp.wrist.y) } : undefined,
+              hip: kp.hip ? { x: r3(kp.hip.x), y: r3(kp.hip.y) } : undefined,
+              knee: kp.knee ? { x: r3(kp.knee.x), y: r3(kp.knee.y) } : undefined,
+              ankle: kp.ankle ? { x: r3(kp.ankle.x), y: r3(kp.ankle.y) } : undefined
+            }
+          };
+        });
+
         const histRecord = {
           date: new Date().toISOString(),
           exerciseId: exType,
@@ -525,30 +545,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           exact_rir: result.intensity_metrics?.exact_rir,
           exact_rpe: result.intensity_metrics?.exact_rpe,
           torque_split: `${primaryPct}% vs ${100 - primaryPct}%`,
-          frames: (result.frames || []).filter((_, idx) => idx % 3 === 0).map(f => ({
-            time: f.time,
-            phase: f.phase,
-            main_angle: f.main_angle,
-            keypoints_norm: f.keypoints_norm,
-            force_vector: f.force_vector
-          }))
+          frames: sampledFrames
         };
         try {
           localStorage.setItem(histKey, JSON.stringify(histRecord));
         } catch (storageErr) {
-          console.warn('[Storage] QuotaExceeded or RangeError, cleaning old ghost sessions...', storageErr);
-          for (let i = localStorage.length - 1; i >= 0; i--) {
-            const k = localStorage.key(i);
-            if (k && k.startsWith('biomechanics_history_') && k !== histKey) {
-              localStorage.removeItem(k);
-            }
-          }
-          try {
-            histRecord.frames = histRecord.frames.filter((_, idx) => idx % 2 === 0);
-            localStorage.setItem(histKey, JSON.stringify(histRecord));
-          } catch {
-            // Safe fallback
-          }
+          try { localStorage.clear(); } catch {}
         }
         setPreviousSessionData(histRecord);
       } catch (e) {
@@ -806,19 +808,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
     const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
-    // Guard de alineación anatómica estricta para muñeca / punto de carga en Presses:
-    // En cualquier press (mancuernas, barra, máquina), la muñeca y la mancuerna se sitúan verticalmente sobre el codo
-    const isPressExercise = exIdStr.includes('press') || exIdStr.includes('bench') || exIdStr.includes('incline') || exIdStr.includes('dip');
-    if (isPressExercise) {
-      const isBadWrist = pWr.y >= pEl.y - 12 || Math.abs(pWr.x - pEl.x) > drawW * 0.16 || (pWr.score ?? 0) < 0.45;
-      if (isBadWrist) {
-        const estForearmPx = drawH * 0.14;
-        const convergeX = (pSh.x > pEl.x ? 1 : -1) * (drawW * 0.025);
-        pWr.x = pEl.x + convergeX;
-        pWr.y = Math.max(15, pEl.y - estForearmPx);
-      }
-    }
-
     const pHand = {
       x: pWr.x,
       y: pWr.y,
@@ -834,6 +823,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       exIdStr.includes('dips') || exIdStr.includes('t_bar') || exIdStr.includes('gironda')
     ) && !exIdStr.includes('leg_press') && !exIdStr.includes('leg_extension');
     const isLowerBody = !isUpperBody;
+    const isHipThrust =
+      exIdStr.includes('hip_thrust') ||
+      exIdStr.includes('kas_glute') ||
+      exIdStr.includes('glute_bridge') ||
+      exIdStr.includes('bridge') ||
+      exIdStr.includes('thrust') ||
+      exIdStr.includes('kas') ||
+      Boolean((frame as any)?.is_hip_thrust);
 
     // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
     const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
@@ -934,180 +931,104 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
     if (mode === 'technique') {
       // -------------------------------------------------------------
-      // MODO 1: CORRECCIÓN TÉCNICA (ESQUELETO COMPLETO Y AJUSTADO AL CUERPO)
+      // MODO 1: CORRECCIÓN TÉCNICA
+      // Esqueleto limpio del miembro activo (3.5px) + arco articular y grados
+      // OCULTA por completo la flecha amarilla de fuerza y brazos de momento
       // -------------------------------------------------------------
-      if (hasBilateral) {
-        // Cuello y cabeza
-        const midNeck = { x: (pLSh.x + pRSh.x) / 2, y: (pLSh.y + pRSh.y) / 2, score: Math.min(pLSh.score ?? 1, pRSh.score ?? 1) };
-        drawSegment(pHd, midNeck, '#34D399');
-        drawPoint(pHd, '#34D399');
+      const drawThickSegment = (p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, color: string) => {
+        if ((p1.score !== undefined && p1.score < 0.25) || (p2.score !== undefined && p2.score < 0.25)) return;
+        ctx.beginPath();
+        ctx.setLineDash([]);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3.5;
+        ctx.stroke();
+      };
 
-        // Clavícula / Unión de hombros
-        drawSegment(pLSh, pRSh, '#34D399');
-        drawPoint(pLSh, '#10B981');
-        drawPoint(pRSh, '#10B981');
+      const drawBigPoint = (p: { x: number; y: number; score?: number }, color: string) => {
+        if (p.score !== undefined && p.score < 0.25) return;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5.0, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.lineWidth = 2.0;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.stroke();
+      };
 
-        if (isLowerBody) {
-          // Tren inferior: piernas y cadera resaltadas
-          drawSegment(pLSh, pLEl, 'rgba(148, 163, 184, 0.40)');
-          drawSegment(pLEl, pLWr, 'rgba(148, 163, 184, 0.40)');
-          drawSegment(pRSh, pREl, 'rgba(148, 163, 184, 0.40)');
-          drawSegment(pREl, pRWr, 'rgba(148, 163, 184, 0.40)');
-          drawPoint(pLEl, '#94A3B8');
-          drawPoint(pREl, '#94A3B8');
+      if (isUpperBody) {
+        // Miembro activo: Hombro -> Codo -> Muñeca (grosor 3.5px)
+        drawThickSegment(pSh, pEl, '#10B981');
+        drawThickSegment(pEl, pWr, '#34D399');
+        drawBigPoint(pSh, '#10B981');
+        drawBigPoint(pEl, '#10B981');
+        drawBigPoint(pWr, '#34D399');
 
-          // Torso y pelvis
-          if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
-            drawSegment(pLSh, pLHp, '#10B981');
-            drawSegment(pRSh, pRHp, '#10B981');
-            drawSegment(pLHp, pRHp, '#10B981');
-            drawPoint(pLHp, '#10B981');
-            drawPoint(pRHp, '#10B981');
-          }
-
-          // Piernas
-          drawSegment(pLHp, pLKn, '#10B981');
-          drawSegment(pLKn, pLAk, '#10B981');
-          drawSegment(pRHp, pRKn, '#10B981');
-          drawSegment(pRKn, pRAk, '#10B981');
-          drawPoint(pLKn, '#10B981');
-          drawPoint(pRKn, '#10B981');
-          drawPoint(pLAk, '#38BDF8');
-          drawPoint(pRAk, '#38BDF8');
-
-          drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
-          if (options.showCanvasText) {
-            drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle || frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
-          }
-        } else {
-          // Tren superior: brazos, codos, hombros y torso resaltados
-          const legsConfident = (pLKn.score ?? 0) >= 0.45 && (pLHp.score ?? 0) >= 0.45 && (pLAk.score ?? 0) >= 0.45;
-          if (legsConfident && !isChestSupportedPad) {
-            drawSegment(pLHp, pLKn, 'rgba(148, 163, 184, 0.35)');
-            drawSegment(pLKn, pLAk, 'rgba(148, 163, 184, 0.35)');
-            drawSegment(pRHp, pRKn, 'rgba(148, 163, 184, 0.35)');
-            drawSegment(pRKn, pRAk, 'rgba(148, 163, 184, 0.35)');
-            drawPoint(pLKn, '#94A3B8');
-            drawPoint(pRKn, '#94A3B8');
-          }
-
-          // Torso y pelvis
-          if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
-            drawSegment(pLSh, pLHp, '#10B981');
-            drawSegment(pRSh, pRHp, '#10B981');
-            drawSegment(pLHp, pRHp, '#10B981');
-            drawPoint(pLHp, '#10B981');
-            drawPoint(pRHp, '#10B981');
-          }
-
-          // Ambos brazos completos
-          drawSegment(pLSh, pLEl, '#34D399');
-          drawSegment(pLEl, pLWr, '#6EE7B7');
-          drawSegment(pRSh, pREl, '#34D399');
-          drawSegment(pREl, pRWr, '#6EE7B7');
-          drawPoint(pLEl, '#38BDF8');
-          drawPoint(pREl, '#38BDF8');
-          drawPoint(pLWr, '#6EE7B7');
-          drawPoint(pRWr, '#6EE7B7');
-          drawPoint(pHand, '#FBBF24');
-
-          // Segmentos anatómicos limpios sin arco en codo
+        // Arco articular y etiqueta sobre el codo
+        drawAngleArc(pEl, pSh, pWr, 24, '#38BDF8');
+        if (options.showCanvasText) {
+          const codoAngle = Math.round(frame.main_angle ?? 90);
+          drawPillTag(pEl.x - 36, pEl.y - 18, `Codo: ${codoAngle}°`, '#38BDF8', '#38BDF8');
         }
       } else {
-        // Fallback unilateral suave y centrado en la articulación dominante
-        if (isLowerBody) {
-          drawSegment(pSh, pHp, '#10B981');
-          drawSegment(pHp, pKn, '#10B981');
-          drawSegment(pKn, pAk, '#10B981');
-          drawPoint(pSh, '#10B981');
-          drawPoint(pHp, '#10B981');
-          drawPoint(pKn, '#10B981');
-          drawPoint(pAk, '#10B981');
-          drawPoint(pHd, '#34D399');
-          drawAngleArc(pKn, pHp, pAk, 20, '#38BDF8');
+        // Miembro activo tren inferior: Hombro -> Cadera -> Rodilla -> Tobillo (grosor 3.5px)
+        if (!hideTorsoLine && (pHp.score ?? 0) >= 0.35) {
+          drawThickSegment(pSh, pHp, '#10B981');
+          drawBigPoint(pSh, '#10B981');
+        }
+        drawThickSegment(pHp, pKn, '#10B981');
+        drawThickSegment(pKn, pAk, '#34D399');
+        drawBigPoint(pHp, '#10B981');
+        drawBigPoint(pKn, '#10B981');
+        drawBigPoint(pAk, '#38BDF8');
+
+        if (isHipThrust) {
+          drawAngleArc(pHp, pSh, pKn, 24, '#38BDF8');
+          drawAngleArc(pKn, pHp, pAk, 20, '#10B981');
           if (options.showCanvasText) {
-            drawPillTag(pKn.x - 76, pKn.y - 12, `Rodilla: ${Math.round(frame.secondary_angle || frame.main_angle)}°`, '#38BDF8', '#7DD3FC');
+            drawPillTag(pHp.x - 42, pHp.y - 18, `Cadera: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#38BDF8');
+            drawPillTag(pKn.x - 42, pKn.y - 14, `Rodilla: ${Math.round(frame.secondary_angle)}°`, '#10B981', '#10B981');
           }
         } else {
-          drawSegment(pHd, pSh, '#34D399');
-          if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
-            drawSegment(pSh, pHp, '#10B981');
-            drawPoint(pHp, '#10B981');
+          drawAngleArc(pKn, pHp, pAk, 24, '#38BDF8');
+          if (options.showCanvasText) {
+            drawPillTag(pKn.x - 42, pKn.y - 16, `Rodilla: ${Math.round(frame.main_angle)}°`, '#38BDF8', '#38BDF8');
+            if (frame.secondary_angle) {
+              drawPillTag(pHp.x - 42, pHp.y - 18, `Cadera: ${Math.round(frame.secondary_angle)}°`, '#10B981', '#10B981');
+            }
           }
-          drawSegment(pSh, pEl, '#6EE7B7');
-          drawSegment(pEl, pWr, '#6EE7B7');
-          drawPoint(pHd, '#34D399');
-          drawPoint(pSh, '#10B981');
-          drawPoint(pEl, '#6EE7B7');
-          drawPoint(pWr, '#FBBF24');
         }
       }
     } else {
       // -------------------------------------------------------------
       // MODO 2: OPTIMIZACIÓN BIOMECÁNICA
+      // Esqueleto atenuado + Flecha amarilla de fuerza desde la mano + Cotas de brazo de momento (P/T o D/B)
       // -------------------------------------------------------------
       ctx.save();
-      ctx.globalAlpha = 0.65;
+      ctx.globalAlpha = 0.50;
       if (isLowerBody) {
-        if (!isProfileView && hasBilateral) {
-          drawSegment(pLSh, pLHp, '#94A3B8');
-          drawSegment(pRSh, pRHp, '#94A3B8');
-          drawSegment(pLHp, pLKn, '#94A3B8');
-          drawSegment(pLKn, pLAk, '#94A3B8');
-          drawSegment(pRHp, pRKn, '#94A3B8');
-          drawSegment(pRKn, pRAk, '#94A3B8');
-        } else {
-          drawSegment(pSh, pHp, '#94A3B8');
-          drawSegment(pHp, pKn, '#94A3B8');
-          drawSegment(pKn, pAk, '#94A3B8');
-        }
+        if (!hideTorsoLine && (pHp.score ?? 0) >= 0.40) drawSegment(pSh, pHp, '#94A3B8');
+        drawSegment(pHp, pKn, '#94A3B8');
+        drawSegment(pKn, pAk, '#94A3B8');
+        drawPoint(pHp, '#64748B');
+        drawPoint(pKn, '#64748B');
+        drawPoint(pAk, '#64748B');
       } else {
         if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
           drawSegment(pSh, pHp, '#94A3B8');
+          drawPoint(pHp, '#64748B');
         }
-        if (!isProfileView && hasBilateral && !isChestSupportedPad) {
-          drawSegment(pLSh, pLEl, '#94A3B8');
-          drawSegment(pLEl, pLWr, '#94A3B8');
-          drawSegment(pRSh, pREl, '#94A3B8');
-          drawSegment(pREl, pRWr, '#94A3B8');
-          drawPoint(pLSh, '#3B82F6');
-          drawPoint(pRSh, '#3B82F6');
-          drawPoint(pLEl, '#10B981');
-          drawPoint(pREl, '#10B981');
-          drawPoint(pLWr, '#FBBF24');
-          drawPoint(pRWr, '#FBBF24');
-        } else {
-          drawSegment(pSh, pEl, '#94A3B8');
-          drawSegment(pEl, pWr, '#94A3B8');
-          drawPoint(pSh, '#3B82F6');
-          drawPoint(pEl, '#10B981');
-          drawPoint(pHand, '#FBBF24');
-        }
-        if (!isChestSupportedPad && !hideTorsoLine && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
-          drawSegment(pHp, pKn, '#94A3B8');
-          drawSegment(pKn, pAk, '#94A3B8');
-        }
+        drawSegment(pSh, pEl, '#94A3B8');
+        drawSegment(pEl, pWr, '#94A3B8');
+        drawPoint(pSh, '#94A3B8');
+        drawPoint(pEl, '#94A3B8');
+        drawPoint(pWr, '#94A3B8');
       }
       ctx.restore();
 
-      const isHipThrust =
-        exIdStr.includes('hip_thrust') ||
-        exIdStr.includes('kas_glute') ||
-        exIdStr.includes('glute_bridge') ||
-        exIdStr.includes('bridge') ||
-        exIdStr.includes('thrust') ||
-        exIdStr.includes('kas');
-
       if (!isLowerBody) {
-        // TREN SUPERIOR (Pecho, Espalda, Hombros, Brazos):
-        if (isProfileView || !hasBilateral || isChestSupportedPad) {
-          drawPoint(pSh, '#3B82F6');
-          drawPoint(pEl, '#10B981');
-          drawPoint(pHand, '#FBBF24');
-        }
-        if (!hideTorsoLine && pHp.score !== undefined && pHp.score >= 0.60) {
-          drawPoint(pHp, '#64748B');
-        }
+        drawPoint(pHand, '#FBBF24');
 
         // Vector de fuerza realista y brazos de momento según load_type y cinemática (Controlados por toggle)
         if (options.showLeverArms) {

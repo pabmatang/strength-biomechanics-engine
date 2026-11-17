@@ -60,11 +60,12 @@ function runCanvasCompression(
       }
     };
 
-    // Safety timeout: 35s max per pass
+    // Safety timeout: generous timeout for up to 30s videos (80s max)
+    const timeoutDuration = Math.max(60_000, Math.round(maxDurationSec * 2500));
     const timeoutTimer = setTimeout(() => {
       cleanup();
       resolve(null);
-    }, 35_000);
+    }, timeoutDuration);
 
     video.onerror = () => {
       clearTimeout(timeoutTimer);
@@ -286,20 +287,11 @@ export function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      try {
-        const result = (reader.result as string) || '';
-        const commaIdx = result.indexOf(',');
-        const cleanB64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
-        if (!cleanB64 || cleanB64.length === 0) {
-          reject(new Error('No valid video payload produced (empty base64 string).'));
-        } else {
-          resolve(cleanB64);
-        }
-      } catch (err) {
-        reject(err);
-      }
+      const res = reader.result as string;
+      const commaIdx = res.indexOf(",");
+      resolve(commaIdx >= 0 ? res.slice(commaIdx + 1) : res);
     };
-    reader.onerror = () => reject(new Error('Fallo al leer el blob de vídeo en Base64.'));
+    reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
 }

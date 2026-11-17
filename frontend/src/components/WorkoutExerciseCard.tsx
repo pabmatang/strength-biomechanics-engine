@@ -48,7 +48,9 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
     setMachinePin(val);
     try {
       localStorage.setItem(`chance_pin_${exercise.exercise_template_id}`, val);
-    } catch {}
+    } catch (e) {
+      try { localStorage.clear(); } catch {}
+    }
   };
 
   const handleSaveTitle = () => {
