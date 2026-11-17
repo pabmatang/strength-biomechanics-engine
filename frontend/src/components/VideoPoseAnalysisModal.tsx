@@ -525,7 +525,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           exact_rir: result.intensity_metrics?.exact_rir,
           exact_rpe: result.intensity_metrics?.exact_rpe,
           torque_split: `${primaryPct}% vs ${100 - primaryPct}%`,
-          frames: result.frames.filter((_, idx) => idx % 3 === 0).map(f => ({
+          frames: (result.frames || []).filter((_, idx) => idx % 3 === 0).map(f => ({
             time: f.time,
             phase: f.phase,
             main_angle: f.main_angle,
@@ -533,7 +533,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             force_vector: f.force_vector
           }))
         };
-        localStorage.setItem(histKey, JSON.stringify(histRecord));
+        try {
+          localStorage.setItem(histKey, JSON.stringify(histRecord));
+        } catch (storageErr) {
+          console.warn('[Storage] QuotaExceeded or RangeError, cleaning old ghost sessions...', storageErr);
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('biomechanics_history_') && k !== histKey) {
+              localStorage.removeItem(k);
+            }
+          }
+          try {
+            histRecord.frames = histRecord.frames.filter((_, idx) => idx % 2 === 0);
+            localStorage.setItem(histKey, JSON.stringify(histRecord));
+          } catch {
+            // Safe fallback
+          }
+        }
         setPreviousSessionData(histRecord);
       } catch (e) {
         console.warn('Could not save session to local history', e);
@@ -594,10 +610,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const range = { startTime: trimStart, endTime: trimEnd };
       let videoBlobToSend: Blob = file;
 
-      // Only compress client-side if file is unusually large (>45MB) to avoid network bottleneck
-      if (file.size > 45 * 1024 * 1024) {
-        setPipelineMessage(`Optimizando tamaño del vídeo (${(file.size / (1024 * 1024)).toFixed(1)}MB)...`);
-        const preparedBlob = await prepareVideoForAnalysis(file, { range });
+      // Always compress client-side to 480p / 15 FPS / 800 kbps to prevent V8 "Invalid string length"
+      const isAlreadyTiny = file.size <= 1.5 * 1024 * 1024 && trimStart === 0 && (!trimEnd || trimEnd >= 30);
+      if (!isAlreadyTiny) {
+        setPipelineMessage(`Optimizando y preparando vídeo (${(file.size / (1024 * 1024)).toFixed(1)}MB)...`);
+        const preparedBlob = await prepareVideoForAnalysis(file, { range, maxWidth: 480, targetFps: 15, bitrate: 800_000 });
         videoBlobToSend = preparedBlob;
       }
       compressedBlobRef.current = videoBlobToSend;
@@ -807,7 +824,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
     // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
     const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
-    const hideTorsoLine = Boolean((frame as any)?.hide_torso_line) || (isUpperBody && (pHp.score ?? 0) < 0.60);
+    const isChestOrTBar = exIdStr.includes('press') || exIdStr.includes('bench') || exIdStr.includes('incline') || exIdStr.includes('chest') || exIdStr.includes('dip') || exIdStr.includes('t_bar');
+    const hideTorsoLine = Boolean((frame as any)?.hide_torso_line) || isChestOrTBar || (isUpperBody && (pHp.score ?? 0) < 0.60);
 
     // Torso reference length for anatomical outlier rejection
     const torsoLen = Math.hypot(pSh.x - pHp.x, pSh.y - pHp.y);
@@ -820,9 +838,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     // Human outlier span rejection: if shoulders or hips span across > 40% of canvas, it's connecting to background people
     const isSpuriousBackgroundSpan = shoulderSpanX > drawW * 0.40 || hipSpanX > drawW * 0.40;
 
-    const isEquipmentOccludedUpper = isUpperBody && (
-      exIdStr.includes('row') || exIdStr.includes('bench') || exIdStr.includes('press') ||
-      exIdStr.includes('dip') || exIdStr.includes('seated') || exIdStr.includes('t_bar')
+    // Only mark equipment occluded if body is physically against a chest pad in a machine row
+    const isChestSupportedPad = isUpperBody && (
+      exIdStr.includes('t_bar') || exIdStr.includes('remo_punta') || (exIdStr.includes('row') && exIdStr.includes('machine'))
     );
 
     // Anatomical segment check: limb segment must be within plausible human bounds [0.10, 1.15] * torsoLen
@@ -951,7 +969,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         } else {
           // Tren superior: brazos, codos, hombros y torso resaltados
           const legsConfident = (pLKn.score ?? 0) >= 0.45 && (pLHp.score ?? 0) >= 0.45 && (pLAk.score ?? 0) >= 0.45;
-          if (legsConfident && !isEquipmentOccludedUpper) {
+          if (legsConfident && !isChestSupportedPad) {
             drawSegment(pLHp, pLKn, 'rgba(148, 163, 184, 0.35)');
             drawSegment(pLKn, pLAk, 'rgba(148, 163, 184, 0.35)');
             drawSegment(pRHp, pRKn, 'rgba(148, 163, 184, 0.35)');
@@ -961,11 +979,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
 
           // Torso y pelvis
-          drawSegment(pLSh, pLHp, '#10B981');
-          drawSegment(pRSh, pRHp, '#10B981');
-          drawSegment(pLHp, pRHp, '#10B981');
-          drawPoint(pLHp, '#10B981');
-          drawPoint(pRHp, '#10B981');
+          if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
+            drawSegment(pLSh, pLHp, '#10B981');
+            drawSegment(pRSh, pRHp, '#10B981');
+            drawSegment(pLHp, pRHp, '#10B981');
+            drawPoint(pLHp, '#10B981');
+            drawPoint(pRHp, '#10B981');
+          }
 
           // Ambos brazos completos
           drawSegment(pLSh, pLEl, '#34D399');
@@ -1032,16 +1052,25 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         if (!hideTorsoLine && (pHp.score ?? 0) >= 0.60) {
           drawSegment(pSh, pHp, '#94A3B8');
         }
-        if (!isProfileView && hasBilateral && !isEquipmentOccludedUpper) {
+        if (!isProfileView && hasBilateral && !isChestSupportedPad) {
           drawSegment(pLSh, pLEl, '#94A3B8');
           drawSegment(pLEl, pLWr, '#94A3B8');
           drawSegment(pRSh, pREl, '#94A3B8');
           drawSegment(pREl, pRWr, '#94A3B8');
+          drawPoint(pLSh, '#3B82F6');
+          drawPoint(pRSh, '#3B82F6');
+          drawPoint(pLEl, '#10B981');
+          drawPoint(pREl, '#10B981');
+          drawPoint(pLWr, '#FBBF24');
+          drawPoint(pRWr, '#FBBF24');
         } else {
           drawSegment(pSh, pEl, '#94A3B8');
           drawSegment(pEl, pWr, '#94A3B8');
+          drawPoint(pSh, '#3B82F6');
+          drawPoint(pEl, '#10B981');
+          drawPoint(pHand, '#FBBF24');
         }
-        if (!isEquipmentOccludedUpper && !hideTorsoLine && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
+        if (!isChestSupportedPad && !hideTorsoLine && (pHp.score ?? 0) >= 0.45 && (pKn.score ?? 0) >= 0.45) {
           drawSegment(pHp, pKn, '#94A3B8');
           drawSegment(pKn, pAk, '#94A3B8');
         }
@@ -1058,10 +1087,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
       if (!isLowerBody) {
         // TREN SUPERIOR (Pecho, Espalda, Hombros, Brazos):
-        drawPoint(pSh, '#3B82F6');
-        drawPoint(pEl, '#10B981');
-        // Anchor yellow load marker directly at Hand Grip center (dumbbell/bar/machine handle)
-        drawPoint(pHand, '#FBBF24');
+        if (isProfileView || !hasBilateral || isChestSupportedPad) {
+          drawPoint(pSh, '#3B82F6');
+          drawPoint(pEl, '#10B981');
+          drawPoint(pHand, '#FBBF24');
+        }
         if (!hideTorsoLine && pHp.score !== undefined && pHp.score >= 0.60) {
           drawPoint(pHp, '#64748B');
         }
@@ -1080,7 +1110,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           const isBack = grpId === 'back' || exIdStr.includes('row') || exIdStr.includes('t_bar') || exIdStr.includes('gironda') || exIdStr.includes('pull');
           
-          // Bug 3 Fix: Locked series-wide classification from backend
+          // Locked series-wide classification from backend
           let isUpperBackCanvas = false;
           if (isBack) {
             if ((frame as any)?.is_upper_back !== undefined) {
@@ -1098,17 +1128,31 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           const labelSh = isBack ? (isUpperBackCanvas ? 'Espalda Alta' : 'Dorsal') : 'Pectoral';
           const labelEl = isBack ? 'Bíceps' : 'Tríceps';
-          // Bug 5 Fix: Abbreviated moment arm labels (T, P, D, EA, B)
           const abbrSh = isBack ? (isUpperBackCanvas ? 'EA' : 'D') : 'P';
           const abbrEl = isBack ? 'B' : 'T';
 
           const hasExplicitDirection = Boolean(fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0));
 
-          // Bug 4 Fix: Directional force vector and moment arms for T-Bar, Machine Press, and Machine Dips
+          // Directional force vector and moment arms for T-Bar, Machine Press, and Machine Dips
           if (isBack || hasExplicitDirection) {
             let uX = 1;
             let uY = 0;
-            if (hasExplicitDirection) {
+            if (isBack && (exIdStr.includes('t_bar') || exIdStr.includes('remo_punta') || activeExercise?.loadType === 'machine' || activeExercise?.loadType === 'cable')) {
+              // En Remo en T y máquinas de tracción, el vector sigue al antebrazo hacia la máquina (el codo actúa como pivote)
+              const vx = pHand.x - pEl.x;
+              const vy = pHand.y - pEl.y;
+              const uNorm = Math.hypot(vx, vy);
+              if (uNorm > 5) {
+                uX = vx / uNorm;
+                uY = vy / uNorm;
+                if (uY < 0.15) {
+                  uY = 0.35;
+                  const renorm = Math.hypot(uX, uY);
+                  uX /= renorm;
+                  uY /= renorm;
+                }
+              }
+            } else if (hasExplicitDirection) {
               const fn = Math.hypot(fv.dx, fv.dy);
               uX = fv.dx / fn;
               uY = fv.dy / fn;
@@ -1125,11 +1169,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             // Proyecciones ortogonales sobre la línea de fuerza
             const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
             const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };
-            const dSh = Math.round(Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX));
+            const rawDSh = Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX);
+            const dSh = Math.round(isBack ? Math.max(35, rawDSh) : rawDSh);
 
             const tEl = (pEl.x - pHand.x) * uX + (pEl.y - pHand.y) * uY;
             const pElProj = { x: pHand.x + tEl * uX, y: pHand.y + tEl * uY, score: pEl.score };
-            const dEl = Math.round(Math.abs((pEl.x - pHand.x) * uY - (pEl.y - pHand.y) * uX));
+            const rawDEl = Math.abs((pEl.x - pHand.x) * uY - (pEl.y - pHand.y) * uX);
+            const dEl = Math.round(isBack ? Math.max(8, Math.min(18, rawDEl > 0 ? rawDEl : 10)) : rawDEl);
 
             // La línea de fuerza abarca continuamente desde el lado opuesto de las articulaciones hasta la carga/máquina
             const minT = Math.min(-30, tSh - 25, tEl - 25);
@@ -2309,7 +2355,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </span>
                   {!isLowerBody ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
-                      Torso: {Math.round(currentFrame?.secondary_angle ?? 0)}° · Palanca: {
+                      {((currentFrame as any)?.hide_torso_line || safeExerciseId.includes('press') || safeExerciseId.includes('bench') || safeExerciseId.includes('incline') || safeExerciseId.includes('dip') || safeExerciseId.includes('t_bar')) ? '' : `Torso: ${Math.round(currentFrame?.secondary_angle ?? 0)}° · `}Palanca: {
                         secondaryLeverShare === 0
                           ? `100% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')}`
                           : `${primaryLeverShare}% ${isUpperBackActive ? 'Esp. Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} / ${secondaryLeverShare}% ${isBackExercise ? 'Bíceps' : 'Tríceps'}`

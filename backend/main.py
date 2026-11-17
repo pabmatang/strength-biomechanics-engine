@@ -560,18 +560,22 @@ def run_inference_batches(
                         norm_dist = float(np.hypot(cand_cx - prev_cx, cand_cy - prev_cy)) / diag
                         area_ratio = min(b_area, prev_area) / max(b_area, prev_area)
 
+                        # Penalize background gym users (drastically smaller area or far from athlete)
+                        bg_pen = 8.0 if b_area < 0.45 * prev_area else 0.0
+                        dist_pen = 8.0 if norm_dist > 0.18 else 0.0
+
                         # Penalize candidate if it has wandered into the extreme margins
                         cand_cx_norm = cand_cx / eff_w
-                        edge_cand_pen = 2.0 if (cand_cx_norm < 0.08 or cand_cx_norm > 0.92) else 0.0
+                        edge_cand_pen = 3.0 if (cand_cx_norm < 0.08 or cand_cx_norm > 0.92) else 0.0
 
-                        # Match score strongly penalizes distance to lock onto the primary athlete
-                        m_score = iou * 3.5 + float(scores[p_idx]) * 1.5 + area_ratio * 1.0 - norm_dist * 3.0 - edge_cand_pen
+                        # Match score strongly penalizes distance and background persons
+                        m_score = iou * 4.0 + float(scores[p_idx]) * 1.5 + area_ratio * 1.5 - norm_dist * 4.0 - edge_cand_pen - bg_pen - dist_pen
                         if m_score > best_match_score:
                             best_match_score = m_score
                             best_idx = p_idx
 
                     # Lock strictly onto the tracked athlete; do not jump to background gym users
-                    if best_idx is not None and (best_match_score > 0.25):
+                    if best_idx is not None and (best_match_score > 0.35) and ((boxes[best_idx][2] - boxes[best_idx][0]) * (boxes[best_idx][3] - boxes[best_idx][1]) >= 0.40 * prev_area):
                         cand_box = boxes[best_idx].tolist()
                         tracked_athlete_box = [
                             0.75 * cand_box[c] + 0.25 * tracked_athlete_box[c] for c in range(4)
@@ -828,6 +832,36 @@ def process_kinematics(
             tracked_sc["elbow"][f] = all_smoothed[f"{locked_side}_elbow"]["score"][f]
             tracked_sc["wrist"][f] = all_smoothed[f"{locked_side}_wrist"]["score"][f]
 
+        is_vertical_or_seated = any(k in ex_lower for k in ["dip", "fondo", "seated_row", "lat_pulldown", "pulldown", "pullup"])
+        if is_vertical_or_seated:
+            hip_y_ref = np.array([0.5 * (all_smoothed["left_hip"]["y"][f] + all_smoothed["right_hip"]["y"][f]) for f in range(n_frames)])
+            sh_outliers = np.zeros(n_frames, dtype=bool)
+            for t in range(n_frames):
+                if tracked_sh[t, 1] > tracked_el[t, 1] - 0.03 or abs(tracked_sh[t, 1] - hip_y_ref[t]) < 0.12:
+                    sh_outliers[t] = True
+            valid_sh_frames = np.where(~sh_outliers)[0]
+            if len(valid_sh_frames) >= 2 and np.any(sh_outliers):
+                try:
+                    pchip_sh_x = scipy.interpolate.PchipInterpolator(valid_sh_frames, tracked_sh[valid_sh_frames, 0])
+                    pchip_sh_y = scipy.interpolate.PchipInterpolator(valid_sh_frames, tracked_sh[valid_sh_frames, 1])
+                    all_f = np.arange(n_frames)
+                    tracked_sh[sh_outliers, 0] = pchip_sh_x(all_f)[sh_outliers]
+                    tracked_sh[sh_outliers, 1] = pchip_sh_y(all_f)[sh_outliers]
+                    tracked_sc["shoulder"][sh_outliers] = 0.85
+                except Exception:
+                    pass
+
+        if is_pattern_b:
+            # En presses, el codo y la muñeca deben mantener distancia coherente con el antebrazo
+            for t in range(n_frames):
+                cur_forearm_len = math.hypot(tracked_wr[t, 0] - tracked_el[t, 0], tracked_wr[t, 1] - tracked_el[t, 1])
+                # Si la muñeca se sale del cuerpo o se pierde (distancia anómala o score bajo)
+                if cur_forearm_len < 0.45 * l_forearm_median or cur_forearm_len > 1.45 * l_forearm_median or tracked_sc["wrist"][t] < 0.30:
+                    # En press con mancuernas o barra, la muñeca está verticalmente por encima del codo
+                    tracked_wr[t, 0] = tracked_el[t, 0]
+                    tracked_wr[t, 1] = max(0.05, tracked_el[t, 1] - l_forearm_median)
+                    tracked_sc["wrist"][t] = 0.75
+
         primary_joints["shoulder"] = {
             "x": apply_zero_phase_butterworth_segmented(tracked_sh[:, 0], scene_cut_indices, fs=15.0, cutoff=1.8),
             "y": apply_zero_phase_butterworth_segmented(tracked_sh[:, 1], scene_cut_indices, fs=15.0, cutoff=1.8),
@@ -1083,7 +1117,8 @@ def process_kinematics(
         facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
         
         mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
-        hide_torso_line = bool(is_upper_body and mean_hip_score < 0.60)
+        is_chest_or_tbar = any(k in ex_lower for k in ["press", "bench", "incline", "chest", "dips", "t_bar", "remo_punta", "barra_t"])
+        hide_torso_line = bool(is_chest_or_tbar or (is_upper_body and mean_hip_score < 0.60))
         if mean_hip_score < 0.50:
             for f in range(n_frames):
                 primary_joints["hip"]["x"][f] = float(sh_x[f] - 0.08 * facing_dir)
@@ -2130,14 +2165,46 @@ def process_kinematics(
 
         # Projected 2D Moment Arms for Canvas Overlay
         if is_upper_body:
-            u_fx = float(force_dx)
-            u_fy = float(force_dy)
-            # Universal point-line orthogonal distance
-            f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
-            f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+            # Check if exercise is T-Bar row or machine row where resistance follows the forearm
+            is_t_bar_ex = is_t_bar or any(k in ex_lower for k in ["t_bar", "remo_punta", "barra_t"])
+            if is_t_bar_ex or (is_pattern_a and (is_machine_or_cable_pattern or "machine" in ex_lower)):
+                # Vector along forearm pointing forward/down toward machine
+                arm_vx = cur_hx - el_x
+                arm_vy = cur_hy - el_y
+                arm_norm = math.hypot(arm_vx, arm_vy)
+                if arm_norm > 1e-4:
+                    u_fx = arm_vx / arm_norm
+                    u_fy = arm_vy / arm_norm
+                    if u_fy < 0.15:
+                        u_fy = 0.35
+                        renorm = math.hypot(u_fx, u_fy)
+                        u_fx /= renorm
+                        u_fy /= renorm
+                else:
+                    u_fx = float(facing_forward_x)
+                    u_fy = 0.35
+                    renorm = math.hypot(u_fx, u_fy)
+                    u_fx /= renorm
+                    u_fy /= renorm
+                f_d_sh = max(0.08, abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx))
+                f_d_el = max(0.025, abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx))
+                cur_force_dir = "along_forearm_machine"
+            elif is_pattern_b:
+                u_fx = float(force_dx)
+                u_fy = float(force_dy)
+                sh_eff_x = sh_x + 0.15 * (el_x - sh_x)
+                sh_eff_y = sh_y + 0.15 * (el_y - sh_y)
+                f_d_sh = max(0.045, abs((sh_eff_x - cur_hx) * u_fy - (sh_eff_y - cur_hy) * u_fx))
+                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+                cur_force_dir = force_dir_name
+            else:
+                u_fx = float(force_dx)
+                u_fy = float(force_dy)
+                f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
+                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+                cur_force_dir = force_dir_name
             cur_force_dx = u_fx
             cur_force_dy = u_fy
-            cur_force_dir = force_dir_name
             f_d_hip = 0.0
             f_d_knee = 0.0
         elif is_hip_thrust:
@@ -2221,6 +2288,17 @@ def process_kinematics(
             },
             "verdict": base_rep_verdict
         })
+
+    if is_upper_body and len(frames_output) >= 5:
+        all_d_sh = [frames_output[f]["moment_arms"]["d_shoulder"] for f in range(n_frames)]
+        all_d_el = [frames_output[f]["moment_arms"]["d_elbow"] for f in range(n_frames)]
+        filter_size = min(9, n_frames if n_frames % 2 == 1 else n_frames - 1)
+        if filter_size >= 3:
+            smooth_d_sh = scipy.ndimage.median_filter(all_d_sh, size=filter_size)
+            smooth_d_el = scipy.ndimage.median_filter(all_d_el, size=filter_size)
+            for f in range(n_frames):
+                frames_output[f]["moment_arms"]["d_shoulder"] = round(float(smooth_d_sh[f]), 4)
+                frames_output[f]["moment_arms"]["d_elbow"] = round(float(smooth_d_el[f]), 4)
 
     # Overall set summary
     total_reps = len(repetitions_summary)

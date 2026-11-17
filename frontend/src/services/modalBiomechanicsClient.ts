@@ -167,9 +167,12 @@ function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      resolve(reader.result as string);
+      const result = (reader.result as string) || '';
+      const commaIdx = result.indexOf(',');
+      const cleanB64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
+      resolve(cleanB64);
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('Fallo al leer el archivo de vídeo para codificación Base64.'));
     reader.readAsDataURL(blob);
   });
 }
@@ -239,6 +242,10 @@ export async function analyzeVideoWithModal(
     if (isCerebrium) {
       headers['Content-Type'] = 'application/json';
       const base64Data = await blobToBase64(videoBlob);
+
+      if (!base64Data || typeof base64Data !== 'string' || base64Data.length < 100) {
+        throw new Error('No valid video payload provided (expected base64 or video_url). El archivo de vídeo no contiene datos válidos.');
+      }
 
       response = await fetch(endpointUrl, {
         method: 'POST',

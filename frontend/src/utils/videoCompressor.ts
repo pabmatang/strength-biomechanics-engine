@@ -38,7 +38,7 @@ export async function prepareVideoForAnalysis(
   const {
     maxWidth = 480,
     targetFps = 15,
-    bitrate = 900_000,
+    bitrate = 800_000,
     maxDurationSec = 30.0,
     range
   } = options;
@@ -238,5 +238,24 @@ export async function prepareVideoForAnalysis(
         resolve(file);
       }
     };
+  });
+}
+
+/**
+ * Asynchronous, memory-safe Blob to Base64 converter.
+ * Strips Data URL scheme prefix (e.g. "data:video/mp4;base64,") so clean Base64 is returned.
+ * Uses native FileReader.readAsDataURL without call-stack or String.fromCharCode limitations.
+ */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = (reader.result as string) || '';
+      const commaIdx = result.indexOf(',');
+      const cleanB64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
+      resolve(cleanB64);
+    };
+    reader.onerror = () => reject(new Error('Fallo al leer el blob de vídeo en Base64.'));
+    reader.readAsDataURL(blob);
   });
 }
