@@ -253,7 +253,6 @@ export async function analyzeVideoWithModal(
         signal: currentController.signal,
         body: JSON.stringify({
           video_base64: base64Data,
-          video: base64Data,
           exercise_type: String(config.exerciseType),
           target_muscle: String(config.targetMuscle),
           load_type: String(config.loadType),

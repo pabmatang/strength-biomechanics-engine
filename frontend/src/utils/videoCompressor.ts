@@ -3,9 +3,10 @@
  * 
  * - Supports custom Range Trimming { startTime, endTime } up to 30.0 seconds.
  * - Downsamples to max 480px width (preserving aspect ratio with even pixel bounds).
- * - Transcodes at 15 FPS and 900 kbps via MediaRecorder (MP4 AVC1 / WebM VP8).
+ * - Transcodes at 15 FPS and 800 kbps via MediaRecorder (MP4 AVC1 / WebM VP8).
+ * - Emergency secondary compression pass to 360p / 12 FPS / 500 kbps if video > 12 MB.
+ * - Memory-safe asynchronous Base64 conversion via FileReader.readAsDataURL.
  * - Fast bypass if original video already weighs < 1.2 MB and duration <= 30s.
- * - Detailed telemetry console.info of compression savings.
  */
 
 export interface VideoRange {
@@ -21,31 +22,19 @@ export interface VideoCompressionOptions {
   range?: VideoRange;
 }
 
-export async function prepareVideoForAnalysis(
+/**
+ * Internal single-pass Canvas + MediaRecorder compressor.
+ */
+function runCanvasCompression(
   file: File | Blob,
-  rangeOrOptions?: VideoRange | VideoCompressionOptions
-): Promise<Blob> {
-  // Parse polymorphic options
-  let options: VideoCompressionOptions = {};
-  if (rangeOrOptions) {
-    if ('startTime' in rangeOrOptions && 'endTime' in rangeOrOptions) {
-      options = { range: rangeOrOptions as VideoRange };
-    } else {
-      options = rangeOrOptions as VideoCompressionOptions;
-    }
-  }
-
-  const {
-    maxWidth = 480,
-    targetFps = 15,
-    bitrate = 800_000,
-    maxDurationSec = 30.0,
-    range
-  } = options;
-
-  // Fallback for non-browser / test / SSR environments
+  maxWidth: number,
+  targetFps: number,
+  bitrate: number,
+  maxDurationSec: number,
+  range?: VideoRange
+): Promise<Blob | null> {
   if (typeof window === 'undefined' || typeof document === 'undefined' || typeof MediaRecorder === 'undefined') {
-    return file;
+    return Promise.resolve(null);
   }
 
   return new Promise((resolve) => {
@@ -71,16 +60,16 @@ export async function prepareVideoForAnalysis(
       }
     };
 
-    // Safety timeout: if compression hangs, fallback to original file
+    // Safety timeout: 35s max per pass
     const timeoutTimer = setTimeout(() => {
       cleanup();
-      resolve(file);
+      resolve(null);
     }, 35_000);
 
     video.onerror = () => {
       clearTimeout(timeoutTimer);
       cleanup();
-      resolve(file);
+      resolve(null);
     };
 
     video.onloadedmetadata = async () => {
@@ -89,15 +78,7 @@ export async function prepareVideoForAnalysis(
         if (!duration || !isFinite(duration) || duration <= 0) {
           clearTimeout(timeoutTimer);
           cleanup();
-          return resolve(file);
-        }
-
-        // Direct bypass ONLY if video is already tiny (< 1.2 MB) AND no range trimming requested
-        if (!range && file.size <= 1.2 * 1024 * 1024 && duration <= maxDurationSec) {
-          clearTimeout(timeoutTimer);
-          cleanup();
-          console.info(`[Compressor] Bypass: archivo ligero (${(file.size / 1024).toFixed(0)} KB) y dentro del rango.`);
-          return resolve(file);
+          return resolve(null);
         }
 
         // Determine exact window
@@ -135,7 +116,7 @@ export async function prepareVideoForAnalysis(
         if (!ctx || typeof canvas.captureStream !== 'function') {
           clearTimeout(timeoutTimer);
           cleanup();
-          return resolve(file);
+          return resolve(null);
         }
 
         // Preferred container codecs: MP4 AVC1 preferred, falling back to WebM VP8
@@ -156,7 +137,7 @@ export async function prepareVideoForAnalysis(
         } catch {
           clearTimeout(timeoutTimer);
           cleanup();
-          return resolve(file);
+          return resolve(null);
         }
 
         const recordedChunks: Blob[] = [];
@@ -180,7 +161,7 @@ export async function prepareVideoForAnalysis(
 
             resolve(compressedBlob);
           } else {
-            resolve(file);
+            resolve(null);
           }
         };
 
@@ -235,10 +216,65 @@ export async function prepareVideoForAnalysis(
       } catch {
         clearTimeout(timeoutTimer);
         cleanup();
-        resolve(file);
+        resolve(null);
       }
     };
   });
+}
+
+/**
+ * Prepares and compresses video client-side before Base64 serialization or dispatch.
+ * Enforces emergency 360p / 12 FPS downscale if file > 12 MB to avoid V8 "Invalid string length".
+ */
+export async function prepareVideoForAnalysis(
+  file: File | Blob,
+  rangeOrOptions?: VideoRange | VideoCompressionOptions
+): Promise<Blob> {
+  // Parse polymorphic options
+  let options: VideoCompressionOptions = {};
+  if (rangeOrOptions) {
+    if ('startTime' in rangeOrOptions && 'endTime' in rangeOrOptions) {
+      options = { range: rangeOrOptions as VideoRange };
+    } else {
+      options = rangeOrOptions as VideoCompressionOptions;
+    }
+  }
+
+  const {
+    maxWidth = 480,
+    targetFps = 15,
+    bitrate = 800_000,
+    maxDurationSec = 30.0,
+    range
+  } = options;
+
+  // Fallback for non-browser / test / SSR environments
+  if (typeof window === 'undefined' || typeof document === 'undefined' || typeof MediaRecorder === 'undefined') {
+    return file;
+  }
+
+  // Direct bypass ONLY if video is already tiny (< 1.2 MB) AND no range trimming requested
+  if (!range && file.size <= 1.2 * 1024 * 1024) {
+    console.info(`[Compressor] Bypass: archivo ligero (${(file.size / 1024).toFixed(0)} KB) y sin recorte.`);
+    return file;
+  }
+
+  // 1. Primary Compression Pass (480p / 15 FPS / 800 kbps)
+  let compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range);
+
+  // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if primary pass failed or result > 12 MB
+  const maxSafeSizeBytes = 12 * 1024 * 1024; // 12 MB safe threshold for V8 Base64 strings
+  const needsEmergencyCompression = !compressedBlob || (compressedBlob.size > maxSafeSizeBytes);
+
+  if (needsEmergencyCompression && file.size > maxSafeSizeBytes) {
+    console.warn(`[Compressor] Archivo > 12MB (${((compressedBlob?.size || file.size) / (1024 * 1024)).toFixed(1)}MB). Ejecutando compresión de emergencia 360p/12FPS...`);
+    const emergencyBlob = await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range);
+    if (emergencyBlob) {
+      compressedBlob = emergencyBlob;
+    }
+  }
+
+  return compressedBlob || file;
 }
 
 /**
@@ -250,10 +286,18 @@ export function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      const result = (reader.result as string) || '';
-      const commaIdx = result.indexOf(',');
-      const cleanB64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
-      resolve(cleanB64);
+      try {
+        const result = (reader.result as string) || '';
+        const commaIdx = result.indexOf(',');
+        const cleanB64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
+        if (!cleanB64 || cleanB64.length === 0) {
+          reject(new Error('No valid video payload produced (empty base64 string).'));
+        } else {
+          resolve(cleanB64);
+        }
+      } catch (err) {
+        reject(err);
+      }
     };
     reader.onerror = () => reject(new Error('Fallo al leer el blob de vídeo en Base64.'));
     reader.readAsDataURL(blob);

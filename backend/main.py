@@ -852,15 +852,27 @@ def process_kinematics(
                     pass
 
         if is_pattern_b:
-            # En presses, el codo y la muñeca deben mantener distancia coherente con el antebrazo
+            # En presses, el codo y la muñeca deben mantener orientación y distancia anatómica estricta (antebrazo vertical/convergente soportando la carga)
             for t in range(n_frames):
                 cur_forearm_len = math.hypot(tracked_wr[t, 0] - tracked_el[t, 0], tracked_wr[t, 1] - tracked_el[t, 1])
-                # Si la muñeca se sale del cuerpo o se pierde (distancia anómala o score bajo)
-                if cur_forearm_len < 0.45 * l_forearm_median or cur_forearm_len > 1.45 * l_forearm_median or tracked_sc["wrist"][t] < 0.30:
-                    # En press con mancuernas o barra, la muñeca está verticalmente por encima del codo
-                    tracked_wr[t, 0] = tracked_el[t, 0]
-                    tracked_wr[t, 1] = max(0.05, tracked_el[t, 1] - l_forearm_median)
-                    tracked_sc["wrist"][t] = 0.75
+                dy_wrist_to_elbow = tracked_wr[t, 1] - tracked_el[t, 1] # En imagen, y crece hacia abajo; muñeca arriba -> dy < 0
+                dx_wrist_to_elbow = abs(tracked_wr[t, 0] - tracked_el[t, 0])
+                
+                is_length_anomaly = cur_forearm_len < 0.50 * l_forearm_median or cur_forearm_len > 1.35 * l_forearm_median
+                is_low_conf = tracked_sc["wrist"][t] < 0.50
+                is_horizontal_or_down = dy_wrist_to_elbow >= -0.02 or (dx_wrist_to_elbow > 1.15 * abs(dy_wrist_to_elbow))
+                
+                if is_length_anomaly or is_low_conf or is_horizontal_or_down:
+                    # En press, la muñeca sostiene la mancuerna/barra por encima del codo con ligera convergencia hacia el centro
+                    dx_to_sh = tracked_sh[t, 0] - tracked_el[t, 0]
+                    converge_offset_x = 0.025 if dx_to_sh > 0 else -0.025
+                    tracked_wr[t, 0] = float(tracked_el[t, 0] + converge_offset_x)
+                    tracked_wr[t, 1] = float(max(0.05, tracked_el[t, 1] - l_forearm_median))
+                    tracked_sc["wrist"][t] = 0.85
+                    # Sincronizar también el array bilateral
+                    all_smoothed[f"{locked_side}_wrist"]["x"][t] = tracked_wr[t, 0]
+                    all_smoothed[f"{locked_side}_wrist"]["y"][t] = tracked_wr[t, 1]
+                    all_smoothed[f"{locked_side}_wrist"]["score"][t] = 0.85
 
         primary_joints["shoulder"] = {
             "x": apply_zero_phase_butterworth_segmented(tracked_sh[:, 0], scene_cut_indices, fs=15.0, cutoff=1.8),

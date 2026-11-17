@@ -803,14 +803,27 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y), score: kp.right_ankle.score } : pAk;
 
 
+    const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
+    const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
+
+    // Guard de alineación anatómica estricta para muñeca / punto de carga en Presses:
+    // En cualquier press (mancuernas, barra, máquina), la muñeca y la mancuerna se sitúan verticalmente sobre el codo
+    const isPressExercise = exIdStr.includes('press') || exIdStr.includes('bench') || exIdStr.includes('incline') || exIdStr.includes('dip');
+    if (isPressExercise) {
+      const isBadWrist = pWr.y >= pEl.y - 12 || Math.abs(pWr.x - pEl.x) > drawW * 0.16 || (pWr.score ?? 0) < 0.45;
+      if (isBadWrist) {
+        const estForearmPx = drawH * 0.14;
+        const convergeX = (pSh.x > pEl.x ? 1 : -1) * (drawW * 0.025);
+        pWr.x = pEl.x + convergeX;
+        pWr.y = Math.max(15, pEl.y - estForearmPx);
+      }
+    }
+
     const pHand = {
       x: pWr.x,
       y: pWr.y,
       score: pWr.score
     };
-
-    const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
-    const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
 
     const isUpperBody = (
       grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
@@ -1167,10 +1180,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             }
 
             // Proyecciones ortogonales sobre la línea de fuerza
-            const tSh = (pSh.x - pHand.x) * uX + (pSh.y - pHand.y) * uY;
+            const isChestExercise = grpId === 'chest' || exIdStr.includes('press') || exIdStr.includes('bench') || exIdStr.includes('incline');
+            // Offset glenohumeral 15% lateral hacia el codo para anclar en el centro articular real
+            const effPSh = isChestExercise ? { x: pSh.x + 0.15 * (pEl.x - pSh.x), y: pSh.y + 0.15 * (pEl.y - pSh.y), score: pSh.score } : pSh;
+            const tSh = (effPSh.x - pHand.x) * uX + (effPSh.y - pHand.y) * uY;
             const pShProj = { x: pHand.x + tSh * uX, y: pHand.y + tSh * uY, score: pSh.score };
-            const rawDSh = Math.abs((pSh.x - pHand.x) * uY - (pSh.y - pHand.y) * uX);
-            const dSh = Math.round(isBack ? Math.max(35, rawDSh) : rawDSh);
+            const rawDSh = Math.abs((effPSh.x - pHand.x) * uY - (effPSh.y - pHand.y) * uX);
+            const dSh = Math.round(isBack ? Math.max(35, rawDSh) : (isChestExercise ? Math.max(22, rawDSh) : rawDSh));
 
             const tEl = (pEl.x - pHand.x) * uX + (pEl.y - pHand.y) * uY;
             const pElProj = { x: pHand.x + tEl * uX, y: pHand.y + tEl * uY, score: pEl.score };
@@ -1802,16 +1818,17 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const curElbowDeg = currentFrame ? currentFrame.main_angle : (rawVerdict?.inflection_elbow_deg || 90.0);
 
   if (!isLowerBody) {
-    if (selectedMuscleGroupId === 'chest' || safeExerciseId.includes('bench') || safeExerciseId.includes('chest') || safeExerciseId.includes('press')) {
+    if (selectedMuscleGroupId === 'chest' || safeExerciseId.includes('bench') || safeExerciseId.includes('chest') || safeExerciseId.includes('press') || safeExerciseId.includes('dip')) {
+      const eff_d_sh = Math.max(d_sh_val, 0.05);
+      const totD = eff_d_sh + d_el_val;
       let pectShare = 78;
       let tricShare = 22;
-      const totD = d_sh_val + d_el_val;
       if (totD > 0.005) {
-        pectShare = Math.max(10, Math.min(95, Math.round((d_sh_val / totD) * 100)));
+        pectShare = Math.max(55, Math.min(95, Math.round((eff_d_sh / totD) * 100)));
         tricShare = 100 - pectShare;
       } else if (rawVerdict?.pectoral_share && rawVerdict?.triceps_share) {
-        pectShare = Math.round(rawVerdict.pectoral_share);
-        tricShare = Math.round(rawVerdict.triceps_share);
+        pectShare = Math.max(55, Math.round(rawVerdict.pectoral_share));
+        tricShare = 100 - pectShare;
       }
       primaryLeverName = 'Brazo Pectoral';
       secondaryLeverName = 'Brazo Tríceps';
