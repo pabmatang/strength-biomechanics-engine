@@ -227,47 +227,73 @@ export async function analyzeVideoWithModal(
       ? Number(range.endTime.toFixed(2))
       : null;
 
+    let base64Data = '';
     if (isCerebrium) {
       headers['Content-Type'] = 'application/json';
-      const base64Data = await blobToBase64(videoBlob);
+      base64Data = await blobToBase64(videoBlob);
 
       if (!base64Data || typeof base64Data !== 'string' || base64Data.length < 100) {
         throw new Error('No valid video payload provided (expected base64 or video_url). El archivo de vídeo no contiene datos válidos.');
       }
+    }
 
-      response = await fetch(endpointUrl, {
-        method: 'POST',
-        headers,
-        signal: currentController.signal,
-        body: JSON.stringify({
-          video_base64: base64Data,
-          exercise_type: String(config.exerciseType),
-          target_muscle: String(config.targetMuscle),
-          load_type: String(config.loadType),
-          start_time: startTime,
-          end_time: endTime,
-          weight_kg: config.weightKg,
-          target_reps: config.targetReps,
-          anthropometry: config.anthropometry
-        })
-      });
-    } else {
-      const formData = new FormData();
-      formData.append('video', videoBlob, 'input_video.webm');
-      formData.append('exercise_type', String(config.exerciseType));
-      formData.append('target_muscle', String(config.targetMuscle));
-      formData.append('load_type', String(config.loadType));
-      formData.append('start_time', String(startTime));
-      if (endTime !== null) {
-        formData.append('end_time', String(endTime));
+    const doFetch = async () => {
+      if (isCerebrium) {
+        return fetch(endpointUrl, {
+          method: 'POST',
+          headers,
+          signal: currentController.signal,
+          body: JSON.stringify({
+            video_base64: base64Data,
+            exercise_type: String(config.exerciseType),
+            target_muscle: String(config.targetMuscle),
+            load_type: String(config.loadType),
+            start_time: startTime,
+            end_time: endTime,
+            weight_kg: config.weightKg,
+            target_reps: config.targetReps,
+            anthropometry: config.anthropometry
+          })
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('video', videoBlob, 'input_video.webm');
+        formData.append('exercise_type', String(config.exerciseType));
+        formData.append('target_muscle', String(config.targetMuscle));
+        formData.append('load_type', String(config.loadType));
+        formData.append('start_time', String(startTime));
+        if (endTime !== null) {
+          formData.append('end_time', String(endTime));
+        }
+
+        return fetch(endpointUrl, {
+          method: 'POST',
+          headers,
+          signal: currentController.signal,
+          body: formData
+        });
       }
+    };
 
-      response = await fetch(endpointUrl, {
-        method: 'POST',
-        headers,
-        signal: currentController.signal,
-        body: formData
-      });
+    try {
+      response = await doFetch();
+    } catch (fetchErr: any) {
+      if (fetchErr.name !== 'AbortError') {
+        console.warn('[BiomechanicsClient] Error de conexión en primer intento. Reintentando tras 1500 ms...', fetchErr);
+        await new Promise((res) => setTimeout(res, 1500));
+        response = await doFetch();
+      } else {
+        throw fetchErr;
+      }
+    }
+
+    // Auto-retry transparente ante 502 / 503 / 504 (Cold Start en Cerebrium GPU)
+    if ([502, 503, 504].includes(response.status)) {
+      console.warn(`[BiomechanicsClient] Cold start detectado (${response.status}). Esperando 1500 ms y reintentando automáticamente en segundo plano...`);
+      await new Promise((res) => setTimeout(res, 1500));
+      if (!currentController.signal.aborted) {
+        response = await doFetch();
+      }
     }
 
     if (!response.ok) {
@@ -331,11 +357,21 @@ export async function analyzeAnthropometry(
     side_image_base64: sideBase64
   };
 
-  const response = await fetch(endpointUrl, {
+  let response = await fetch(endpointUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
   });
+
+  if ([502, 503, 504].includes(response.status)) {
+    console.warn(`[BiomechanicsClient] Cold start detectado en antropometría (${response.status}). Esperando 1500 ms y reintentando...`);
+    await new Promise((res) => setTimeout(res, 1500));
+    response = await fetch(endpointUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');

@@ -38,11 +38,13 @@ print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()}
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
 POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 
+dtype = torch.float16 if device == "cuda" else torch.float32
+
 print(f"[Cerebrium Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
 det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
 det_model = AutoModelForObjectDetection.from_pretrained(
     DET_MODEL_NAME,
-    torch_dtype=torch.float32
+    torch_dtype=dtype
 ).to(device)
 det_model.eval()
 
@@ -50,7 +52,7 @@ print(f"[Cerebrium Startup] Loading ViTPose-Base ({POSE_MODEL_NAME})...")
 pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
 pose_model = VitPoseForPoseEstimation.from_pretrained(
     POSE_MODEL_NAME,
-    torch_dtype=torch.float32
+    torch_dtype=dtype
 ).to(device)
 pose_model.eval()
 
@@ -281,15 +283,15 @@ def detect_content_bbox(frame: np.ndarray, threshold: int = 15) -> Tuple[int, in
 
 def run_inference_batches(
     frames_rgb: List[np.ndarray],
-    batch_size: int = 32
+    batch_size: int = 64
 ) -> Tuple[List[Dict[str, Dict[str, float]]], List[Dict[str, float]]]:
     """
     Batched neural inference across video frames with RT-DETR and ViTPose.
-    Bug 2 Fix: Strict Athlete Isolation against background gym users.
-    - Frame 0: Selects RT-DETR person detection with highest (area * centeredness).
-    - Subsequent frames: Strict center tracking (center dist < 0.20) + IoU matching.
+    - RT-DETR athlete detection: Sampled 1 of every 3 frames with piecewise linear
+      interpolation of bounding boxes across intermediate frames (reducing detector load by 66%).
+    - Strict athlete isolation against background gym users on sampled frames.
     - Moving average smoothing (window = 5) on bounding box coordinates (x1, y1, x2, y2).
-    - ViTPose crop adjusted with tight padding (0.08) to exclude background bystanders.
+    - ViTPose inference: Full batch across all frames (batch_size = 64, fp16).
     """
     n_frames = len(frames_rgb)
     all_raw_keypoints = []
@@ -304,11 +306,22 @@ def run_inference_batches(
     eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
     
     # ---------------------------------------------------------------------
-    # Pass 1: RT-DETR Detection across all frames in batches
+    # Pass 1: RT-DETR Detection sampled 1 of every 3 frames
     # ---------------------------------------------------------------------
-    all_frame_detections = []  # list of lists of candidate boxes per frame
-    for i in range(0, n_frames, batch_size):
-        batch_rgb = frames_rgb[i : i + batch_size]
+    sample_step = 3
+    if n_frames <= sample_step:
+        sampled_indices = list(range(n_frames))
+    else:
+        sampled_indices = list(range(0, n_frames, sample_step))
+        if (n_frames - 1) not in sampled_indices:
+            sampled_indices.append(n_frames - 1)
+    
+    sampled_frames = [frames_rgb[idx] for idx in sampled_indices]
+    n_sampled = len(sampled_frames)
+
+    sampled_frame_detections = []  # candidate person boxes per sampled frame
+    for i in range(0, n_sampled, batch_size):
+        batch_rgb = sampled_frames[i : i + batch_size]
         if has_crop:
             batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
         else:
@@ -319,7 +332,12 @@ def run_inference_batches(
         with torch.inference_mode():
             det_outputs = det_model(**det_inputs)
             
-        target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), device=device)
+        target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), dtype=torch.float32, device=device)
+        if hasattr(det_outputs, "logits") and det_outputs.logits is not None:
+            det_outputs.logits = det_outputs.logits.to(torch.float32)
+        if hasattr(det_outputs, "pred_boxes") and det_outputs.pred_boxes is not None:
+            det_outputs.pred_boxes = det_outputs.pred_boxes.to(torch.float32)
+
         det_results = det_processor.post_process_object_detection(
             det_outputs, target_sizes=target_sizes, threshold=0.20
         )
@@ -331,16 +349,16 @@ def run_inference_batches(
             for idx, l in enumerate(labels):
                 if l == 0 and scores[idx] >= 0.20:
                     p_boxes.append((boxes[idx].tolist(), float(scores[idx])))
-            all_frame_detections.append(p_boxes)
+            sampled_frame_detections.append(p_boxes)
 
     # ---------------------------------------------------------------------
-    # Pass 2: Strict Temporal Athlete Tracking across frames
+    # Pass 2: Strict Temporal Athlete Tracking across sampled frames
     # ---------------------------------------------------------------------
-    raw_tracked_boxes = []
+    sampled_tracked_boxes = []
     tracked_box = None
 
-    for f_idx in range(n_frames):
-        p_candidates = all_frame_detections[f_idx]
+    for s_idx in range(n_sampled):
+        p_candidates = sampled_frame_detections[s_idx]
         if tracked_box is None:
             # First valid frame: pick person with max area * centeredness
             if len(p_candidates) > 0:
@@ -359,7 +377,7 @@ def run_inference_batches(
                 tracked_box = best_box
             else:
                 tracked_box = [0.0, 0.0, float(eff_w), float(eff_h)]
-            raw_tracked_boxes.append(tracked_box)
+            sampled_tracked_boxes.append(tracked_box)
         else:
             prev_b = tracked_box
             prev_cx = (prev_b[0] + prev_b[2]) / 2.0
@@ -387,16 +405,27 @@ def run_inference_batches(
             if len(valid_cands) > 0:
                 valid_cands.sort(key=lambda x: x[0], reverse=True)
                 tracked_box = valid_cands[0][1]
-            # else: keep previous tracked_box if no valid candidate meets center distance < 0.20
-            raw_tracked_boxes.append(tracked_box)
+            sampled_tracked_boxes.append(tracked_box)
+
+    # ---------------------------------------------------------------------
+    # Pass 2.5: Linear Interpolation of Bounding Boxes for all intermediate frames
+    # ---------------------------------------------------------------------
+    sampled_boxes_arr = np.array(sampled_tracked_boxes, dtype=np.float32)
+    all_frame_indices = np.arange(n_frames, dtype=np.float32)
+    raw_tracked_boxes = np.zeros((n_frames, 4), dtype=np.float32)
+    for c in range(4):
+        raw_tracked_boxes[:, c] = np.interp(
+            all_frame_indices,
+            sampled_indices,
+            sampled_boxes_arr[:, c]
+        )
 
     # ---------------------------------------------------------------------
     # Pass 3: Moving Average Smoothing (window = 5) & Tight Padding (0.08)
     # ---------------------------------------------------------------------
-    raw_boxes_arr = np.array(raw_tracked_boxes, dtype=np.float32)
-    smoothed_boxes = np.zeros_like(raw_boxes_arr)
+    smoothed_boxes = np.zeros_like(raw_tracked_boxes)
     for c in range(4):
-        smoothed_boxes[:, c] = scipy.ndimage.uniform_filter1d(raw_boxes_arr[:, c], size=5, mode='nearest')
+        smoothed_boxes[:, c] = scipy.ndimage.uniform_filter1d(raw_tracked_boxes[:, c], size=5, mode='nearest')
 
     vitpose_crops = []
     for f_idx in range(n_frames):
@@ -416,7 +445,7 @@ def run_inference_batches(
         all_boxes.append({"cx": cx, "cy": cy, "bw": float(bw / w), "bh": float(bh / h)})
 
     # ---------------------------------------------------------------------
-    # Pass 4: Batched ViTPose Inference
+    # Pass 4: Batched ViTPose Inference (batch_size = 64, fp16)
     # ---------------------------------------------------------------------
     for i in range(0, n_frames, batch_size):
         batch_rgb = frames_rgb[i : i + batch_size]
@@ -446,182 +475,6 @@ def run_inference_batches(
             pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_crops_subset)
         except TypeError:
             pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_crops_subset, dataset_index=0)
-        
-        for p_res in pose_results:
-            kps = p_res[0]["keypoints"]
-            scs = p_res[0]["scores"]
-            if hasattr(kps, "detach"):
-                kps = kps.detach().cpu().to(torch.float32).numpy()
-            else:
-                kps = np.asarray(kps, dtype=np.float32)
-            if hasattr(scs, "detach"):
-                scs = scs.detach().cpu().to(torch.float32).numpy()
-            else:
-                scs = np.asarray(scs, dtype=np.float32)
-            
-            frame_kps = {}
-            for kp_idx, name in enumerate(COCO_KEYPOINTS):
-                x_norm = float(crop_x + kps[kp_idx, 0]) / float(w)
-                y_norm = float(crop_y + kps[kp_idx, 1]) / float(h)
-                score = float(scs[kp_idx])
-                frame_kps[name] = {
-                    "x": min(1.0, max(0.0, x_norm)),
-                    "y": min(1.0, max(0.0, y_norm)),
-                    "score": score
-                }
-            all_raw_keypoints.append(frame_kps)
-            
-    return all_raw_keypoints, all_boxes
-
-    h, w = frames_rgb[0].shape[:2]
-    crop_x, crop_y, crop_w, crop_h = detect_content_bbox(frames_rgb[0])
-    has_crop = (crop_w < w or crop_h < h)
-    eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
-    
-    tracked_athlete_box = None
-
-    for i in range(0, n_frames, batch_size):
-        batch_rgb = frames_rgb[i : i + batch_size]
-        if has_crop:
-            batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
-        else:
-            batch_crop = batch_rgb
-        batch_pil = [Image.fromarray(f) for f in batch_crop]
-        
-        # Step A: RT-DETR Primary Athlete Bounding Box Detection with Temporal IoU Tracking
-        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
-        with torch.inference_mode():
-            det_outputs = det_model(**det_inputs)
-            
-        target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), device=device)
-        det_results = det_processor.post_process_object_detection(
-            det_outputs, target_sizes=target_sizes, threshold=0.20
-        )
-        
-        batch_boxes = []
-        for d_res in det_results:
-            boxes = d_res["boxes"].detach().cpu().numpy()
-            scores = d_res["scores"].detach().cpu().numpy()
-            labels = d_res["labels"].detach().cpu().numpy()
-            
-            # Label 0: Person class in COCO
-            person_indices = [idx for idx, l in enumerate(labels) if l == 0 and scores[idx] >= 0.20]
-            if len(person_indices) > 0:
-                if tracked_athlete_box is None:
-                    # Initialize on primary athlete: largest, most central high-confidence person
-                    best_idx = person_indices[0]
-                    best_metric = -1.0
-                    for p_idx in person_indices:
-                        b = boxes[p_idx]
-                        area = max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
-                        b_cx = (b[0] + b[2]) / (2.0 * eff_w)
-                        dist_cx = abs(b_cx - 0.5)
-
-                        # Strict border penalty: background gym users standing at frame margins (< 0.12 or > 0.88)
-                        # or touching the screen boundaries are strongly attenuated so they never steal athlete tracking.
-                        is_touching_edge = (b[0] <= 0.04 * eff_w or b[2] >= 0.96 * eff_w)
-                        edge_factor = 0.15 if is_touching_edge else (0.40 if (b_cx < 0.15 or b_cx > 0.85) else 1.0)
-                        center_weight = max(0.02, 1.0 - 2.8 * (dist_cx ** 1.5)) * edge_factor
-
-                        # Lateral spread factor: performing athletes have active width across shoulders, equipment, and handles
-                        bw_norm = (b[2] - b[0]) / float(eff_w)
-                        width_factor = min(2.0, max(0.6, bw_norm * 4.0))
-
-                        metric = float(scores[p_idx]) * (float(area) ** 1.25) * float(center_weight) * float(width_factor)
-                        if metric > best_metric:
-                            best_metric = metric
-                            best_idx = p_idx
-                    tracked_athlete_box = boxes[best_idx].tolist()
-                    chosen_box = tracked_athlete_box
-                else:
-                    # Continuous Temporal Matching: match against tracked athlete using IoU + spatial proximity
-                    prev_b = tracked_athlete_box
-                    prev_cx = (prev_b[0] + prev_b[2]) / 2.0
-                    prev_cy = (prev_b[1] + prev_b[3]) / 2.0
-                    prev_area = max(1.0, (prev_b[2] - prev_b[0]) * (prev_b[3] - prev_b[1]))
-                    diag = float(np.hypot(eff_w, eff_h)) + 1e-6
-
-                    best_idx = None
-                    best_match_score = -999.0
-
-                    for p_idx in person_indices:
-                        b = boxes[p_idx]
-                        ix1 = max(prev_b[0], b[0])
-                        iy1 = max(prev_b[1], b[1])
-                        ix2 = min(prev_b[2], b[2])
-                        iy2 = min(prev_b[3], b[3])
-                        inter_area = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
-                        b_area = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
-                        union_area = prev_area + b_area - inter_area
-                        iou = inter_area / union_area
-
-                        cand_cx = (b[0] + b[2]) / 2.0
-                        cand_cy = (b[1] + b[3]) / 2.0
-                        norm_dist = float(np.hypot(cand_cx - prev_cx, cand_cy - prev_cy)) / diag
-                        area_ratio = min(b_area, prev_area) / max(b_area, prev_area)
-
-                        # Penalize background gym users (drastically smaller area or far from athlete)
-                        bg_pen = 8.0 if b_area < 0.45 * prev_area else 0.0
-                        dist_pen = 8.0 if norm_dist > 0.18 else 0.0
-
-                        # Penalize candidate if it has wandered into the extreme margins
-                        cand_cx_norm = cand_cx / eff_w
-                        edge_cand_pen = 3.0 if (cand_cx_norm < 0.08 or cand_cx_norm > 0.92) else 0.0
-
-                        # Match score strongly penalizes distance and background persons
-                        m_score = iou * 4.0 + float(scores[p_idx]) * 1.5 + area_ratio * 1.5 - norm_dist * 4.0 - edge_cand_pen - bg_pen - dist_pen
-                        if m_score > best_match_score:
-                            best_match_score = m_score
-                            best_idx = p_idx
-
-                    # Lock strictly onto the tracked athlete; do not jump to background gym users
-                    if best_idx is not None and (best_match_score > 0.35) and ((boxes[best_idx][2] - boxes[best_idx][0]) * (boxes[best_idx][3] - boxes[best_idx][1]) >= 0.40 * prev_area):
-                        cand_box = boxes[best_idx].tolist()
-                        tracked_athlete_box = [
-                            0.75 * cand_box[c] + 0.25 * tracked_athlete_box[c] for c in range(4)
-                        ]
-                        chosen_box = tracked_athlete_box
-                    else:
-                        chosen_box = tracked_athlete_box
-                
-                batch_boxes.append([chosen_box])
-                cx = float((crop_x + (chosen_box[0] + chosen_box[2]) / 2.0) / float(w))
-                cy = float((crop_y + (chosen_box[1] + chosen_box[3]) / 2.0) / float(h))
-                bw = float((chosen_box[2] - chosen_box[0]) / float(w))
-                bh = float((chosen_box[3] - chosen_box[1]) / float(h))
-                all_boxes.append({"cx": cx, "cy": cy, "bw": bw, "bh": bh})
-            elif tracked_athlete_box is not None:
-                # Detector missed a frame -> persist previous tracked athlete box without jumping
-                batch_boxes.append([tracked_athlete_box])
-                cx = float((crop_x + (tracked_athlete_box[0] + tracked_athlete_box[2]) / 2.0) / float(w))
-                cy = float((crop_y + (tracked_athlete_box[1] + tracked_athlete_box[3]) / 2.0) / float(h))
-                bw = float((tracked_athlete_box[2] - tracked_athlete_box[0]) / float(w))
-                bh = float((tracked_athlete_box[3] - tracked_athlete_box[1]) / float(h))
-                all_boxes.append({"cx": cx, "cy": cy, "bw": bw, "bh": bh})
-            else:
-                batch_boxes.append([[0.0, 0.0, float(eff_w), float(eff_h)]])
-                all_boxes.append({"cx": 0.5, "cy": 0.5, "bw": 1.0, "bh": 1.0})
-        
-        # Step B: ViTPose-Base 17 Keypoints (Pure FP32)
-        pose_inputs = pose_processor(images=batch_pil, boxes=batch_boxes, return_tensors="pt").to(device)
-        num_boxes = pose_inputs["pixel_values"].shape[0]
-        dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
-        
-        with torch.inference_mode():
-            try:
-                pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
-            except (TypeError, ValueError):
-                pose_outputs = pose_model(**pose_inputs)
-        
-        if hasattr(pose_outputs, "heatmaps") and pose_outputs.heatmaps is not None:
-            pose_outputs.heatmaps = pose_outputs.heatmaps.to(torch.float32)
-        if isinstance(pose_outputs, dict) and "heatmaps" in pose_outputs:
-            pose_outputs["heatmaps"] = pose_outputs["heatmaps"].to(torch.float32)
-
-        try:
-            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes)
-        except TypeError:
-            pose_results = pose_processor.post_process_pose_estimation(pose_outputs, boxes=batch_boxes, dataset_index=0)
         
         for p_res in pose_results:
             kps = p_res[0]["keypoints"]
@@ -2535,7 +2388,7 @@ def analyze(
             raise ValueError("Failed to decode frames from input video.")
             
         h, w = frames_rgb[0].shape[:2]
-        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=32)
+        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=64)
         
         result = process_kinematics(
             raw_keypoints=raw_keypoints,
