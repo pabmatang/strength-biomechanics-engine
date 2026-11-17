@@ -128,6 +128,24 @@ def apply_zero_phase_butterworth_continuous(series: np.ndarray, fs: float = 15.0
     b, a = scipy.signal.butter(2, normal_cutoff, btype="low", analog=False)
     return scipy.signal.filtfilt(b, a, series_f64)
 
+def apply_zero_phase_butterworth_segmented(series: np.ndarray, cuts: List[int], fs: float = 15.0, cutoff: float = 1.8, continuous: bool = False) -> np.ndarray:
+    """Zero-phase Butterworth filter applied independently to each scene-cut segment."""
+    series_f64 = np.asarray(series, dtype=np.float64)
+    n = len(series_f64)
+    if n <= 9 or len(cuts) <= 2:
+        return apply_zero_phase_butterworth_continuous(series_f64, fs, cutoff) if continuous else apply_zero_phase_butterworth(series_f64, fs, cutoff)
+    out = series_f64.copy()
+    fn = apply_zero_phase_butterworth_continuous if continuous else apply_zero_phase_butterworth
+    for i in range(len(cuts) - 1):
+        s_start = cuts[i]
+        s_end = cuts[i + 1]
+        seg_len = s_end - s_start
+        if seg_len >= 10:
+            out[s_start:s_end] = fn(series_f64[s_start:s_end], fs, cutoff)
+        elif seg_len > 0:
+            out[s_start:s_end] = series_f64[s_start:s_end]
+    return out
+
 def sample_video_frames(
     video_path: str,
     target_fps: float = 15.0,
@@ -656,16 +674,22 @@ def process_kinematics(
     if n_frames == 0:
         return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
     
-    # 0. Scene Cut Detection (teleport jump >45% between consecutive frames)
+    # 0. Scene Cut Detection (salto brusco >22% en posición o tamaño de bounding box)
     is_scene_cut = [False] * n_frames
+    scene_cut_indices = [0]
     if athlete_boxes and len(athlete_boxes) == n_frames:
         for f in range(1, n_frames):
             prev_b = athlete_boxes[f - 1]
             curr_b = athlete_boxes[f]
             delta_cx = abs(curr_b.get("cx", 0.5) - prev_b.get("cx", 0.5))
             delta_cy = abs(curr_b.get("cy", 0.5) - prev_b.get("cy", 0.5))
-            if delta_cx > 0.45 and delta_cy > 0.45:
+            prev_area = prev_b.get("bw", 0.5) * prev_b.get("bh", 0.5)
+            curr_area = curr_b.get("bw", 0.5) * curr_b.get("bh", 0.5)
+            area_jump = abs(curr_area - prev_area) / max(prev_area, 1e-4)
+            if delta_cx > 0.22 or delta_cy > 0.22 or area_jump > 0.22:
                 is_scene_cut[f] = True
+                scene_cut_indices.append(f)
+    scene_cut_indices.append(n_frames)
 
     canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
     ex_lower = exercise_type.lower()
@@ -690,7 +714,7 @@ def process_kinematics(
 
     all_smoothed = {}
     
-    # 1. Bilateral Initial Interpolation & Smoothing
+    # 1. Bilateral Initial Interpolation & Smoothing (Segmented per scene cut)
     for side in ["left", "right"]:
         for c_name in canonical_joints:
             k_name = f"{side}_{c_name}"
@@ -702,8 +726,8 @@ def process_kinematics(
             y_interp = interpolate_series_1d(y_arr, s_arr, min_score=0.20)
             
             all_smoothed[k_name] = {
-                "x": apply_zero_phase_butterworth(x_interp, fs=15.0, cutoff=1.8),
-                "y": apply_zero_phase_butterworth(y_interp, fs=15.0, cutoff=1.8),
+                "x": apply_zero_phase_butterworth_segmented(x_interp, scene_cut_indices, fs=15.0, cutoff=1.8),
+                "y": apply_zero_phase_butterworth_segmented(y_interp, scene_cut_indices, fs=15.0, cutoff=1.8),
                 "score": s_arr
             }
             
@@ -712,8 +736,8 @@ def process_kinematics(
     hy_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"y": 0.2}))["y"] for f in range(n_frames)], dtype=np.float64)
     hs_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"score": 0.5}))["score"] for f in range(n_frames)], dtype=np.float64)
     smoothed_head = {
-        "x": apply_zero_phase_butterworth(interpolate_series_1d(hx_arr, hs_arr, min_score=0.20), fs=15.0, cutoff=1.8),
-        "y": apply_zero_phase_butterworth(interpolate_series_1d(hy_arr, hs_arr, min_score=0.20), fs=15.0, cutoff=1.8),
+        "x": apply_zero_phase_butterworth_segmented(interpolate_series_1d(hx_arr, hs_arr, min_score=0.20), scene_cut_indices, fs=15.0, cutoff=1.8),
+        "y": apply_zero_phase_butterworth_segmented(interpolate_series_1d(hy_arr, hs_arr, min_score=0.20), scene_cut_indices, fs=15.0, cutoff=1.8),
         "score": hs_arr
     }
 
@@ -725,7 +749,7 @@ def process_kinematics(
     l_torso_median = float(max(0.24, min(0.52, box_h * 0.40)))
     l_tibia_median = float(max(0.16, min(0.36, box_h * 0.28)))
 
-    # 2. Dynamic Active Limb Selector based on Real Movement Dynamic Activity (ROM + Distal Travel)
+    # 2. Dynamic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
     is_unilateral_flag = False
     hide_torso_line = False
@@ -751,10 +775,17 @@ def process_kinematics(
         left_rom = float(np.percentile(left_elbow_angles, 90) - np.percentile(left_elbow_angles, 10))
         right_rom = float(np.percentile(right_elbow_angles, 90) - np.percentile(right_elbow_angles, 10))
 
-        left_wrist_travel = float(np.hypot(np.ptp(all_smoothed["left_wrist"]["x"]), np.ptp(all_smoothed["left_wrist"]["y"])))
-        right_wrist_travel = float(np.hypot(np.ptp(all_smoothed["right_wrist"]["x"]), np.ptp(all_smoothed["right_wrist"]["y"])))
+        # Optical apparent length in 2D (foreground limb has strictly greater apparent length)
+        l_sh_x, l_sh_y = all_smoothed["left_shoulder"]["x"], all_smoothed["left_shoulder"]["y"]
+        l_el_x, l_el_y = all_smoothed["left_elbow"]["x"], all_smoothed["left_elbow"]["y"]
+        l_wr_x, l_wr_y = all_smoothed["left_wrist"]["x"], all_smoothed["left_wrist"]["y"]
+        r_sh_x, r_sh_y = all_smoothed["right_shoulder"]["x"], all_smoothed["right_shoulder"]["y"]
+        r_el_x, r_el_y = all_smoothed["right_elbow"]["x"], all_smoothed["right_elbow"]["y"]
+        r_wr_x, r_wr_y = all_smoothed["right_wrist"]["x"], all_smoothed["right_wrist"]["y"]
 
-        # Bug 1 Fix: Weighted Activity by Real Keypoint Visibility (Confidence**2)
+        left_len = float(np.median(np.hypot(l_sh_x - l_el_x, l_sh_y - l_el_y) + np.hypot(l_el_x - l_wr_x, l_el_y - l_wr_y)))
+        right_len = float(np.median(np.hypot(r_sh_x - r_el_x, r_sh_y - r_el_y) + np.hypot(r_el_x - r_wr_x, r_el_y - r_wr_y)))
+
         left_conf = float(np.mean(np.concatenate([
             all_smoothed["left_shoulder"]["score"],
             all_smoothed["left_elbow"]["score"],
@@ -778,15 +809,11 @@ def process_kinematics(
                     else:
                         right_pen = 0.05
 
-        # If one arm is clearly in foreground in profile/3-4 view (diff > 0.12), lock to visible arm directly
-        if abs(left_conf - right_conf) > 0.12:
-            locked_side = "left" if left_conf > right_conf else "right"
-            is_unilateral_flag = False
-        else:
-            left_activity = left_rom * (left_wrist_travel + 0.05) * (left_conf ** 2) * left_pen
-            right_activity = right_rom * (right_wrist_travel + 0.05) * (right_conf ** 2) * right_pen
-            is_unilateral_flag = bool(left_activity > 1.35 * right_activity or right_activity > 1.35 * left_activity)
-            locked_side = "left" if left_activity >= right_activity else "right"
+        # Bug 1 Fix: Foreground arm selection weighted by apparent optical length and confidence**2
+        left_score_total = (left_conf ** 2) * (left_len ** 2) * (left_rom + 10.0) * left_pen
+        right_score_total = (right_conf ** 2) * (right_len ** 2) * (right_rom + 10.0) * right_pen
+        locked_side = "left" if left_score_total >= right_score_total else "right"
+        is_unilateral_flag = bool(left_score_total > 1.5 * right_score_total or right_score_total > 1.5 * left_score_total)
 
         tracked_sh = np.zeros((n_frames, 2), dtype=np.float64)
         tracked_el = np.zeros((n_frames, 2), dtype=np.float64)
@@ -802,18 +829,18 @@ def process_kinematics(
             tracked_sc["wrist"][f] = all_smoothed[f"{locked_side}_wrist"]["score"][f]
 
         primary_joints["shoulder"] = {
-            "x": apply_zero_phase_butterworth(tracked_sh[:, 0], fs=15.0, cutoff=1.8),
-            "y": apply_zero_phase_butterworth(tracked_sh[:, 1], fs=15.0, cutoff=1.8),
+            "x": apply_zero_phase_butterworth_segmented(tracked_sh[:, 0], scene_cut_indices, fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth_segmented(tracked_sh[:, 1], scene_cut_indices, fs=15.0, cutoff=1.8),
             "score": tracked_sc["shoulder"]
         }
         primary_joints["elbow"] = {
-            "x": apply_zero_phase_butterworth(tracked_el[:, 0], fs=15.0, cutoff=1.8),
-            "y": apply_zero_phase_butterworth(tracked_el[:, 1], fs=15.0, cutoff=1.8),
+            "x": apply_zero_phase_butterworth_segmented(tracked_el[:, 0], scene_cut_indices, fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth_segmented(tracked_el[:, 1], scene_cut_indices, fs=15.0, cutoff=1.8),
             "score": tracked_sc["elbow"]
         }
         primary_joints["wrist"] = {
-            "x": apply_zero_phase_butterworth(tracked_wr[:, 0], fs=15.0, cutoff=1.8),
-            "y": apply_zero_phase_butterworth(tracked_wr[:, 1], fs=15.0, cutoff=1.8),
+            "x": apply_zero_phase_butterworth_segmented(tracked_wr[:, 0], scene_cut_indices, fs=15.0, cutoff=1.8),
+            "y": apply_zero_phase_butterworth_segmented(tracked_wr[:, 1], scene_cut_indices, fs=15.0, cutoff=1.8),
             "score": tracked_sc["wrist"]
         }
 
@@ -1050,9 +1077,10 @@ def process_kinematics(
         sh_score = primary_joints["shoulder"]["score"]
 
         # 1. Stable Virtual Hip Anchor if Hip is Obscured by Machine / T-Bar Pad (score_medio < 0.50)
-        avg_wr_x_init = float(np.median(wr_x))
-        avg_sh_x_init = float(np.median(sh_x))
-        facing_dir = 1.0 if avg_wr_x_init > avg_sh_x_init else -1.0
+        # Bug 3 Fix: facing_dir from head relative to torso midpoint (0.5 * (shoulder + hip))
+        head_x_med = float(np.median(smoothed_head["x"]))
+        mid_torso_x = float(0.5 * (np.median(sh_x) + np.median(primary_joints["hip"]["x"])))
+        facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
         
         mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
         hide_torso_line = bool(is_upper_body and mean_hip_score < 0.60)
@@ -1061,8 +1089,8 @@ def process_kinematics(
                 primary_joints["hip"]["x"][f] = float(sh_x[f] - 0.08 * facing_dir)
                 primary_joints["hip"]["y"][f] = float(min(0.92, sh_y[f] + 0.32))
                 primary_joints["hip"]["score"][f] = 0.85
-            primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=2.2)
-            primary_joints["hip"]["y"] = apply_zero_phase_butterworth(primary_joints["hip"]["y"], fs=15.0, cutoff=2.2)
+            primary_joints["hip"]["x"] = apply_zero_phase_butterworth_segmented(primary_joints["hip"]["x"], scene_cut_indices, fs=15.0, cutoff=2.2)
+            primary_joints["hip"]["y"] = apply_zero_phase_butterworth_segmented(primary_joints["hip"]["y"], scene_cut_indices, fs=15.0, cutoff=2.2)
 
         # 2. Detect Outlier Jumps (> 0.12) or Severe Occlusions (score < 0.45)
         # NUNCA sobrescribe coordenadas donde ViTPose tiene score >= 0.50 (respeta acortamiento por perspectiva 2D)
@@ -1257,14 +1285,14 @@ def process_kinematics(
     eff_range = max(p90 - p10, 8.0)
 
     if is_pattern_a:
-        target_prom = max(18.0, min(35.0, eff_range * 0.28))
+        # Bug 2 Fix: Lower prominence (max 20.0) for back/diagonal views where perspective compresses angular range
+        target_prom = max(10.0, min(20.0, eff_range * 0.22))
     elif is_pattern_b:
-        # Bug 4 Fix: Lower prominence for presses in 3/4 views so all reps are detected
-        target_prom = max(12.0, min(24.0, eff_range * 0.20))
+        target_prom = max(10.0, min(20.0, eff_range * 0.18))
     elif is_hip_thrust:
-        target_prom = max(18.0, min(32.0, eff_range * 0.25))
+        target_prom = max(15.0, min(28.0, eff_range * 0.22))
     else:
-        target_prom = max(15.0, min(30.0, eff_range * 0.25))
+        target_prom = max(12.0, min(22.0, eff_range * 0.22))
 
     pks, _ = scipy.signal.find_peaks(
         clean_curve,
@@ -1327,29 +1355,38 @@ def process_kinematics(
         ang_vel = np.zeros(n_frames)
 
     # 6. Directional Force Vector Geometry & Moment Arms
-    # Determine athlete facing direction based on head/torso vs wrist
-    avg_sh_x = float(np.median(primary_joints["shoulder"]["x"]))
-    avg_wr_x = float(np.median(primary_joints["wrist"]["x"]))
-    avg_hp_x = float(np.median(primary_joints["hip"]["x"]))
-    
-    # facing_forward_x = 1.0 if facing right, -1.0 if facing left
-    if is_upper_body:
-        facing_forward_x = 1.0 if avg_wr_x > avg_sh_x else -1.0
-    else:
-        facing_forward_x = 1.0 if float(np.median(primary_joints["knee"]["x"])) > avg_hp_x else -1.0
+    # Universal Auto-Adaptive Force Vector based on Real Wrist Extrema (P_extended vs P_flexed)
+    p_ext = None
+    p_flx = None
+    if is_upper_body and len(clean_primary) > 0:
+        p85_val = float(np.percentile(clean_primary, 85))
+        p15_val = float(np.percentile(clean_primary, 15))
+        ext_mask = clean_primary >= p85_val
+        flx_mask = clean_primary <= p15_val
+        if np.any(ext_mask) and np.any(flx_mask):
+            p_ext = np.array([
+                float(np.median(primary_joints["wrist"]["x"][ext_mask])),
+                float(np.median(primary_joints["wrist"]["y"][ext_mask]))
+            ])
+            p_flx = np.array([
+                float(np.median(primary_joints["wrist"]["x"][flx_mask])),
+                float(np.median(primary_joints["wrist"]["y"][flx_mask]))
+            ])
 
-    # Dynamic Frontal Machine Force Vector for Horizontal Pulling (Rowing, T-Bar, Machine Rows)
+    # Athlete facing direction based on head/nose relative to torso midpoint
+    head_x_med = float(np.median(smoothed_head["x"]))
+    mid_torso_x = float(0.5 * (np.median(primary_joints["shoulder"]["x"]) + np.median(primary_joints["hip"]["x"])))
+    facing_forward_x = 1.0 if head_x_med >= mid_torso_x else -1.0
+
     is_horizontal_pull = is_upper_body and (
         is_pattern_a or any(k in ex_lower for k in ["row", "t_bar", "gironda"])
     )
     is_machine_or_cable_pattern = (load_lower in ["machine", "cable"] or any(k in ex_lower for k in ["t_bar", "row"]))
-    machine_u_per_frame = None
-    svd_force_u = None
 
     # Bug 4 Fix: Specific Machine Resistance Identifiers
     is_t_bar = any(k in ex_lower for k in ["t_bar", "remo_punta", "remo_en_punta", "barra_t"])
     is_chest_press_machine = any(k in ex_lower for k in ["chest_press", "press_pecho_maquina", "press_en_maquina", "press_maquina", "machine_press"])
-    is_machine_dips = any(k in ex_lower for k in ["machine_dips", "dip_machine", "fondos_maquina", "fondos_en_maquina", "fondos_paralelas_maquina", "dips_machine"])
+    is_machine_dips = any(k in ex_lower for k in ["machine_dips", "dip_machine", "fondos_maquina", "fondos_en_maquina", "fondos_paralelas_maquina", "dips_machine", "chest_dips"])
 
     # Bug 3 Fix: Evaluate "Dorsal vs Espalda Alta" ONCE across the series strictly at peak contraction
     is_upper_back_series = False
@@ -1357,7 +1394,6 @@ def process_kinematics(
         if is_t_bar or "upper_back" in ex_lower or target_muscle.lower() in ["upper_back", "traps", "rhomboids"]:
             is_upper_back_series = True
         else:
-            # Measure relative elbow height at peak contraction frames (elbow furthest back)
             contraction_frames = valid_peaks if len(valid_peaks) > 0 else [int(np.argmin(clean_primary))]
             rel_heights = []
             for cpf in contraction_frames:
@@ -1371,120 +1407,62 @@ def process_kinematics(
                     rel_heights.append((ey - sy) / t_len)
             if len(rel_heights) > 0:
                 med_rh = float(np.median(rel_heights))
-                # (elbow_y - shoulder_y) >= 0.48 * torso_len -> Elbow stays low at flank -> Dorsal
-                # (elbow_y - shoulder_y) < 0.48 * torso_len -> Elbow rises high towards shoulder -> Espalda Alta
                 is_upper_back_series = bool(med_rh < 0.48)
             else:
                 is_upper_back_series = False
 
-    if is_horizontal_pull:
-        dist_reach = (primary_joints["wrist"]["x"] - primary_joints["shoulder"]["x"]) * facing_forward_x
-        q80 = float(np.percentile(dist_reach, 80))
-        stretch_mask = dist_reach >= q80
-        if np.any(stretch_mask):
-            x_stretched = float(np.median(primary_joints["wrist"]["x"][stretch_mask]))
-            y_stretched = float(np.median(primary_joints["wrist"]["y"][stretch_mask]))
+    # Force Vector Determination (Bug 2 Fix: Universal Adaptive Extrema):
+    if is_pattern_b and p_ext is not None and p_flx is not None and (is_machine_or_cable_pattern or is_chest_press_machine or is_machine_dips or "incline" in ex_lower or "dumb" in ex_lower or "press" in ex_lower):
+        # En Empujes: atleta empuja desde P_flexed hacia P_extended.
+        # La resistencia de la máquina/barra actúa en sentido opuesto:
+        push_dir = p_ext - p_flx
+        norm_push = float(np.linalg.norm(push_dir))
+        if norm_push > 0.02:
+            u_resist = -push_dir / norm_push
+            force_dx = float(u_resist[0])
+            force_dy = float(u_resist[1])
+            force_dir_name = "adaptive_push_resistance"
+            force_origin = "hand_grip"
         else:
-            x_stretched = float(np.median(primary_joints["wrist"]["x"]))
-            y_stretched = float(np.median(primary_joints["wrist"]["y"]))
-
-        if is_t_bar:
-            # Bug 4 Fix: Remo en Punta / Barra T (palanca diagonal delantera hacia eje de discos abajo y adelante)
-            P_machine = (x_stretched + 0.35 * facing_forward_x, y_stretched + 0.35)
-            force_dir_name = "t_bar_diagonal_pull"
+            force_dx = 0.0
+            force_dy = 1.0
+            force_dir_name = "vertical_down"
+            force_origin = "hand_grip"
+    elif is_pattern_a and p_ext is not None and p_flx is not None:
+        # En Tracciones: atleta tira desde P_extended hacia P_flexed.
+        # La carga tira hacia el anclaje en la dirección de P_extended:
+        pull_dir = p_ext - p_flx
+        norm_pull = float(np.linalg.norm(pull_dir))
+        if norm_pull > 0.02:
+            u_pull = pull_dir / norm_pull
+            # En t_bar_row y remos asegurar uy >= 0.15 (hacia el suelo/discos, jamás hacia el techo)
+            if (is_t_bar or "row" in ex_lower or "remo" in ex_lower) and u_pull[1] < 0.15:
+                u_pull[1] = 0.35
+                u_pull = u_pull / np.linalg.norm(u_pull)
+            force_dx = float(u_pull[0])
+            force_dy = float(u_pull[1])
+            force_dir_name = "adaptive_pull_resistance"
+            force_origin = "hand_grip"
         else:
-            # Remo sentado / polea horizontal
-            P_machine = (x_stretched + 0.45 * facing_forward_x, y_stretched)
-            force_dir_name = "along_machine_pull"
-
-        # Dynamic per-frame force vector pointing from current wrist towards P_machine:
-        machine_u_per_frame = np.zeros((n_frames, 2), dtype=np.float64)
-        for f in range(n_frames):
-            vx = P_machine[0] - primary_joints["wrist"]["x"][f]
-            vy = P_machine[1] - primary_joints["wrist"]["y"][f]
-            n_v = math.hypot(vx, vy) + 1e-6
-            machine_u_per_frame[f] = [vx / n_v, vy / n_v]
-
-        force_dx = float(np.median(machine_u_per_frame[:, 0]))
-        force_dy = float(np.median(machine_u_per_frame[:, 1]))
-        force_origin = "hand_grip"
-
-    if is_upper_body and is_machine_or_cable_pattern:
-        # Collect active wrist coordinates: frames where movement is occurring and score is reliable
-        active_f = [f for f in range(n_frames) if ang_vel[f] >= 8.0 and primary_joints["wrist"]["score"][f] >= 0.35]
-        if len(active_f) < 6:
-            active_f = [f for f in range(n_frames) if primary_joints["wrist"]["score"][f] >= 0.35]
-        if len(active_f) >= 4:
-            wx_act = primary_joints["wrist"]["x"][active_f]
-            wy_act = primary_joints["wrist"]["y"][active_f]
-            shx_act = primary_joints["shoulder"]["x"][active_f]
-            shy_act = primary_joints["shoulder"]["y"][active_f]
-            W = np.column_stack([wx_act - np.mean(wx_act), wy_act - np.mean(wy_act)])
-            try:
-                _, _, vh = np.linalg.svd(W, full_matrices=False)
-                v0 = vh[0]  # First principal component (axis of maximal motion variance)
-                norm_v0 = math.hypot(v0[0], v0[1])
-                if norm_v0 > 1e-4:
-                    ux = float(v0[0] / norm_v0)
-                    uy = float(v0[1] / norm_v0)
-                    u_vec = np.array([ux, uy])
-
-                    # Orient vector towards load / machine resistance:
-                    # En tracción (rowing / pulldown / curl): la carga tira hacia donde la muñeca está más lejos del hombro (hacia los discos/polea)
-                    dist_to_sh = np.hypot(wx_act - shx_act, wy_act - shy_act)
-                    p_stretched = np.array([wx_act[np.argmax(dist_to_sh)], wy_act[np.argmax(dist_to_sh)]])
-                    p_contracted = np.array([wx_act[np.argmin(dist_to_sh)], wy_act[np.argmin(dist_to_sh)]])
-                    load_dir = p_stretched - p_contracted
-                    norm_ld = float(np.linalg.norm(load_dir))
-                    if norm_ld > 1e-4:
-                        if is_pattern_b:
-                            # En empuje (presses): la carga tira hacia el pecho/origen del empuje (opuesto a la extensión concéntrica)
-                            load_dir = -load_dir
-                        if np.dot(u_vec, load_dir) < 0:
-                            u_vec = -u_vec
-                    else:
-                        # Fallback por dirección del atleta si el recorrido es minúsculo
-                        if ux * facing_forward_x < 0:
-                            u_vec = -u_vec
-
-                    svd_force_u = (float(u_vec[0]), float(u_vec[1]))
-            except Exception:
-                svd_force_u = None
-
-    # Determine 2D Force Vector based on Machine Anchor, SVD, load_type and movement category:
-    if is_chest_press_machine:
-        # Bug 4 Fix: Press de Pecho Sentado en Máquina (resistencia hacia atrás horizontal/ligera diagonal al respaldo)
-        force_dir_name = "machine_press_backward"
-        force_dx = float(-facing_forward_x * 0.92)
-        force_dy = 0.38
-        force_origin = "hand_grip"
-    elif is_machine_dips:
-        # Bug 4 Fix: Fondos en Máquina Sentado (resistencia hacia arriba y ligeramente atrás según arco de palancas)
-        force_dir_name = "machine_dips_arc"
-        force_dx = float(-facing_forward_x * 0.25)
-        force_dy = -0.96
-        force_origin = "hand_grip"
-    elif is_horizontal_pull and machine_u_per_frame is not None:
-        force_dir_name = "t_bar_diagonal_pull" if is_t_bar else "along_machine_pull"
-        force_dx = float(np.median(machine_u_per_frame[:, 0]))
-        force_dy = float(np.median(machine_u_per_frame[:, 1]))
-        force_origin = "hand_grip"
-    elif svd_force_u is not None:
-        force_dx, force_dy = svd_force_u
-        force_dir_name = "along_svd_pull"
-        force_origin = "hand_grip"
+            force_dx = float(facing_forward_x)
+            force_dy = 0.35
+            norm_f = math.hypot(force_dx, force_dy)
+            force_dx /= norm_f
+            force_dy /= norm_f
+            force_dir_name = "along_pull"
+            force_origin = "hand_grip"
     elif is_machine_or_cable_pattern:
         if any(k in ex_lower for k in ["lat_pulldown", "pulldown", "pullup"]):
             force_dir_name = "vertical_up"
             force_dx = 0.0
             force_dy = -1.0
             force_origin = "hand_grip"
-        elif is_pattern_a:  # Horizontal pull (rowing, gironda, t-bar)
+        elif is_pattern_a:
             force_dir_name = "along_pull"
             force_dx = float(facing_forward_x)
             force_dy = 0.0
             force_origin = "hand_grip"
-        elif is_pattern_b:  # Horizontal push (machine press, fly)
+        elif is_pattern_b:
             force_dir_name = "horizontal_backward"
             force_dx = float(-facing_forward_x)
             force_dy = 0.0
@@ -1673,33 +1651,17 @@ def process_kinematics(
             d_hp = 0.0
             d_kn = 0.0
 
-            dominant_joint = "HOMBRO"
             tot_d = d_sh + d_el
-            if is_chest_press_machine:
-                # Bug 4 Fix: Press de Pecho en Máquina (predominio coherente Pectoral ~60%-75% sobre Tríceps ~25%-40%)
-                if tot_d > 0.005:
-                    raw_sh_ratio = d_sh / tot_d
-                    pectoral_share = round(float(np.clip(raw_sh_ratio * 100.0, 62.0, 75.0)), 1)
-                else:
-                    pectoral_share = 68.0
-                triceps_share = round(100.0 - pectoral_share, 1)
-                torque_bias = "PECTORAL MAYOR"
-            elif is_machine_dips:
-                # Fondos en Máquina
-                if tot_d > 0.005:
-                    pectoral_share = round(float(np.clip((d_sh / tot_d) * 100.0, 55.0, 80.0)), 1)
-                else:
-                    pectoral_share = 70.0
-                triceps_share = round(100.0 - pectoral_share, 1)
-                torque_bias = "PECTORAL MAYOR" if pectoral_share >= 50.0 else "TRÍCEPS BRAQUIAL"
-            elif tot_d > 0.005:
+            if tot_d > 0.005:
                 pectoral_share = round((d_sh / tot_d) * 100.0, 1)
                 triceps_share = round((d_el / tot_d) * 100.0, 1)
-                torque_bias = "PECTORAL MAYOR" if pectoral_share >= 50.0 else "TRÍCEPS BRAQUIAL"
             else:
                 pectoral_share = 75.0
                 triceps_share = 25.0
-                torque_bias = "PECTORAL MAYOR"
+
+            # Bug 4 Fix: Chest exercises show PECTORAL MAYOR (>=50%) or TRÍCEPS BRAQUIAL (>50%), never back
+            dominant_joint = "PECTORAL MAYOR" if pectoral_share >= 50.0 else "TRÍCEPS BRAQUIAL"
+            torque_bias = dominant_joint
 
             # Clinical Technical Coaching Recommendation (Modo 1: Corrección Técnica)
             recom = "Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas."
@@ -2101,15 +2063,15 @@ def process_kinematics(
                     if fb_tri < 5.0:
                         fb_tri = 5.0
                         fb_pec = 95.0
-                    fb_bias = "PECTORAL MAYOR" if fb_pec >= 60.0 else "TRÍCEPS BRAQUIAL"
+                    fb_bias = "PECTORAL MAYOR" if fb_pec >= 50.0 else "TRÍCEPS BRAQUIAL"
                 else:
-                    fb_pec = 78.0
-                    fb_tri = 22.0
+                    fb_pec = 75.0
+                    fb_tri = 25.0
                     fb_bias = "PECTORAL MAYOR"
 
                 base_rep_verdict = {
                     "status": "OPTIMAL",
-                    "dominant_joint": "PECTORAL MAYOR",
+                    "dominant_joint": fb_bias,
                     "target_alignment": True,
                     "primary_torque_bias": fb_bias,
                     "inflection_knee_deg": 90.0,
@@ -2168,36 +2130,14 @@ def process_kinematics(
 
         # Projected 2D Moment Arms for Canvas Overlay
         if is_upper_body:
-            if is_horizontal_pull and machine_u_per_frame is not None:
-                u_fx = float(machine_u_per_frame[f, 0])
-                u_fy = float(machine_u_per_frame[f, 1])
-                f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
-                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
-                cur_force_dx = u_fx
-                cur_force_dy = u_fy
-                cur_force_dir = "along_machine_pull"
-            elif svd_force_u is not None or is_machine_or_cable_pattern:
-                u_fx = float(force_dx)
-                u_fy = float(force_dy)
-                f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
-                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
-                cur_force_dx = u_fx
-                cur_force_dy = u_fy
-                cur_force_dir = force_dir_name
-            elif force_dir_name.startswith("horizontal"):
-                # Perpendicular to horizontal line is vertical distance dy
-                f_d_sh = abs(sh_y - cur_hy)
-                f_d_el = abs(el_y - cur_hy)
-                cur_force_dx = force_dx
-                cur_force_dy = force_dy
-                cur_force_dir = force_dir_name
-            else:
-                # Perpendicular to vertical line is horizontal distance dx
-                f_d_sh = abs(sh_x - cur_hx)
-                f_d_el = abs(el_x - cur_hx)
-                cur_force_dx = force_dx
-                cur_force_dy = force_dy
-                cur_force_dir = force_dir_name
+            u_fx = float(force_dx)
+            u_fy = float(force_dy)
+            # Universal point-line orthogonal distance
+            f_d_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
+            f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+            cur_force_dx = u_fx
+            cur_force_dy = u_fy
+            cur_force_dir = force_dir_name
             f_d_hip = 0.0
             f_d_knee = 0.0
         elif is_hip_thrust:

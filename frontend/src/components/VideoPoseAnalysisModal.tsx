@@ -868,24 +868,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const clampY = (y: number, h: number = 22) => Math.max(10, Math.min(canvas.height - h - 10, y));
 
     const drawPillTag = (x: number, y: number, text: string, borderColor: string, textColor: string = '#FFFFFF') => {
-      ctx.font = 'bold 10px ui-monospace, SFMono-Regular, monospace';
+      ctx.font = 'bold 10px Inter, system-ui, sans-serif';
       const textW = ctx.measureText(text).width;
       const pillW = textW + 12;
-      const pillH = 18;
+      const pillH = 16;
       const pillX = clampX(x, pillW);
       const pillY = clampY(y, pillH);
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.80)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
       ctx.beginPath();
-      ctx.roundRect(pillX, pillY, pillW, pillH, 5);
+      ctx.roundRect(pillX, pillY, pillW, pillH, 4);
       ctx.fill();
 
       ctx.strokeStyle = borderColor;
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.0;
       ctx.stroke();
 
       ctx.fillStyle = textColor;
-      ctx.fillText(text, pillX + 6, pillY + 12);
+      ctx.fillText(text, pillX + 6, pillY + 11);
     };
 
     const drawAngleArc = (pCenter: { x: number; y: number; score?: number }, p1: { x: number; y: number; score?: number }, p2: { x: number; y: number; score?: number }, radius: number, color: string) => {
@@ -1098,6 +1098,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           const labelSh = isBack ? (isUpperBackCanvas ? 'Espalda Alta' : 'Dorsal') : 'Pectoral';
           const labelEl = isBack ? 'Bíceps' : 'Tríceps';
+          // Bug 5 Fix: Abbreviated moment arm labels (T, P, D, EA, B)
+          const abbrSh = isBack ? (isUpperBackCanvas ? 'EA' : 'D') : 'P';
+          const abbrEl = isBack ? 'B' : 'T';
 
           const hasExplicitDirection = Boolean(fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0));
 
@@ -1159,12 +1162,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
             if (options.showCanvasText) {
               const tagShX = (pSh.x + pShProj.x) / 2 + (uY > 0 ? 10 : -75);
-              const tagShY = (pSh.y + pShProj.y) / 2 - 9;
+              let tagShY = (pSh.y + pShProj.y) / 2 - 9;
               const tagElX = (pEl.x + pElProj.x) / 2 + (uY > 0 ? 10 : -75);
-              const tagElY = (pEl.y + pElProj.y) / 2 - 9;
+              let tagElY = (pEl.y + pElProj.y) / 2 - 9;
 
-              drawPillTag(tagShX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(tagElX, tagElY, `${labelEl}: ${dEl}`, '#10B981', '#6EE7B7');
+              // Anti-colisión si están a menos de 26px
+              if (Math.abs(tagShY - tagElY) < 26) {
+                if (tagShY <= tagElY) {
+                  tagShY -= 14;
+                  tagElY += 14;
+                } else {
+                  tagShY += 14;
+                  tagElY -= 14;
+                }
+              }
+
+              drawPillTag(tagShX, tagShY, `${abbrSh}: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(tagElX, tagElY, `${abbrEl}: ${dEl}`, '#10B981', '#6EE7B7');
             }
           } else if (isHorizontalResistance) {
             // Vector de resistencia horizontal (Máquinas y Poleas: Remo, Press de Pecho, Cruces)
@@ -1202,26 +1216,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               const dSh = Math.round(Math.abs(pSh.y - lineY));
               const dEl = Math.round(Math.abs(pEl.y - lineY));
 
-              const elLabelText = `${labelEl}: ${dEl}`;
-
               const tagX = facingDir > 0
                 ? Math.min(offsetX + drawW - 90, Math.max(pHand.x + 10, lineRight - 75))
                 : Math.max(offsetX + 12, Math.min(pHand.x - 75, lineLeft + 10));
 
               let tagShY = (pSh.y + lineY) / 2 - 9;
               let tagElY = (pEl.y + lineY) / 2 - 9;
-              if (Math.abs(tagShY - tagElY) < 20) {
+              if (Math.abs(tagShY - tagElY) < 26) {
                 if (tagShY <= tagElY) {
-                  tagShY -= 10;
-                  tagElY += 10;
+                  tagShY -= 14;
+                  tagElY += 14;
                 } else {
-                  tagShY += 10;
-                  tagElY -= 10;
+                  tagShY += 14;
+                  tagElY -= 14;
                 }
               }
 
-              drawPillTag(tagX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(tagX, tagElY, elLabelText, '#10B981', '#6EE7B7');
+              drawPillTag(tagX, tagShY, `${abbrSh}: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(tagX, tagElY, `${abbrEl}: ${dEl}`, '#10B981', '#6EE7B7');
             }
           } else {
             // Vector de resistencia vertical (Peso libre por gravedad o Jalón en polea vertical)
@@ -1263,23 +1275,21 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               const dSh = Math.round(Math.abs(pSh.x - lineX));
               const dEl = Math.round(Math.abs(pEl.x - lineX));
 
-              const elLabelText = `${labelEl}: ${dEl}`;
-
               const tagX = lineX > pSh.x ? Math.min(offsetX + drawW - 85, lineX + 8) : Math.max(offsetX + 10, lineX - 85);
               let tagShY = pSh.y - 9;
               let tagElY = pEl.y - 9;
-              if (Math.abs(tagShY - tagElY) < 22) {
+              if (Math.abs(tagShY - tagElY) < 26) {
                 if (tagShY <= tagElY) {
-                  tagShY -= 11;
-                  tagElY += 11;
+                  tagShY -= 14;
+                  tagElY += 14;
                 } else {
-                  tagShY += 11;
-                  tagElY -= 11;
+                  tagShY += 14;
+                  tagElY -= 14;
                 }
               }
 
-              drawPillTag(tagX, tagShY, `${labelSh}: ${dSh}`, '#3B82F6', '#93C5FD');
-              drawPillTag(tagX, tagElY, elLabelText, '#10B981', '#6EE7B7');
+              drawPillTag(tagX, tagShY, `${abbrSh}: ${dSh}`, '#3B82F6', '#93C5FD');
+              drawPillTag(tagX, tagElY, `${abbrEl}: ${dEl}`, '#10B981', '#6EE7B7');
             }
           }
         }
@@ -1343,17 +1353,17 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             }
 
             drawPillTag(
-              midHipX - 45,
+              midHipX - 22,
               tagHipY,
-              `Brazo Cadera: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
+              `G: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
               '#3B82F6',
               '#93C5FD'
             );
 
             drawPillTag(
-              midKnX - 45,
+              midKnX - 22,
               tagKnY,
-              `Brazo Rodilla: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
+              `C: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
               '#10B981',
               '#6EE7B7'
             );
@@ -1831,23 +1841,29 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // Active verdict read directly from frozen rep verdict with high-confidence fallbacks
   const isBackExercise = selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull') || safeExerciseId.includes('t_bar') || safeExerciseId.includes('gironda');
+  const isChestExercise = selectedMuscleGroupId === 'chest' || safeExerciseId.includes('chest') || safeExerciseId.includes('press') || safeExerciseId.includes('bench') || safeExerciseId.includes('dip') || safeExerciseId.includes('fly') || safeExerciseId.includes('pec_deck');
   const isUpperBackActive = primaryLeverName.includes('Espalda Alta');
+  const isChestDominant = primaryLeverShare >= 50;
 
   const activeVerdict = {
     status: rawVerdict?.status || 'OPTIMAL',
-    dominant_joint: isBackExercise
-      ? (isUpperBackActive ? 'ESPALDA ALTA' : 'DORSAL ANCHO')
-      : ((rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
-          ? rawVerdict.dominant_joint
-          : kinematicMeta.dominantLabel.toUpperCase()),
+    dominant_joint: isChestExercise
+      ? (isChestDominant ? 'PECTORAL MAYOR' : 'TRÍCEPS BRAQUIAL')
+      : isBackExercise
+        ? (isUpperBackActive ? 'ESPALDA ALTA' : 'DORSAL ANCHO')
+        : ((rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
+            ? rawVerdict.dominant_joint
+            : kinematicMeta.dominantLabel.toUpperCase()),
     target_alignment: rawVerdict?.target_alignment ?? true,
-    primary_torque_bias: isBackExercise
-      ? (isUpperBackActive
-          ? (secondaryLeverShare === 0 ? 'ESPALDA ALTA (TODO ESPALDA)' : 'ESPALDA ALTA (ROMBOIDES / TRAPECIO)')
-          : (secondaryLeverShare === 0 ? 'DORSAL ANCHO (TODO ESPALDA)' : 'DORSAL ANCHO (CODO PEGADO AL TORSO)'))
-      : ((rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
-          ? rawVerdict.primary_torque_bias
-          : kinematicMeta.torqueFocus),
+    primary_torque_bias: isChestExercise
+      ? (isChestDominant ? 'PECTORAL MAYOR' : 'TRÍCEPS BRAQUIAL')
+      : isBackExercise
+        ? (isUpperBackActive
+            ? (secondaryLeverShare === 0 ? 'ESPALDA ALTA (TODO ESPALDA)' : 'ESPALDA ALTA (ROMBOIDES / TRAPECIO)')
+            : (secondaryLeverShare === 0 ? 'DORSAL ANCHO (TODO ESPALDA)' : 'DORSAL ANCHO (CODO PEGADO AL TORSO)'))
+        : ((rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
+            ? rawVerdict.primary_torque_bias
+            : kinematicMeta.torqueFocus),
     inflection_knee_deg: rawVerdict?.inflection_knee_deg ?? 90.0,
     inflection_hip_deg: rawVerdict?.inflection_hip_deg ?? 180.0,
     inflection_elbow_deg: rawVerdict?.inflection_elbow_deg ?? curElbowDeg,
@@ -2597,13 +2613,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed break-words whitespace-normal">
-                    {activeVerdict.recommendation?.startsWith('Reparto de palanca')
-                      ? (isBackExercise
-                          ? (isUpperBackActive
-                              ? 'Tracción con codos separados (~60°-70°), retracción escapular activa y torso estable.'
-                              : 'Tracción fluida con codos pegados al torso, depresión escapular activa y columna neutra.')
-                          : 'Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas.')
-                      : activeVerdict.recommendation}
+                    {isChestExercise
+                      ? 'Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas.'
+                      : isBackExercise
+                        ? (isUpperBackActive
+                            ? 'Tracción con codos separados (~60°-70°), retracción escapular activa y torso estable.'
+                            : 'Tracción fluida con codos pegados al torso, depresión escapular activa y columna neutra.')
+                        : (activeVerdict.recommendation?.startsWith('Reparto de palanca')
+                            ? 'Alineación articular y ejecución técnica evaluada.'
+                            : (activeVerdict.recommendation || 'Alineación articular óptima.'))}
                   </div>
 
                   <div className="space-y-1.5 pt-1 border-t border-slate-800/60 text-[11px]">
