@@ -188,6 +188,8 @@ def analyze_biomechanics_with_vlm(
     Intenta gemini-2.5-flash y si falla (error HTTP o timeout), hace fallback automático a gemini-2.0-flash.
     Devuelve (resultado_json, error_str).
     """
+    parsed = None
+    last_err = None
     api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         err_msg = "GEMINI_API_KEY no configurada (ni en payload ni en entorno)"
@@ -720,6 +722,9 @@ def process_kinematics(
 
     vlm_used = False
     vlm_error = None
+    vlm_result = None
+    total_reps = 0
+    repetitions_summary = []
     
     # 0. Scene Cut Detection (salto brusco >22% en posición o tamaño de bounding box)
     is_scene_cut = [False] * n_frames
@@ -923,16 +928,41 @@ def process_kinematics(
 
     # Anatomical re-mapping for low-angle contrapicado shots in lying/inclined chest press
     if is_press_exercise:
+        crop_center_x = [b["cx"] for b in athlete_boxes] if (athlete_boxes and len(athlete_boxes) == n_frames) else [mid_torso_x] * n_frames
+        torso_center_x = float(np.median(crop_center_x))
         for side in ["left", "right"]:
             med_s_y = float(np.median(all_smoothed[f"{side}_shoulder"]["y"]))
             med_w_y = float(np.median(all_smoothed[f"{side}_wrist"]["y"]))
             # In any chest press, hands are geometrically above shoulders (y is smaller at top).
-            # If ViTPose places wrist below shoulder (med_w_y > med_s_y), swap them!
+            # If ViTPose places wrist below shoulder (med_w_y > med_s_y), fix arm chain:
             if med_w_y > med_s_y:
-                print(f"[Contrapicado Press Fix] Inversión de brazo detectada en lado {side} (muñeca y={med_w_y:.2f} > hombro y={med_s_y:.2f}). Intercambiando hombro <-> muñeca.")
-                all_smoothed[f"{side}_shoulder"], all_smoothed[f"{side}_wrist"] = all_smoothed[f"{side}_wrist"], all_smoothed[f"{side}_shoulder"]
+                print(f"[Contrapicado Press Fix] Inversión de brazo detectada en lado {side} (muñeca y={med_w_y:.2f} > hombro y={med_s_y:.2f}). Reconstruyendo hombro pectoral anatómico.")
+                # Hands are at the top (where ViTPose placed shoulder)
+                wrist_x = all_smoothed[f"{side}_shoulder"]["x"].copy()
+                wrist_y = all_smoothed[f"{side}_shoulder"]["y"].copy()
+                elbow_x = all_smoothed[f"{side}_elbow"]["x"]
+                elbow_y = all_smoothed[f"{side}_elbow"]["y"]
+
+                # Reconstruct anatomical shoulder at pectoral height, NOT at the waist/abdomen
+                forearm_len = np.hypot(elbow_x - wrist_x, elbow_y - wrist_y)
+                shoulder_x = elbow_x + 0.35 * (torso_center_x - elbow_x)
+                shoulder_y = elbow_y + 0.45 * forearm_len
+
+                all_smoothed[f"{side}_wrist"]["x"] = wrist_x
+                all_smoothed[f"{side}_wrist"]["y"] = wrist_y
+                all_smoothed[f"{side}_shoulder"]["x"] = shoulder_x
+                all_smoothed[f"{side}_shoulder"]["y"] = shoulder_y
+                all_smoothed[f"{side}_shoulder"]["score"] = all_smoothed[f"{side}_elbow"]["score"].copy()
+                all_smoothed[f"{side}_wrist"]["score"] = np.maximum(all_smoothed[f"{side}_wrist"]["score"], 0.85)
+
                 hide_neck_line_forced = True
                 hide_torso_line_forced = True
+
+        # Re-sync bilateral elbow angles with reconstructed shoulder/wrist
+        l_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}, {"x": all_smoothed["left_elbow"]["x"][f], "y": all_smoothed["left_elbow"]["y"][f]}, {"x": all_smoothed["left_wrist"]["x"][f], "y": all_smoothed["left_wrist"]["y"][f]}) for f in range(n_frames)])
+        r_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}, {"x": all_smoothed["right_elbow"]["x"][f], "y": all_smoothed["right_elbow"]["y"][f]}, {"x": all_smoothed["right_wrist"]["x"][f], "y": all_smoothed["right_wrist"]["y"][f]}) for f in range(n_frames)])
+        left_el_rom = float(np.percentile(l_el_angles, 90) - np.percentile(l_el_angles, 10))
+        right_el_rom = float(np.percentile(r_el_angles, 90) - np.percentile(r_el_angles, 10))
 
     # 2. Deterministic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
@@ -978,26 +1008,12 @@ def process_kinematics(
                     else:
                         right_pen = 0.05
 
-        left_score_total = (left_conf ** 2) * (left_len ** 2) * (left_rom + 10.0) * left_pen
-        right_score_total = (right_conf ** 2) * (right_len ** 2) * (right_rom + 10.0) * right_pen
+        # Selection of active foreground limb based on horizontal reach |wrist_x - shoulder_x|
+        left_horiz_reach = float(np.percentile(np.abs(l_wr_x - l_sh_x), 85))
+        right_horiz_reach = float(np.percentile(np.abs(r_wr_x - r_sh_x), 85))
 
-        # Foreground Arm Boost in Push Exercises
-        if is_pattern_b:
-            if facing_dir > 0 or np.median(r_wr_x) > np.median(r_sh_x) + 0.08:
-                right_score_total *= 1.60
-            elif facing_dir < 0 or np.median(l_wr_x) < np.median(l_sh_x) - 0.08:
-                left_score_total *= 1.60
-        else:
-            med_l_wrist_x = float(np.median(l_wr_x))
-            med_r_wrist_x = float(np.median(r_wr_x))
-            if facing_dir > 0 and med_r_wrist_x > med_l_wrist_x and right_conf >= left_conf - 0.15:
-                right_score_total *= 1.35
-            elif facing_dir < 0 and med_l_wrist_x < med_r_wrist_x and left_conf >= right_conf - 0.15:
-                left_score_total *= 1.35
-            elif right_conf > left_conf + 0.12:
-                right_score_total *= 1.40
-            elif left_conf > right_conf + 0.12:
-                left_score_total *= 1.40
+        left_score_total = (left_conf ** 2) * (left_horiz_reach ** 2) * (left_rom + 10.0) * left_pen
+        right_score_total = (right_conf ** 2) * (right_horiz_reach ** 2) * (right_rom + 10.0) * right_pen
 
         if vlm_result and vlm_result.get("active_working_side") in ["left", "right"]:
             locked_side = vlm_result["active_working_side"]
@@ -1353,11 +1369,19 @@ def process_kinematics(
             norm_push = float(np.linalg.norm(push_dir))
             if norm_push > 0.02:
                 u_resist = -push_dir / norm_push
+                is_horiz_machine = any(k in ex_lower for k in [
+                    "chest_press", "press_pecho", "press_maquina", "seated_row", "remo_sentado", "convergente"
+                ]) or (is_pattern_b and abs(u_resist[0]) > 0.6)
+                if is_horiz_machine and abs(u_resist[0]) > 0.05:
+                    max_abs_uy = 0.35 * abs(u_resist[0])
+                    if abs(u_resist[1]) > max_abs_uy:
+                        u_resist[1] = np.clip(u_resist[1], -max_abs_uy, max_abs_uy)
+                        u_resist = u_resist / np.linalg.norm(u_resist)
             else:
-                u_resist = np.array([-facing_forward_x * 0.92, 0.38], dtype=np.float64)
+                u_resist = np.array([-facing_forward_x * 0.95, 0.20], dtype=np.float64)
                 u_resist = u_resist / np.linalg.norm(u_resist)
         else:
-            u_resist = np.array([-facing_forward_x * 0.92, 0.38], dtype=np.float64)
+            u_resist = np.array([-facing_forward_x * 0.95, 0.20], dtype=np.float64)
             u_resist = u_resist / np.linalg.norm(u_resist)
         force_dx = float(u_resist[0])
         force_dy = float(u_resist[1])
@@ -1701,6 +1725,11 @@ def process_kinematics(
             "start_time": round(t_start, 2),
             "inflection_time": round(t_inflect, 2),
             "end_time": round(t_end, 2),
+            "start_frame": start_frame,
+            "bottom_frame": bottom_frame,
+            "end_frame": end_frame,
+            "valley_idx": bottom_frame if is_pattern_b else start_frame,
+            "peak_idx": end_frame if is_pattern_b else bottom_frame,
             "duration_sec": round(float(t_end - t_start), 2),
             "eccentric_sec": eccentric_time_s,
             "pause_sec": pause_time_s,
@@ -1801,6 +1830,8 @@ def process_kinematics(
                     "min_primary_angle": round(tail_min_a, 1),
                     "max_primary_angle": round(tail_max_a, 1),
                     "rom_deg": round(tail_rom, 1),
+                    "valley_idx": tail_start_frame if is_pattern_b else tail_peak_frame,
+                    "peak_idx": tail_peak_frame if is_pattern_b else tail_start_frame,
                     "verdict": {
                         "status": "IMPROVEMENT_OPPORTUNITY",
                         "dominant_joint": repetitions_summary[-1]["verdict"].get("dominant_joint", "CADERA"),
@@ -1828,6 +1859,49 @@ def process_kinematics(
             if last_r["rom_deg"] < 0.70 * med_rom:
                 rom_pen = (last_r["rom_deg"] / max(best_rom, 1.0)) ** 2
                 last_r["concentric_velocity_deg_s"] = round(float(np.clip(last_r["concentric_velocity_deg_s"] * rom_pen, 25.0, 140.0)), 1)
+
+    total_reps = len(repetitions_summary)
+
+    # Issue 3: Refine Force Vector strictly from Validated Repetitions (eliminating IDLE/intro frames)
+    if is_upper_body and len(repetitions_summary) > 0:
+        valley_indices = [r["valley_idx"] for r in repetitions_summary if "valley_idx" in r]
+        peak_indices = [r["peak_idx"] for r in repetitions_summary if "peak_idx" in r]
+        if len(valley_indices) > 0 and len(peak_indices) > 0:
+            wrist_x = primary_joints["wrist"]["x"]
+            wrist_y = primary_joints["wrist"]["y"]
+            P_flexed = np.array([float(np.median(wrist_x[valley_indices])), float(np.median(wrist_y[valley_indices]))])
+            P_extended = np.array([float(np.median(wrist_x[peak_indices])), float(np.median(wrist_y[peak_indices]))])
+
+            if is_pattern_b:
+                push_dir = P_extended - P_flexed
+                norm_push = float(np.linalg.norm(push_dir))
+                if norm_push > 0.02:
+                    u_resist = -push_dir / norm_push
+                    # En ejercicios de empuje horizontal sentado (chest_press_machine, seated_row),
+                    # limita la inclinación vertical máxima (|uy| <= 0.35 * |ux|) para que la flecha
+                    # amarilla siga fielmente el plano horizontal/convergente y nunca apunte al suelo:
+                    is_horiz_machine = any(k in ex_lower for k in [
+                        "chest_press", "press_pecho", "press_maquina", "seated_row", "remo_sentado", "convergente"
+                    ]) or (is_pattern_b and abs(u_resist[0]) > 0.6)
+                    if is_horiz_machine and abs(u_resist[0]) > 0.05:
+                        max_abs_uy = 0.35 * abs(u_resist[0])
+                        if abs(u_resist[1]) > max_abs_uy:
+                            u_resist[1] = np.clip(u_resist[1], -max_abs_uy, max_abs_uy)
+                            u_resist = u_resist / np.linalg.norm(u_resist)
+                    force_dx = float(u_resist[0])
+                    force_dy = float(u_resist[1])
+                    force_dir_name = "machine_push_resistance"
+            elif is_pattern_a:
+                pull_dir = P_extended - P_flexed
+                norm_pull = float(np.linalg.norm(pull_dir))
+                if norm_pull > 0.02:
+                    u_pull = pull_dir / norm_pull
+                    if (is_t_bar or "row" in ex_lower or "remo" in ex_lower) and u_pull[1] < 0.15:
+                        u_pull[1] = 0.35
+                        u_pull = u_pull / np.linalg.norm(u_pull)
+                    force_dx = float(u_pull[0])
+                    force_dy = float(u_pull[1])
+                    force_dir_name = "adaptive_pull_resistance"
 
     # 8. Velocity-Based Training (VBT) Precision Engine
     # Map V_fail by mechanical movement pattern:

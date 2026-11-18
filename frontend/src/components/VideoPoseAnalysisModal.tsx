@@ -2689,22 +2689,32 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               {/* Pastilla Superior Limpia: Detección Automática con Toggle "Cambiar" */}
-              <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-2 shadow-inner">
+              <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 shadow-inner transition-colors duration-200 ${
+                analysisData && analysisData.vlm_used === true
+                  ? 'bg-emerald-950/70 border-emerald-800/80 shadow-emerald-950/30'
+                  : analysisData && analysisData.vlm_used === false
+                  ? 'bg-amber-950/50 border-amber-800/70 shadow-amber-950/30'
+                  : 'bg-slate-950/90 border-slate-800'
+              }`}>
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-cyan-400 text-sm">
+                  <span className="text-sm">
                     {analysisData && analysisData.vlm_used === false ? '⚠️' : '✨'}
                   </span>
                   <div className="min-w-0">
-                    <span className="text-[11px] font-bold text-slate-200 block truncate">
+                    <span className="text-[11px] font-bold block truncate">
                       {analysisData && analysisData.vlm_used === false ? (
                         <span className="text-amber-400 font-bold">
                           ⚠️ Fallback Cinemático Local (VLM inactivo: {analysisData.vlm_error || 'Sin API Key'})
                         </span>
+                      ) : analysisData && analysisData.vlm_used === true ? (
+                        <span className="text-emerald-400 font-bold">
+                          ✨ IA Multimodal VLM Activa · {analysisData?.vlm_analysis?.detected_exercise_name || activeExercise.name}
+                        </span>
                       ) : analysisData?.vlm_analysis?.detected_exercise_name ? (
-                        `Detectado: ${analysisData.vlm_analysis.detected_exercise_name}`
+                        <span className="text-slate-200">Detectado: {analysisData.vlm_analysis.detected_exercise_name}</span>
                       ) : (isManualOverride
-                            ? `Selección Manual: ${activeExercise.name}`
-                            : '✨ Detección Automática de Ejercicio · Reconocimiento por VLM')}
+                            ? <span className="text-slate-200">Selección Manual: {activeExercise.name}</span>
+                            : <span className="text-slate-200">✨ Detección Automática de Ejercicio · Reconocimiento por VLM</span>)}
                       {(analysisData || isManualOverride) && activeExercise?.targetMuscle && (
                         <span className="text-slate-400 font-normal"> · {activeExercise.targetMuscle}</span>
                       )}
@@ -2713,7 +2723,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       {analysisData
                         ? (analysisData.vlm_used === false
                             ? 'Cinemática determinista por rangos articulares 2D (ViTPose + Butterworth)'
-                            : `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada (Gemini)`)
+                            : `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada (Gemini 2.5 Flash)`)
                         : (isManualOverride
                             ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Selección manual por usuario`
                             : 'Clasificación inteligente multivariante y biomecánica (Gemini + ViTPose)')}
