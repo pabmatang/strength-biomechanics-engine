@@ -217,9 +217,11 @@ def analyze_biomechanics_with_vlm(
         f"6. 'torque_split': Músculo primario y secundario con su porcentaje de reparto de torque y etiquetas cortas (ej. 'P', 'T' o 'D', 'B' o 'G', 'C').\n"
         f"7. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume exactamente 1.0 (ej. {{'chest': 0.65, 'triceps': 0.25, 'front_delts': 0.10}}).\n"
         f"8. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
-        f"9. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n\n"
+        f"9. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n"
+        f"10. 'detected_exercise_name': Nombre conciso y profesional del ejercicio detectado observando la máquina y atleta (ej. 'Press en Máquina Convergente', 'Remo en T', 'Sentadilla Búlgara', 'Peso Muerto Rumano', 'Fondos en Máquina', 'Hip Thrust').\n\n"
         f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
         f"{{\n"
+        f'  "detected_exercise_name": "Press en Máquina Convergente",\n'
         f'  "active_working_side": "left | right",\n'
         f'  "is_bilateral_visible": false,\n'
         f'  "hide_torso_line": true,\n'
@@ -398,7 +400,8 @@ def sample_video_frames(
             break
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         frames_rgb.append(frame_rgb)
-        timestamps.append(curr_t)
+        exact_ts = round(float(target_f_idx / native_fps), 4)
+        timestamps.append(exact_ts)
         curr_t += step_dt
         
     cap.release()
@@ -453,22 +456,11 @@ def run_inference_batches(
     eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
     
     # ---------------------------------------------------------------------
-    # Pass 1: RT-DETR Detection sampled 1 of every 3 frames
+    # Pass 1: RT-DETR Athlete Detection across ALL frames (FP16 batched)
     # ---------------------------------------------------------------------
-    sample_step = 3
-    if n_frames <= sample_step:
-        sampled_indices = list(range(n_frames))
-    else:
-        sampled_indices = list(range(0, n_frames, sample_step))
-        if (n_frames - 1) not in sampled_indices:
-            sampled_indices.append(n_frames - 1)
-    
-    sampled_frames = [frames_rgb[idx] for idx in sampled_indices]
-    n_sampled = len(sampled_frames)
-
-    sampled_frame_detections = []  # candidate person boxes per sampled frame
-    for i in range(0, n_sampled, batch_size):
-        batch_rgb = sampled_frames[i : i + batch_size]
+    all_frame_detections = []  # candidate person boxes per frame
+    for i in range(0, n_frames, batch_size):
+        batch_rgb = frames_rgb[i : i + batch_size]
         if has_crop:
             batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
         else:
@@ -501,16 +493,16 @@ def run_inference_batches(
             for idx, l in enumerate(labels):
                 if l == 0 and scores[idx] >= 0.20:
                     p_boxes.append((boxes[idx].tolist(), float(scores[idx])))
-            sampled_frame_detections.append(p_boxes)
+            all_frame_detections.append(p_boxes)
 
     # ---------------------------------------------------------------------
-    # Pass 2: Strict Temporal Athlete Tracking across sampled frames
+    # Pass 2: Strict Temporal Athlete Tracking across ALL frames
     # ---------------------------------------------------------------------
-    sampled_tracked_boxes = []
+    raw_tracked_boxes = []
     tracked_box = None
 
-    for s_idx in range(n_sampled):
-        p_candidates = sampled_frame_detections[s_idx]
+    for f_idx in range(n_frames):
+        p_candidates = all_frame_detections[f_idx]
         if tracked_box is None:
             # First valid frame: pick person with max area * centeredness
             if len(p_candidates) > 0:
@@ -529,20 +521,20 @@ def run_inference_batches(
                 tracked_box = best_box
             else:
                 tracked_box = [0.0, 0.0, float(eff_w), float(eff_h)]
-            sampled_tracked_boxes.append(tracked_box)
+            raw_tracked_boxes.append(tracked_box)
         else:
             prev_b = tracked_box
             prev_cx = (prev_b[0] + prev_b[2]) / 2.0
             prev_cy = (prev_b[1] + prev_b[3]) / 2.0
             prev_area = max(1.0, (prev_b[2] - prev_b[0]) * (prev_b[3] - prev_b[1]))
 
-            # Filter candidates within normalized center distance < 0.20
+            # Filter candidates within normalized center distance < 0.25
             valid_cands = []
             for b, score in p_candidates:
                 cand_cx = (b[0] + b[2]) / 2.0
                 cand_cy = (b[1] + b[3]) / 2.0
                 norm_center_dist = math.hypot(cand_cx - prev_cx, cand_cy - prev_cy) / float(max(eff_w, eff_h))
-                if norm_center_dist < 0.20:
+                if norm_center_dist < 0.25:
                     # Compute IoU with tracked_box
                     ix1 = max(prev_b[0], b[0])
                     iy1 = max(prev_b[1], b[1])
@@ -557,23 +549,12 @@ def run_inference_batches(
             if len(valid_cands) > 0:
                 valid_cands.sort(key=lambda x: x[0], reverse=True)
                 tracked_box = valid_cands[0][1]
-            sampled_tracked_boxes.append(tracked_box)
+            raw_tracked_boxes.append(tracked_box)
+
+    raw_tracked_boxes = np.array(raw_tracked_boxes, dtype=np.float32)
 
     # ---------------------------------------------------------------------
-    # Pass 2.5: Linear Interpolation of Bounding Boxes for all intermediate frames
-    # ---------------------------------------------------------------------
-    sampled_boxes_arr = np.array(sampled_tracked_boxes, dtype=np.float32)
-    all_frame_indices = np.arange(n_frames, dtype=np.float32)
-    raw_tracked_boxes = np.zeros((n_frames, 4), dtype=np.float32)
-    for c in range(4):
-        raw_tracked_boxes[:, c] = np.interp(
-            all_frame_indices,
-            sampled_indices,
-            sampled_boxes_arr[:, c]
-        )
-
-    # ---------------------------------------------------------------------
-    # Pass 3: Moving Average Smoothing (window = 5) & Tight Padding (0.08)
+    # Pass 3: Moving Average Smoothing (window = 5) & Tight Padding (0.12 / 0.15)
     # ---------------------------------------------------------------------
     smoothed_boxes = np.zeros_like(raw_tracked_boxes)
     for c in range(4):
@@ -739,6 +720,20 @@ def process_kinematics(
             y_arr = np.array([raw_keypoints[f][k_name]["y"] for f in range(n_frames)], dtype=np.float64)
             s_arr = np.array([raw_keypoints[f][k_name]["score"] for f in range(n_frames)], dtype=np.float64)
             
+            # Max Joint Jump Clamp: if wrist or elbow jumps > 0.07 in 1 frame (clothing flutter / baggy sweatshirt noise), clamp as outlier
+            if c_name in ["wrist", "elbow"] and n_frames > 1:
+                last_vx = None
+                last_vy = None
+                for f in range(n_frames):
+                    if s_arr[f] >= 0.25:
+                        if last_vx is not None:
+                            jump = math.hypot(x_arr[f] - last_vx, y_arr[f] - last_vy)
+                            if jump > 0.07:
+                                s_arr[f] = 0.0  # Mark outlier for smooth interpolation
+                                continue
+                        last_vx = x_arr[f]
+                        last_vy = y_arr[f]
+
             x_clean = interpolate_isolated_frames(x_arr, s_arr, thresh=0.25)
             y_clean = interpolate_isolated_frames(y_arr, s_arr, thresh=0.25)
             
@@ -827,6 +822,19 @@ def process_kinematics(
 
         left_score_total = (left_conf ** 2) * (left_len ** 2) * (left_rom + 10.0) * left_pen
         right_score_total = (right_conf ** 2) * (right_len ** 2) * (right_rom + 10.0) * right_pen
+
+        # Camera proximity check: prioritize the arm closer to the lens in lateral view
+        med_l_wrist_x = float(np.median(l_wr_x))
+        med_r_wrist_x = float(np.median(r_wr_x))
+        if facing_dir > 0 and med_r_wrist_x > med_l_wrist_x and right_conf >= left_conf - 0.15:
+            right_score_total *= 1.35
+        elif facing_dir < 0 and med_l_wrist_x < med_r_wrist_x and left_conf >= right_conf - 0.15:
+            left_score_total *= 1.35
+        elif right_conf > left_conf + 0.12:
+            right_score_total *= 1.40
+        elif left_conf > right_conf + 0.12:
+            left_score_total *= 1.40
+
         locked_side = "left" if left_score_total >= right_score_total else "right"
         is_unilateral_flag = bool(left_score_total > 1.5 * right_score_total or right_score_total > 1.5 * left_score_total)
 
@@ -2077,7 +2085,8 @@ def process_kinematics(
 
         frames_output.append({
             "frame_idx": f,
-            "time": timestamps[f],
+            "time": round(float(timestamps[f]), 4),
+            "timestamp_sec": round(float(timestamps[f]), 4),
             "rep_number": rep_num,
             "phase": phase,
             "hide_torso_line": bool(hide_torso_line),
@@ -2219,6 +2228,7 @@ def process_kinematics(
 
     return {
         "fps": 15.0,
+        "total_duration_sec": round(float(timestamps[-1] - timestamps[0]), 4) if len(timestamps) > 1 else 0.0,
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
         "total_reps": total_reps,
         "locked_side": locked_side,

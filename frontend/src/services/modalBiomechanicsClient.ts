@@ -118,6 +118,7 @@ export interface RepetitionSummary {
 export interface BiomechanicsFrame {
   frame_idx: number;
   time: number;
+  timestamp_sec?: number;
   rep_number: number;
   phase: 'IDLE' | 'ECCENTRIC' | 'BOTTOM' | 'CONCENTRIC' | 'LOCKOUT' | string;
   main_angle: number;
@@ -130,6 +131,7 @@ export interface BiomechanicsFrame {
 }
 
 export interface VlmAnalysis {
+  detected_exercise_name?: string;
   active_working_side?: 'left' | 'right';
   is_bilateral_visible?: boolean;
   hide_torso_line?: boolean;
@@ -161,6 +163,7 @@ export interface VlmAnalysis {
 export interface BiomechanicsAnalysisResponse {
   fps: number;
   duration: number;
+  total_duration_sec?: number;
   total_reps: number;
   locked_side: 'left' | 'right';
   repetitions_summary: RepetitionSummary[];

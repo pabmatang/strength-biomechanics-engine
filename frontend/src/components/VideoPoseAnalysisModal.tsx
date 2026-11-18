@@ -165,13 +165,17 @@ interface VideoPoseAnalysisModalProps {
   defaultExerciseName?: string;
 }
 
-function findClosestFrame(frames: BiomechanicsFrame[], currentTime: number): BiomechanicsFrame | null {
+function getFrameTime(f: BiomechanicsFrame): number {
+  return typeof f.timestamp_sec === 'number' ? f.timestamp_sec : (f.time ?? 0);
+}
+
+function findClosestFrame(frames: BiomechanicsFrame[], relTime: number): BiomechanicsFrame | null {
   if (!frames || frames.length === 0) return null;
   let low = 0;
   let high = frames.length - 1;
   while (low <= high) {
     const mid = (low + high) >> 1;
-    if (frames[mid].time < currentTime) {
+    if (getFrameTime(frames[mid]) < relTime) {
       low = mid + 1;
     } else {
       high = mid - 1;
@@ -179,27 +183,29 @@ function findClosestFrame(frames: BiomechanicsFrame[], currentTime: number): Bio
   }
   const i1 = Math.max(0, Math.min(frames.length - 1, low));
   const i2 = Math.max(0, Math.min(frames.length - 1, high));
-  const closest = Math.abs(frames[i1].time - currentTime) < Math.abs(frames[i2].time - currentTime)
+  const closest = Math.abs(getFrameTime(frames[i1]) - relTime) < Math.abs(getFrameTime(frames[i2]) - relTime)
     ? frames[i1]
     : frames[i2];
   
-  // Return null if playback time is outside the analyzed frame window
-  if (Math.abs(closest.time - currentTime) > 0.45) {
+  // Return null if playback time is completely outside the analyzed frame window (>1.5s gap)
+  if (Math.abs(getFrameTime(closest) - relTime) > 1.5) {
     return null;
   }
   return closest;
 }
 
-function getInterpolatedFrame(frames: BiomechanicsFrame[], currentTime: number): BiomechanicsFrame | null {
+function getInterpolatedFrame(frames: BiomechanicsFrame[], relTime: number): BiomechanicsFrame | null {
   if (!frames || frames.length === 0) return null;
-  if (currentTime <= frames[0].time) return frames[0];
-  if (currentTime >= frames[frames.length - 1].time) return frames[frames.length - 1];
+  const tStart = getFrameTime(frames[0]);
+  const tEnd = getFrameTime(frames[frames.length - 1]);
+  if (relTime <= tStart) return frames[0];
+  if (relTime >= tEnd) return frames[frames.length - 1];
 
   let low = 0;
   let high = frames.length - 1;
   while (low <= high) {
     const mid = (low + high) >> 1;
-    if (frames[mid].time < currentTime) {
+    if (getFrameTime(frames[mid]) < relTime) {
       low = mid + 1;
     } else {
       high = mid - 1;
@@ -212,10 +218,12 @@ function getInterpolatedFrame(frames: BiomechanicsFrame[], currentTime: number):
 
   const f0 = frames[idx0];
   const f1 = frames[idx1];
-  const dt = f1.time - f0.time;
+  const t0 = getFrameTime(f0);
+  const t1 = getFrameTime(f1);
+  const dt = t1 - t0;
   if (dt <= 0.0001) return f0;
 
-  const alpha = Math.max(0, Math.min(1, (currentTime - f0.time) / dt));
+  const alpha = Math.max(0, Math.min(1, (relTime - t0) / dt));
   const lerp = (a: number, b: number) => a + (b - a) * alpha;
 
   const kp0 = f0.keypoints_norm as unknown as Record<string, { x: number; y: number; score: number }>;
@@ -239,7 +247,8 @@ function getInterpolatedFrame(frames: BiomechanicsFrame[], currentTime: number):
   const baseFrame = alpha < 0.5 ? f0 : f1;
   return {
     ...baseFrame,
-    time: currentTime,
+    time: relTime,
+    timestamp_sec: relTime,
     main_angle: lerp(f0.main_angle, f1.main_angle),
     secondary_angle: lerp(f0.secondary_angle, f1.secondary_angle),
     keypoints_norm: Object.keys(interpolatedKp).length > 0 ? (interpolatedKp as any) : f1.keypoints_norm,
@@ -335,6 +344,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     return parentGroup ? parentGroup.id : 'glutes_hamstrings';
   });
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>(initialExercise.id);
+  const [showManualExerciseSelector, setShowManualExerciseSelector] = useState<boolean>(false);
 
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
@@ -507,6 +517,17 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineState('ready');
       setPipelineMessage('');
 
+      if (result.vlm_analysis?.detected_exercise_name) {
+        const detected = resolveExercise('', result.vlm_analysis.detected_exercise_name);
+        if (detected) {
+          setSelectedExerciseId(detected.id);
+          setTargetMuscle(detected.targetMuscle);
+          setLoadType(detected.loadType);
+          const grp = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === detected.id));
+          if (grp) setSelectedMuscleGroupId(grp.id);
+        }
+      }
+
       // Persist session to local history for zero-storage ghost comparison
       try {
         const histKey = `biomechanics_history_${exType}`;
@@ -673,20 +694,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const renderLoop = () => {
       if (cancelled) return;
 
-      const currentTime = video.currentTime || 0;
-      setVideoCurrentTime(currentTime);
+      const rawCurrentTime = video.currentTime || 0;
+      setVideoCurrentTime(rawCurrentTime);
+
+      // Sincronización exacta por relTime dentro del clip recortado
+      const relTime = Math.max(0, rawCurrentTime - (trimStart || 0));
 
       // Seamless video loop inside trimmed range [trimStart, trimEnd]
-      const maxAnalyzedTime = analysisData?.frames?.length
-        ? analysisData.frames[analysisData.frames.length - 1].time
-        : trimEnd;
-      const effectiveLoopEnd = Math.min(trimEnd, maxAnalyzedTime > 0 ? maxAnalyzedTime : trimEnd);
-      if (!video.seeking && effectiveLoopEnd > trimStart && (currentTime >= effectiveLoopEnd || currentTime < trimStart - 0.2)) {
+      const maxAnalyzedDuration = (analysisData as any)?.total_duration_sec ?? (analysisData?.frames?.length
+        ? (analysisData.frames[analysisData.frames.length - 1].timestamp_sec ?? analysisData.frames[analysisData.frames.length - 1].time)
+        : (trimEnd - trimStart));
+      const effectiveLoopEnd = Math.min(trimEnd, (trimStart || 0) + (maxAnalyzedDuration > 0 ? maxAnalyzedDuration : (trimEnd - trimStart)));
+      if (!video.seeking && effectiveLoopEnd > trimStart && (rawCurrentTime >= effectiveLoopEnd || rawCurrentTime < trimStart - 0.2)) {
         video.currentTime = trimStart;
       }
 
       if (analysisData && analysisData.frames.length > 0) {
-        const frame = getInterpolatedFrame(analysisData.frames, currentTime) || findClosestFrame(analysisData.frames, currentTime);
+        const frame = getInterpolatedFrame(analysisData.frames, relTime) || findClosestFrame(analysisData.frames, relTime);
         if (frame) {
           setCurrentFrame(frame);
           setCurrentPrimaryAngle(frame.main_angle);
@@ -1120,14 +1144,20 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           const abbrSh = isBack ? (isUpperBackCanvas ? 'EA' : 'D') : 'P';
           const abbrEl = isBack ? 'B' : 'T';
 
-          const hasExplicitDirection = Boolean(fv?.dx !== undefined && (fv.dx !== 0 || fv.dy !== 0));
+          const seriesFv = analysisData?.vlm_analysis?.force_vector_2d || (analysisData?.frames?.[0] as any)?.force_vector || fv;
+          const hasExplicitDirection = Boolean(seriesFv && typeof seriesFv.dx === 'number' && typeof seriesFv.dy === 'number' && (seriesFv.dx !== 0 || seriesFv.dy !== 0));
 
           // Directional force vector and moment arms for T-Bar, Machine Press, and Machine Dips
           if (isBack || hasExplicitDirection) {
             let uX = 1;
             let uY = 0;
-            if (isBack && (exIdStr.includes('t_bar') || exIdStr.includes('remo_punta') || activeExercise?.loadType === 'machine' || activeExercise?.loadType === 'cable')) {
-              // En Remo en T y máquinas de tracción, el vector sigue al antebrazo hacia la máquina (el codo actúa como pivote)
+            if (hasExplicitDirection) {
+              // Serie-constant vector from VLM/Backend: NEVER recalculate dynamically with forearm to avoid crazy flipping arrows
+              const fn = Math.hypot(seriesFv.dx, seriesFv.dy);
+              uX = seriesFv.dx / fn;
+              uY = seriesFv.dy / fn;
+            } else if (isBack && (exIdStr.includes('t_bar') || exIdStr.includes('remo_punta') || activeExercise?.loadType === 'machine' || activeExercise?.loadType === 'cable')) {
+              // Fallback only if no explicit backend vector
               const vx = pHand.x - pEl.x;
               const vy = pHand.y - pEl.y;
               const uNorm = Math.hypot(vx, vy);
@@ -1141,10 +1171,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   uY /= renorm;
                 }
               }
-            } else if (hasExplicitDirection) {
-              const fn = Math.hypot(fv.dx, fv.dy);
-              uX = fv.dx / fn;
-              uY = fv.dy / fn;
             } else {
               const vx = pHand.x - pEl.x;
               const vy = pHand.y - pEl.y;
@@ -1802,15 +1828,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   let shoulderShare = 76;
   let elbowShare = 24;
   if (d_sh_val + d_el_val > 0.005) {
-    shoulderShare = Math.max(10, Math.min(90, Math.round((d_sh_val / (d_sh_val + d_el_val)) * 100)));
-    elbowShare = 100 - shoulderShare;
+    shoulderShare = Math.round(Math.max(0, Math.min(100, Math.abs((d_sh_val / (d_sh_val + d_el_val)) * 100))));
+    elbowShare = Math.round(Math.max(0, Math.min(100, 100 - shoulderShare)));
   }
 
   let hipShare = 55;
   let kneeShare = 45;
   if (d_hip_val + d_knee_val > 0.005) {
-    hipShare = Math.max(10, Math.min(90, Math.round((d_hip_val / (d_hip_val + d_knee_val)) * 100)));
-    kneeShare = 100 - hipShare;
+    hipShare = Math.round(Math.max(0, Math.min(100, Math.abs((d_hip_val / (d_hip_val + d_knee_val)) * 100))));
+    kneeShare = Math.round(Math.max(0, Math.min(100, 100 - hipShare)));
   }
 
   let primaryLeverName = 'Brazo Cadera';
@@ -1829,11 +1855,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       let pectShare = 78;
       let tricShare = 22;
       if (totD > 0.005) {
-        pectShare = Math.max(55, Math.min(95, Math.round((eff_d_sh / totD) * 100)));
-        tricShare = 100 - pectShare;
+        pectShare = Math.round(Math.max(0, Math.min(100, Math.abs((eff_d_sh / totD) * 100))));
+        tricShare = Math.round(Math.max(0, Math.min(100, 100 - pectShare)));
       } else if (rawVerdict?.pectoral_share && rawVerdict?.triceps_share) {
-        pectShare = Math.max(55, Math.round(rawVerdict.pectoral_share));
-        tricShare = 100 - pectShare;
+        pectShare = Math.round(Math.max(0, Math.min(100, Math.abs(rawVerdict.pectoral_share))));
+        tricShare = Math.round(Math.max(0, Math.min(100, 100 - pectShare)));
       }
       primaryLeverName = 'Brazo Pectoral';
       secondaryLeverName = 'Brazo Tríceps';
@@ -1871,12 +1897,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           backShare = 100;
           bicShare = 0;
         } else {
-          backShare = Math.max(10, Math.min(95, Math.round((d_sh_val / totD) * 100)));
-          bicShare = 100 - backShare;
+          backShare = Math.round(Math.max(0, Math.min(100, Math.abs((d_sh_val / totD) * 100))));
+          bicShare = Math.round(Math.max(0, Math.min(100, 100 - backShare)));
         }
       } else if (rawVerdict?.dorsal_share !== undefined && rawVerdict?.biceps_share !== undefined) {
-        backShare = Math.round(rawVerdict.dorsal_share);
-        bicShare = Math.round(rawVerdict.biceps_share);
+        backShare = Math.round(Math.max(0, Math.min(100, Math.abs(rawVerdict.dorsal_share))));
+        bicShare = Math.round(Math.max(0, Math.min(100, Math.abs(rawVerdict.biceps_share))));
       }
 
       primaryLeverName = backLeverName;
@@ -2401,7 +2427,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       {((currentFrame as any)?.hide_torso_line || safeExerciseId.includes('press') || safeExerciseId.includes('bench') || safeExerciseId.includes('incline') || safeExerciseId.includes('dip') || safeExerciseId.includes('t_bar')) ? '' : `Torso: ${Math.round(currentFrame?.secondary_angle ?? 0)}° · `}Palanca: {
                         secondaryLeverShare === 0
                           ? `100% ${isUpperBackActive ? 'Espalda Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')}`
-                          : `${primaryLeverShare}% ${isUpperBackActive ? 'Esp. Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} / ${secondaryLeverShare}% ${isBackExercise ? 'Bíceps' : 'Tríceps'}`
+                          : `${Math.round(Math.max(0, Math.min(100, Math.abs(primaryLeverShare))))}% ${isUpperBackActive ? 'Esp. Alta' : (isBackExercise ? 'Dorsal' : 'Pectoral')} / ${Math.round(Math.max(0, Math.min(100, Math.abs(secondaryLeverShare))))}% ${isBackExercise ? 'Bíceps' : 'Tríceps'}`
                       }
                     </span>
                   ) : (
@@ -2570,11 +2596,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               {modeSwitcherButtons}
             </div>
 
-            {/* Muscle Group & Exercise Catalog Selector */}
+            {/* Exercise Configuration & Auto-Detection */}
             <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Grupo Muscular y Ejercicio Evaluado
+                  Configuración y Ejercicio
                 </label>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -2598,11 +2624,39 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               </div>
 
+              {/* Pastilla Superior Limpia: Detección Automática con Toggle "Cambiar" */}
+              <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-2 shadow-inner">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-cyan-400 text-sm">✨</span>
+                  <div className="min-w-0">
+                    <span className="text-[11px] font-bold text-slate-200 block truncate">
+                      {analysisData?.vlm_analysis?.detected_exercise_name
+                        ? `Detectado: ${analysisData.vlm_analysis.detected_exercise_name}`
+                        : (activeExercise ? `Detectado: ${activeExercise.name}` : 'Detección Automática de Ejercicio')}
+                      {activeExercise?.targetMuscle && (
+                        <span className="text-slate-400 font-normal"> · {activeExercise.targetMuscle}</span>
+                      )}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block truncate font-mono">
+                      {activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'}
+                      {analysisData?.vlm_analysis?.detected_exercise_name ? ' · Clasificación IA Sincronizada' : ' · Auto-detección por VLM'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualExerciseSelector(!showManualExerciseSelector)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold transition whitespace-nowrap border border-slate-700/60"
+                >
+                  {showManualExerciseSelector ? 'Ocultar' : 'Cambiar'}
+                </button>
+              </div>
+
               {/* VBT Compact Configuration: Peso (kg) y Reps objetivo */}
               <div className="grid grid-cols-2 gap-2 p-2 rounded-xl bg-slate-950/80 border border-slate-800/90 text-xs">
                 <div>
                   <label className="text-[10px] font-semibold text-slate-400 block mb-1">
-                    Carga / Peso (kg)
+                    Peso / Carga (kg)
                   </label>
                   <input
                     type="number"
@@ -2630,56 +2684,70 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               </div>
 
-              {/* Muscle Group Tabs */}
-              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-800">
-                {MUSCLE_GROUPS.map((group) => {
-                  const isSelected = selectedMuscleGroupId === group.id;
-                  return (
-                    <button
-                      key={group.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedMuscleGroupId(group.id);
-                        const firstEx = group.exercises[0];
-                        if (firstEx) {
-                          handleExerciseSelect(firstEx);
-                        }
-                      }}
-                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition border ${
-                        isSelected
-                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20'
-                          : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
-                      }`}
-                    >
-                      {group.name}
-                    </button>
-                  );
-                })}
-              </div>
+              {/* Botón Prominente Iniciar Análisis Biomecánico en Panel */}
+              <button
+                type="button"
+                onClick={handleStartAnalysis}
+                disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/30 transition active:scale-[0.99]"
+              >
+                <Sparkles className={`w-4 h-4 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
+                <span>{analysisData ? 'Re-analizar Ejercicio' : 'Iniciar Análisis Biomecánico'}</span>
+              </button>
 
-              {/* Exercises Grid for Selected Group */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {activeMuscleGroup?.exercises.map((item) => {
-                  const isSelected = selectedExerciseId === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => handleExerciseSelect(item)}
-                      className={`p-2 rounded-xl text-left border transition flex flex-col justify-between ${
-                        isSelected
-                          ? 'bg-blue-600/25 border-blue-500 text-blue-200 shadow-sm shadow-blue-500/20'
-                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs font-bold leading-tight">{item.name}</span>
-                      <span className="text-[9px] font-mono text-slate-400 mt-1 uppercase">
-                        {item.loadType === 'gravity' ? 'Peso Libre' : item.loadType === 'cable' ? 'Polea' : 'Máquina'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              {/* Cuadrícula manual desplegable (Oculta por defecto) */}
+              {showManualExerciseSelector && (
+                <div className="space-y-2.5 pt-2 border-t border-slate-800">
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-800">
+                    {MUSCLE_GROUPS.map((group) => {
+                      const isSelected = selectedMuscleGroupId === group.id;
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMuscleGroupId(group.id);
+                            const firstEx = group.exercises[0];
+                            if (firstEx) {
+                              handleExerciseSelect(firstEx);
+                            }
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition border ${
+                            isSelected
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20'
+                              : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
+                          }`}
+                        >
+                          {group.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                    {activeMuscleGroup?.exercises.map((item) => {
+                      const isSelected = selectedExerciseId === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handleExerciseSelect(item)}
+                          className={`p-2 rounded-xl text-left border transition flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-blue-600/25 border-blue-500 text-blue-200 shadow-sm shadow-blue-500/20'
+                              : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                          }`}
+                        >
+                          <span className="text-xs font-bold leading-tight">{item.name}</span>
+                          <span className="text-[9px] font-mono text-slate-400 mt-1 uppercase">
+                            {item.loadType === 'gravity' ? 'Peso Libre' : item.loadType === 'cable' ? 'Polea' : 'Máquina'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* DYNAMIC MODE-SEPARATED METRIC CARDS */}
@@ -2812,7 +2880,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
                       {analysisData?.vlm_analysis?.torque_split
-                        ? `${analysisData.vlm_analysis.torque_split.primary_pct}% vs ${analysisData.vlm_analysis.torque_split.secondary_pct}%`
+                        ? `${Math.round(Math.max(0, Math.min(100, Math.abs(analysisData.vlm_analysis.torque_split.primary_pct))))}% vs ${Math.round(Math.max(0, Math.min(100, Math.abs(analysisData.vlm_analysis.torque_split.secondary_pct))))}%`
                         : isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : torqueBadgeText}
                     </span>
                   </div>
@@ -2822,20 +2890,20 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     <div className="space-y-1">
                       <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
                         <span>
-                          {analysisData?.vlm_analysis?.torque_split?.primary_muscle || primaryLeverName}: {analysisData?.vlm_analysis?.torque_split?.primary_pct ?? primaryLeverShare}%
+                          {analysisData?.vlm_analysis?.torque_split?.primary_muscle || primaryLeverName}: {Math.round(Math.max(0, Math.min(100, Math.abs(analysisData?.vlm_analysis?.torque_split?.primary_pct ?? primaryLeverShare))))}%
                         </span>
                         <span>
-                          {analysisData?.vlm_analysis?.torque_split?.secondary_muscle || secondaryLeverName}: {analysisData?.vlm_analysis?.torque_split?.secondary_pct ?? secondaryLeverShare}%
+                          {analysisData?.vlm_analysis?.torque_split?.secondary_muscle || secondaryLeverName}: {Math.round(Math.max(0, Math.min(100, Math.abs(analysisData?.vlm_analysis?.torque_split?.secondary_pct ?? secondaryLeverShare))))}%
                         </span>
                       </div>
                       <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
                         <div
                           className="bg-blue-500 transition-all duration-150"
-                          style={{ width: `${analysisData?.vlm_analysis?.torque_split?.primary_pct ?? primaryLeverShare}%` }}
+                          style={{ width: `${Math.round(Math.max(0, Math.min(100, Math.abs(analysisData?.vlm_analysis?.torque_split?.primary_pct ?? primaryLeverShare))))}%` }}
                         />
                         <div
                           className="bg-emerald-500 transition-all duration-150"
-                          style={{ width: `${analysisData?.vlm_analysis?.torque_split?.secondary_pct ?? secondaryLeverShare}%` }}
+                          style={{ width: `${Math.round(Math.max(0, Math.min(100, Math.abs(analysisData?.vlm_analysis?.torque_split?.secondary_pct ?? secondaryLeverShare))))}%` }}
                         />
                       </div>
                     </div>
@@ -2923,7 +2991,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                         <span className="text-[9px] text-slate-400 font-bold uppercase block">Pérdida de Velocidad</span>
                         <span className="text-sm font-black text-amber-300 font-mono">
-                          -{intensity.velocity_loss_pct}%
+                          -{Math.round(Math.max(0, Math.min(100, Math.abs(intensity.velocity_loss_pct ?? 0))))}%
                         </span>
                         <span className="text-[9px] text-slate-500 block">
                           {intensity.delta_v_rep ? `Pérdida: ${intensity.delta_v_rep}°/s por rep` : 'Fatiga concéntrica en serie'}
