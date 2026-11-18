@@ -923,22 +923,33 @@ def process_kinematics(
     ex_lower = exercise_type.lower()
     load_lower = load_type.lower()
     
-    # Universal Pattern Classification
-    is_pattern_a = (
+    # Universal Pattern & Body Region Classification
+    UPPER_BODY_KEYWORDS = [
+        "chest_press_machine", "bench_press", "incline_press", "machine_dips", "t_bar_row",
+        "seated_row", "lat_pulldown", "shoulder_press", "curl", "fly", "press", "bench",
+        "incline", "dips", "row", "remo", "pulldown", "pullup", "pullover", "t_bar",
+        "gironda", "face_pull", "chest", "shoulder", "deltoid", "triceps", "biceps",
+        "pec_deck", "pushdown"
+    ]
+    LOWER_BODY_EXCLUSIONS = [
+        "leg_press", "leg_extension", "leg_curl", "femoral", "squat", "hack", "rdl", "deadlift", "hip_thrust", "lunge", "bulgarian"
+    ]
+
+    is_upper_body = (
+        any(k in ex_lower for k in UPPER_BODY_KEYWORDS) or
+        target_muscle.lower() in ["chest", "pectorals", "back", "lats", "upper_back", "shoulders", "deltoids", "biceps", "triceps"]
+    ) and not any(k in ex_lower for k in LOWER_BODY_EXCLUSIONS)
+    body_region = "upper" if is_upper_body else "lower"
+
+    is_pattern_a = is_upper_body and (
         any(k in ex_lower for k in [
             "row", "pulldown", "pullup", "pullover", "curl", "t_bar", "gironda", "face_pull"
         ]) or target_muscle.lower() in ["lats", "upper_back", "biceps"]
-    ) and not any(k in ex_lower for k in ["leg_curl", "femoral"])
+    )
 
-    is_pattern_b = (
-        any(k in ex_lower for k in [
-            "press", "bench", "incline", "dips", "extension", "pushdown", "pec_deck", "fly", "chest"
-        ]) or target_muscle.lower() in ["pectorals", "chest", "triceps", "deltoids", "shoulders"]
-    ) and not any(k in ex_lower for k in ["leg_press", "leg_extension", "hack"])
-
-    is_pattern_c = not is_pattern_a and not is_pattern_b
-    is_upper_body = is_pattern_a or is_pattern_b
-    is_hip_thrust = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
+    is_pattern_b = is_upper_body and not is_pattern_a
+    is_pattern_c = not is_upper_body
+    is_hip_thrust = (not is_upper_body) and any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
 
     vl = vlm_result.get("visual_landmarks", {}) if vlm_result else {}
     vlm_hands_above = bool(
@@ -948,10 +959,10 @@ def process_kinematics(
         float(vl["hands_y"]) < float(vl["chest_shoulders_y"])
     )
 
-    is_press_exercise = (
+    is_press_exercise = is_upper_body and (
         any(k in ex_lower for k in ["press", "bench", "incline", "dips", "pec_deck", "chest"]) or
         vlm_hands_above
-    ) and not any(k in ex_lower for k in ["leg_press"])
+    )
 
     hide_neck_line_forced = False
     hide_torso_line_forced = False
@@ -2537,6 +2548,8 @@ def process_kinematics(
         "hide_torso_line": bool(hide_torso_line),
         "hide_neck_line": bool(hide_neck_line),
         "is_upper_back": bool(is_upper_back_series),
+        "is_upper_body": bool(is_upper_body),
+        "body_region": body_region,
         "detected_exercise_type": exercise_type,
         "target_muscle": target_muscle,
         "load_type": load_type,

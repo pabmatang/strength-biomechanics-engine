@@ -727,6 +727,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           setCurrentPrimaryAngle(frame.main_angle);
           setCurrentPhase(frame.phase);
 
+          const resolvedExForCanvas = String(
+            analysisData?.detected_exercise_type ||
+            (analysisData as any)?.exercise_type ||
+            (selectedExerciseId !== 'auto' ? selectedExerciseId : '') ||
+            activeExercise?.id ||
+            'chest_press_machine'
+          ).toLowerCase();
+
           // Render canvas overlays
           renderCanvasOverlay(canvas, video, frame, analysisMode, {
             zoom,
@@ -735,7 +743,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             showCanvasText,
             showGhost: showGhostSkeleton,
             previousSession: previousSessionData,
-            exerciseId: selectedExerciseId || activeExercise?.id || '',
+            exerciseId: resolvedExForCanvas,
             muscleGroupId: selectedMuscleGroupId
           });
         }
@@ -840,8 +848,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const pRAk = kp.right_ankle ? { x: px(kp.right_ankle.x), y: py(kp.right_ankle.y), score: kp.right_ankle.score } : pAk;
 
 
+    const UPPER_BODY_EXERCISES = [
+      'chest_press_machine', 'bench_press', 'incline_press', 'machine_dips', 't_bar_row',
+      'seated_row', 'lat_pulldown', 'shoulder_press', 'curl', 'fly', 'press', 'bench',
+      'incline', 'dips', 'row', 'remo', 'pulldown', 'pullup', 'pullover', 't_bar',
+      'gironda', 'face_pull', 'chest', 'shoulder', 'deltoid', 'triceps', 'biceps',
+      'pec_deck', 'pushdown'
+    ];
+    const LOWER_BODY_EXCLUSIONS = [
+      'leg_press', 'leg_extension', 'leg_curl', 'squat', 'hack', 'rdl', 'deadlift', 'hip_thrust', 'bulgarian', 'lunge'
+    ];
+
     const grpId = options.muscleGroupId || selectedMuscleGroupId || '';
-    const exIdStr = String(options.exerciseId || safeExerciseId || '').toLowerCase();
+    const exIdStr = String(options.exerciseId || analysisData?.detected_exercise_type || safeExerciseId || '').toLowerCase();
 
     const pHand = {
       x: pWr.x,
@@ -849,23 +868,26 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       score: pWr.score
     };
 
-    const isUpperBody = (
-      grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
-      exIdStr.includes('bench') || exIdStr.includes('chest') ||
-      (exIdStr.includes('press') && !exIdStr.includes('leg_press')) ||
-      exIdStr.includes('row') || exIdStr.includes('pulldown') || exIdStr.includes('pullup') ||
-      exIdStr.includes('pullover') || exIdStr.includes('curl') || exIdStr.includes('triceps') ||
-      exIdStr.includes('dips') || exIdStr.includes('t_bar') || exIdStr.includes('gironda')
-    ) && !exIdStr.includes('leg_press') && !exIdStr.includes('leg_extension');
+    const isUpperBody = Boolean(
+      analysisData?.body_region === 'upper' ||
+      (analysisData as any)?.is_upper_body === true ||
+      (
+        (
+          grpId === 'chest' || grpId === 'back' || grpId === 'shoulders' || grpId === 'arms' ||
+          UPPER_BODY_EXERCISES.some(ex => exIdStr.includes(ex))
+        ) && !LOWER_BODY_EXCLUSIONS.some(ex => exIdStr.includes(ex))
+      )
+    );
     const isLowerBody = !isUpperBody;
-    const isHipThrust =
+    const isHipThrust = !isUpperBody && (
       exIdStr.includes('hip_thrust') ||
       exIdStr.includes('kas_glute') ||
       exIdStr.includes('glute_bridge') ||
       exIdStr.includes('bridge') ||
       exIdStr.includes('thrust') ||
       exIdStr.includes('kas') ||
-      Boolean((frame as any)?.is_hip_thrust);
+      Boolean((frame as any)?.is_hip_thrust)
+    );
 
     // Check if the exercise is unilateral or detected by backend as unilateral (e.g. seated row with one arm active, one resting)
     const isUnilateralMotion = Boolean((frame as any)?.is_unilateral) || exIdStr.includes('unilateral');
@@ -1664,12 +1686,45 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     ? Math.min(100, Math.max(0, (Math.min(videoCurrentTime, effectiveTotalDuration) / effectiveTotalDuration) * 100))
     : 0;
 
-  const safeExerciseId = String(selectedExerciseId || activeExercise?.id || 'hip_thrust').toLowerCase();
+  const UPPER_BODY_EXERCISES = [
+    'chest_press_machine', 'bench_press', 'incline_press', 'machine_dips', 't_bar_row',
+    'seated_row', 'lat_pulldown', 'shoulder_press', 'curl', 'fly', 'press', 'bench',
+    'incline', 'dips', 'row', 'remo', 'pulldown', 'pullup', 'pullover', 't_bar',
+    'gironda', 'face_pull', 'chest', 'shoulder', 'deltoid', 'triceps', 'biceps',
+    'pec_deck', 'pushdown'
+  ];
+  const LOWER_BODY_EXCLUSIONS = [
+    'leg_press', 'leg_extension', 'leg_curl', 'squat', 'hack', 'rdl', 'deadlift', 'hip_thrust', 'bulgarian', 'lunge'
+  ];
+
+  const resolvedExercise = String(
+    analysisData?.detected_exercise_type ||
+    (analysisData as any)?.exercise_type ||
+    (selectedExerciseId !== 'auto' ? selectedExerciseId : '') ||
+    activeExercise?.id ||
+    'chest_press_machine'
+  ).toLowerCase();
+
+  const isUpperBody = Boolean(
+    analysisData?.body_region === 'upper' ||
+    (analysisData as any)?.is_upper_body === true ||
+    (
+      (
+        selectedMuscleGroupId === 'chest' || selectedMuscleGroupId === 'back' || selectedMuscleGroupId === 'shoulders' || selectedMuscleGroupId === 'arms' ||
+        UPPER_BODY_EXERCISES.some(ex => resolvedExercise.includes(ex))
+      ) && !LOWER_BODY_EXCLUSIONS.some(ex => resolvedExercise.includes(ex))
+    )
+  );
+  const isLowerBody = !isUpperBody;
+
+  const safeExerciseId = resolvedExercise;
   const safePatternId = String(selectedPattern?.id || '').toLowerCase();
 
   const kinematicMeta = useMemo(() => {
-    const groupId = selectedMuscleGroupId || 'glutes_hamstrings';
-    const exId = safeExerciseId;
+    const exId = resolvedExercise;
+    const groupId = isUpperBody
+      ? (exId.includes('row') || exId.includes('pulldown') || exId.includes('pullup') || exId.includes('t_bar') || exId.includes('gironda') ? 'back' : 'chest')
+      : (selectedMuscleGroupId || 'glutes_hamstrings');
 
     if (groupId === 'chest' || exId.includes('bench') || (exId.includes('chest') && !exId.includes('row')) || exId.includes('pec') || (exId.includes('press') && !exId.includes('leg') && !exId.includes('shoulder')) || exId.includes('dip')) {
       return {
@@ -1817,18 +1872,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       barLabel2: 'Alineación Tibial',
       torqueFocus: 'GLÚTEO MAYOR'
     };
-  }, [selectedMuscleGroupId, selectedExerciseId]);
+  }, [selectedMuscleGroupId, selectedExerciseId, resolvedExercise, isUpperBody]);
 
   const primaryJointName = kinematicMeta.primaryJointName;
   const secondaryJointName = kinematicMeta.secondaryJointName;
-  const isLowerBody = kinematicMeta.isLowerBody;
 
-  const isHipThrustVariant =
+  const isHipThrustVariant = !isUpperBody && (
     safeExerciseId.includes('hip_thrust') ||
     safeExerciseId.includes('kas') ||
     safeExerciseId.includes('bridge') ||
     safeExerciseId.includes('thrust') ||
-    (activeExercise?.patternId && activeExercise.patternId.includes('hip_thrust'));
+    Boolean(activeExercise?.patternId && activeExercise.patternId.includes('hip_thrust'))
+  );
 
   // Dynamically calculate leverage and moment arm share for Upper Body or Lower Body
   const d_hip_val = currentFrame?.moment_arms?.d_hip ?? 0.14;

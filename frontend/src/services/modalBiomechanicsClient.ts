@@ -168,6 +168,9 @@ export interface BiomechanicsAnalysisResponse {
   total_duration_sec?: number;
   total_reps: number;
   locked_side: 'left' | 'right';
+  detected_exercise_type?: string;
+  body_region?: 'upper' | 'lower';
+  is_upper_body?: boolean;
   repetitions_summary: RepetitionSummary[];
   intensity_metrics?: IntensityMetrics;
   effective_muscle_weights?: Record<string, number>;
