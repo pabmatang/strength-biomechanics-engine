@@ -475,8 +475,13 @@ def run_inference_batches(
             batch_crop = batch_rgb
         batch_pil = [Image.fromarray(f) for f in batch_crop]
         
-        det_inputs = det_processor(images=batch_pil, return_tensors="pt").to(device)
-        with torch.inference_mode():
+        raw_det_inputs = det_processor(images=batch_pil, return_tensors="pt")
+        det_dtype = next(det_model.parameters()).dtype
+        det_inputs = {
+            k: (v.to(device=device, dtype=det_dtype) if torch.is_floating_point(v) else v.to(device=device))
+            for k, v in raw_det_inputs.items()
+        }
+        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
             det_outputs = det_model(**det_inputs)
             
         target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), dtype=torch.float32, device=device)
@@ -603,11 +608,16 @@ def run_inference_batches(
         batch_pil = [Image.fromarray(f) for f in batch_crop]
         batch_crops_subset = [[vitpose_crops[k]] for k in range(i, min(i + batch_size, n_frames))]
 
-        pose_inputs = pose_processor(images=batch_pil, boxes=batch_crops_subset, return_tensors="pt").to(device)
+        raw_pose_inputs = pose_processor(images=batch_pil, boxes=batch_crops_subset, return_tensors="pt")
+        pose_dtype = next(pose_model.parameters()).dtype
+        pose_inputs = {
+            k: (v.to(device=device, dtype=pose_dtype) if torch.is_floating_point(v) else v.to(device=device))
+            for k, v in raw_pose_inputs.items()
+        }
         num_boxes = pose_inputs["pixel_values"].shape[0]
         dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
         
-        with torch.inference_mode():
+        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
             try:
                 pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
             except (TypeError, ValueError):
