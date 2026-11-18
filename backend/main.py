@@ -17,6 +17,7 @@ import base64
 import io
 import tempfile
 import math
+import re
 from typing import Dict, List, Any, Optional, Tuple
 import json
 
@@ -179,31 +180,32 @@ def analyze_biomechanics_with_vlm(
     keyframes_b64: List[str],
     exercise_type: str,
     vbt_summary: Dict[str, Any],
-    raw_side_metrics: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
+    raw_side_metrics: Dict[str, Any],
+    gemini_api_key: Optional[str] = None
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
-    Capa 2: Cerebro Biomecánico Multimodal con Gemini 2.5 Flash sobre 4 Keyframes.
-    Realiza inferencia multimodal sobre la postura, máquina y vector de resistencia.
-    Cuenta con fallback automático determinista si la API no está configurada o hay timeout.
+    Capa 2: Cerebro Biomecánico Multimodal con Gemini sobre 4 Keyframes.
+    Intenta gemini-2.5-flash y si falla (error HTTP o timeout), hace fallback automático a gemini-2.0-flash.
+    Devuelve (resultado_json, error_str).
     """
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        print("[Biomechanics VLM] GEMINI_API_KEY no configurada. Usando fallback cinemático determinista local.")
-        return None
+        err_msg = "GEMINI_API_KEY no configurada (ni en payload ni en entorno)"
+        print(f"[Biomechanics VLM] {err_msg}. Usando fallback cinemático determinista local.")
+        return None, err_msg
 
     if not keyframes_b64 or len(keyframes_b64) < 1:
-        return None
-
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        return None, "No se proporcionaron fotogramas clave para VLM"
 
     prompt_text = (
         f"Actúa como Ph.D. en Biomecánica Deportiva y Visión por Computador.\n"
+        f"Observa la máquina, la postura del atleta y cualquier texto sobreimpreso en el vídeo para identificar con exactitud el ejercicio (`chest_press_machine`, `bench_press`, `incline_press`, `machine_dips`, `t_bar_row`, `seated_row`, `lat_pulldown`, `hip_thrust`, `rdl`, `squat`, `leg_press`).\n\n"
         f"Analiza estos 4 fotogramas clave de un ejercicio de gimnasio:\n"
         f"1. Inicio de repetición (start)\n"
         f"2. Fase excéntrica media (eccentric)\n"
         f"3. Máxima elongación / Punto de inflexión (bottom)\n"
         f"4. Bloqueo articular / Máxima contracción (peak)\n\n"
-        f"Ejercicio configurado: '{exercise_type}'.\n"
+        f"Ejercicio configurado inicialmente: '{exercise_type}'.\n"
         f"Métricas cinemáticas 2D preliminares:\n{json.dumps(raw_side_metrics, ensure_ascii=False)}\n"
         f"Resumen de repeticiones VBT:\n{json.dumps(vbt_summary, ensure_ascii=False)}\n\n"
         f"INSTRUCCIONES CLÍNICAS DE EVALUACIÓN:\n"
@@ -227,13 +229,17 @@ def analyze_biomechanics_with_vlm(
         f"6. 'is_bilateral_visible': true si ambos lados son visibles sin oclusión severa, false si uno está tapado.\n"
         f"7. 'hide_torso_line': true si el atleta está apoyado sobre un banco/pad frontal o la cadera está tapada por la máquina.\n"
         f"8. 'hide_neck_line': true si la cabeza está oculta por ropa/perspectiva o es un press tumbado/inclinado.\n"
-        f"9. 'force_vector_2d': Vector unitario 2D {{'ux': float, 'uy': float}} que representa la dirección hacia donde la resistencia mecánica empuja contra el atleta en el plano 2D. "
+        f"9. 'visual_landmarks': Coordenadas Y normalizadas (0.0 superior a 1.0 inferior) donde se aprecian visualmente las manos y los hombros/pecho:\n"
+        f"   - 'hands_y': float (ej. 0.38)\n"
+        f"   - 'chest_shoulders_y': float (ej. 0.56)\n"
+        f"   - 'head_visible': bool\n"
+        f"10. 'force_vector_2d': Vector unitario 2D {{'ux': float, 'uy': float}} que representa la dirección hacia donde la resistencia mecánica empuja contra el atleta en el plano 2D. "
         f"En press de pecho con empuje hacia adelante/arriba, la resistencia empuja en sentido contrario hacia atrás/abajo.\n"
-        f"10. 'load_anchor_joint': Punto anatómico de contacto con la carga: 'wrist' o 'hip'.\n"
-        f"11. 'torque_split': Músculo primario y secundario con su porcentaje de reparto fisiológico (ej. 68% Pectoral vs 32% Tríceps).\n"
-        f"12. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume 1.0 (ej. {{'chest': 0.68, 'triceps': 0.22, 'front_delts': 0.10}}).\n"
-        f"13. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
-        f"14. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n\n"
+        f"11. 'load_anchor_joint': Punto anatómico de contacto con la carga: 'wrist' o 'hip'.\n"
+        f"12. 'torque_split': Músculo primario y secundario con su porcentaje de reparto fisiológico (ej. 68% Pectoral vs 32% Tríceps).\n"
+        f"13. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume 1.0 (ej. {{'chest': 0.68, 'triceps': 0.22, 'front_delts': 0.10}}).\n"
+        f"14. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
+        f"15. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n\n"
         f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
         f"{{\n"
         f'  "detected_exercise_type": "chest_press_machine",\n'
@@ -244,6 +250,11 @@ def analyze_biomechanics_with_vlm(
         f'  "is_bilateral_visible": false,\n'
         f'  "hide_torso_line": true,\n'
         f'  "hide_neck_line": true,\n'
+        f'  "visual_landmarks": {{\n'
+        f'    "hands_y": 0.38,\n'
+        f'    "chest_shoulders_y": 0.56,\n'
+        f'    "head_visible": false\n'
+        f'  }},\n'
         f'  "force_vector_2d": {{ "ux": -0.85, "uy": 0.52 }},\n'
         f'  "load_anchor_joint": "wrist",\n'
         f'  "torque_split": {{\n'
@@ -292,29 +303,41 @@ def analyze_biomechanics_with_vlm(
         }
     }
 
-    try:
-        resp = requests.post(
-            endpoint,
-            headers={"Content-Type": "application/json"},
-            json=req_payload,
-            timeout=8.0
-        )
-        if resp.status_code == 200:
-            resp_json = resp.json()
-            candidates = resp_json.get("candidates", [])
-            if candidates:
-                cand = candidates[0]
-                text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
-                if text_content:
-                    parsed = json.loads(text_content)
-                    print(f"[Biomechanics VLM] Inferencia Gemini 2.5 Flash completada con éxito. Lado activo detectado: {parsed.get('active_working_side')}")
-                    return parsed
-        else:
-            print(f"[Biomechanics VLM] Gemini API status {resp.status_code}: {resp.text[:200]}")
-    except Exception as e:
-        print(f"[Biomechanics VLM] Exception during Gemini VLM call ({type(e).__name__}): {e}")
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    last_err = None
 
-    return None
+    for model_name in models_to_try:
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        try:
+            resp = requests.post(
+                endpoint,
+                headers={"Content-Type": "application/json"},
+                json=req_payload,
+                timeout=9.0
+            )
+            if resp.status_code == 200:
+                resp_json = resp.json()
+                candidates = resp_json.get("candidates", [])
+                if candidates:
+                    cand = candidates[0]
+                    text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
+                    if text_content:
+                        text_clean = text_content.strip()
+                        if text_clean.startswith("```"):
+                            text_clean = re.sub(r"^```(?:json)?\s*", "", text_clean)
+                            text_clean = re.sub(r"\s*```$", "", text_clean)
+                        text_clean = text_clean.strip()
+                        parsed = json.loads(text_clean)
+                        print(f"[Biomechanics VLM] Inferencia {model_name} completada con éxito. Ejercicio detectado: {parsed.get('detected_exercise_type')}, Lado activo: {parsed.get('active_working_side')}")
+                        return parsed, None
+            else:
+                last_err = f"HTTP {resp.status_code} ({model_name}): {resp.text[:160]}"
+                print(f"[Biomechanics VLM] {last_err}")
+        except Exception as e:
+            last_err = f"Exception ({model_name}): {type(e).__name__} - {e}"
+            print(f"[Biomechanics VLM] {last_err}")
+
+    return None, (last_err or "Inferencia Gemini falló en todos los modelos")
 
 def sample_video_frames(
     video_path: str,
@@ -682,17 +705,21 @@ def process_kinematics(
     target_reps: Optional[int] = None,
     anthropometry: Optional[Dict[str, Any]] = None,
     frames_rgb: Optional[List[np.ndarray]] = None,
-    is_manual_override: bool = False
+    is_manual_override: bool = False,
+    gemini_api_key: Optional[str] = None
 ):
     """
     Capa 1: Visión 2D Pura e Inmutable sobre ViTPose + RT-DETR.
     Prohibido alterar coordenadas 2D o re-proyectar longitudes óseas artificiales.
     Filtro Butterworth 2.0 Hz bidireccional de fase cero sobre coordenadas interpoladas.
-    Capa 2: Orquestador Biomecánico Multimodal con Gemini 2.5 Flash sobre 4 Keyframes.
+    Capa 2: Orquestador Biomecánico Multimodal con Gemini sobre 4 Keyframes.
     """
     n_frames = len(raw_keypoints)
     if n_frames == 0:
         return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
+
+    vlm_used = False
+    vlm_error = None
     
     # 0. Scene Cut Detection (salto brusco >22% en posición o tamaño de bounding box)
     is_scene_cut = [False] * n_frames
@@ -797,10 +824,16 @@ def process_kinematics(
                 "max_hip_rom": round(max(left_hp_rom, right_hp_rom), 1),
                 "facing_dir": facing_dir
             }
-            vlm_result = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, {}, vlm_pre_metrics)
+            vlm_res, vlm_err = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, {}, vlm_pre_metrics, gemini_api_key=gemini_api_key)
+            if vlm_res:
+                vlm_result = vlm_res
+                vlm_used = True
+            else:
+                vlm_error = vlm_err
         except Exception as e_vlm_early:
             print(f"[VLM Layer 2 Early] Error: {e_vlm_early}")
             vlm_result = None
+            vlm_error = str(e_vlm_early)
 
     if vlm_result and vlm_result.get("detected_exercise_type"):
         exercise_type = vlm_result["detected_exercise_type"]
@@ -808,7 +841,7 @@ def process_kinematics(
             target_muscle = vlm_result["target_muscle"]
         if vlm_result.get("load_type"):
             load_type = vlm_result["load_type"]
-        print(f"[Auto-Detection VLM] Ejercicio detectado por Gemini 2.5 Flash: {exercise_type} ({target_muscle}, {load_type})")
+        print(f"[Auto-Detection VLM] Ejercicio detectado por Gemini: {exercise_type} ({target_muscle}, {load_type})")
     elif exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override:
         # Intelligent Kinematic Fallback: NEVER default to hip_thrust if upper body ROM dominates
         max_elbow_rom = max(left_el_rom, right_el_rom)
@@ -817,8 +850,16 @@ def process_kinematics(
         if max_elbow_rom > max_leg_rom and max_elbow_rom >= 22.0:
             med_w_x = float(0.5 * (np.median(all_smoothed["left_wrist"]["x"]) + np.median(all_smoothed["right_wrist"]["x"])))
             med_s_x = float(0.5 * (np.median(all_smoothed["left_shoulder"]["x"]) + np.median(all_smoothed["right_shoulder"]["x"])))
-            is_hand_forward = (med_w_x - med_s_x) * facing_dir > 0.02
-            if is_hand_forward:
+            med_w_y = float(0.5 * (np.median(all_smoothed["left_wrist"]["y"]) + np.median(all_smoothed["right_wrist"]["y"])))
+            med_s_y = float(0.5 * (np.median(all_smoothed["left_shoulder"]["y"]) + np.median(all_smoothed["right_shoulder"]["y"])))
+            med_h_y = float(0.5 * (np.median(all_smoothed["left_hip"]["y"]) + np.median(all_smoothed["right_hip"]["y"])))
+
+            # Check horizontal push (+X in facing direction) OR vertical / contrapicado push (-Y or inverted arms)
+            is_horizontal_push = (med_w_x - med_s_x) * facing_dir > 0.02
+            is_vertical_push = (med_s_y - med_w_y) > 0.04 or (med_w_y - med_s_y) > 0.04
+            is_lying_down = abs(med_s_y - med_h_y) < 0.22 or abs(med_w_y - med_h_y) < 0.22
+
+            if is_horizontal_push or is_vertical_push or is_lying_down:
                 exercise_type = "chest_press_machine"
                 target_muscle = "chest"
                 load_type = "machine"
@@ -864,15 +905,34 @@ def process_kinematics(
     is_upper_body = is_pattern_a or is_pattern_b
     is_hip_thrust = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
 
+    vl = vlm_result.get("visual_landmarks", {}) if vlm_result else {}
+    vlm_hands_above = bool(
+        isinstance(vl, dict) and
+        vl.get("hands_y") is not None and
+        vl.get("chest_shoulders_y") is not None and
+        float(vl["hands_y"]) < float(vl["chest_shoulders_y"])
+    )
+
+    is_press_exercise = (
+        any(k in ex_lower for k in ["press", "bench", "incline", "dips", "pec_deck", "chest"]) or
+        vlm_hands_above
+    ) and not any(k in ex_lower for k in ["leg_press"])
+
+    hide_neck_line_forced = False
+    hide_torso_line_forced = False
+
     # Anatomical re-mapping for low-angle contrapicado shots in lying/inclined chest press
-    if is_pattern_b:
+    if is_press_exercise:
         for side in ["left", "right"]:
             med_s_y = float(np.median(all_smoothed[f"{side}_shoulder"]["y"]))
             med_w_y = float(np.median(all_smoothed[f"{side}_wrist"]["y"]))
-            # If wrist is detected below shoulder while pushing upward in contrapicado angle, swap them
-            if med_w_y > med_s_y + 0.10:
-                print(f"[Contrapicado Fix] Inversión anatómica corregida en lado {side} (muñeca <-> hombro).")
+            # In any chest press, hands are geometrically above shoulders (y is smaller at top).
+            # If ViTPose places wrist below shoulder (med_w_y > med_s_y), swap them!
+            if med_w_y > med_s_y:
+                print(f"[Contrapicado Press Fix] Inversión de brazo detectada en lado {side} (muñeca y={med_w_y:.2f} > hombro y={med_s_y:.2f}). Intercambiando hombro <-> muñeca.")
                 all_smoothed[f"{side}_shoulder"], all_smoothed[f"{side}_wrist"] = all_smoothed[f"{side}_wrist"], all_smoothed[f"{side}_shoulder"]
+                hide_neck_line_forced = True
+                hide_torso_line_forced = True
 
     # 2. Deterministic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
@@ -1049,10 +1109,11 @@ def process_kinematics(
     # Torso and Neck visibility flags
     mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
     is_chest_or_tbar = any(k in ex_lower for k in ["press", "bench", "incline", "chest", "dips", "t_bar", "remo_punta", "barra_t"])
-    hide_torso_line = bool(is_chest_or_tbar or (is_upper_body and mean_hip_score < 0.60))
+    hide_torso_line = bool(hide_torso_line_forced or is_chest_or_tbar or (is_upper_body and mean_hip_score < 0.60))
 
     head_score = float(np.mean(smoothed_head["score"]))
     hide_neck_line = bool(
+        hide_neck_line_forced or
         head_score < 0.55 or
         is_pattern_b or
         (vlm_result and vlm_result.get("hide_neck_line"))
@@ -1899,10 +1960,16 @@ def process_kinematics(
                 "v_fail": v_fail,
                 "delta_v_rep": delta_v_rep
             }
-            vlm_result = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, vbt_summary, raw_side_metrics)
+            vlm_res, vlm_err = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, vbt_summary, raw_side_metrics, gemini_api_key=gemini_api_key)
+            if vlm_res:
+                vlm_result = vlm_res
+                vlm_used = True
+            elif not vlm_used:
+                vlm_error = vlm_err
         except Exception as e_vlm:
             print(f"[VLM Layer 2] Error during VLM orchestrator call: {e_vlm}")
-            vlm_result = None
+            if not vlm_used:
+                vlm_error = str(e_vlm)
 
     if vlm_result:
         # Apply VLM overrides cleanly
@@ -1914,10 +1981,10 @@ def process_kinematics(
             primary_joints["hand"] = primary_joints["wrist"]
         
         if vlm_result.get("hide_torso_line") is not None:
-            hide_torso_line = bool(vlm_result["hide_torso_line"])
+            hide_torso_line = bool(vlm_result["hide_torso_line"]) or hide_torso_line
 
         if vlm_result.get("hide_neck_line") is not None:
-            hide_neck_line = bool(vlm_result["hide_neck_line"])
+            hide_neck_line = bool(vlm_result["hide_neck_line"]) or hide_neck_line
             
         fv = vlm_result.get("force_vector_2d")
         if isinstance(fv, dict) and "ux" in fv and "uy" in fv:
@@ -2377,6 +2444,8 @@ def process_kinematics(
         "intensity_metrics": intensity_metrics,
         "repetitions_summary": repetitions_summary,
         "vlm_analysis": vlm_result,
+        "vlm_used": bool(vlm_used),
+        "vlm_error": str(vlm_error) if vlm_error else None,
         "frames": frames_output
     }
 
@@ -2583,6 +2652,7 @@ def analyze(
     target_reps=None,
     anthropometry=None,
     is_manual_override=False,
+    gemini_api_key=None,
     **kwargs
 ) -> dict:
     """
@@ -2610,6 +2680,7 @@ def analyze(
         target_reps = payload.get("target_reps", payload.get("targetReps", target_reps))
         anthropometry = payload.get("anthropometry", anthropometry)
         is_manual_override = bool(payload.get("is_manual_override", is_manual_override))
+        gemini_api_key = payload.get("gemini_api_key") or kwargs.get("gemini_api_key") or gemini_api_key or os.environ.get("GEMINI_API_KEY", "").strip()
     else:
         exercise_type = exercise_type or kwargs.get("exercise_type", "auto")
         target_muscle = target_muscle or kwargs.get("target_muscle", "auto")
@@ -2620,6 +2691,7 @@ def analyze(
         target_reps = target_reps or kwargs.get("target_reps", kwargs.get("targetReps"))
         anthropometry = anthropometry or kwargs.get("anthropometry")
         is_manual_override = bool(kwargs.get("is_manual_override", is_manual_override))
+        gemini_api_key = gemini_api_key or kwargs.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "").strip()
 
     exercise_type = str(exercise_type)
     target_muscle = str(target_muscle)
@@ -2663,7 +2735,8 @@ def analyze(
             target_reps=target_reps,
             anthropometry=anthropometry,
             frames_rgb=frames_rgb,
-            is_manual_override=is_manual_override
+            is_manual_override=is_manual_override,
+            gemini_api_key=gemini_api_key
         )
         return result
     finally:
@@ -2684,6 +2757,7 @@ def predict(
     start_time=0.0,
     end_time=None,
     is_manual_override=False,
+    gemini_api_key=None,
     **kwargs
 ):
     return analyze(
@@ -2696,5 +2770,6 @@ def predict(
         start_time=start_time,
         end_time=end_time,
         is_manual_override=is_manual_override,
+        gemini_api_key=gemini_api_key,
         **kwargs
     )

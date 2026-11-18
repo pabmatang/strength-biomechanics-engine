@@ -508,6 +508,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         targetMuscle: muscle,
         loadType: backendLoad,
         isManualOverride: isManualOverride,
+        geminiApiKey: (import.meta as any).env?.VITE_GEMINI_API_KEY || '',
         weightKg: weightKg && weightKg > 0 ? weightKg : undefined,
         targetReps: targetReps && targetReps > 0 ? targetReps : undefined,
         anthropometry: userProfile
@@ -2420,17 +2421,57 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="space-y-1 max-w-sm">
                     <p className="text-sm font-black text-white">Recorte Previo y Configuración</p>
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      Ajusta los deslizadores de inicio ({trimStart.toFixed(1)}s) y fin ({trimEnd.toFixed(1)}s) en el panel inferior para delimitar la serie de trabajo. Selecciona el ejercicio a la derecha y pulsa iniciar.
+                      Ajusta los deslizadores de inicio ({trimStart.toFixed(1)}s) y fin ({trimEnd.toFixed(1)}s) para delimitar la serie de trabajo. Elige el ejercicio o déjalo en auto-detección y pulsa iniciar.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleStartAnalysis}
-                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <Sparkles className="w-4 h-4 text-cyan-200" />
-                    <span>Iniciar Análisis Biomecánico</span>
-                  </button>
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full max-w-md">
+                    <select
+                      value={isManualOverride ? selectedExerciseId : 'auto'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'auto') {
+                          setIsManualOverride(false);
+                        } else {
+                          const item = ALL_EXERCISES.find(x => x.id === val);
+                          if (item) {
+                            handleExerciseSelect(item);
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 shadow-md truncate"
+                    >
+                      <option value="auto">✨ Auto-detectar ejercicio con IA</option>
+                      <optgroup label="Pecho / Empujes">
+                        {ALL_EXERCISES.filter(x => x.targetMuscle === 'pectorals').map(x => (
+                          <option key={x.id} value={x.id}>{x.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Espalda / Tracciones">
+                        {ALL_EXERCISES.filter(x => x.targetMuscle === 'lats' || x.targetMuscle === 'upper_back').map(x => (
+                          <option key={x.id} value={x.id}>{x.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Pierna / Glúteo / Isquios">
+                        {ALL_EXERCISES.filter(x => ['quadriceps', 'glutes_max', 'hamstrings'].includes(x.targetMuscle)).map(x => (
+                          <option key={x.id} value={x.id}>{x.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Brazos">
+                        {ALL_EXERCISES.filter(x => ['biceps', 'triceps'].includes(x.targetMuscle)).map(x => (
+                          <option key={x.id} value={x.id}>{x.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={handleStartAnalysis}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+                    >
+                      <Sparkles className="w-4 h-4 text-cyan-200" />
+                      <span>Iniciar Análisis</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -2650,12 +2691,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               {/* Pastilla Superior Limpia: Detección Automática con Toggle "Cambiar" */}
               <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-2 shadow-inner">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-cyan-400 text-sm">✨</span>
+                  <span className="text-cyan-400 text-sm">
+                    {analysisData && analysisData.vlm_used === false ? '⚠️' : '✨'}
+                  </span>
                   <div className="min-w-0">
                     <span className="text-[11px] font-bold text-slate-200 block truncate">
-                      {analysisData?.vlm_analysis?.detected_exercise_name
-                        ? `Detectado: ${analysisData.vlm_analysis.detected_exercise_name}`
-                        : (isManualOverride
+                      {analysisData && analysisData.vlm_used === false ? (
+                        <span className="text-amber-400 font-bold">
+                          ⚠️ Fallback Cinemático Local (VLM inactivo: {analysisData.vlm_error || 'Sin API Key'})
+                        </span>
+                      ) : analysisData?.vlm_analysis?.detected_exercise_name ? (
+                        `Detectado: ${analysisData.vlm_analysis.detected_exercise_name}`
+                      ) : (isManualOverride
                             ? `Selección Manual: ${activeExercise.name}`
                             : '✨ Detección Automática de Ejercicio · Reconocimiento por VLM')}
                       {(analysisData || isManualOverride) && activeExercise?.targetMuscle && (
@@ -2664,10 +2711,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                     <span className="text-[9px] text-slate-500 block truncate font-mono">
                       {analysisData
-                        ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada`
+                        ? (analysisData.vlm_used === false
+                            ? 'Cinemática determinista por rangos articulares 2D (ViTPose + Butterworth)'
+                            : `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada (Gemini)`)
                         : (isManualOverride
                             ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Selección manual por usuario`
-                            : 'Clasificación inteligente multivariante y biomecánica (Gemini 2.5 Flash + ViTPose)')}
+                            : 'Clasificación inteligente multivariante y biomecánica (Gemini + ViTPose)')}
                     </span>
                   </div>
                 </div>
@@ -2712,16 +2761,61 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               </div>
 
-              {/* Botón Prominente Iniciar Análisis Biomecánico en Panel */}
-              <button
-                type="button"
-                onClick={handleStartAnalysis}
-                disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/30 transition active:scale-[0.99]"
-              >
-                <Sparkles className={`w-4 h-4 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
-                <span>{analysisData ? 'Re-analizar Ejercicio' : 'Iniciar Análisis Biomecánico'}</span>
-              </button>
+              {/* Selector Rápido Pre-Análisis en 1 Clic & Botón Iniciar Análisis Biomecánico */}
+              <div className="space-y-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                    Modo / Ejercicio para Análisis
+                  </label>
+                  <select
+                    value={isManualOverride ? selectedExerciseId : 'auto'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'auto') {
+                        setIsManualOverride(false);
+                      } else {
+                        const item = ALL_EXERCISES.find(x => x.id === val);
+                        if (item) {
+                          handleExerciseSelect(item);
+                        }
+                      }
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 hover:border-cyan-500 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 transition truncate shadow-inner"
+                  >
+                    <option value="auto">✨ Auto-detectar ejercicio con IA</option>
+                    <optgroup label="Pecho / Empujes">
+                      {ALL_EXERCISES.filter(x => x.targetMuscle === 'pectorals').map(x => (
+                        <option key={x.id} value={x.id}>{x.name}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Espalda / Tracciones">
+                      {ALL_EXERCISES.filter(x => x.targetMuscle === 'lats' || x.targetMuscle === 'upper_back').map(x => (
+                        <option key={x.id} value={x.id}>{x.name}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Pierna / Glúteo / Isquios">
+                      {ALL_EXERCISES.filter(x => ['quadriceps', 'glutes_max', 'hamstrings'].includes(x.targetMuscle)).map(x => (
+                        <option key={x.id} value={x.id}>{x.name}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Brazos">
+                      {ALL_EXERCISES.filter(x => ['biceps', 'triceps'].includes(x.targetMuscle)).map(x => (
+                        <option key={x.id} value={x.id}>{x.name}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleStartAnalysis}
+                  disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/30 transition active:scale-[0.99]"
+                >
+                  <Sparkles className={`w-4 h-4 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
+                  <span>{analysisData ? 'Re-analizar Ejercicio' : 'Iniciar Análisis Biomecánico'}</span>
+                </button>
+              </div>
 
               {/* Cuadrícula manual desplegable (Oculta por defecto) */}
               {showManualExerciseSelector && (

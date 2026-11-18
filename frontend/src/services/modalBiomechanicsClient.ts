@@ -14,6 +14,7 @@ export interface ExerciseConfig {
   targetMuscle: string;
   loadType: string;
   isManualOverride?: boolean;
+  geminiApiKey?: string;
   customNotes?: string;
   weightKg?: number;
   targetReps?: number;
@@ -171,6 +172,8 @@ export interface BiomechanicsAnalysisResponse {
   intensity_metrics?: IntensityMetrics;
   effective_muscle_weights?: Record<string, number>;
   vlm_analysis?: VlmAnalysis;
+  vlm_used?: boolean;
+  vlm_error?: string | null;
   frames: BiomechanicsFrame[];
 }
 
@@ -272,6 +275,8 @@ export async function analyzeVideoWithModal(
       }
     }
 
+    const geminiApiKey = config.geminiApiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+
     const doFetch = async () => {
       if (isCerebrium) {
         return fetch(endpointUrl, {
@@ -284,6 +289,7 @@ export async function analyzeVideoWithModal(
             target_muscle: String(config.targetMuscle),
             load_type: String(config.loadType),
             is_manual_override: Boolean(config.isManualOverride),
+            gemini_api_key: geminiApiKey,
             start_time: startTime,
             end_time: endTime,
             weight_kg: config.weightKg,
@@ -297,6 +303,7 @@ export async function analyzeVideoWithModal(
         formData.append('exercise_type', String(config.exerciseType));
         formData.append('target_muscle', String(config.targetMuscle));
         formData.append('load_type', String(config.loadType));
+        formData.append('gemini_api_key', geminiApiKey);
         formData.append('start_time', String(startTime));
         if (endTime !== null) {
           formData.append('end_time', String(endTime));
