@@ -13,6 +13,7 @@ export interface ExerciseConfig {
   exerciseType: string;
   targetMuscle: string;
   loadType: string;
+  isManualOverride?: boolean;
   customNotes?: string;
   weightKg?: number;
   targetReps?: number;
@@ -282,6 +283,7 @@ export async function analyzeVideoWithModal(
             exercise_type: String(config.exerciseType),
             target_muscle: String(config.targetMuscle),
             load_type: String(config.loadType),
+            is_manual_override: Boolean(config.isManualOverride),
             start_time: startTime,
             end_time: endTime,
             weight_kg: config.weightKg,

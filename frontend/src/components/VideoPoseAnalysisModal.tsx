@@ -344,6 +344,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     return parentGroup ? parentGroup.id : 'glutes_hamstrings';
   });
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>(initialExercise.id);
+  const [isManualOverride, setIsManualOverride] = useState<boolean>(false);
   const [showManualExerciseSelector, setShowManualExerciseSelector] = useState<boolean>(false);
 
   // Synchronize exercise and group when modal opens or defaults change
@@ -506,6 +507,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         exerciseType: exType,
         targetMuscle: muscle,
         loadType: backendLoad,
+        isManualOverride: isManualOverride,
         weightKg: weightKg && weightKg > 0 ? weightKg : undefined,
         targetReps: targetReps && targetReps > 0 ? targetReps : undefined,
         anthropometry: userProfile
@@ -517,8 +519,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineState('ready');
       setPipelineMessage('');
 
-      if (result.vlm_analysis?.detected_exercise_name) {
-        const detected = resolveExercise('', result.vlm_analysis.detected_exercise_name);
+      const detectedName = result.vlm_analysis?.detected_exercise_name || (result as any).detected_exercise_type;
+      if (detectedName && !isManualOverride) {
+        const detected = resolveExercise('', detectedName);
         if (detected) {
           setSelectedExerciseId(detected.id);
           setTargetMuscle(detected.targetMuscle);
@@ -613,6 +616,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     setShowTrimmer(true);
     setAnalysisData(null);
     setCurrentFrame(null);
+    setIsManualOverride(false);
     setPipelineState('idle');
     setPipelineMessage('');
 
@@ -643,12 +647,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       }
       compressedBlobRef.current = videoBlobToSend;
 
+      const exToSend = isManualOverride ? activeExercise.exerciseType : 'auto';
+      const muscleToSend = isManualOverride ? activeExercise.targetMuscle : 'auto';
+      const loadToSend = isManualOverride ? activeExercise.loadType : 'auto';
+
       await runPipelineAnalysis(
         videoBlobToSend,
         fileId,
-        activeExercise.exerciseType,
-        activeExercise.targetMuscle,
-        activeExercise.loadType,
+        exToSend,
+        muscleToSend,
+        loadToSend,
         range
       );
 
@@ -666,6 +674,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // Trigger re-analysis when exercise configuration changes (Instant from cache if already processed)
   const handleExerciseSelect = (item: ExerciseItem) => {
+    setIsManualOverride(true);
     setSelectedExerciseId(item.id);
     setTargetMuscle(item.targetMuscle);
     setLoadType(item.loadType);
@@ -1000,7 +1009,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const isNeckHyperextended = currentNeckAngle > 28;
       const neckColor = isNeckHyperextended ? '#EF4444' : '#10B981';
 
-      if ((pHd.score ?? 0) >= 0.20) {
+      if ((pHd.score ?? 0) >= 0.20 && !(frame as any)?.hide_neck_line) {
         drawThickSegment(pSh, pHd, neckColor);
         drawBigPoint(pHd, neckColor);
         if (options.showCanvasText && isNeckHyperextended) {
@@ -2646,14 +2655,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     <span className="text-[11px] font-bold text-slate-200 block truncate">
                       {analysisData?.vlm_analysis?.detected_exercise_name
                         ? `Detectado: ${analysisData.vlm_analysis.detected_exercise_name}`
-                        : (activeExercise ? `Detectado: ${activeExercise.name}` : 'Detección Automática de Ejercicio')}
-                      {activeExercise?.targetMuscle && (
+                        : (isManualOverride
+                            ? `Selección Manual: ${activeExercise.name}`
+                            : '✨ Detección Automática de Ejercicio · Reconocimiento por VLM')}
+                      {(analysisData || isManualOverride) && activeExercise?.targetMuscle && (
                         <span className="text-slate-400 font-normal"> · {activeExercise.targetMuscle}</span>
                       )}
                     </span>
                     <span className="text-[9px] text-slate-500 block truncate font-mono">
-                      {activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'}
-                      {analysisData?.vlm_analysis?.detected_exercise_name ? ' · Clasificación IA Sincronizada' : ' · Auto-detección por VLM'}
+                      {analysisData
+                        ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada`
+                        : (isManualOverride
+                            ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Selección manual por usuario`
+                            : 'Clasificación inteligente multivariante y biomecánica (Gemini 2.5 Flash + ViTPose)')}
                     </span>
                   </div>
                 </div>

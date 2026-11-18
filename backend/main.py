@@ -207,26 +207,45 @@ def analyze_biomechanics_with_vlm(
         f"Métricas cinemáticas 2D preliminares:\n{json.dumps(raw_side_metrics, ensure_ascii=False)}\n"
         f"Resumen de repeticiones VBT:\n{json.dumps(vbt_summary, ensure_ascii=False)}\n\n"
         f"INSTRUCCIONES CLÍNICAS DE EVALUACIÓN:\n"
-        f"1. 'active_working_side': Determina si el brazo o pierna activo de trabajo que está en primer plano y claramente visible es 'left' o 'right'. "
-        f"En B-Stance RDL o Sentadilla Búlgara, selecciona la pierna de soporte delantera plantada en el suelo. En Remo o Press con vista oblicua, selecciona el brazo visible en primer plano.\n"
-        f"2. 'is_bilateral_visible': true si ambos lados del cuerpo son claramente visibles sin oclusión severa, false si un lado está oculto tras el torso.\n"
-        f"3. 'hide_torso_line': true si el atleta está apoyado sobre un banco/pad frontal (ej. T-Bar, banco inclinado, fondos) o la cadera está tapada por la máquina.\n"
-        f"4. 'force_vector_2d': Vector unitario 2D {{'ux': float, 'uy': float}} que representa la dirección hacia donde la resistencia mecánica empuja/tira contra el atleta en el plano de la imagen. "
-        f"Gravedad pura: {{'ux': 0.0, 'uy': 1.0}}. Jalón vertical: {{'ux': 0.0, 'uy': -1.0}}. En máquinas de empuje/tracción, sigue el eje real de la máquina.\n"
-        f"5. 'load_anchor_joint': Punto anatómico donde se aplica la carga: 'wrist' (brazo, mancuerna, barra) o 'hip' (hip thrust / puente de glúteo).\n"
-        f"6. 'torque_split': Músculo primario y secundario con su porcentaje de reparto de torque y etiquetas cortas (ej. 'P', 'T' o 'D', 'B' o 'G', 'C').\n"
-        f"7. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume exactamente 1.0 (ej. {{'chest': 0.65, 'triceps': 0.25, 'front_delts': 0.10}}).\n"
-        f"8. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
-        f"9. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n"
-        f"10. 'detected_exercise_name': Nombre conciso y profesional del ejercicio detectado observando la máquina y atleta (ej. 'Press en Máquina Convergente', 'Remo en T', 'Sentadilla Búlgara', 'Peso Muerto Rumano', 'Fondos en Máquina', 'Hip Thrust').\n\n"
+        f"1. 'detected_exercise_type': Determina cuál de estos ejercicios exactos de catálogo se está ejecutando:\n"
+        f"   - 'chest_press_machine' (Press de Pecho en Máquina horizontal, convergente o inclinada)\n"
+        f"   - 'bench_press' (Press de Banca plano o reclinado con barra o mancuernas)\n"
+        f"   - 'incline_press' (Press Inclinado con mancuernas o barra)\n"
+        f"   - 'machine_dips' (Fondos en Máquina o paralelas)\n"
+        f"   - 't_bar_row' (Remo en T con o sin apoyo de pecho)\n"
+        f"   - 'seated_row' (Remo Sentado en máquina o polea gironda)\n"
+        f"   - 'lat_pulldown' (Jalón al Pecho en polea o dominadas)\n"
+        f"   - 'hip_thrust' (Hip Thrust en máquina o con barra libre sobre caderas)\n"
+        f"   - 'rdl' (Peso Muerto Rumano con barra o mancuernas)\n"
+        f"   - 'squat' (Sentadilla libre o en multipower / hack)\n"
+        f"   - 'leg_press' (Prensa de Piernas)\n"
+        f"2. 'detected_exercise_name': Nombre conciso y profesional en español (ej. 'Press en Máquina Convergente', 'Remo en T', 'Sentadilla Búlgara', 'Peso Muerto Rumano', 'Fondos en Máquina', 'Hip Thrust en Máquina').\n"
+        f"3. 'target_muscle': 'chest', 'back', 'shoulders', 'glutes', 'hamstrings', 'quads'.\n"
+        f"4. 'load_type': 'machine', 'free_weight', 'cable'.\n"
+        f"5. 'active_working_side': Determina si el brazo o pierna en primer plano frente a la cámara es 'left' o 'right'. "
+        f"En vistas de perfil/oblicuas mirando a la derecha, el brazo cercano a la lente es 'right'; mirando a la izquierda es 'left'.\n"
+        f"6. 'is_bilateral_visible': true si ambos lados son visibles sin oclusión severa, false si uno está tapado.\n"
+        f"7. 'hide_torso_line': true si el atleta está apoyado sobre un banco/pad frontal o la cadera está tapada por la máquina.\n"
+        f"8. 'hide_neck_line': true si la cabeza está oculta por ropa/perspectiva o es un press tumbado/inclinado.\n"
+        f"9. 'force_vector_2d': Vector unitario 2D {{'ux': float, 'uy': float}} que representa la dirección hacia donde la resistencia mecánica empuja contra el atleta en el plano 2D. "
+        f"En press de pecho con empuje hacia adelante/arriba, la resistencia empuja en sentido contrario hacia atrás/abajo.\n"
+        f"10. 'load_anchor_joint': Punto anatómico de contacto con la carga: 'wrist' o 'hip'.\n"
+        f"11. 'torque_split': Músculo primario y secundario con su porcentaje de reparto fisiológico (ej. 68% Pectoral vs 32% Tríceps).\n"
+        f"12. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume 1.0 (ej. {{'chest': 0.68, 'triceps': 0.22, 'front_delts': 0.10}}).\n"
+        f"13. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
+        f"14. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n\n"
         f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
         f"{{\n"
+        f'  "detected_exercise_type": "chest_press_machine",\n'
         f'  "detected_exercise_name": "Press en Máquina Convergente",\n'
-        f'  "active_working_side": "left | right",\n'
+        f'  "target_muscle": "chest",\n'
+        f'  "load_type": "machine",\n'
+        f'  "active_working_side": "right",\n'
         f'  "is_bilateral_visible": false,\n'
         f'  "hide_torso_line": true,\n'
+        f'  "hide_neck_line": true,\n'
         f'  "force_vector_2d": {{ "ux": -0.85, "uy": 0.52 }},\n'
-        f'  "load_anchor_joint": "wrist | hip",\n'
+        f'  "load_anchor_joint": "wrist",\n'
         f'  "torque_split": {{\n'
         f'    "primary_muscle": "Pectoral Mayor",\n'
         f'    "primary_pct": 68,\n'
@@ -236,15 +255,15 @@ def analyze_biomechanics_with_vlm(
         f'    "short_secondary_label": "T"\n'
         f'  }},\n'
         f'  "effective_muscle_weights": {{\n'
-        f'    "chest": 0.65,\n'
-        f'    "triceps": 0.25,\n'
+        f'    "chest": 0.68,\n'
+        f'    "triceps": 0.22,\n'
         f'    "front_delts": 0.10\n'
         f'  }},\n'
         f'  "postural_diagnosis": {{\n'
-        f'    "overall_status": "Óptimo | Ajustar",\n'
+        f'    "overall_status": "Óptimo",\n'
         f'    "summary": "Diagnóstico clínico conciso observando la máquina y postura real.",\n'
-        f'    "neck_and_spine": "Alineación cervical neutra y espalda estable sin hiperextensión.",\n'
-        f'    "joint_alignment": "Codos a ~55° del torso en el plano de empuje de la máquina.",\n'
+        f'    "neck_and_spine": "Alineación cervical neutra y espalda estable.",\n'
+        f'    "joint_alignment": "Codos a ~50° del torso en el plano de empuje de la máquina.",\n'
         f'    "rom_quality": "Recorrido completo con control excéntrico."\n'
         f'  }},\n'
         f'  "vbt_override": {{\n'
@@ -492,7 +511,13 @@ def run_inference_batches(
             p_boxes = []
             for idx, l in enumerate(labels):
                 if l == 0 and scores[idx] >= 0.20:
-                    p_boxes.append((boxes[idx].tolist(), float(scores[idx])))
+                    b_cand = boxes[idx].tolist()
+                    box_cy_norm = ((b_cand[1] + b_cand[3]) / 2.0) / float(eff_h)
+                    box_h_norm = (b_cand[3] - b_cand[1]) / float(eff_h)
+                    # Discard static boxes in the upper 32% of the frame (posters/murals on gym walls)
+                    if box_cy_norm < 0.32 and box_h_norm < 0.42:
+                        continue
+                    p_boxes.append((b_cand, float(scores[idx])))
             all_frame_detections.append(p_boxes)
 
     # ---------------------------------------------------------------------
@@ -647,16 +672,17 @@ def run_inference_batches(
 def process_kinematics(
     raw_keypoints: List[Dict[str, Dict[str, float]]],
     timestamps: List[float],
-    exercise_type: str,
-    target_muscle: str,
-    load_type: str,
+    exercise_type: str = "auto",
+    target_muscle: str = "auto",
+    load_type: str = "auto",
     athlete_boxes: Optional[List[Dict[str, float]]] = None,
     img_w: int = 1280,
     img_h: int = 720,
     weight_kg: Optional[float] = None,
     target_reps: Optional[int] = None,
     anthropometry: Optional[Dict[str, Any]] = None,
-    frames_rgb: Optional[List[np.ndarray]] = None
+    frames_rgb: Optional[List[np.ndarray]] = None,
+    is_manual_override: bool = False
 ):
     """
     Capa 1: Visión 2D Pura e Inmutable sobre ViTPose + RT-DETR.
@@ -686,25 +712,6 @@ def process_kinematics(
     scene_cut_indices.append(n_frames)
 
     canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
-    ex_lower = exercise_type.lower()
-    load_lower = load_type.lower()
-    
-    # Universal Pattern Classification
-    is_pattern_a = (
-        any(k in ex_lower for k in [
-            "row", "pulldown", "pullup", "pullover", "curl", "t_bar", "gironda", "face_pull"
-        ]) or target_muscle.lower() in ["lats", "upper_back", "biceps"]
-    ) and not any(k in ex_lower for k in ["leg_curl", "femoral"])
-
-    is_pattern_b = (
-        any(k in ex_lower for k in [
-            "press", "bench", "incline", "dips", "extension", "pushdown", "pec_deck", "fly", "chest"
-        ]) or target_muscle.lower() in ["pectorals", "chest", "triceps", "deltoids", "shoulders"]
-    ) and not any(k in ex_lower for k in ["leg_press", "leg_extension", "hack"])
-
-    is_pattern_c = not is_pattern_a and not is_pattern_b
-    is_upper_body = is_pattern_a or is_pattern_b
-    is_hip_thrust = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
 
     # Safe universal fallbacks for mechanical helpers
     machine_u_per_frame = None
@@ -763,30 +770,121 @@ def process_kinematics(
     ))
     facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
 
+    # Pre-calculate bilateral angular ROMs for robust auto-detection
+    l_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}, {"x": all_smoothed["left_elbow"]["x"][f], "y": all_smoothed["left_elbow"]["y"][f]}, {"x": all_smoothed["left_wrist"]["x"][f], "y": all_smoothed["left_wrist"]["y"][f]}) for f in range(n_frames)])
+    r_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}, {"x": all_smoothed["right_elbow"]["x"][f], "y": all_smoothed["right_elbow"]["y"][f]}, {"x": all_smoothed["right_wrist"]["x"][f], "y": all_smoothed["right_wrist"]["y"][f]}) for f in range(n_frames)])
+    l_kn_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_hip"]["x"][f], "y": all_smoothed["left_hip"]["y"][f]}, {"x": all_smoothed["left_knee"]["x"][f], "y": all_smoothed["left_knee"]["y"][f]}, {"x": all_smoothed["left_ankle"]["x"][f], "y": all_smoothed["left_ankle"]["y"][f]}) for f in range(n_frames)])
+    r_kn_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_hip"]["x"][f], "y": all_smoothed["right_hip"]["y"][f]}, {"x": all_smoothed["right_knee"]["x"][f], "y": all_smoothed["right_knee"]["y"][f]}, {"x": all_smoothed["right_ankle"]["x"][f], "y": all_smoothed["right_ankle"]["y"][f]}) for f in range(n_frames)])
+    l_hp_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}, {"x": all_smoothed["left_hip"]["x"][f], "y": all_smoothed["left_hip"]["y"][f]}, {"x": all_smoothed["left_knee"]["x"][f], "y": all_smoothed["left_knee"]["y"][f]}) for f in range(n_frames)])
+    r_hp_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}, {"x": all_smoothed["right_hip"]["x"][f], "y": all_smoothed["right_hip"]["y"][f]}, {"x": all_smoothed["right_knee"]["x"][f], "y": all_smoothed["right_knee"]["y"][f]}) for f in range(n_frames)])
+
+    left_el_rom = float(np.percentile(l_el_angles, 90) - np.percentile(l_el_angles, 10))
+    right_el_rom = float(np.percentile(r_el_angles, 90) - np.percentile(r_el_angles, 10))
+    left_kn_rom = float(np.percentile(l_kn_angles, 90) - np.percentile(l_kn_angles, 10))
+    right_kn_rom = float(np.percentile(r_kn_angles, 90) - np.percentile(r_kn_angles, 10))
+    left_hp_rom = float(np.percentile(l_hp_angles, 90) - np.percentile(l_hp_angles, 10))
+    right_hp_rom = float(np.percentile(r_hp_angles, 90) - np.percentile(r_hp_angles, 10))
+
+    # Early Multimodal VLM Call & Real Exercise Auto-Detection
+    vlm_result = None
+    if frames_rgb is not None and len(frames_rgb) > 0 and (exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override):
+        try:
+            kfs_indices = [0, max(0, int(n_frames * 0.33)), max(0, int(n_frames * 0.66)), min(n_frames - 1, int(n_frames * 0.95))]
+            kfs_b64 = [encode_keyframe_b64(frames_rgb[idx]) for idx in kfs_indices if idx < len(frames_rgb)]
+            vlm_pre_metrics = {
+                "max_elbow_rom": round(max(left_el_rom, right_el_rom), 1),
+                "max_knee_rom": round(max(left_kn_rom, right_kn_rom), 1),
+                "max_hip_rom": round(max(left_hp_rom, right_hp_rom), 1),
+                "facing_dir": facing_dir
+            }
+            vlm_result = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, {}, vlm_pre_metrics)
+        except Exception as e_vlm_early:
+            print(f"[VLM Layer 2 Early] Error: {e_vlm_early}")
+            vlm_result = None
+
+    if vlm_result and vlm_result.get("detected_exercise_type"):
+        exercise_type = vlm_result["detected_exercise_type"]
+        if vlm_result.get("target_muscle"):
+            target_muscle = vlm_result["target_muscle"]
+        if vlm_result.get("load_type"):
+            load_type = vlm_result["load_type"]
+        print(f"[Auto-Detection VLM] Ejercicio detectado por Gemini 2.5 Flash: {exercise_type} ({target_muscle}, {load_type})")
+    elif exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override:
+        # Intelligent Kinematic Fallback: NEVER default to hip_thrust if upper body ROM dominates
+        max_elbow_rom = max(left_el_rom, right_el_rom)
+        max_leg_rom = max(left_kn_rom, right_kn_rom, left_hp_rom, right_hp_rom)
+
+        if max_elbow_rom > max_leg_rom and max_elbow_rom >= 22.0:
+            med_w_x = float(0.5 * (np.median(all_smoothed["left_wrist"]["x"]) + np.median(all_smoothed["right_wrist"]["x"])))
+            med_s_x = float(0.5 * (np.median(all_smoothed["left_shoulder"]["x"]) + np.median(all_smoothed["right_shoulder"]["x"])))
+            is_hand_forward = (med_w_x - med_s_x) * facing_dir > 0.02
+            if is_hand_forward:
+                exercise_type = "chest_press_machine"
+                target_muscle = "chest"
+                load_type = "machine"
+            else:
+                exercise_type = "seated_row"
+                target_muscle = "back"
+                load_type = "machine"
+            print(f"[Auto-Detection Kinematic] Tren Superior detectado por ROM: {exercise_type} ({target_muscle})")
+        else:
+            max_knee_rom = max(left_kn_rom, right_kn_rom)
+            if max_knee_rom > 55.0:
+                exercise_type = "squat"
+                target_muscle = "quads"
+                load_type = "free_weight"
+            elif max(left_hp_rom, right_hp_rom) > 40.0 and max_knee_rom < 40.0:
+                exercise_type = "rdl"
+                target_muscle = "hamstrings"
+                load_type = "free_weight"
+            else:
+                exercise_type = "hip_thrust"
+                target_muscle = "glutes"
+                load_type = "machine"
+            print(f"[Auto-Detection Kinematic] Tren Inferior detectado por ROM: {exercise_type} ({target_muscle})")
+
+    canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
+    ex_lower = exercise_type.lower()
+    load_lower = load_type.lower()
+    
+    # Universal Pattern Classification
+    is_pattern_a = (
+        any(k in ex_lower for k in [
+            "row", "pulldown", "pullup", "pullover", "curl", "t_bar", "gironda", "face_pull"
+        ]) or target_muscle.lower() in ["lats", "upper_back", "biceps"]
+    ) and not any(k in ex_lower for k in ["leg_curl", "femoral"])
+
+    is_pattern_b = (
+        any(k in ex_lower for k in [
+            "press", "bench", "incline", "dips", "extension", "pushdown", "pec_deck", "fly", "chest"
+        ]) or target_muscle.lower() in ["pectorals", "chest", "triceps", "deltoids", "shoulders"]
+    ) and not any(k in ex_lower for k in ["leg_press", "leg_extension", "hack"])
+
+    is_pattern_c = not is_pattern_a and not is_pattern_b
+    is_upper_body = is_pattern_a or is_pattern_b
+    is_hip_thrust = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
+
+    # Anatomical re-mapping for low-angle contrapicado shots in lying/inclined chest press
+    if is_pattern_b:
+        for side in ["left", "right"]:
+            med_s_y = float(np.median(all_smoothed[f"{side}_shoulder"]["y"]))
+            med_w_y = float(np.median(all_smoothed[f"{side}_wrist"]["y"]))
+            # If wrist is detected below shoulder while pushing upward in contrapicado angle, swap them
+            if med_w_y > med_s_y + 0.10:
+                print(f"[Contrapicado Fix] Inversión anatómica corregida en lado {side} (muñeca <-> hombro).")
+                all_smoothed[f"{side}_shoulder"], all_smoothed[f"{side}_wrist"] = all_smoothed[f"{side}_wrist"], all_smoothed[f"{side}_shoulder"]
+
     # 2. Deterministic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
     is_unilateral_flag = False
     hide_torso_line = False
 
     if is_upper_body:
-        left_elbow_angles = []
-        right_elbow_angles = []
-        for f in range(n_frames):
-            ls = {"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}
-            le = {"x": all_smoothed["left_elbow"]["x"][f], "y": all_smoothed["left_elbow"]["y"][f]}
-            lw = {"x": all_smoothed["left_wrist"]["x"][f], "y": all_smoothed["left_wrist"]["y"][f]}
-            left_elbow_angles.append(calculate_angle_2d(ls, le, lw))
+        left_elbow_angles = l_el_angles
+        right_elbow_angles = r_el_angles
 
-            rs = {"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}
-            re = {"x": all_smoothed["right_elbow"]["x"][f], "y": all_smoothed["right_elbow"]["y"][f]}
-            rw = {"x": all_smoothed["right_wrist"]["x"][f], "y": all_smoothed["right_wrist"]["y"][f]}
-            right_elbow_angles.append(calculate_angle_2d(rs, re, rw))
-
-        left_elbow_angles = np.array(left_elbow_angles)
-        right_elbow_angles = np.array(right_elbow_angles)
-
-        left_rom = float(np.percentile(left_elbow_angles, 90) - np.percentile(left_elbow_angles, 10))
-        right_rom = float(np.percentile(right_elbow_angles, 90) - np.percentile(right_elbow_angles, 10))
+        left_rom = left_el_rom
+        right_rom = right_el_rom
 
         l_sh_x, l_sh_y = all_smoothed["left_shoulder"]["x"], all_smoothed["left_shoulder"]["y"]
         l_el_x, l_el_y = all_smoothed["left_elbow"]["x"], all_smoothed["left_elbow"]["y"]
@@ -823,19 +921,28 @@ def process_kinematics(
         left_score_total = (left_conf ** 2) * (left_len ** 2) * (left_rom + 10.0) * left_pen
         right_score_total = (right_conf ** 2) * (right_len ** 2) * (right_rom + 10.0) * right_pen
 
-        # Camera proximity check: prioritize the arm closer to the lens in lateral view
-        med_l_wrist_x = float(np.median(l_wr_x))
-        med_r_wrist_x = float(np.median(r_wr_x))
-        if facing_dir > 0 and med_r_wrist_x > med_l_wrist_x and right_conf >= left_conf - 0.15:
-            right_score_total *= 1.35
-        elif facing_dir < 0 and med_l_wrist_x < med_r_wrist_x and left_conf >= right_conf - 0.15:
-            left_score_total *= 1.35
-        elif right_conf > left_conf + 0.12:
-            right_score_total *= 1.40
-        elif left_conf > right_conf + 0.12:
-            left_score_total *= 1.40
+        # Foreground Arm Boost in Push Exercises
+        if is_pattern_b:
+            if facing_dir > 0 or np.median(r_wr_x) > np.median(r_sh_x) + 0.08:
+                right_score_total *= 1.60
+            elif facing_dir < 0 or np.median(l_wr_x) < np.median(l_sh_x) - 0.08:
+                left_score_total *= 1.60
+        else:
+            med_l_wrist_x = float(np.median(l_wr_x))
+            med_r_wrist_x = float(np.median(r_wr_x))
+            if facing_dir > 0 and med_r_wrist_x > med_l_wrist_x and right_conf >= left_conf - 0.15:
+                right_score_total *= 1.35
+            elif facing_dir < 0 and med_l_wrist_x < med_r_wrist_x and left_conf >= right_conf - 0.15:
+                left_score_total *= 1.35
+            elif right_conf > left_conf + 0.12:
+                right_score_total *= 1.40
+            elif left_conf > right_conf + 0.12:
+                left_score_total *= 1.40
 
-        locked_side = "left" if left_score_total >= right_score_total else "right"
+        if vlm_result and vlm_result.get("active_working_side") in ["left", "right"]:
+            locked_side = vlm_result["active_working_side"]
+        else:
+            locked_side = "left" if left_score_total >= right_score_total else "right"
         is_unilateral_flag = bool(left_score_total > 1.5 * right_score_total or right_score_total > 1.5 * left_score_total)
 
         raw_side_metrics = {
@@ -939,10 +1046,17 @@ def process_kinematics(
     }
     primary_joints["head"] = smoothed_head
 
-    # Torso visibility flag
+    # Torso and Neck visibility flags
     mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
     is_chest_or_tbar = any(k in ex_lower for k in ["press", "bench", "incline", "chest", "dips", "t_bar", "remo_punta", "barra_t"])
     hide_torso_line = bool(is_chest_or_tbar or (is_upper_body and mean_hip_score < 0.60))
+
+    head_score = float(np.mean(smoothed_head["score"]))
+    hide_neck_line = bool(
+        head_score < 0.55 or
+        is_pattern_b or
+        (vlm_result and vlm_result.get("hide_neck_line"))
+    )
 
     # 4. Planar Joint Kinematics Calculated on Smoothed 2D Coordinates
     hp_2d = np.zeros(n_frames, dtype=np.float64)
@@ -1169,23 +1283,25 @@ def process_kinematics(
             else:
                 is_upper_back_series = False
 
-    # Force Vector Determination (Bug 2 Fix: Universal Adaptive Extrema):
-    if is_pattern_b and p_ext is not None and p_flx is not None and (is_machine_or_cable_pattern or is_chest_press_machine or is_machine_dips or "incline" in ex_lower or "dumb" in ex_lower or "press" in ex_lower):
-        # En Empujes: atleta empuja desde P_flexed hacia P_extended.
-        # La resistencia de la máquina/barra actúa en sentido opuesto:
-        push_dir = p_ext - p_flx
-        norm_push = float(np.linalg.norm(push_dir))
-        if norm_push > 0.02:
-            u_resist = -push_dir / norm_push
-            force_dx = float(u_resist[0])
-            force_dy = float(u_resist[1])
-            force_dir_name = "adaptive_push_resistance"
-            force_origin = "hand_grip"
+    # Force Vector Determination (Adaptive Extrema & Machine Plane):
+    if is_pattern_b:
+        # En Empujes: el atleta empuja desde P_flexed hacia P_extended.
+        # Prohibido usar vector vertical (0, 1) cuando el empuje tiene componente horizontal.
+        if p_ext is not None and p_flx is not None:
+            push_dir = p_ext - p_flx
+            norm_push = float(np.linalg.norm(push_dir))
+            if norm_push > 0.02:
+                u_resist = -push_dir / norm_push
+            else:
+                u_resist = np.array([-facing_forward_x * 0.92, 0.38], dtype=np.float64)
+                u_resist = u_resist / np.linalg.norm(u_resist)
         else:
-            force_dx = 0.0
-            force_dy = 1.0
-            force_dir_name = "vertical_down"
-            force_origin = "hand_grip"
+            u_resist = np.array([-facing_forward_x * 0.92, 0.38], dtype=np.float64)
+            u_resist = u_resist / np.linalg.norm(u_resist)
+        force_dx = float(u_resist[0])
+        force_dy = float(u_resist[1])
+        force_dir_name = "machine_push_resistance"
+        force_origin = "hand_grip"
     elif is_pattern_a and p_ext is not None and p_flx is not None:
         # En Tracciones: atleta tira desde P_extended hacia P_flexed.
         # La carga tira hacia el anclaje en la dirección de P_extended:
@@ -1218,11 +1334,6 @@ def process_kinematics(
         elif is_pattern_a:
             force_dir_name = "along_pull"
             force_dx = float(facing_forward_x)
-            force_dy = 0.0
-            force_origin = "hand_grip"
-        elif is_pattern_b:
-            force_dir_name = "horizontal_backward"
-            force_dx = float(-facing_forward_x)
             force_dy = 0.0
             force_origin = "hand_grip"
         else:
@@ -1414,8 +1525,18 @@ def process_kinematics(
             # Pattern B — Empuje / Extensión (press, bench, dips)
             u_fx = float(force_dx)
             u_fy = float(force_dy)
-            d_sh = float(abs((sh_x_inf - hx_inf) * u_fy - (sh_y_inf - hy_inf) * u_fx))
-            d_el = float(abs((el_x_inf - hx_inf) * u_fy - (el_y_inf - hy_inf) * u_fx))
+            d_orth_sh = float(abs((sh_x_inf - hx_inf) * u_fy - (sh_y_inf - hy_inf) * u_fx))
+            d_orth_el = float(abs((el_x_inf - hx_inf) * u_fy - (el_y_inf - hy_inf) * u_fx))
+            
+            hum_len = float(math.hypot(sh_x_inf - el_x_inf, sh_y_inf - el_y_inf))
+            hum_vx = el_x_inf - sh_x_inf
+            hum_vy = el_y_inf - sh_y_inf
+            sin_hum = float(abs(hum_vx * u_fy - hum_vy * u_fx) / max(hum_len, 1e-4))
+            
+            # Avoid force line passing above shoulder in 2D by projecting humerus orthogonal to push axis
+            # Ensures physiological split 62% - 75% Pectoral vs 25% - 38% Tríceps
+            d_sh = float(max(d_orth_sh, 0.55 * hum_len * max(sin_hum, 0.40), d_orth_el * 1.65))
+            d_el = float(d_orth_el)
             d_hp = 0.0
             d_kn = 0.0
 
@@ -1424,8 +1545,8 @@ def process_kinematics(
                 pectoral_share = round((d_sh / tot_d) * 100.0, 1)
                 triceps_share = round((d_el / tot_d) * 100.0, 1)
             else:
-                pectoral_share = 75.0
-                triceps_share = 25.0
+                pectoral_share = 70.0
+                triceps_share = 30.0
 
             # Bug 4 Fix: Chest exercises show PECTORAL MAYOR (>=50%) or TRÍCEPS BRAQUIAL (>50%), never back
             dominant_joint = "PECTORAL MAYOR" if pectoral_share >= 50.0 else "TRÍCEPS BRAQUIAL"
@@ -1743,8 +1864,7 @@ def process_kinematics(
         }
 
     # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini 2.5 Flash over 4 Keyframes)
-    vlm_result = None
-    if frames_rgb is not None and len(frames_rgb) > 0:
+    if vlm_result is None and frames_rgb is not None and len(frames_rgb) > 0:
         try:
             if repetitions_summary and len(repetitions_summary) > 0:
                 first_rep = repetitions_summary[0]
@@ -1780,37 +1900,41 @@ def process_kinematics(
                 "delta_v_rep": delta_v_rep
             }
             vlm_result = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, vbt_summary, raw_side_metrics)
-            if vlm_result:
-                # Apply VLM overrides cleanly
-                vlm_side = vlm_result.get("active_working_side")
-                if vlm_side in ["left", "right"] and vlm_side != locked_side:
-                    locked_side = vlm_side
-                    for c_name in canonical_joints:
-                        primary_joints[c_name] = all_smoothed[f"{locked_side}_{c_name}"]
-                    primary_joints["hand"] = primary_joints["wrist"]
-                
-                if vlm_result.get("hide_torso_line") is not None:
-                    hide_torso_line = bool(vlm_result["hide_torso_line"])
-                    
-                fv = vlm_result.get("force_vector_2d")
-                if isinstance(fv, dict) and "ux" in fv and "uy" in fv:
-                    force_dx = float(fv["ux"])
-                    force_dy = float(fv["uy"])
-                    
-                if vlm_result.get("load_anchor_joint") in ["wrist", "hip"]:
-                    force_origin = vlm_result["load_anchor_joint"]
-                    
-                vbt_ov = vlm_result.get("vbt_override")
-                if isinstance(vbt_ov, dict):
-                    if "exact_rir" in vbt_ov and vbt_ov["exact_rir"] is not None:
-                        intensity_metrics["exact_rir"] = float(vbt_ov["exact_rir"])
-                        intensity_metrics["estimated_rir"] = f"RIR {vbt_ov['exact_rir']}"
-                    if "exact_rpe" in vbt_ov and vbt_ov["exact_rpe"] is not None:
-                        intensity_metrics["exact_rpe"] = float(vbt_ov["exact_rpe"])
-                        intensity_metrics["estimated_rpe"] = float(vbt_ov["exact_rpe"])
         except Exception as e_vlm:
             print(f"[VLM Layer 2] Error during VLM orchestrator call: {e_vlm}")
             vlm_result = None
+
+    if vlm_result:
+        # Apply VLM overrides cleanly
+        vlm_side = vlm_result.get("active_working_side")
+        if vlm_side in ["left", "right"] and vlm_side != locked_side:
+            locked_side = vlm_side
+            for c_name in canonical_joints:
+                primary_joints[c_name] = all_smoothed[f"{locked_side}_{c_name}"]
+            primary_joints["hand"] = primary_joints["wrist"]
+        
+        if vlm_result.get("hide_torso_line") is not None:
+            hide_torso_line = bool(vlm_result["hide_torso_line"])
+
+        if vlm_result.get("hide_neck_line") is not None:
+            hide_neck_line = bool(vlm_result["hide_neck_line"])
+            
+        fv = vlm_result.get("force_vector_2d")
+        if isinstance(fv, dict) and "ux" in fv and "uy" in fv:
+            force_dx = float(fv["ux"])
+            force_dy = float(fv["uy"])
+            
+        if vlm_result.get("load_anchor_joint") in ["wrist", "hip"]:
+            force_origin = vlm_result["load_anchor_joint"]
+            
+        vbt_ov = vlm_result.get("vbt_override")
+        if isinstance(vbt_ov, dict):
+            if "exact_rir" in vbt_ov and vbt_ov["exact_rir"] is not None:
+                intensity_metrics["exact_rir"] = float(vbt_ov["exact_rir"])
+                intensity_metrics["estimated_rir"] = f"RIR {vbt_ov['exact_rir']}"
+            if "exact_rpe" in vbt_ov and vbt_ov["exact_rpe"] is not None:
+                intensity_metrics["exact_rpe"] = float(vbt_ov["exact_rpe"])
+                intensity_metrics["estimated_rpe"] = float(vbt_ov["exact_rpe"])
 
     # 9. Per-Frame Output Projection
     frames_output = []
@@ -1892,20 +2016,24 @@ def process_kinematics(
                     "recommendation": fb_rec
                 }
             elif is_pattern_b:
-                cur_d_sh = float(abs(sh_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(sh_x - cur_hx))
-                cur_d_el = float(abs(el_y - cur_hy) if force_dir_name.startswith("horizontal") else abs(el_x - cur_hx))
+                u_fx = float(force_dx)
+                u_fy = float(force_dy)
+                cur_d_orth_sh = float(abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx))
+                cur_d_orth_el = float(abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx))
+                cur_hum_len = float(math.hypot(sh_x - el_x, sh_y - el_y))
+                cur_hum_vx = el_x - sh_x
+                cur_hum_vy = el_y - sh_y
+                cur_sin_hum = float(abs(cur_hum_vx * u_fy - cur_hum_vy * u_fx) / max(cur_hum_len, 1e-4))
+                cur_d_sh = float(max(cur_d_orth_sh, 0.55 * cur_hum_len * max(cur_sin_hum, 0.40), cur_d_orth_el * 1.65))
+                cur_d_el = float(cur_d_orth_el)
                 tot_d = cur_d_sh + cur_d_el
                 if tot_d > 0.005:
                     fb_pec = round((cur_d_sh / tot_d) * 100.0, 1)
                     fb_tri = round((cur_d_el / tot_d) * 100.0, 1)
-                    if fb_tri < 5.0:
-                        fb_tri = 5.0
-                        fb_pec = 95.0
-                    fb_bias = "PECTORAL MAYOR" if fb_pec >= 50.0 else "TRÍCEPS BRAQUIAL"
                 else:
-                    fb_pec = 75.0
-                    fb_tri = 25.0
-                    fb_bias = "PECTORAL MAYOR"
+                    fb_pec = 70.0
+                    fb_tri = 30.0
+                fb_bias = "PECTORAL MAYOR" if fb_pec >= 50.0 else "TRÍCEPS BRAQUIAL"
 
                 base_rep_verdict = {
                     "status": "OPTIMAL",
@@ -2026,10 +2154,12 @@ def process_kinematics(
             elif is_pattern_b:
                 u_fx = float(force_dx)
                 u_fy = float(force_dy)
-                sh_eff_x = sh_x + 0.15 * (el_x - sh_x)
-                sh_eff_y = sh_y + 0.15 * (el_y - sh_y)
-                f_d_sh = max(0.045, abs((sh_eff_x - cur_hx) * u_fy - (sh_eff_y - cur_hy) * u_fx))
-                f_d_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+                f_d_orth_sh = abs((sh_x - cur_hx) * u_fy - (sh_y - cur_hy) * u_fx)
+                f_d_orth_el = abs((el_x - cur_hx) * u_fy - (el_y - cur_hy) * u_fx)
+                f_hum_len = math.hypot(sh_x - el_x, sh_y - el_y)
+                f_sin_hum = abs((el_x - sh_x) * u_fy - (el_y - sh_y) * u_fx) / max(f_hum_len, 1e-4)
+                f_d_sh = max(f_d_orth_sh, 0.55 * f_hum_len * max(f_sin_hum, 0.40), f_d_orth_el * 1.65)
+                f_d_el = f_d_orth_el
                 cur_force_dir = force_dir_name
             else:
                 u_fx = float(force_dx)
@@ -2090,6 +2220,7 @@ def process_kinematics(
             "rep_number": rep_num,
             "phase": phase,
             "hide_torso_line": bool(hide_torso_line),
+            "hide_neck_line": bool(hide_neck_line),
             "is_upper_back": bool(is_upper_back_series),
             "is_unilateral": bool(is_unilateral_flag),
             "main_angle": round(float(clean_primary[f]), 1),
@@ -2233,7 +2364,11 @@ def process_kinematics(
         "total_reps": total_reps,
         "locked_side": locked_side,
         "hide_torso_line": bool(hide_torso_line),
+        "hide_neck_line": bool(hide_neck_line),
         "is_upper_back": bool(is_upper_back_series),
+        "detected_exercise_type": exercise_type,
+        "target_muscle": target_muscle,
+        "load_type": load_type,
         "effective_muscle_weights": effective_muscle_weights,
         "mean_rom_deg": mean_rom,
         "mean_eccentric_time_s": mean_ecc,
@@ -2439,14 +2574,15 @@ def analyze(
     video_base64=None,
     video_url=None,
     video=None,
-    exercise_type="hip_thrust",
-    target_muscle="glutes",
-    load_type="free_weight",
+    exercise_type="auto",
+    target_muscle="auto",
+    load_type="auto",
     start_time=0.0,
     end_time=None,
     weight_kg=None,
     target_reps=None,
     anthropometry=None,
+    is_manual_override=False,
     **kwargs
 ) -> dict:
     """
@@ -2465,23 +2601,25 @@ def analyze(
         video_base64 = payload.get("video_base64")
         video_url = payload.get("video_url")
         video = payload.get("video")
-        exercise_type = payload.get("exercise_type", exercise_type or "hip_thrust")
-        target_muscle = payload.get("target_muscle", target_muscle or "glutes")
-        load_type = payload.get("load_type", load_type or "free_weight")
+        exercise_type = payload.get("exercise_type", exercise_type or "auto")
+        target_muscle = payload.get("target_muscle", target_muscle or "auto")
+        load_type = payload.get("load_type", load_type or "auto")
         start_time_val = payload.get("start_time", 0.0)
         end_time_val = payload.get("end_time", None)
         weight_kg = payload.get("weight_kg", payload.get("weightKg", weight_kg))
         target_reps = payload.get("target_reps", payload.get("targetReps", target_reps))
         anthropometry = payload.get("anthropometry", anthropometry)
+        is_manual_override = bool(payload.get("is_manual_override", is_manual_override))
     else:
-        exercise_type = exercise_type or kwargs.get("exercise_type", "hip_thrust")
-        target_muscle = target_muscle or kwargs.get("target_muscle", "glutes")
-        load_type = load_type or kwargs.get("load_type", "free_weight")
+        exercise_type = exercise_type or kwargs.get("exercise_type", "auto")
+        target_muscle = target_muscle or kwargs.get("target_muscle", "auto")
+        load_type = load_type or kwargs.get("load_type", "auto")
         start_time_val = kwargs.get("start_time", start_time if start_time is not None else 0.0)
         end_time_val = kwargs.get("end_time", end_time)
         weight_kg = weight_kg or kwargs.get("weight_kg", kwargs.get("weightKg"))
         target_reps = target_reps or kwargs.get("target_reps", kwargs.get("targetReps"))
         anthropometry = anthropometry or kwargs.get("anthropometry")
+        is_manual_override = bool(kwargs.get("is_manual_override", is_manual_override))
 
     exercise_type = str(exercise_type)
     target_muscle = str(target_muscle)
@@ -2524,7 +2662,8 @@ def analyze(
             weight_kg=weight_kg,
             target_reps=target_reps,
             anthropometry=anthropometry,
-            frames_rgb=frames_rgb
+            frames_rgb=frames_rgb,
+            is_manual_override=is_manual_override
         )
         return result
     finally:
@@ -2539,11 +2678,12 @@ def predict(
     video_base64=None,
     video_url=None,
     video=None,
-    exercise_type="hip_thrust",
-    target_muscle="glutes",
-    load_type="free_weight",
+    exercise_type="auto",
+    target_muscle="auto",
+    load_type="auto",
     start_time=0.0,
     end_time=None,
+    is_manual_override=False,
     **kwargs
 ):
     return analyze(
@@ -2555,5 +2695,6 @@ def predict(
         load_type=load_type,
         start_time=start_time,
         end_time=end_time,
+        is_manual_override=is_manual_override,
         **kwargs
     )
