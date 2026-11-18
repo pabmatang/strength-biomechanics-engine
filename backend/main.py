@@ -20,6 +20,8 @@ import math
 import re
 from typing import Dict, List, Any, Optional, Tuple
 import json
+import urllib.request
+import urllib.error
 
 import cv2
 import numpy as np
@@ -288,37 +290,44 @@ def analyze_biomechanics_with_vlm(
     )
 
     parts: List[Dict[str, Any]] = [{"text": prompt_text}]
-    for k_b64 in keyframes_b64:
-        if k_b64:
+    for b64_img in keyframes_b64:
+        if b64_img:
             parts.append({
                 "inline_data": {
                     "mime_type": "image/jpeg",
-                    "data": k_b64
+                    "data": b64_img
                 }
             })
 
-    req_payload = {
-        "contents": [{"role": "user", "parts": parts}],
+    body = {
+        "contents": [{"parts": parts}],
         "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.2
+            "temperature": 0.1,
+            "responseMimeType": "application/json"
         }
     }
+    req_data = json.dumps(body).encode("utf-8")
 
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash"
+    ]
     last_err = None
 
     for model_name in models_to_try:
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         try:
-            resp = requests.post(
+            req = urllib.request.Request(
                 endpoint,
+                data=req_data,
                 headers={"Content-Type": "application/json"},
-                json=req_payload,
-                timeout=9.0
+                method="POST"
             )
-            if resp.status_code == 200:
-                resp_json = resp.json()
+            with urllib.request.urlopen(req, timeout=12.0) as resp:
+                resp_bytes = resp.read()
+                resp_json = json.loads(resp_bytes.decode("utf-8"))
                 candidates = resp_json.get("candidates", [])
                 if candidates:
                     cand = candidates[0]
@@ -332,9 +341,10 @@ def analyze_biomechanics_with_vlm(
                         parsed = json.loads(text_clean)
                         print(f"[Biomechanics VLM] Inferencia {model_name} completada con éxito. Ejercicio detectado: {parsed.get('detected_exercise_type')}, Lado activo: {parsed.get('active_working_side')}")
                         return parsed, None
-            else:
-                last_err = f"HTTP {resp.status_code} ({model_name}): {resp.text[:160]}"
-                print(f"[Biomechanics VLM] {last_err}")
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            last_err = f"HTTP {e.code} ({model_name}): {err_body}"
+            print(f"[Biomechanics VLM] {last_err}")
         except Exception as e:
             last_err = f"Exception ({model_name}): {type(e).__name__} - {e}"
             print(f"[Biomechanics VLM] {last_err}")
