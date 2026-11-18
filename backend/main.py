@@ -18,6 +18,7 @@ import io
 import tempfile
 import math
 from typing import Dict, List, Any, Optional, Tuple
+import json
 
 import cv2
 import numpy as np
@@ -147,6 +148,152 @@ def apply_zero_phase_butterworth_segmented(series: np.ndarray, cuts: List[int], 
         elif seg_len > 0:
             out[s_start:s_end] = series_f64[s_start:s_end]
     return out
+
+def interpolate_isolated_frames(vals: np.ndarray, scores: np.ndarray, thresh: float = 0.25) -> np.ndarray:
+    """Linearly interpolate isolated frames where keypoint score < thresh using valid frames."""
+    valid = scores >= thresh
+    n = len(vals)
+    if n == 0 or np.all(valid):
+        return vals.copy()
+    if np.count_nonzero(valid) < 2:
+        return vals.copy()
+    idx_all = np.arange(n)
+    return np.clip(np.interp(idx_all, idx_all[valid], vals[valid]), 0.0, 1.0)
+
+def encode_keyframe_b64(img_rgb: np.ndarray, max_dim: int = 384, quality: int = 75) -> str:
+    """Encode an RGB frame resized to max_dim on the longest edge as a compact JPEG Base64."""
+    try:
+        h, w = img_rgb.shape[:2]
+        scale = min(1.0, float(max_dim) / max(h, w))
+        new_w, new_h = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+        resized = cv2.resize(img_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        bgr = cv2.cvtColor(resized, cv2.COLOR_RGB2BGR)
+        success, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        if success:
+            return base64.b64encode(buf).decode("utf-8")
+    except Exception as e:
+        print(f"[Keyframe Encoder] Error encoding frame: {e}")
+    return ""
+
+def analyze_biomechanics_with_vlm(
+    keyframes_b64: List[str],
+    exercise_type: str,
+    vbt_summary: Dict[str, Any],
+    raw_side_metrics: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """
+    Capa 2: Cerebro Biomecánico Multimodal con Gemini 2.5 Flash sobre 4 Keyframes.
+    Realiza inferencia multimodal sobre la postura, máquina y vector de resistencia.
+    Cuenta con fallback automático determinista si la API no está configurada o hay timeout.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        print("[Biomechanics VLM] GEMINI_API_KEY no configurada. Usando fallback cinemático determinista local.")
+        return None
+
+    if not keyframes_b64 or len(keyframes_b64) < 1:
+        return None
+
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+
+    prompt_text = (
+        f"Actúa como Ph.D. en Biomecánica Deportiva y Visión por Computador.\n"
+        f"Analiza estos 4 fotogramas clave de un ejercicio de gimnasio:\n"
+        f"1. Inicio de repetición (start)\n"
+        f"2. Fase excéntrica media (eccentric)\n"
+        f"3. Máxima elongación / Punto de inflexión (bottom)\n"
+        f"4. Bloqueo articular / Máxima contracción (peak)\n\n"
+        f"Ejercicio configurado: '{exercise_type}'.\n"
+        f"Métricas cinemáticas 2D preliminares:\n{json.dumps(raw_side_metrics, ensure_ascii=False)}\n"
+        f"Resumen de repeticiones VBT:\n{json.dumps(vbt_summary, ensure_ascii=False)}\n\n"
+        f"INSTRUCCIONES CLÍNICAS DE EVALUACIÓN:\n"
+        f"1. 'active_working_side': Determina si el brazo o pierna activo de trabajo que está en primer plano y claramente visible es 'left' o 'right'. "
+        f"En B-Stance RDL o Sentadilla Búlgara, selecciona la pierna de soporte delantera plantada en el suelo. En Remo o Press con vista oblicua, selecciona el brazo visible en primer plano.\n"
+        f"2. 'is_bilateral_visible': true si ambos lados del cuerpo son claramente visibles sin oclusión severa, false si un lado está oculto tras el torso.\n"
+        f"3. 'hide_torso_line': true si el atleta está apoyado sobre un banco/pad frontal (ej. T-Bar, banco inclinado, fondos) o la cadera está tapada por la máquina.\n"
+        f"4. 'force_vector_2d': Vector unitario 2D {{'ux': float, 'uy': float}} que representa la dirección hacia donde la resistencia mecánica empuja/tira contra el atleta en el plano de la imagen. "
+        f"Gravedad pura: {{'ux': 0.0, 'uy': 1.0}}. Jalón vertical: {{'ux': 0.0, 'uy': -1.0}}. En máquinas de empuje/tracción, sigue el eje real de la máquina.\n"
+        f"5. 'load_anchor_joint': Punto anatómico donde se aplica la carga: 'wrist' (brazo, mancuerna, barra) o 'hip' (hip thrust / puente de glúteo).\n"
+        f"6. 'torque_split': Músculo primario y secundario con su porcentaje de reparto de torque y etiquetas cortas (ej. 'P', 'T' o 'D', 'B' o 'G', 'C').\n"
+        f"7. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume exactamente 1.0 (ej. {{'chest': 0.65, 'triceps': 0.25, 'front_delts': 0.10}}).\n"
+        f"8. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
+        f"9. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n\n"
+        f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
+        f"{{\n"
+        f'  "active_working_side": "left | right",\n'
+        f'  "is_bilateral_visible": false,\n'
+        f'  "hide_torso_line": true,\n'
+        f'  "force_vector_2d": {{ "ux": -0.85, "uy": 0.52 }},\n'
+        f'  "load_anchor_joint": "wrist | hip",\n'
+        f'  "torque_split": {{\n'
+        f'    "primary_muscle": "Pectoral Mayor",\n'
+        f'    "primary_pct": 68,\n'
+        f'    "secondary_muscle": "Tríceps Braquial",\n'
+        f'    "secondary_pct": 32,\n'
+        f'    "short_primary_label": "P",\n'
+        f'    "short_secondary_label": "T"\n'
+        f'  }},\n'
+        f'  "effective_muscle_weights": {{\n'
+        f'    "chest": 0.65,\n'
+        f'    "triceps": 0.25,\n'
+        f'    "front_delts": 0.10\n'
+        f'  }},\n'
+        f'  "postural_diagnosis": {{\n'
+        f'    "overall_status": "Óptimo | Ajustar",\n'
+        f'    "summary": "Diagnóstico clínico conciso observando la máquina y postura real.",\n'
+        f'    "neck_and_spine": "Alineación cervical neutra y espalda estable sin hiperextensión.",\n'
+        f'    "joint_alignment": "Codos a ~55° del torso en el plano de empuje de la máquina.",\n'
+        f'    "rom_quality": "Recorrido completo con control excéntrico."\n'
+        f'  }},\n'
+        f'  "vbt_override": {{\n'
+        f'    "verified_reps": 8,\n'
+        f'    "exact_rir": 1.5,\n'
+        f'    "exact_rpe": 8.5\n'
+        f'  }}\n'
+        f"}}"
+    )
+
+    parts: List[Dict[str, Any]] = [{"text": prompt_text}]
+    for k_b64 in keyframes_b64:
+        if k_b64:
+            parts.append({
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": k_b64
+                }
+            })
+
+    req_payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.2
+        }
+    }
+
+    try:
+        resp = requests.post(
+            endpoint,
+            headers={"Content-Type": "application/json"},
+            json=req_payload,
+            timeout=8.0
+        )
+        if resp.status_code == 200:
+            resp_json = resp.json()
+            candidates = resp_json.get("candidates", [])
+            if candidates:
+                cand = candidates[0]
+                text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
+                if text_content:
+                    parsed = json.loads(text_content)
+                    print(f"[Biomechanics VLM] Inferencia Gemini 2.5 Flash completada con éxito. Lado activo detectado: {parsed.get('active_working_side')}")
+                    return parsed
+        else:
+            print(f"[Biomechanics VLM] Gemini API status {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        print(f"[Biomechanics VLM] Exception during Gemini VLM call ({type(e).__name__}): {e}")
+
+    return None
 
 def sample_video_frames(
     video_path: str,
@@ -517,15 +664,14 @@ def process_kinematics(
     img_h: int = 720,
     weight_kg: Optional[float] = None,
     target_reps: Optional[int] = None,
-    anthropometry: Optional[Dict[str, Any]] = None
+    anthropometry: Optional[Dict[str, Any]] = None,
+    frames_rgb: Optional[List[np.ndarray]] = None
 ):
     """
-    High-density kinematic pipeline organized around 3 Universal Biomechanical Patterns:
-    - Pattern A: Tracción / Flexión (rowing, pulldown, curl)
-    - Pattern B: Empuje / Extensión (press, bench, dips, extension)
-    - Pattern C: Tren Inferior (hip thrust, squat, rdl, bulgarian)
-    Includes Anatomical Kinematic Stabilizer with Strict Side Lock, Rigid Bone Length Constraint,
-    and Bumper Plate Occlusion Spline Reconstructor.
+    Capa 1: Visión 2D Pura e Inmutable sobre ViTPose + RT-DETR.
+    Prohibido alterar coordenadas 2D o re-proyectar longitudes óseas artificiales.
+    Filtro Butterworth 2.0 Hz bidireccional de fase cero sobre coordenadas interpoladas.
+    Capa 2: Orquestador Biomecánico Multimodal con Gemini 2.5 Flash sobre 4 Keyframes.
     """
     n_frames = len(raw_keypoints)
     if n_frames == 0:
@@ -569,9 +715,13 @@ def process_kinematics(
     is_upper_body = is_pattern_a or is_pattern_b
     is_hip_thrust = any(k in ex_lower for k in ["hip_thrust", "kas_glute", "glute_bridge", "bridge", "thrust", "kas"])
 
+    # Safe universal fallbacks for mechanical helpers
+    machine_u_per_frame = None
+    svd_force_u = None
+
     all_smoothed = {}
     
-    # 1. Bilateral Initial Interpolation & Smoothing (Segmented per scene cut)
+    # 1. Bilateral Keypoint Smoothing (Zero-phase Butterworth 2.0 Hz with linear interpolation for score < 0.25)
     for side in ["left", "right"]:
         for c_name in canonical_joints:
             k_name = f"{side}_{c_name}"
@@ -579,12 +729,12 @@ def process_kinematics(
             y_arr = np.array([raw_keypoints[f][k_name]["y"] for f in range(n_frames)], dtype=np.float64)
             s_arr = np.array([raw_keypoints[f][k_name]["score"] for f in range(n_frames)], dtype=np.float64)
             
-            x_interp = interpolate_series_1d(x_arr, s_arr, min_score=0.20)
-            y_interp = interpolate_series_1d(y_arr, s_arr, min_score=0.20)
+            x_clean = interpolate_isolated_frames(x_arr, s_arr, thresh=0.25)
+            y_clean = interpolate_isolated_frames(y_arr, s_arr, thresh=0.25)
             
             all_smoothed[k_name] = {
-                "x": apply_zero_phase_butterworth_segmented(x_interp, scene_cut_indices, fs=15.0, cutoff=1.8),
-                "y": apply_zero_phase_butterworth_segmented(y_interp, scene_cut_indices, fs=15.0, cutoff=1.8),
+                "x": apply_zero_phase_butterworth_segmented(x_clean, scene_cut_indices, fs=15.0, cutoff=2.0),
+                "y": apply_zero_phase_butterworth_segmented(y_clean, scene_cut_indices, fs=15.0, cutoff=2.0),
                 "score": s_arr
             }
             
@@ -592,19 +742,13 @@ def process_kinematics(
     hx_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"x": 0.5}))["x"] for f in range(n_frames)], dtype=np.float64)
     hy_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"y": 0.2}))["y"] for f in range(n_frames)], dtype=np.float64)
     hs_arr = np.array([raw_keypoints[f].get("nose", raw_keypoints[f].get("left_eye", {"score": 0.5}))["score"] for f in range(n_frames)], dtype=np.float64)
+    hx_clean = interpolate_isolated_frames(hx_arr, hs_arr, thresh=0.25)
+    hy_clean = interpolate_isolated_frames(hy_arr, hs_arr, thresh=0.25)
     smoothed_head = {
-        "x": apply_zero_phase_butterworth_segmented(interpolate_series_1d(hx_arr, hs_arr, min_score=0.20), scene_cut_indices, fs=15.0, cutoff=1.8),
-        "y": apply_zero_phase_butterworth_segmented(interpolate_series_1d(hy_arr, hs_arr, min_score=0.20), scene_cut_indices, fs=15.0, cutoff=1.8),
+        "x": apply_zero_phase_butterworth_segmented(hx_clean, scene_cut_indices, fs=15.0, cutoff=2.0),
+        "y": apply_zero_phase_butterworth_segmented(hy_clean, scene_cut_indices, fs=15.0, cutoff=2.0),
         "score": hs_arr
     }
-
-    # Safe universal fallbacks for all anatomical bone length medians (Guarantees no UnboundLocalError)
-    box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
-    l_humerus_median = float(max(0.16, min(0.35, box_h * 0.26)))
-    l_forearm_median = float(max(0.14, min(0.32, box_h * 0.22)))
-    l_femur_median = float(max(0.18, min(0.42, box_h * 0.32)))
-    l_torso_median = float(max(0.24, min(0.52, box_h * 0.40)))
-    l_tibia_median = float(max(0.16, min(0.36, box_h * 0.28)))
 
     # Facing direction from head relative to torso center
     head_x_med = float(np.median(smoothed_head["x"]))
@@ -614,7 +758,7 @@ def process_kinematics(
     ))
     facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
 
-    # 2. Dynamic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
+    # 2. Deterministic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
     is_unilateral_flag = False
     hide_torso_line = False
@@ -636,11 +780,9 @@ def process_kinematics(
         left_elbow_angles = np.array(left_elbow_angles)
         right_elbow_angles = np.array(right_elbow_angles)
 
-        # Dynamic ROM between 90th and 10th percentiles to eliminate camera/noise spikes
         left_rom = float(np.percentile(left_elbow_angles, 90) - np.percentile(left_elbow_angles, 10))
         right_rom = float(np.percentile(right_elbow_angles, 90) - np.percentile(right_elbow_angles, 10))
 
-        # Optical apparent length in 2D (foreground limb has strictly greater apparent length)
         l_sh_x, l_sh_y = all_smoothed["left_shoulder"]["x"], all_smoothed["left_shoulder"]["y"]
         l_el_x, l_el_y = all_smoothed["left_elbow"]["x"], all_smoothed["left_elbow"]["y"]
         l_wr_x, l_wr_y = all_smoothed["left_wrist"]["x"], all_smoothed["left_wrist"]["y"]
@@ -662,7 +804,6 @@ def process_kinematics(
             all_smoothed["right_wrist"]["score"]
         ])))
 
-        # Penalize hand at head/hair level in horizontal rows
         left_pen = 1.0
         right_pen = 1.0
         if is_pattern_a:
@@ -674,99 +815,21 @@ def process_kinematics(
                     else:
                         right_pen = 0.05
 
-        # Bug 1 Fix: Foreground arm selection weighted by apparent optical length and confidence**2
         left_score_total = (left_conf ** 2) * (left_len ** 2) * (left_rom + 10.0) * left_pen
         right_score_total = (right_conf ** 2) * (right_len ** 2) * (right_rom + 10.0) * right_pen
         locked_side = "left" if left_score_total >= right_score_total else "right"
         is_unilateral_flag = bool(left_score_total > 1.5 * right_score_total or right_score_total > 1.5 * left_score_total)
 
-        # 2. Extract Native ViTPose keypoints of the chosen arm without any length projection or orientation alteration
-        sh_x = np.array([raw_keypoints[f][f"{locked_side}_shoulder"]["x"] for f in range(n_frames)], dtype=np.float64)
-        sh_y = np.array([raw_keypoints[f][f"{locked_side}_shoulder"]["y"] for f in range(n_frames)], dtype=np.float64)
-        sh_sc = np.array([raw_keypoints[f][f"{locked_side}_shoulder"]["score"] for f in range(n_frames)], dtype=np.float64)
-
-        el_x = np.array([raw_keypoints[f][f"{locked_side}_elbow"]["x"] for f in range(n_frames)], dtype=np.float64)
-        el_y = np.array([raw_keypoints[f][f"{locked_side}_elbow"]["y"] for f in range(n_frames)], dtype=np.float64)
-        el_sc = np.array([raw_keypoints[f][f"{locked_side}_elbow"]["score"] for f in range(n_frames)], dtype=np.float64)
-
-        wr_x = np.array([raw_keypoints[f][f"{locked_side}_wrist"]["x"] for f in range(n_frames)], dtype=np.float64)
-        wr_y = np.array([raw_keypoints[f][f"{locked_side}_wrist"]["y"] for f in range(n_frames)], dtype=np.float64)
-        wr_sc = np.array([raw_keypoints[f][f"{locked_side}_wrist"]["score"] for f in range(n_frames)], dtype=np.float64)
-
-        # 3. Linearly interpolate isolated low-confidence frames (score < 0.25)
-        def interpolate_isolated_frames(vals: np.ndarray, scores: np.ndarray, thresh: float = 0.25) -> np.ndarray:
-            valid = scores >= thresh
-            if np.all(valid) or np.count_nonzero(valid) < 2:
-                return vals.copy()
-            idx_all = np.arange(len(vals))
-            return np.interp(idx_all, idx_all[valid], vals[valid])
-
-        sh_x = interpolate_isolated_frames(sh_x, sh_sc, 0.25)
-        sh_y = interpolate_isolated_frames(sh_y, sh_sc, 0.25)
-        el_x = interpolate_isolated_frames(el_x, el_sc, 0.25)
-        el_y = interpolate_isolated_frames(el_y, el_sc, 0.25)
-        wr_x = interpolate_isolated_frames(wr_x, wr_sc, 0.25)
-        wr_y = interpolate_isolated_frames(wr_y, wr_sc, 0.25)
-
-        # 4. Butterworth filter (2nd order, cutoff 2.0 Hz) via filtfilt
-        primary_joints["shoulder"] = {
-            "x": apply_zero_phase_butterworth_segmented(sh_x, scene_cut_indices, fs=15.0, cutoff=2.0),
-            "y": apply_zero_phase_butterworth_segmented(sh_y, scene_cut_indices, fs=15.0, cutoff=2.0),
-            "score": sh_sc
+        raw_side_metrics = {
+            "body_region": "upper_body",
+            "left_conf": round(left_conf, 3),
+            "right_conf": round(right_conf, 3),
+            "left_apparent_len_2d": round(left_len, 3),
+            "right_apparent_len_2d": round(right_len, 3),
+            "left_elbow_rom_deg": round(left_rom, 1),
+            "right_elbow_rom_deg": round(right_rom, 1),
+            "facing_dir": facing_dir
         }
-        primary_joints["elbow"] = {
-            "x": apply_zero_phase_butterworth_segmented(el_x, scene_cut_indices, fs=15.0, cutoff=2.0),
-            "y": apply_zero_phase_butterworth_segmented(el_y, scene_cut_indices, fs=15.0, cutoff=2.0),
-            "score": el_sc
-        }
-        primary_joints["wrist"] = {
-            "x": apply_zero_phase_butterworth_segmented(wr_x, scene_cut_indices, fs=15.0, cutoff=2.0),
-            "y": apply_zero_phase_butterworth_segmented(wr_y, scene_cut_indices, fs=15.0, cutoff=2.0),
-            "score": wr_sc
-        }
-        primary_joints["hand"] = {
-            "x": primary_joints["wrist"]["x"].copy(),
-            "y": primary_joints["wrist"]["y"].copy(),
-            "score": wr_sc.copy()
-        }
-
-        # Sincronizar array bilateral
-        all_smoothed[f"{locked_side}_shoulder"]["x"] = primary_joints["shoulder"]["x"].copy()
-        all_smoothed[f"{locked_side}_shoulder"]["y"] = primary_joints["shoulder"]["y"].copy()
-        all_smoothed[f"{locked_side}_elbow"]["x"] = primary_joints["elbow"]["x"].copy()
-        all_smoothed[f"{locked_side}_elbow"]["y"] = primary_joints["elbow"]["y"].copy()
-        all_smoothed[f"{locked_side}_wrist"]["x"] = primary_joints["wrist"]["x"].copy()
-        all_smoothed[f"{locked_side}_wrist"]["y"] = primary_joints["wrist"]["y"].copy()
-
-        # Anatomically stable pelvis center for torso vector
-        l_hip_conf = float(np.mean(all_smoothed["left_hip"]["score"]))
-        r_hip_conf = float(np.mean(all_smoothed["right_hip"]["score"]))
-        if l_hip_conf >= 0.35 and r_hip_conf >= 0.35:
-            primary_joints["hip"] = {
-                "x": 0.5 * (all_smoothed["left_hip"]["x"] + all_smoothed["right_hip"]["x"]),
-                "y": 0.5 * (all_smoothed["left_hip"]["y"] + all_smoothed["right_hip"]["y"]),
-                "score": 0.5 * (all_smoothed["left_hip"]["score"] + all_smoothed["right_hip"]["score"])
-            }
-        elif l_hip_conf >= r_hip_conf:
-            primary_joints["hip"] = {
-                "x": all_smoothed["left_hip"]["x"].copy(),
-                "y": all_smoothed["left_hip"]["y"].copy(),
-                "score": all_smoothed["left_hip"]["score"].copy()
-            }
-        else:
-            primary_joints["hip"] = {
-                "x": all_smoothed["right_hip"]["x"].copy(),
-                "y": all_smoothed["right_hip"]["y"].copy(),
-                "score": all_smoothed["right_hip"]["score"].copy()
-            }
-
-        for c_name in ["knee", "ankle"]:
-            primary_joints[c_name] = {
-                "x": all_smoothed[f"{locked_side}_{c_name}"]["x"].copy(),
-                "y": all_smoothed[f"{locked_side}_{c_name}"]["y"].copy(),
-                "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
-            }
-        other_side = "right" if locked_side == "left" else "left"
     else:
         left_knee_angles = []
         right_knee_angles = []
@@ -802,8 +865,6 @@ def process_kinematics(
 
         is_leg_work_exercise = any(k in ex_lower for k in ["rdl", "deadlift", "rumano", "squat", "bulgarian", "lunge"])
         if is_leg_work_exercise:
-            # Bug 1 Fix: In RDL / B-Stance / Bulgarian, select the working leg whose ankle is forward in the facing direction
-            # and firmly planted (lower ankle x std) rather than the rear kickstand leg with bent knee
             l_ank_x = all_smoothed["left_ankle"]["x"]
             r_ank_x = all_smoothed["right_ankle"]["x"]
             l_forward = float(np.median(l_ank_x) * facing_dir)
@@ -835,218 +896,35 @@ def process_kinematics(
                 is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
                 locked_side = "left" if left_activity >= right_activity else "right"
 
-        other_side = "right" if locked_side == "left" else "left"
-
-        for c_name in canonical_joints:
-            primary_joints[c_name] = {
-                "x": all_smoothed[f"{locked_side}_{c_name}"]["x"].copy(),
-                "y": all_smoothed[f"{locked_side}_{c_name}"]["y"].copy(),
-                "score": all_smoothed[f"{locked_side}_{c_name}"]["score"].copy()
-            }
-
-    # 3. Anatomical Kinematic Stabilizer & Plate Occlusion Reconstructor (2-Circle Intersection)
-    if is_hip_thrust:
-        # A. Calculate Median Unoccluded Femur & Torso Lengths (score >= 0.65)
-        knee_x = primary_joints["knee"]["x"]
-        knee_y = primary_joints["knee"]["y"]
-        hip_x = primary_joints["hip"]["x"]
-        hip_y = primary_joints["hip"]["y"]
-        sh_x = primary_joints["shoulder"]["x"]
-        sh_y = primary_joints["shoulder"]["y"]
-        hip_score = primary_joints["hip"]["score"]
-        knee_score = primary_joints["knee"]["score"]
-        sh_score = primary_joints["shoulder"]["score"]
-
-        femur_lengths = np.hypot(hip_x - knee_x, hip_y - knee_y)
-        torso_lengths = np.hypot(hip_x - sh_x, hip_y - sh_y)
-        unoccluded_femur_mask = (hip_score >= 0.65) & (knee_score >= 0.65)
-        unoccluded_torso_mask = (hip_score >= 0.65) & (sh_score >= 0.65)
-
-        if np.any(unoccluded_femur_mask):
-            l_femur_median = float(np.median(femur_lengths[unoccluded_femur_mask]))
-        else:
-            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
-            l_femur_median = float(max(0.18, min(0.35, box_h * 0.32)))
-
-        if np.any(unoccluded_torso_mask):
-            l_torso_median = float(np.median(torso_lengths[unoccluded_torso_mask]))
-        else:
-            box_h = np.median([b.get("bh", 0.6) for b in athlete_boxes]) if athlete_boxes else 0.6
-            l_torso_median = float(max(0.24, min(0.48, box_h * 0.40)))
-
-        # B. Detect Outlier Jumps (> 0.12) or Severe Occlusion (score < 0.45)
-        hip_jumps = np.zeros(n_frames, dtype=bool)
-        for f in range(1, n_frames):
-            if math.hypot(hip_x[f] - hip_x[f - 1], hip_y[f] - hip_y[f - 1]) > 0.12:
-                hip_jumps[f] = True
-
-        # Activate geometric reconstruction exclusively when score < 0.45 or sudden jump outlier
-        is_plate_occluded = (hip_score < 0.45) | (hip_jumps & (hip_score < 0.50))
-
-        # C. Reconstruct Occluded Hip Coordinates via 2-Circle Intersection & Monotonic PCHIP
-        valid_frames = np.where(~is_plate_occluded)[0]
-        if len(valid_frames) >= 2 and np.any(is_plate_occluded):
-            try:
-                pchip_x = scipy.interpolate.PchipInterpolator(valid_frames, hip_x[valid_frames])
-                pchip_y = scipy.interpolate.PchipInterpolator(valid_frames, hip_y[valid_frames])
-                all_idx = np.arange(n_frames)
-                interp_hip_x = pchip_x(all_idx)
-                interp_hip_y = pchip_y(all_idx)
-            except Exception:
-                all_idx = np.arange(n_frames)
-                interp_hip_x = np.interp(all_idx, valid_frames, hip_x[valid_frames])
-                interp_hip_y = np.interp(all_idx, valid_frames, hip_y[valid_frames])
-
-            r1 = l_torso_median
-            r2 = l_femur_median
-
-            for f in range(n_frames):
-                # Si ViTPose tiene score >= 0.40, mantener directamente la cadera nativa de ViTPose suavizada
-                if hip_score[f] >= 0.40:
-                    continue
-
-                # Circle 1: Center P1 = Shoulder, radius r1 = L_torso
-                p1x = float(sh_x[f])
-                p1y = float(sh_y[f])
-                # Circle 2: Center P2 = Knee, radius r2 = L_femur
-                p2x = float(knee_x[f])
-                p2y = float(knee_y[f])
-
-                dx = p2x - p1x
-                dy = p2y - p1y
-                d = math.hypot(dx, dy)
-
-                cand_x = interp_hip_x[f]
-                cand_y = interp_hip_y[f]
-
-                if d > 1e-4:
-                    if d > r1 + r2:
-                        ratio = r1 / (r1 + r2)
-                        sol_x = p1x + ratio * dx
-                        sol_y = p1y + ratio * dy
-                    elif d < abs(r1 - r2):
-                        if r1 > r2:
-                            sol_x = p1x + (dx / d) * r1
-                            sol_y = p1y + (dy / d) * r1
-                        else:
-                            sol_x = p2x - (dx / d) * r2
-                            sol_y = p2y - (dy / d) * r2
-                    else:
-                        a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d)
-                        h = math.sqrt(max(0.0, r1 * r1 - a * a))
-                        p0x = p1x + (a / d) * dx
-                        p0y = p1y + (a / d) * dy
-                        rx = -(dy / d) * h
-                        ry = (dx / d) * h
-
-                        int_a_x = p0x + rx
-                        int_a_y = p0y + ry
-                        int_b_x = p0x - rx
-                        int_b_y = p0y - ry
-
-                        # Fix obligatorio: En Hip Thrust la cadera cae hacia el suelo (y mayor en imagen). Elige SIEMPRE la solución con mayor y
-                        if int_a_y >= int_b_y:
-                            sol_x, sol_y = int_a_x, int_a_y
-                        else:
-                            sol_x, sol_y = int_b_x, int_b_y
-                else:
-                    sol_x, sol_y = cand_x, cand_y
-
-                primary_joints["hip"]["x"][f] = float(sol_x)
-                primary_joints["hip"]["y"][f] = float(sol_y)
-                primary_joints["hip"]["score"][f] = 0.85
-
-            # Fix obligatorio: En un Hip Thrust / Glute Bridge, el glúteo/cadera en la fase excéntrica SIEMPRE cae por debajo de la recta hombro-rodilla
-            for f in range(n_frames):
-                min_hip_y = 0.5 * (sh_y[f] + knee_y[f]) - 0.02
-                if primary_joints["hip"]["y"][f] < min_hip_y:
-                    primary_joints["hip"]["y"][f] = float(min_hip_y)
-
-                # Bug 3 Fix: En Hip Thrust en máquina, bloquea hip_x dentro de la franja horizontal entre el hombro y la rodilla
-                min_span_x = min(sh_x[f], knee_x[f]) + 0.25 * abs(knee_x[f] - sh_x[f])
-                max_span_x = max(sh_x[f], knee_x[f]) - 0.20 * abs(knee_x[f] - sh_x[f])
-                if max_span_x > min_span_x:
-                    primary_joints["hip"]["x"][f] = float(np.clip(primary_joints["hip"]["x"][f], min_span_x, max_span_x))
-
-            # Re-smooth with zero-phase Butterworth filter post reconstruction (2.0 Hz)
-            primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=2.0)
-            primary_joints["hip"]["y"] = apply_zero_phase_butterworth(primary_joints["hip"]["y"], fs=15.0, cutoff=2.0)
-
-        # D. Tibial Verticality & Knee Recovery
-        for f in range(n_frames):
-            pk_y = primary_joints["knee"]["y"][f]
-            pa_y = primary_joints["ankle"]["y"][f]
-            shin_dy = pa_y - pk_y
-            if shin_dy < 0.11:
-                ok_y = all_smoothed[f"{other_side}_knee"]["y"][f]
-                oa_y = all_smoothed[f"{other_side}_ankle"]["y"][f]
-                other_shin_dy = oa_y - ok_y
-                if other_shin_dy >= 0.12:
-                    primary_joints["knee"]["x"][f] = all_smoothed[f"{other_side}_knee"]["x"][f]
-                    primary_joints["knee"]["y"][f] = ok_y
-                    primary_joints["knee"]["score"][f] = all_smoothed[f"{other_side}_knee"]["score"][f]
-                else:
-                    box_h = athlete_boxes[f]["bh"] if (athlete_boxes and f < len(athlete_boxes)) else 0.6
-                    tibia_len = max(0.18, min(0.32, box_h * 0.28))
-                    primary_joints["knee"]["x"][f] = primary_joints["ankle"]["x"][f]
-                    primary_joints["knee"]["y"][f] = max(0.15, primary_joints["ankle"]["y"][f] - tibia_len)
-                    primary_joints["knee"]["score"][f] = 0.85
-
-    # 3B. Upper Body Kinematic Stabilizer & Occlusion Guard (Perspective-Safe)
-    if is_upper_body:
-        wr_x = primary_joints["wrist"]["x"]
-        wr_y = primary_joints["wrist"]["y"]
-        el_x = primary_joints["elbow"]["x"]
-        el_y = primary_joints["elbow"]["y"]
-        sh_x = primary_joints["shoulder"]["x"]
-        sh_y = primary_joints["shoulder"]["y"]
-        wr_score = primary_joints["wrist"]["score"]
-        el_score = primary_joints["elbow"]["score"]
-        sh_score = primary_joints["shoulder"]["score"]
-
-        # 1. Stable Virtual Hip Anchor if Hip is Obscured by Machine / T-Bar Pad (score_medio < 0.50)
-        # Bug 3 Fix: facing_dir from head relative to torso midpoint (0.5 * (shoulder + hip))
-        head_x_med = float(np.median(smoothed_head["x"]))
-        mid_torso_x = float(0.5 * (np.median(sh_x) + np.median(primary_joints["hip"]["x"])))
-        facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
-        
-        mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
-        is_chest_or_tbar = any(k in ex_lower for k in ["press", "bench", "incline", "chest", "dips", "t_bar", "remo_punta", "barra_t"])
-        hide_torso_line = bool(is_chest_or_tbar or (is_upper_body and mean_hip_score < 0.60))
-        if mean_hip_score < 0.50:
-            for f in range(n_frames):
-                primary_joints["hip"]["x"][f] = float(sh_x[f] - 0.08 * facing_dir)
-                primary_joints["hip"]["y"][f] = float(min(0.92, sh_y[f] + 0.32))
-                primary_joints["hip"]["score"][f] = 0.85
-            primary_joints["hip"]["x"] = apply_zero_phase_butterworth_segmented(primary_joints["hip"]["x"], scene_cut_indices, fs=15.0, cutoff=2.2)
-            primary_joints["hip"]["y"] = apply_zero_phase_butterworth_segmented(primary_joints["hip"]["y"], scene_cut_indices, fs=15.0, cutoff=2.2)
-
-        # Update limb length medians passively from clean coordinates for downstream metrics
-        sh_x_cur = primary_joints["shoulder"]["x"]
-        sh_y_cur = primary_joints["shoulder"]["y"]
-        el_x_cur = primary_joints["elbow"]["x"]
-        el_y_cur = primary_joints["elbow"]["y"]
-        wr_x_cur = primary_joints["wrist"]["x"]
-        wr_y_cur = primary_joints["wrist"]["y"]
-
-        hl_all = np.hypot(el_x_cur - sh_x_cur, el_y_cur - sh_y_cur)
-        if len(hl_all) > 0 and np.median(hl_all) > 0.05:
-            l_humerus_median = float(np.median(hl_all))
-        fl_all = np.hypot(wr_x_cur - el_x_cur, wr_y_cur - el_y_cur)
-        if len(fl_all) > 0 and np.median(fl_all) > 0.05:
-            l_forearm_median = float(np.median(fl_all))
-
-        primary_joints["hand"] = {
-            "x": primary_joints["wrist"]["x"].copy(),
-            "y": primary_joints["wrist"]["y"].copy(),
-            "score": primary_joints["wrist"]["score"].copy()
+        raw_side_metrics = {
+            "body_region": "lower_body",
+            "left_conf": round(left_conf, 3),
+            "right_conf": round(right_conf, 3),
+            "left_ankle_travel": round(left_ankle_travel, 3),
+            "right_ankle_travel": round(right_ankle_travel, 3),
+            "left_knee_rom_deg": round(left_rom, 1),
+            "right_knee_rom_deg": round(right_rom, 1),
+            "facing_dir": facing_dir
         }
-    else:
-        primary_joints["hand"] = {
-            "x": primary_joints["wrist"]["x"].copy(),
-            "y": primary_joints["wrist"]["y"].copy(),
-            "score": primary_joints["wrist"]["score"].copy()
+
+    # Bind primary joints directly to native ViTPose coordinates of the active locked side (Immutable 2D Vision)
+    for c_name in canonical_joints:
+        primary_joints[c_name] = {
+            "x": all_smoothed[f"{locked_side}_{c_name}"]["x"],
+            "y": all_smoothed[f"{locked_side}_{c_name}"]["y"],
+            "score": all_smoothed[f"{locked_side}_{c_name}"]["score"]
         }
+    primary_joints["hand"] = {
+        "x": primary_joints["wrist"]["x"],
+        "y": primary_joints["wrist"]["y"],
+        "score": primary_joints["wrist"]["score"]
+    }
+    primary_joints["head"] = smoothed_head
+
+    # Torso visibility flag
+    mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
+    is_chest_or_tbar = any(k in ex_lower for k in ["press", "bench", "incline", "chest", "dips", "t_bar", "remo_punta", "barra_t"])
+    hide_torso_line = bool(is_chest_or_tbar or (is_upper_body and mean_hip_score < 0.60))
 
     # 4. Planar Joint Kinematics Calculated on Smoothed 2D Coordinates
     hp_2d = np.zeros(n_frames, dtype=np.float64)
@@ -1065,37 +943,16 @@ def process_kinematics(
         wr = {"x": primary_joints["wrist"]["x"][f], "y": primary_joints["wrist"]["y"][f]}
         hd = {"x": smoothed_head["x"][f], "y": smoothed_head["y"][f]}
 
-        # Fix obligatorio: Ángulo interno de la rodilla centrado en knee (90° con fémur horizontal y tibia vertical)
-        v1_kn = np.array([hp["x"] - kn["x"], hp["y"] - kn["y"]])
-        v2_kn = np.array([ak["x"] - kn["x"], ak["y"] - kn["y"]])
-        cos_k = np.dot(v1_kn, v2_kn) / (np.linalg.norm(v1_kn) * np.linalg.norm(v2_kn) + 1e-6)
-        raw_k = float(np.degrees(np.arccos(np.clip(cos_k, -1.0, 1.0))))
-
-        # Ángulo interno de cadera centrado en hip
-        v1_hp = np.array([sh["x"] - hp["x"], sh["y"] - hp["y"]])
-        v2_hp = np.array([kn["x"] - hp["x"], kn["y"] - hp["y"]])
-        cos_h = np.dot(v1_hp, v2_hp) / (np.linalg.norm(v1_hp) * np.linalg.norm(v2_hp) + 1e-6)
-        raw_h = float(np.degrees(np.arccos(np.clip(cos_h, -1.0, 1.0))))
-        if is_pattern_b:
-            # 3D Foreshortening Perspective Compensation (prevents 2D planar angle collapse to 0.5 deg in presses/dips)
-            d_fore = math.hypot(wr["x"] - el["x"], wr["y"] - el["y"])
-            dz_fore = math.sqrt(max(0.0, l_forearm_median**2 - d_fore**2))
-            v_hum = (sh["x"] - el["x"], sh["y"] - el["y"], 0.0)
-            v_fore = (wr["x"] - el["x"], wr["y"] - el["y"], dz_fore)
-            dot_p = v_hum[0] * v_fore[0] + v_hum[1] * v_fore[1]
-            mag_prod = max(1e-5, l_humerus_median * l_forearm_median)
-            cos_e = max(-1.0, min(1.0, dot_p / mag_prod))
-            raw_e = float(math.degrees(math.acos(cos_e)))
-            raw_e = float(np.clip(raw_e, 55.0, 175.0))
-        else:
-            raw_e = calculate_angle_2d(sh, el, wr)
+        # Planar angles via calculate_angle_2d (Pure 2D Trigonometry)
+        raw_k = calculate_angle_2d(hp, kn, ak)
+        raw_h = calculate_angle_2d(sh, hp, kn)
+        raw_e = calculate_angle_2d(sh, el, wr)
         raw_hu = calculate_angle_2d(hp, sh, el)
         raw_t = calculate_angle_2d({"x": hp["x"], "y": hp["y"] - 0.2}, hp, sh)
 
-        # Perspective & Oblique camera angle correction for Hip Thrust:
-        if is_hip_thrust:
-            if raw_h < 65.0:
-                raw_h = 180.0 - raw_h
+        # Perspective & Oblique camera angle correction for Hip Thrust
+        if is_hip_thrust and raw_h < 65.0:
+            raw_h = 180.0 - raw_h
             
             # Dynamic continuous knee angle: preserve raw_k = calculate_angle_2d(hp, kn, ak)
             # so frames[t].secondary_angle updates live on canvas during ascent/descent.
@@ -1867,6 +1724,76 @@ def process_kinematics(
             "status_text": "VBT: Estimado (1 rep)" if len(repetitions_summary) == 1 else "VBT: Requiere ≥ 2 reps"
         }
 
+    # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini 2.5 Flash over 4 Keyframes)
+    vlm_result = None
+    if frames_rgb is not None and len(frames_rgb) > 0:
+        try:
+            if repetitions_summary and len(repetitions_summary) > 0:
+                first_rep = repetitions_summary[0]
+                t_s = first_rep.get("start_time", timestamps[0])
+                t_i = first_rep.get("inflection_time", timestamps[len(timestamps) // 2])
+                t_e = first_rep.get("end_time", timestamps[-1])
+                t_ecc = 0.5 * (t_s + t_i)
+                f_s = int(np.argmin([abs(t - t_s) for t in timestamps]))
+                f_ecc = int(np.argmin([abs(t - t_ecc) for t in timestamps]))
+                f_bot = int(np.argmin([abs(t - t_i) for t in timestamps]))
+                f_peak = int(np.argmin([abs(t - t_e) for t in timestamps]))
+            else:
+                f_s = 0
+                f_ecc = max(0, int(n_frames * 0.33))
+                f_bot = max(0, int(n_frames * 0.66))
+                f_peak = min(n_frames - 1, int(n_frames * 0.95))
+
+            kfs_indices = [f_s, f_ecc, f_bot, f_peak]
+            kfs_b64 = [encode_keyframe_b64(frames_rgb[idx]) for idx in kfs_indices if idx < len(frames_rgb)]
+            
+            raw_side_metrics = {
+                "locked_side": locked_side,
+                "left_shoulder_conf": round(float(np.mean(all_smoothed["left_shoulder"]["score"])), 2),
+                "right_shoulder_conf": round(float(np.mean(all_smoothed["right_shoulder"]["score"])), 2),
+                "is_upper_body": is_upper_body,
+                "is_hip_thrust": is_hip_thrust
+            }
+            vbt_summary = {
+                "reps_detected": total_reps,
+                "estimated_rir": intensity_metrics.get("exact_rir"),
+                "estimated_rpe": intensity_metrics.get("exact_rpe"),
+                "v_fail": v_fail,
+                "delta_v_rep": delta_v_rep
+            }
+            vlm_result = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, vbt_summary, raw_side_metrics)
+            if vlm_result:
+                # Apply VLM overrides cleanly
+                vlm_side = vlm_result.get("active_working_side")
+                if vlm_side in ["left", "right"] and vlm_side != locked_side:
+                    locked_side = vlm_side
+                    for c_name in canonical_joints:
+                        primary_joints[c_name] = all_smoothed[f"{locked_side}_{c_name}"]
+                    primary_joints["hand"] = primary_joints["wrist"]
+                
+                if vlm_result.get("hide_torso_line") is not None:
+                    hide_torso_line = bool(vlm_result["hide_torso_line"])
+                    
+                fv = vlm_result.get("force_vector_2d")
+                if isinstance(fv, dict) and "ux" in fv and "uy" in fv:
+                    force_dx = float(fv["ux"])
+                    force_dy = float(fv["uy"])
+                    
+                if vlm_result.get("load_anchor_joint") in ["wrist", "hip"]:
+                    force_origin = vlm_result["load_anchor_joint"]
+                    
+                vbt_ov = vlm_result.get("vbt_override")
+                if isinstance(vbt_ov, dict):
+                    if "exact_rir" in vbt_ov and vbt_ov["exact_rir"] is not None:
+                        intensity_metrics["exact_rir"] = float(vbt_ov["exact_rir"])
+                        intensity_metrics["estimated_rir"] = f"RIR {vbt_ov['exact_rir']}"
+                    if "exact_rpe" in vbt_ov and vbt_ov["exact_rpe"] is not None:
+                        intensity_metrics["exact_rpe"] = float(vbt_ov["exact_rpe"])
+                        intensity_metrics["estimated_rpe"] = float(vbt_ov["exact_rpe"])
+        except Exception as e_vlm:
+            print(f"[VLM Layer 2] Error during VLM orchestrator call: {e_vlm}")
+            vlm_result = None
+
     # 9. Per-Frame Output Projection
     frames_output = []
     for f in range(n_frames):
@@ -2269,6 +2196,12 @@ def process_kinematics(
     else:
         effective_muscle_weights = {"target": 1.0}
 
+    # VLM override for muscle weights if available
+    if vlm_result and isinstance(vlm_result.get("effective_muscle_weights"), dict):
+        vlm_mw = vlm_result["effective_muscle_weights"]
+        if vlm_mw and sum(vlm_mw.values()) > 0:
+            effective_muscle_weights = vlm_mw
+
     # Normalize to ensure sum is strictly 1.0
     tot_weight = sum(effective_muscle_weights.values())
     if tot_weight > 0:
@@ -2288,6 +2221,7 @@ def process_kinematics(
         "mean_concentric_time_s": mean_con,
         "intensity_metrics": intensity_metrics,
         "repetitions_summary": repetitions_summary,
+        "vlm_analysis": vlm_result,
         "frames": frames_output
     }
 
@@ -2569,7 +2503,8 @@ def analyze(
             img_h=h,
             weight_kg=weight_kg,
             target_reps=target_reps,
-            anthropometry=anthropometry
+            anthropometry=anthropometry,
+            frames_rgb=frames_rgb
         )
         return result
     finally:

@@ -129,6 +129,35 @@ export interface BiomechanicsFrame {
   [key: string]: any;
 }
 
+export interface VlmAnalysis {
+  active_working_side?: 'left' | 'right';
+  is_bilateral_visible?: boolean;
+  hide_torso_line?: boolean;
+  force_vector_2d?: { ux: number; uy: number };
+  load_anchor_joint?: 'wrist' | 'hip';
+  torque_split?: {
+    primary_muscle: string;
+    primary_pct: number;
+    secondary_muscle: string;
+    secondary_pct: number;
+    short_primary_label: string;
+    short_secondary_label: string;
+  };
+  effective_muscle_weights?: Record<string, number>;
+  postural_diagnosis?: {
+    overall_status: 'Óptimo' | 'Ajustar' | string;
+    summary: string;
+    neck_and_spine: string;
+    joint_alignment: string;
+    rom_quality: string;
+  };
+  vbt_override?: {
+    verified_reps?: number;
+    exact_rir?: number;
+    exact_rpe?: number;
+  };
+}
+
 export interface BiomechanicsAnalysisResponse {
   fps: number;
   duration: number;
@@ -137,6 +166,7 @@ export interface BiomechanicsAnalysisResponse {
   repetitions_summary: RepetitionSummary[];
   intensity_metrics?: IntensityMetrics;
   effective_muscle_weights?: Record<string, number>;
+  vlm_analysis?: VlmAnalysis;
   frames: BiomechanicsFrame[];
 }
 

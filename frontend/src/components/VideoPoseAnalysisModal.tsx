@@ -1030,6 +1030,31 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         }
       }
+
+      // Estela suave de trayectoria de la carga (últimos 15 frames de muñeca o cadera)
+      if (analysisData?.frames && analysisData.frames.length > 0) {
+        const curIdx = frame.frame_idx ?? 0;
+        const trailStart = Math.max(0, curIdx - 15);
+        const trailJoint = isHipThrust ? 'hip' : 'wrist';
+
+        for (let i = trailStart; i < curIdx; i++) {
+          const fPrev = analysisData.frames[i];
+          const fNext = analysisData.frames[i + 1];
+          if (!fPrev?.keypoints_norm || !fNext?.keypoints_norm) continue;
+
+          const kpPrev = (fPrev.keypoints_norm as any)[trailJoint];
+          const kpNext = (fNext.keypoints_norm as any)[trailJoint];
+          if (!kpPrev || !kpNext) continue;
+
+          const alpha = ((i - trailStart + 1) / (curIdx - trailStart + 1)) * 0.85;
+          ctx.beginPath();
+          ctx.moveTo(px(kpPrev.x), py(kpPrev.y));
+          ctx.lineTo(px(kpNext.x), py(kpNext.y));
+          ctx.strokeStyle = `rgba(56, 189, 248, ${alpha.toFixed(2)})`;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        }
+      }
     } else {
       // -------------------------------------------------------------
       // MODO 2: OPTIMIZACIÓN BIOMECÁNICA
@@ -2668,16 +2693,22 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       Diagnóstico Postural
                     </span>
                     <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                      activeVerdict.status === 'OPTIMAL'
+                      (analysisData?.vlm_analysis?.postural_diagnosis?.overall_status?.toLowerCase().includes('ajustar'))
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : activeVerdict.status === 'OPTIMAL'
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                         : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                     }`}>
-                      {activeVerdict.status === 'OPTIMAL' ? '✓ Óptimo' : '⚠️ Oportunidad'}
+                      {analysisData?.vlm_analysis?.postural_diagnosis?.overall_status
+                        ? (analysisData.vlm_analysis.postural_diagnosis.overall_status.toLowerCase().includes('ajustar') ? '⚠️ Ajustar' : '✓ Óptimo')
+                        : (activeVerdict.status === 'OPTIMAL' ? '✓ Óptimo' : '⚠️ Oportunidad')}
                     </span>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed break-words whitespace-normal">
-                    {isChestExercise
+                    {analysisData?.vlm_analysis?.postural_diagnosis?.summary
+                      ? analysisData.vlm_analysis.postural_diagnosis.summary
+                      : isChestExercise
                       ? 'Apoyo firme de pies en suelo (leg drive), escápulas retraídas con arco natural sin hiperextensión lumbar, codos a ~50° y descenso completo a clavículas.'
                       : isBackExercise
                         ? (isUpperBackActive
@@ -2695,17 +2726,34 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         ? (currentFrame as any).neck_angle
                         : 18;
                       const isHyperextended = curNeck > 25;
+                      const vlmNeck = analysisData?.vlm_analysis?.postural_diagnosis?.neck_and_spine;
                       return (
                         <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
                           <span className="font-medium text-slate-300">Alineación Cervical y Espalda:</span>
                           <span className={`font-bold ${isHyperextended ? 'text-amber-400' : 'text-emerald-400'} break-words whitespace-normal`}>
-                            {isHyperextended
+                            {vlmNeck || (isHyperextended
                               ? `Hiperextensión cervical detectada (+${Math.round(curNeck)}°): mantén la mirada neutra siguiendo la línea de la espalda`
-                              : 'Columna neutra y cuello alineado con el dorsal'}
+                              : 'Columna neutra y cuello alineado con el dorsal')}
                           </span>
                         </div>
                       );
                     })()}
+                    {analysisData?.vlm_analysis?.postural_diagnosis?.joint_alignment && (
+                      <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
+                        <span className="font-medium text-slate-300">Alineación Articular:</span>
+                        <span className="font-bold text-cyan-400 break-words whitespace-normal">
+                          {analysisData.vlm_analysis.postural_diagnosis.joint_alignment}
+                        </span>
+                      </div>
+                    )}
+                    {analysisData?.vlm_analysis?.postural_diagnosis?.rom_quality && (
+                      <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
+                        <span className="font-medium text-slate-300">Calidad de Recorrido:</span>
+                        <span className="font-bold text-emerald-400 break-words whitespace-normal">
+                          {analysisData.vlm_analysis.postural_diagnosis.rom_quality}
+                        </span>
+                      </div>
+                    )}
                     {kinematicMeta.rows.map((row: { label: string; value: string; color: string }, rIdx: number) => (
                       <div key={rIdx} className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
                         <span className="font-medium text-slate-300">{row.label}</span>
@@ -2754,14 +2802,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                       <Scale className="w-4 h-4 text-blue-400" />
-                      {isHipThrustVariant
+                      {analysisData?.vlm_analysis?.torque_split
+                        ? `Reparto de Torque (${analysisData.vlm_analysis.torque_split.primary_muscle} / ${analysisData.vlm_analysis.torque_split.secondary_muscle})`
+                        : isHipThrustVariant
                         ? 'Palanca Articular y Enfoque'
                         : (isBackExercise
                             ? `Reparto de Torque ${isUpperBackActive ? 'Espalda Alta' : 'Dorsal'} / Bíceps`
                             : kinematicMeta.torqueTitle)}
                     </span>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                      {isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : torqueBadgeText}
+                      {analysisData?.vlm_analysis?.torque_split
+                        ? `${analysisData.vlm_analysis.torque_split.primary_pct}% vs ${analysisData.vlm_analysis.torque_split.secondary_pct}%`
+                        : isHipThrustVariant ? `Rodilla ~${Math.round(activeVerdict.inflection_knee_deg || 90)}°` : torqueBadgeText}
                     </span>
                   </div>
 
@@ -2769,12 +2821,22 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   {!isHipThrustVariant ? (
                     <div className="space-y-1">
                       <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
-                        <span>{primaryLeverName}: {primaryLeverShare}%</span>
-                        <span>{secondaryLeverName}: {secondaryLeverShare}%</span>
+                        <span>
+                          {analysisData?.vlm_analysis?.torque_split?.primary_muscle || primaryLeverName}: {analysisData?.vlm_analysis?.torque_split?.primary_pct ?? primaryLeverShare}%
+                        </span>
+                        <span>
+                          {analysisData?.vlm_analysis?.torque_split?.secondary_muscle || secondaryLeverName}: {analysisData?.vlm_analysis?.torque_split?.secondary_pct ?? secondaryLeverShare}%
+                        </span>
                       </div>
                       <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                        <div className="bg-blue-500 transition-all duration-150" style={{ width: `${primaryLeverShare}%` }} />
-                        <div className="bg-emerald-500 transition-all duration-150" style={{ width: `${secondaryLeverShare}%` }} />
+                        <div
+                          className="bg-blue-500 transition-all duration-150"
+                          style={{ width: `${analysisData?.vlm_analysis?.torque_split?.primary_pct ?? primaryLeverShare}%` }}
+                        />
+                        <div
+                          className="bg-emerald-500 transition-all duration-150"
+                          style={{ width: `${analysisData?.vlm_analysis?.torque_split?.secondary_pct ?? secondaryLeverShare}%` }}
+                        />
                       </div>
                     </div>
                   ) : (

@@ -242,9 +242,9 @@ export async function prepareVideoForAnalysis(
   }
 
   const {
-    maxWidth = 480,
+    maxWidth = 420,
     targetFps = 15,
-    bitrate = 800_000,
+    bitrate = 600_000,
     maxDurationSec = 30.0,
     range
   } = options;
