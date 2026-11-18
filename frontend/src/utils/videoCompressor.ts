@@ -60,8 +60,8 @@ function runCanvasCompression(
       }
     };
 
-    // Safety timeout: generous timeout for up to 30s videos (80s max)
-    const timeoutDuration = Math.max(60_000, Math.round(maxDurationSec * 2500));
+    // Safety timeout: fast 8s timeout to avoid freezing the UI if canvas capture stalls
+    const timeoutDuration = 8_000;
     const timeoutTimer = setTimeout(() => {
       cleanup();
       resolve(null);
@@ -254,21 +254,21 @@ export async function prepareVideoForAnalysis(
     return file;
   }
 
-  // Direct bypass ONLY if video is already tiny (< 1.2 MB) AND no range trimming requested
-  if (!range && file.size <= 1.2 * 1024 * 1024) {
-    console.info(`[Compressor] Bypass: archivo ligero (${(file.size / 1024).toFixed(0)} KB) y sin recorte.`);
+  // Direct bypass if file is within safe upload limit (<= 25 MB): Python/PyAV on GPU trims and decodes natively
+  if (file.size <= 25 * 1024 * 1024) {
+    console.info(`[Compressor] Bypass: archivo dentro de límite seguro (${(file.size / (1024 * 1024)).toFixed(1)} MB). Envío directo a GPU.`);
     return file;
   }
 
-  // 1. Primary Compression Pass (480p / 15 FPS / 800 kbps)
+  // 1. Primary Compression Pass (480p / 15 FPS / 800 kbps) for huge files (> 25 MB)
   let compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range);
 
-  // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if primary pass failed or result > 12 MB
-  const maxSafeSizeBytes = 12 * 1024 * 1024; // 12 MB safe threshold for V8 Base64 strings
+  // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if primary pass failed or result > 25 MB
+  const maxSafeSizeBytes = 25 * 1024 * 1024;
   const needsEmergencyCompression = !compressedBlob || (compressedBlob.size > maxSafeSizeBytes);
 
   if (needsEmergencyCompression && file.size > maxSafeSizeBytes) {
-    console.warn(`[Compressor] Archivo > 12MB (${((compressedBlob?.size || file.size) / (1024 * 1024)).toFixed(1)}MB). Ejecutando compresión de emergencia 360p/12FPS...`);
+    console.warn(`[Compressor] Archivo > 25MB (${((compressedBlob?.size || file.size) / (1024 * 1024)).toFixed(1)}MB). Ejecutando compresión de emergencia 360p/12FPS...`);
     const emergencyBlob = await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range);
     if (emergencyBlob) {
       compressedBlob = emergencyBlob;

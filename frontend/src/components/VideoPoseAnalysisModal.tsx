@@ -633,12 +633,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const range = { startTime: trimStart, endTime: trimEnd };
       let videoBlobToSend: Blob = file;
 
-      // Always compress client-side to 480p / 15 FPS / 800 kbps to prevent V8 "Invalid string length"
-      const isAlreadyTiny = file.size <= 1.5 * 1024 * 1024 && trimStart === 0 && (!trimEnd || trimEnd >= 30);
-      if (!isAlreadyTiny) {
+      // Direct dispatch for videos <= 25 MB to avoid slow canvas re-recording (GPU handles trimming directly)
+      if (file.size > 25 * 1024 * 1024) {
         setPipelineMessage(`Optimizando y preparando vídeo (${(file.size / (1024 * 1024)).toFixed(1)}MB)...`);
         const preparedBlob = await prepareVideoForAnalysis(file, { range, maxWidth: 480, targetFps: 15, bitrate: 800_000 });
         videoBlobToSend = preparedBlob;
+      } else {
+        videoBlobToSend = file;
       }
       compressedBlobRef.current = videoBlobToSend;
 
@@ -705,7 +706,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ? (analysisData.frames[analysisData.frames.length - 1].timestamp_sec ?? analysisData.frames[analysisData.frames.length - 1].time)
         : (trimEnd - trimStart));
       const effectiveLoopEnd = Math.min(trimEnd, (trimStart || 0) + (maxAnalyzedDuration > 0 ? maxAnalyzedDuration : (trimEnd - trimStart)));
-      if (!video.seeking && effectiveLoopEnd > trimStart && (rawCurrentTime >= effectiveLoopEnd || rawCurrentTime < trimStart - 0.2)) {
+      if (!video.paused && !video.seeking && effectiveLoopEnd > trimStart && rawCurrentTime >= effectiveLoopEnd) {
         video.currentTime = trimStart;
       }
 
@@ -2301,9 +2302,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 <video
                   ref={videoElementRef}
                   src={uploadedVideoUrl || undefined}
+                  preload="auto"
                   playsInline
                   muted
-                  loop
                   onLoadedMetadata={(e) => {
                     const target = e.currentTarget;
                     const dur = target.duration || 0;
@@ -2317,13 +2318,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   }}
                   onTimeUpdate={(e) => {
                     const target = e.currentTarget;
-                    if (!target.seeking && trimEnd > trimStart && (target.currentTime >= trimEnd || target.currentTime < trimStart - 0.2)) {
+                    if (!target.paused && !target.seeking && trimEnd > trimStart && target.currentTime >= trimEnd) {
                       target.currentTime = trimStart;
                     }
                   }}
                   onEnded={(e) => {
                     e.currentTarget.currentTime = trimStart;
                     e.currentTarget.play().catch(() => {});
+                  }}
+                  onError={(e) => {
+                    const err = e.currentTarget.error;
+                    console.warn('[Video Player Error]', err);
+                    setVideoCodecError(err?.message || 'El formato o códec del vídeo no es compatible con el navegador.');
                   }}
                   className="w-full h-full object-contain pointer-events-none"
                 />
@@ -2334,6 +2340,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   className="absolute inset-0 w-full h-full pointer-events-none"
                 />
               </div>
+
+              {/* Codec / Format Error Alert */}
+              {videoCodecError && (
+                <div className="absolute top-3 left-3 right-3 p-3 bg-amber-950/90 border border-amber-500/50 rounded-xl text-amber-200 text-xs flex items-center gap-2 z-20 backdrop-blur-md">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="font-semibold">{videoCodecError}</span>
+                </div>
+              )}
 
               {/* Loading State Overlay */}
               {(pipelineState === 'compressing' || pipelineState === 'analyzing') && (
