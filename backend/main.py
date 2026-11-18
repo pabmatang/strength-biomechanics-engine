@@ -691,6 +691,26 @@ def run_inference_batches(
     return all_raw_keypoints, all_boxes
 
 # ---------------------------------------------------------------------------
+# 2.5 Universal JSON Sanitizer (removes numpy types, int64, float64, NaNs)
+# ---------------------------------------------------------------------------
+
+def sanitize_for_json(obj):
+    if isinstance(obj, dict):
+        return {str(k): sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(v) for v in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, (float, np.floating)):
+        val = float(obj)
+        return 0.0 if (np.isnan(val) or np.isinf(val)) else val
+    elif isinstance(obj, (bool, np.bool_)):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return sanitize_for_json(obj.tolist())
+    return obj
+
+# ---------------------------------------------------------------------------
 # 3. Clinical Kinematics Engine (3 Universal Biomechanical Patterns)
 # ---------------------------------------------------------------------------
 
@@ -718,7 +738,7 @@ def process_kinematics(
     """
     n_frames = len(raw_keypoints)
     if n_frames == 0:
-        return {"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []}
+        return sanitize_for_json({"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []})
 
     vlm_used = False
     vlm_error = None
@@ -2498,7 +2518,7 @@ def process_kinematics(
     if tot_weight > 0:
         effective_muscle_weights = {k: round(v / tot_weight, 3) for k, v in effective_muscle_weights.items()}
 
-    return {
+    return sanitize_for_json({
         "fps": 15.0,
         "total_duration_sec": round(float(timestamps[-1] - timestamps[0]), 4) if len(timestamps) > 1 else 0.0,
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
@@ -2521,7 +2541,7 @@ def process_kinematics(
         "vlm_used": bool(vlm_used),
         "vlm_error": str(vlm_error) if vlm_error else None,
         "frames": frames_output
-    }
+    })
 
 # ---------------------------------------------------------------------------
 # 4. Helper & Cerebrium Endpoint Definition
@@ -2694,7 +2714,7 @@ def analyze_anthropometry(
         "archetype": primary_archetype
     }
 
-    return {
+    return sanitize_for_json({
         "success": True,
         "ratios": {
             "femur_to_torso": round(femur_to_torso, 2),
@@ -2711,7 +2731,7 @@ def analyze_anthropometry(
         "archetype": primary_archetype,
         "archetype_description": " ".join(archetype_desc) if archetype_desc else "Proporciones anatómicas estándar con palancas equilibradas entre articulaciones.",
         "custom_thresholds": custom_thresholds
-    }
+    })
 
 def analyze(
     video_base64=None,
@@ -2812,7 +2832,7 @@ def analyze(
             is_manual_override=is_manual_override,
             gemini_api_key=gemini_api_key
         )
-        return result
+        return sanitize_for_json(result)
     finally:
         if os.path.exists(temp_path):
             try:
@@ -2834,7 +2854,7 @@ def predict(
     gemini_api_key=None,
     **kwargs
 ):
-    return analyze(
+    return sanitize_for_json(analyze(
         video_base64=video_base64,
         video_url=video_url,
         video=video,
@@ -2846,4 +2866,4 @@ def predict(
         is_manual_override=is_manual_override,
         gemini_api_key=gemini_api_key,
         **kwargs
-    )
+    ))
