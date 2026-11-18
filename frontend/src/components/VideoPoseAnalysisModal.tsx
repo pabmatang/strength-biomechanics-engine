@@ -957,8 +957,38 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ctx.stroke();
       };
 
+      // Segmento Cuello-Cabeza y Alineación Cervical
+      const currentNeckAngle = typeof (frame as any)?.neck_angle === 'number'
+        ? (frame as any).neck_angle
+        : (() => {
+            const vTx = pSh.x - pHp.x;
+            const vTy = pSh.y - pHp.y;
+            const vNx = pHd.x - pSh.x;
+            const vNy = pHd.y - pSh.y;
+            const nT = Math.hypot(vTx, vTy);
+            const nN = Math.hypot(vNx, vNy);
+            if (nT < 1e-4 || nN < 1e-4) return 0;
+            const cosVal = Math.max(-1.0, Math.min(1.0, (vTx * vNx + vTy * vNy) / (nT * nN)));
+            return Math.round(Math.acos(cosVal) * (180 / Math.PI));
+          })();
+
+      const isNeckHyperextended = currentNeckAngle > 28;
+      const neckColor = isNeckHyperextended ? '#EF4444' : '#10B981';
+
+      if ((pHd.score ?? 0) >= 0.20) {
+        drawThickSegment(pSh, pHd, neckColor);
+        drawBigPoint(pHd, neckColor);
+        if (options.showCanvasText && isNeckHyperextended) {
+          drawPillTag(pHd.x - 38, pHd.y - 18, `Cuello: +${Math.round(currentNeckAngle)}°`, '#EF4444', '#FCA5A5');
+        }
+      }
+
       if (isUpperBody) {
         // Miembro activo: Hombro -> Codo -> Muñeca (grosor 3.5px)
+        if (!hideTorsoLine && (pHp.score ?? 0) >= 0.30) {
+          drawThickSegment(pSh, pHp, '#10B981');
+          drawBigPoint(pHp, '#10B981');
+        }
         drawThickSegment(pSh, pEl, '#10B981');
         drawThickSegment(pEl, pWr, '#34D399');
         drawBigPoint(pSh, '#10B981');
@@ -1283,8 +1313,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPoint(pAk, '#38BDF8');
         drawPoint(pWr, '#FBBF24');
 
+        const isRdlOrDeadlift = exIdStr.includes('rdl') || exIdStr.includes('deadlift') || exIdStr.includes('rumano');
         if (options.showLeverArms) {
-          const rawLineX = (pWr.score !== undefined && pWr.score > 0.35) ? pWr.x : pAk.x;
+          // Bug 2 Fix: En RDL y Deadlift, el punto de carga es SIEMPRE la muñeca/mano (pWr.x)
+          const rawLineX = isRdlOrDeadlift ? pWr.x : ((pWr.score !== undefined && pWr.score > 0.35) ? pWr.x : pAk.x);
           if (smoothLineXRef.current === null || isNaN(smoothLineXRef.current)) {
             smoothLineXRef.current = rawLineX;
           } else {
@@ -1293,7 +1325,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           const lineX = smoothLineXRef.current;
 
           const lineTop = Math.max(offsetY + 10, Math.min(pHp.y, pWr.y) - 60);
-          const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pHp.y, pKn.y, pAk.y) + 30);
+          const lineBottom = Math.min(offsetY + drawH - 10, Math.max(pHp.y, pKn.y, pAk.y, pWr.y) + 30);
 
           ctx.beginPath();
           ctx.setLineDash([6, 3]);
@@ -1335,10 +1367,17 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               }
             }
 
+            const dHipVal = frame.moment_arms?.d_hip !== undefined ? Math.round(frame.moment_arms.d_hip * 100) : Math.round(Math.abs(pHp.x - lineX));
+            const dKneeVal = frame.moment_arms?.d_knee !== undefined ? Math.round(frame.moment_arms.d_knee * 100) : Math.round(Math.abs(pKn.x - lineX));
+
+            // En RDL/Deadlift: etiqueta G (Glúteo) y C / I (Cuádriceps si rodilla <130°, Isquios si semirrígida)
+            const kneeAngle = frame.secondary_angle || frame.main_angle || 135;
+            const kneeLabel = isRdlOrDeadlift ? (kneeAngle < 130 ? 'C' : 'I') : 'C';
+
             drawPillTag(
               midHipX - 22,
               tagHipY,
-              `G: ${Math.round(((frame.moment_arms?.d_hip) || 0) * 100)}`,
+              `G: ${dHipVal}`,
               '#3B82F6',
               '#93C5FD'
             );
@@ -1346,7 +1385,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             drawPillTag(
               midKnX - 22,
               tagKnY,
-              `C: ${Math.round(((frame.moment_arms?.d_knee) || 0) * 100)}`,
+              `${kneeLabel}: ${dKneeVal}`,
               '#10B981',
               '#6EE7B7'
             );
@@ -1676,6 +1715,26 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         torqueFocus: isTriceps ? 'TRÍCEPS BRAQUIAL' : 'BÍCEPS BRAQUIAL'
       };
     }
+    if (exId.includes('rdl') || exId.includes('deadlift') || exId.includes('rumano') || exId.includes('stiff')) {
+      return {
+        isLowerBody: true,
+        primaryJointName: 'Cadera',
+        secondaryJointName: 'Rodilla',
+        primaryMetric: 'Bisagra de Cadera',
+        secondaryMetric: 'Flexión de Rodilla',
+        dominantLabel: 'Glúteo Mayor',
+        rows: [
+          { label: 'Alineación Lumbar:', value: 'Columna neutra mantenida en todo el recorrido', color: 'text-emerald-400' },
+          { label: 'Bisagra de Cadera:', value: 'Desplazamiento horizontal de pelvis hacia atrás', color: 'text-cyan-300' },
+          { label: 'Tensión Isquios/Glúteo:', value: 'Rodilla semirrígida con tensión excéntrica pura', color: 'text-slate-200' },
+        ],
+        torqueTitle: 'Reparto de Torque Cadera / Rodilla',
+        torqueShare: 'Brazo Cadera vs Brazo Rodilla',
+        barLabel1: 'Brazo Cadera (Glúteo/Isquios)',
+        barLabel2: 'Brazo Rodilla',
+        torqueFocus: 'GLÚTEO E ISQUIOS'
+      };
+    }
     // Default Glúteo e Isquios
     const isCurl = exId.includes('curl');
     return {
@@ -1815,6 +1874,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       secondaryLeverShare = 10;
       torqueBadgeText = '90% Aislamiento vs 10% Inercia';
     }
+  } else if (safeExerciseId.includes('rdl') || safeExerciseId.includes('deadlift') || safeExerciseId.includes('rumano') || safeExerciseId.includes('stiff')) {
+    primaryLeverName = 'Brazo Cadera (Glúteo/Isquios)';
+    secondaryLeverName = 'Brazo Rodilla';
+    primaryLeverShare = hipShare;
+    secondaryLeverShare = kneeShare;
+    torqueBadgeText = `${hipShare}% Cadera vs ${kneeShare}% Rodilla`;
   } else if (selectedMuscleGroupId === 'quadriceps' || selectedMuscleGroupId === 'quads' || safeExerciseId.includes('squat') || safeExerciseId.includes('hack') || safeExerciseId.includes('leg_press') || safeExerciseId.includes('bulgarian') || safeExerciseId.includes('leg_extension')) {
     primaryLeverName = 'Brazo Rodilla';
     secondaryLeverName = 'Brazo Cadera';
@@ -1826,8 +1891,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   // Active verdict read directly from frozen rep verdict with high-confidence fallbacks
   const isBackExercise = selectedMuscleGroupId === 'back' || safeExerciseId.includes('row') || safeExerciseId.includes('pull') || safeExerciseId.includes('t_bar') || safeExerciseId.includes('gironda');
   const isChestExercise = selectedMuscleGroupId === 'chest' || safeExerciseId.includes('chest') || safeExerciseId.includes('press') || safeExerciseId.includes('bench') || safeExerciseId.includes('dip') || safeExerciseId.includes('fly') || safeExerciseId.includes('pec_deck');
+  const isRdlExercise = safeExerciseId.includes('rdl') || safeExerciseId.includes('deadlift') || safeExerciseId.includes('rumano') || safeExerciseId.includes('stiff');
   const isUpperBackActive = primaryLeverName.includes('Espalda Alta');
   const isChestDominant = primaryLeverShare >= 50;
+
+  const kneeAngleForRdl = rawVerdict?.inflection_knee_deg ?? (currentFrame?.secondary_angle || currentFrame?.main_angle || 135);
+  const isHighKneeFlexion = isRdlExercise && kneeAngleForRdl < 130;
+  const isModerateKneeFlexion = isRdlExercise && kneeAngleForRdl >= 130 && kneeAngleForRdl < 145;
 
   const activeVerdict = {
     status: rawVerdict?.status || 'OPTIMAL',
@@ -1835,9 +1905,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ? (isChestDominant ? 'PECTORAL MAYOR' : 'TRÍCEPS BRAQUIAL')
       : isBackExercise
         ? (isUpperBackActive ? 'ESPALDA ALTA' : 'DORSAL ANCHO')
-        : ((rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
-            ? rawVerdict.dominant_joint
-            : kinematicMeta.dominantLabel.toUpperCase()),
+        : isRdlExercise
+          ? (isHighKneeFlexion ? 'GLÚTEO MAYOR' : (isModerateKneeFlexion ? 'GLÚTEO E ISQUIOS' : 'ISQUIOSURALES'))
+          : ((rawVerdict?.dominant_joint && rawVerdict.dominant_joint !== 'NEUTRO')
+              ? rawVerdict.dominant_joint
+              : kinematicMeta.dominantLabel.toUpperCase()),
     target_alignment: rawVerdict?.target_alignment ?? true,
     primary_torque_bias: isChestExercise
       ? (isChestDominant ? 'PECTORAL MAYOR' : 'TRÍCEPS BRAQUIAL')
@@ -1845,10 +1917,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ? (isUpperBackActive
             ? (secondaryLeverShare === 0 ? 'ESPALDA ALTA (TODO ESPALDA)' : 'ESPALDA ALTA (ROMBOIDES / TRAPECIO)')
             : (secondaryLeverShare === 0 ? 'DORSAL ANCHO (TODO ESPALDA)' : 'DORSAL ANCHO (CODO PEGADO AL TORSO)'))
-        : ((rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
-            ? rawVerdict.primary_torque_bias
-            : kinematicMeta.torqueFocus),
-    inflection_knee_deg: rawVerdict?.inflection_knee_deg ?? 90.0,
+        : isRdlExercise
+          ? (isHighKneeFlexion ? 'GLÚTEO MAYOR (Por flexión de rodilla)' : (isModerateKneeFlexion ? 'GLÚTEO E ISQUIOS' : 'ISQUIOSURALES'))
+          : ((rawVerdict?.primary_torque_bias && rawVerdict.primary_torque_bias !== 'CALIBRANDO')
+              ? rawVerdict.primary_torque_bias
+              : kinematicMeta.torqueFocus),
+    inflection_knee_deg: rawVerdict?.inflection_knee_deg ?? (isRdlExercise ? kneeAngleForRdl : 90.0),
     inflection_hip_deg: rawVerdict?.inflection_hip_deg ?? 180.0,
     inflection_elbow_deg: rawVerdict?.inflection_elbow_deg ?? curElbowDeg,
     pectoral_share: rawVerdict?.pectoral_share,
@@ -1859,19 +1933,25 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     d_knee_norm: rawVerdict?.d_knee_norm ?? 0.12,
     recommendation: (rawVerdict?.recommendation && !rawVerdict.recommendation.includes('Mapeando cinemática'))
       ? rawVerdict.recommendation
-      : (!isLowerBody
-        ? (selectedMuscleGroupId === 'chest'
-          ? (curElbowDeg < 78
-            ? `Ángulo de codo cerrado (${Math.round(curElbowDeg)}° < 78°): sobrecarga mecánica en Tríceps Braquial. Abre el agarre o separa codos ~50°-60° para aislar Pectoral Mayor.`
-            : `Palanca óptima sobre Pectoral Mayor (~${Math.round(curElbowDeg)}° en codo): antebrazo perpendicular con mínima palanca parásita de tríceps.`)
-          : selectedMuscleGroupId === 'back'
-          ? (curElbowDeg < 80
-            ? `Codos excesivamente flexionados (${Math.round(curElbowDeg)}° < 80°): tirón excesivo de brazos que sobrecarga Bíceps. Conduce codos hacia la cadera para aislar Dorsal Ancho.`
-            : `Tracción óptima de Dorsal Ancho (~${Math.round(curElbowDeg)}° en codo): codos cerrados hacia la pelvis con máxima activación dorsal.`)
-          : 'Trayectoria vertical centrada en el plano escapular con tronco rígido para optimizar torque en deltoides.')
-        : (isHipThrustVariant
-          ? 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico activo (≥142° en cadera).'
-          : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.'))
+      : (isRdlExercise
+        ? (isHighKneeFlexion
+          ? 'Alta flexión de rodilla (<130°): mayor reclutamiento de Glúteo Mayor y menor tensión pasiva en Isquiosurales.'
+          : (isModerateKneeFlexion
+            ? 'Flexión moderada de rodilla (~135°): reparto equilibrado entre Glúteo Mayor e Isquiosurales.'
+            : 'Rodilla semirrígida (≥145°): máxima tensión mecánica y elongación pasiva en Isquiosurales.'))
+        : (!isLowerBody
+          ? (selectedMuscleGroupId === 'chest'
+            ? (curElbowDeg < 78
+              ? `Ángulo de codo cerrado (${Math.round(curElbowDeg)}° < 78°): sobrecarga mecánica en Tríceps Braquial. Abre el agarre o separa codos ~50°-60° para aislar Pectoral Mayor.`
+              : `Palanca óptima sobre Pectoral Mayor (~${Math.round(curElbowDeg)}° en codo): antebrazo perpendicular con mínima palanca parásita de tríceps.`)
+            : selectedMuscleGroupId === 'back'
+            ? (curElbowDeg < 80
+              ? `Codos excesivamente flexionados (${Math.round(curElbowDeg)}° < 80°): tirón excesivo de brazos que sobrecarga Bíceps. Conduce codos hacia la cadera para aislar Dorsal Ancho.`
+              : `Tracción óptima de Dorsal Ancho (~${Math.round(curElbowDeg)}° en codo): codos cerrados hacia la pelvis con máxima activación dorsal.`)
+            : 'Trayectoria vertical centrada en el plano escapular con tronco rígido para optimizar torque en deltoides.')
+          : (isHipThrustVariant
+            ? 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico activo (≥142° en cadera).'
+            : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.')))
   };
 
   // Real clinical statistics from repetition summaries
@@ -2609,6 +2689,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
 
                   <div className="space-y-1.5 pt-1 border-t border-slate-800/60 text-[11px]">
+                    {/* Fila de Alineación Cervical y Espalda */}
+                    {(() => {
+                      const curNeck = typeof (currentFrame as any)?.neck_angle === 'number'
+                        ? (currentFrame as any).neck_angle
+                        : 18;
+                      const isHyperextended = curNeck > 25;
+                      return (
+                        <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
+                          <span className="font-medium text-slate-300">Alineación Cervical y Espalda:</span>
+                          <span className={`font-bold ${isHyperextended ? 'text-amber-400' : 'text-emerald-400'} break-words whitespace-normal`}>
+                            {isHyperextended
+                              ? `Hiperextensión cervical detectada (+${Math.round(curNeck)}°): mantén la mirada neutra siguiendo la línea de la espalda`
+                              : 'Columna neutra y cuello alineado con el dorsal'}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     {kinematicMeta.rows.map((row: { label: string; value: string; color: string }, rIdx: number) => (
                       <div key={rIdx} className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-0.5 text-slate-400 leading-relaxed">
                         <span className="font-medium text-slate-300">{row.label}</span>
@@ -2684,6 +2781,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center justify-between">
                       <span className="text-slate-400 font-bold">Alineación Tibial (Rodilla):</span>
                       <span className="font-bold text-cyan-300">{Math.round(activeVerdict.inflection_knee_deg || 90)}° (Objetivo ~90°)</span>
+                    </div>
+                  )}
+
+                  {/* Notice for RDL with high knee flexion */}
+                  {isRdlExercise && (activeVerdict.inflection_knee_deg ?? 135) < 130 && (
+                    <div className="p-2 rounded-xl bg-purple-950/40 border border-purple-500/40 text-[11px] text-purple-200 leading-relaxed">
+                      💡 <strong>Alta flexión de rodilla (&lt;130°):</strong> mayor reclutamiento de Glúteo Mayor y menor tensión pasiva en Isquiosurales.
                     </div>
                   )}
 

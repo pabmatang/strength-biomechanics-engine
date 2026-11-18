@@ -136,6 +136,7 @@ export interface BiomechanicsAnalysisResponse {
   locked_side: 'left' | 'right';
   repetitions_summary: RepetitionSummary[];
   intensity_metrics?: IntensityMetrics;
+  effective_muscle_weights?: Record<string, number>;
   frames: BiomechanicsFrame[];
 }
 

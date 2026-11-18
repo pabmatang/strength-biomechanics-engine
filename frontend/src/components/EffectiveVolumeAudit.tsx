@@ -97,131 +97,118 @@ export const EffectiveVolumeAudit: React.FC<EffectiveVolumeAuditProps> = ({
 
   // Biomechanical audit data across 9 muscle groups
   const muscleAuditList: MuscleVolumeEntry[] = useMemo(() => {
+    const mw = currentAnalysis?.effective_muscle_weights;
+
+    // Requirement 4: Multi-muscle weighting based on actual biomechanics from video
     const isChest = exerciseId.includes('bench') || exerciseId.includes('press') || exerciseId.includes('dips') || exerciseId.includes('fly');
     const isBack = exerciseId.includes('row') || exerciseId.includes('pull') || exerciseId.includes('t_bar') || exerciseId.includes('gironda');
     const isGlutes = exerciseId.includes('hip_thrust') || exerciseId.includes('thrust') || exerciseId.includes('glute');
     const isQuads = exerciseId.includes('squat') || exerciseId.includes('leg_press') || exerciseId.includes('bulgarian');
+    const isRdl = exerciseId.includes('rdl') || exerciseId.includes('deadlift') || exerciseId.includes('rumano');
 
-    // Base mock workout plan (representing a standard weekly or session distribution)
-    // Dynamic overlay for current exercise analyzed
-    const pecGross = isChest ? programmedSets : 4;
-    const pecShare = isChest ? currentTorqueSplit.primary : 0.62;
-    const pecEff = Number((pecGross * pecShare * rirFactor).toFixed(2));
+    // Dynamic shares from video analysis or fallback defaults
+    const pecShare = mw?.chest ?? (isChest ? currentTorqueSplit.primary : 0.0);
+    const triShare = mw?.triceps ?? (isChest ? currentTorqueSplit.secondary : 0.0);
+    const deltShare = (mw?.front_delts || mw?.rear_delts) ?? (isChest ? 0.15 : 0.0);
+    const dorsShare = mw?.lats ?? (isBack ? currentTorqueSplit.primary : 0.0);
+    const espAltaShare = mw?.upper_back ?? (isBack ? currentTorqueSplit.secondary : 0.0);
+    const bicShare = mw?.biceps ?? (isBack ? 0.20 : 0.0);
+    const glutShare = mw?.glutes ?? (isGlutes ? currentTorqueSplit.primary : (isRdl ? 0.50 : 0.0));
+    const isqShare = mw?.hamstrings ?? (isRdl ? 0.50 : (isGlutes ? currentTorqueSplit.secondary : 0.0));
+    const quadShare = mw?.quads ?? (isQuads ? 0.70 : 0.0);
 
-    const triGross = isChest ? programmedSets : 3;
-    const triShare = isChest ? currentTorqueSplit.secondary : 0.38;
-    const triEff = Number((triGross * triShare * rirFactor).toFixed(2));
-
-    const dorsGross = isBack ? programmedSets : 5;
-    const dorsShare = isBack ? currentTorqueSplit.primary : 0.55;
-    const dorsEff = Number((dorsGross * dorsShare * rirFactor).toFixed(2));
-
-    const espAltaGross = isBack ? programmedSets : 4;
-    const espAltaShare = isBack ? currentTorqueSplit.secondary : 0.45;
-    const espAltaEff = Number((espAltaGross * espAltaShare * rirFactor).toFixed(2));
-
-    const bicGross = isBack ? programmedSets : 3;
-    const bicShare = isBack ? 0.30 : 0.25;
-    const bicEff = Number((bicGross * bicShare * rirFactor).toFixed(2));
-
-    const deltGross = isChest ? programmedSets : 4;
-    const deltShare = isChest ? 0.25 : 0.40;
-    const deltEff = Number((deltGross * deltShare * rirFactor).toFixed(2));
-
-    const glutGross = isGlutes ? programmedSets : 5;
-    const glutShare = isGlutes ? currentTorqueSplit.primary : 0.85;
-    const glutEff = Number((glutGross * glutShare * rirFactor).toFixed(2));
-
-    const quadGross = isQuads ? programmedSets : 6;
-    const quadShare = isQuads ? 0.70 : 0.20;
-    const quadEff = Number((quadGross * quadShare * rirFactor).toFixed(2));
-
-    const isqGross = isGlutes ? programmedSets : 4;
-    const isqShare = isGlutes ? currentTorqueSplit.secondary : 0.50;
-    const isqEff = Number((isqGross * isqShare * rirFactor).toFixed(2));
+    const pecEff = Number((programmedSets * pecShare * rirFactor).toFixed(2));
+    const triEff = Number((programmedSets * triShare * rirFactor).toFixed(2));
+    const deltEff = Number((programmedSets * deltShare * rirFactor).toFixed(2));
+    const dorsEff = Number((programmedSets * dorsShare * rirFactor).toFixed(2));
+    const espAltaEff = Number((programmedSets * espAltaShare * rirFactor).toFixed(2));
+    const bicEff = Number((programmedSets * bicShare * rirFactor).toFixed(2));
+    const glutEff = Number((programmedSets * glutShare * rirFactor).toFixed(2));
+    const isqEff = Number((programmedSets * isqShare * rirFactor).toFixed(2));
+    const quadEff = Number((programmedSets * quadShare * rirFactor).toFixed(2));
 
     const list: MuscleVolumeEntry[] = [
       {
         id: 'pectoral',
         name: 'Pectoral Mayor',
-        grossSets: pecGross,
-        effectiveSets: pecEff,
-        efficiencyPct: Math.round((pecEff / Math.max(1, pecGross)) * 100),
+        grossSets: pecShare > 0 ? programmedSets : 4,
+        effectiveSets: pecShare > 0 ? pecEff : 2.5,
+        efficiencyPct: Math.round(pecShare * 100),
         primaryExercises: ['Press Banca', 'Press Inclinado', 'Fondos'],
-        status: pecEff >= pecGross * 0.7 ? 'optimal' : pecEff >= pecGross * 0.5 ? 'warning' : 'alert',
-        alert: pecEff < pecGross * 0.65 ? 'Tu tríceps y deltoides están absorbiendo más del 35% del momento de fuerza.' : undefined
+        status: pecEff >= programmedSets * 0.6 ? 'optimal' : pecEff > 0 ? 'warning' : 'alert',
+        alert: pecShare > 0 && pecShare < 0.65 ? 'Tu tríceps y deltoides están absorbiendo parte del momento de fuerza.' : undefined
       },
       {
         id: 'dorsal',
         name: 'Dorsal Ancho',
-        grossSets: dorsGross,
-        effectiveSets: dorsEff,
-        efficiencyPct: Math.round((dorsEff / Math.max(1, dorsGross)) * 100),
+        grossSets: dorsShare > 0 ? programmedSets : 5,
+        effectiveSets: dorsShare > 0 ? dorsEff : 3.2,
+        efficiencyPct: Math.round(dorsShare * 100),
         primaryExercises: ['Jalón al Pecho', 'Remo con Apoyo', 'Pullover'],
-        status: dorsEff >= dorsGross * 0.7 ? 'optimal' : 'warning',
+        status: dorsEff >= programmedSets * 0.6 ? 'optimal' : 'warning',
         alert: undefined
       },
       {
         id: 'espalda_alta',
         name: 'Espalda Alta (Romboides / Trapecio)',
-        grossSets: espAltaGross,
-        effectiveSets: espAltaEff,
-        efficiencyPct: Math.round((espAltaEff / Math.max(1, espAltaGross)) * 100),
+        grossSets: espAltaShare > 0 ? programmedSets : 4,
+        effectiveSets: espAltaShare > 0 ? espAltaEff : 2.8,
+        efficiencyPct: Math.round(espAltaShare * 100),
         primaryExercises: ['Remo en T', 'Remo Gironda con Agarre Ancho'],
         status: 'optimal'
       },
       {
         id: 'gluteo',
         name: 'Glúteo Mayor',
-        grossSets: glutGross,
-        effectiveSets: glutEff,
-        efficiencyPct: Math.round((glutEff / Math.max(1, glutGross)) * 100),
+        grossSets: glutShare > 0 ? programmedSets : 5,
+        effectiveSets: glutShare > 0 ? glutEff : 4.2,
+        efficiencyPct: Math.round(glutShare * 100),
         primaryExercises: ['Hip Thrust', 'Sentadilla Búlgara', 'RDL'],
         status: 'optimal'
       },
       {
         id: 'cuadriceps',
         name: 'Cuádriceps',
-        grossSets: quadGross,
-        effectiveSets: quadEff,
-        efficiencyPct: Math.round((quadEff / Math.max(1, quadGross)) * 100),
+        grossSets: quadShare > 0 ? programmedSets : 6,
+        effectiveSets: quadShare > 0 ? quadEff : 3.8,
+        efficiencyPct: Math.round(quadShare * 100),
         primaryExercises: ['Sentadilla Hack', 'Prensa', 'Extensiones'],
         status: 'optimal'
       },
       {
         id: 'isquios',
         name: 'Isquiosurales',
-        grossSets: isqGross,
-        effectiveSets: isqEff,
-        efficiencyPct: Math.round((isqEff / Math.max(1, isqGross)) * 100),
+        grossSets: isqShare > 0 ? programmedSets : 4,
+        effectiveSets: isqShare > 0 ? isqEff : 2.6,
+        efficiencyPct: Math.round(isqShare * 100),
         primaryExercises: ['Curl Femoral Sentado', 'Peso Muerto Rumano'],
         status: 'optimal'
       },
       {
         id: 'deltoides',
         name: 'Deltoides (Anterior / Lateral)',
-        grossSets: deltGross,
-        effectiveSets: deltEff,
-        efficiencyPct: Math.round((deltEff / Math.max(1, deltGross)) * 100),
+        grossSets: deltShare > 0 ? programmedSets : 4,
+        effectiveSets: deltShare > 0 ? deltEff : 2.4,
+        efficiencyPct: Math.round(deltShare * 100),
         primaryExercises: ['Press Militar', 'Press Inclinado', 'Elevaciones'],
         status: 'optimal'
       },
       {
         id: 'triceps',
         name: 'Tríceps Braquial',
-        grossSets: triGross,
-        effectiveSets: triEff,
-        efficiencyPct: Math.round((triEff / Math.max(1, triGross)) * 100),
+        grossSets: triShare > 0 ? programmedSets : 3,
+        effectiveSets: triShare > 0 ? triEff : 2.0,
+        efficiencyPct: Math.round(triShare * 100),
         primaryExercises: ['Extensiones en Polea', 'Press Cerrado', 'Fondos'],
-        status: triEff > triGross * 0.9 ? 'alert' : 'optimal',
-        alert: triEff > triGross * 0.9 ? 'Volumen acumulado alto: absorbe fatiga excesiva de los empujes de pectoral.' : undefined
+        status: triShare > 0.40 ? 'warning' : 'optimal',
+        alert: triShare > 0.40 ? 'Volumen parásito alto: absorbe fatiga excesiva de los empujes de pectoral.' : undefined
       },
       {
         id: 'biceps',
         name: 'Bíceps Braquial',
-        grossSets: bicGross,
-        effectiveSets: bicEff,
-        efficiencyPct: Math.round((bicEff / Math.max(1, bicGross)) * 100),
+        grossSets: bicShare > 0 ? programmedSets : 3,
+        effectiveSets: bicShare > 0 ? bicEff : 1.8,
+        efficiencyPct: Math.round(bicShare * 100),
         primaryExercises: ['Curl en Banco Scott', 'Remos Supinos'],
         status: 'optimal'
       }

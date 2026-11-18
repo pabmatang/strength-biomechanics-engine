@@ -606,6 +606,14 @@ def process_kinematics(
     l_torso_median = float(max(0.24, min(0.52, box_h * 0.40)))
     l_tibia_median = float(max(0.16, min(0.36, box_h * 0.28)))
 
+    # Facing direction from head relative to torso center
+    head_x_med = float(np.median(smoothed_head["x"]))
+    mid_torso_x = float(0.25 * (
+        np.median(all_smoothed["left_shoulder"]["x"]) + np.median(all_smoothed["right_shoulder"]["x"]) +
+        np.median(all_smoothed["left_hip"]["x"]) + np.median(all_smoothed["right_hip"]["x"])
+    ))
+    facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
+
     # 2. Dynamic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
     is_unilateral_flag = False
@@ -792,14 +800,40 @@ def process_kinematics(
             all_smoothed["right_ankle"]["score"]
         ])))
 
-        if abs(left_conf - right_conf) > 0.12:
-            locked_side = "left" if left_conf > right_conf else "right"
-            is_unilateral_flag = False
+        is_leg_work_exercise = any(k in ex_lower for k in ["rdl", "deadlift", "rumano", "squat", "bulgarian", "lunge"])
+        if is_leg_work_exercise:
+            # Bug 1 Fix: In RDL / B-Stance / Bulgarian, select the working leg whose ankle is forward in the facing direction
+            # and firmly planted (lower ankle x std) rather than the rear kickstand leg with bent knee
+            l_ank_x = all_smoothed["left_ankle"]["x"]
+            r_ank_x = all_smoothed["right_ankle"]["x"]
+            l_forward = float(np.median(l_ank_x) * facing_dir)
+            r_forward = float(np.median(r_ank_x) * facing_dir)
+            l_std = float(np.std(l_ank_x))
+            r_std = float(np.std(r_ank_x))
+
+            if abs(l_forward - r_forward) > 0.025:
+                locked_side = "left" if l_forward > r_forward else "right"
+                is_unilateral_flag = True
+            elif abs(l_std - r_std) > 0.015:
+                locked_side = "left" if l_std < r_std else "right"
+                is_unilateral_flag = False
+            elif abs(left_conf - right_conf) > 0.12:
+                locked_side = "left" if left_conf > right_conf else "right"
+                is_unilateral_flag = False
+            else:
+                left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
+                right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
+                is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
+                locked_side = "left" if left_activity >= right_activity else "right"
         else:
-            left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
-            right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
-            is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
-            locked_side = "left" if left_activity >= right_activity else "right"
+            if abs(left_conf - right_conf) > 0.12:
+                locked_side = "left" if left_conf > right_conf else "right"
+                is_unilateral_flag = False
+            else:
+                left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
+                right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
+                is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
+                locked_side = "left" if left_activity >= right_activity else "right"
 
         other_side = "right" if locked_side == "left" else "left"
 
@@ -928,6 +962,12 @@ def process_kinematics(
                 if primary_joints["hip"]["y"][f] < min_hip_y:
                     primary_joints["hip"]["y"][f] = float(min_hip_y)
 
+                # Bug 3 Fix: En Hip Thrust en máquina, bloquea hip_x dentro de la franja horizontal entre el hombro y la rodilla
+                min_span_x = min(sh_x[f], knee_x[f]) + 0.25 * abs(knee_x[f] - sh_x[f])
+                max_span_x = max(sh_x[f], knee_x[f]) - 0.20 * abs(knee_x[f] - sh_x[f])
+                if max_span_x > min_span_x:
+                    primary_joints["hip"]["x"][f] = float(np.clip(primary_joints["hip"]["x"][f], min_span_x, max_span_x))
+
             # Re-smooth with zero-phase Butterworth filter post reconstruction (2.0 Hz)
             primary_joints["hip"]["x"] = apply_zero_phase_butterworth(primary_joints["hip"]["x"], fs=15.0, cutoff=2.0)
             primary_joints["hip"]["y"] = apply_zero_phase_butterworth(primary_joints["hip"]["y"], fs=15.0, cutoff=2.0)
@@ -1014,6 +1054,7 @@ def process_kinematics(
     el_2d = np.zeros(n_frames, dtype=np.float64)
     hu_2d = np.zeros(n_frames, dtype=np.float64)
     torso_2d = np.zeros(n_frames, dtype=np.float64)
+    neck_2d = np.zeros(n_frames, dtype=np.float64)
 
     for f in range(n_frames):
         sh = {"x": primary_joints["shoulder"]["x"][f], "y": primary_joints["shoulder"]["y"][f]}
@@ -1022,6 +1063,7 @@ def process_kinematics(
         ak = {"x": primary_joints["ankle"]["x"][f], "y": primary_joints["ankle"]["y"][f]}
         el = {"x": primary_joints["elbow"]["x"][f], "y": primary_joints["elbow"]["y"][f]}
         wr = {"x": primary_joints["wrist"]["x"][f], "y": primary_joints["wrist"]["y"][f]}
+        hd = {"x": smoothed_head["x"][f], "y": smoothed_head["y"][f]}
 
         # Fix obligatorio: Ángulo interno de la rodilla centrado en knee (90° con fémur horizontal y tibia vertical)
         v1_kn = np.array([hp["x"] - kn["x"], hp["y"] - kn["y"]])
@@ -1064,11 +1106,24 @@ def process_kinematics(
         hu_2d[f] = raw_hu
         torso_2d[f] = raw_t
 
+        # Ángulo cervical (desviación angular del cuello respecto al torso)
+        v_torso = np.array([sh["x"] - hp["x"], sh["y"] - hp["y"]])
+        v_neck = np.array([hd["x"] - sh["x"], hd["y"] - sh["y"]])
+        nt = float(np.linalg.norm(v_torso))
+        nn = float(np.linalg.norm(v_neck))
+        if nt > 1e-4 and nn > 1e-4:
+            cos_n = np.dot(v_torso, v_neck) / (nt * nn)
+            raw_neck = float(np.degrees(np.arccos(np.clip(cos_n, -1.0, 1.0))))
+        else:
+            raw_neck = 0.0
+        neck_2d[f] = raw_neck
+
     clean_el = apply_zero_phase_butterworth_continuous(el_2d, fs=15.0, cutoff=1.8)
     clean_hp = apply_zero_phase_butterworth_continuous(hp_2d, fs=15.0, cutoff=1.8)
     clean_kn = apply_zero_phase_butterworth_continuous(kn_2d, fs=15.0, cutoff=1.8)
     clean_hu = apply_zero_phase_butterworth_continuous(hu_2d, fs=15.0, cutoff=1.8)
     clean_torso = apply_zero_phase_butterworth_continuous(torso_2d, fs=15.0, cutoff=1.8)
+    clean_neck = apply_zero_phase_butterworth_continuous(neck_2d, fs=15.0, cutoff=1.8)
 
     # Assign primary and secondary signals according to the 3 Universal Patterns:
     if is_pattern_a:
@@ -1540,11 +1595,24 @@ def process_kinematics(
                 d_hp = float(abs(hp_x_inf - ak_x_inf))
 
             else: # RDL / Deadlift
-                dominant_joint = "CADERA"
-                torque_bias = "ISQUIOSURALES"
-                deep_enough = inflect_hip <= 85.0
-                recom = "Bisagra de cadera profunda con máxima tensión en isquiosurales." if deep_enough else "Bisagra parcial. Empuja la cadera hacia atrás manteniendo columna neutra."
-                status = "OPTIMAL" if deep_enough else "IMPROVEMENT_OPPORTUNITY"
+                if inflect_knee >= 145.0:
+                    dominant_joint = "CADERA"
+                    torque_bias = "ISQUIOSURALES"
+                    muscle_focus_txt = "ISQUIOSURALES"
+                    recom = "Pierna semirrígida (rodilla ≥145°): máximo estiramiento y tensión mecánica en isquiosurales."
+                    status = "OPTIMAL"
+                elif inflect_knee >= 130.0:
+                    dominant_joint = "CADERA"
+                    torque_bias = "GLÚTEO E ISQUIOS"
+                    muscle_focus_txt = "GLÚTEO E ISQUIOS"
+                    recom = "Flexión moderada de rodilla (130°-145°): reparto equilibrado entre Glúteo Mayor e Isquiosurales."
+                    status = "OPTIMAL"
+                else: # inflect_knee < 130.0 (alta flexión de rodilla)
+                    dominant_joint = "GLÚTEO MAYOR"
+                    torque_bias = "GLÚTEO MAYOR"
+                    muscle_focus_txt = "GLÚTEO MAYOR (Por flexión de rodilla)"
+                    recom = "Alta flexión de rodilla (<130°): mayor reclutamiento de Glúteo Mayor y menor tensión pasiva en Isquiosurales."
+                    status = "OPTIMAL"
                 d_sh = 0.0
                 d_el = 0.0
                 d_hp = float(abs(hp_x_inf - wr_x_inf))
@@ -1555,6 +1623,8 @@ def process_kinematics(
             "dominant_joint": dominant_joint,
             "target_alignment": bool(status == "OPTIMAL"),
             "primary_torque_bias": torque_bias,
+            "muscle_focus": muscle_focus_txt if 'muscle_focus_txt' in locals() else torque_bias,
+            "min_bottom_knee_angle": round(inflect_knee, 1),
             "inflection_knee_deg": round(inflect_knee, 1),
             "inflection_hip_deg": round(inflect_hip, 1),
             "inflection_elbow_deg": round(inflect_elbow, 1),
@@ -1950,18 +2020,36 @@ def process_kinematics(
                     "recommendation": "Alineación de rodilla evaluada. Descenso coordinado rompiendo la paralela con fémur alineado al pie."
                 }
             else:
+                if med_knee >= 145.0:
+                    dom_j = "CADERA"
+                    t_bias = "ISQUIOSURALES"
+                    m_foc = "ISQUIOSURALES"
+                    rec = "Pierna semirrígida (rodilla ≥145°): máximo estiramiento y tensión mecánica en isquiosurales."
+                elif med_knee >= 130.0:
+                    dom_j = "CADERA"
+                    t_bias = "GLÚTEO E ISQUIOS"
+                    m_foc = "GLÚTEO E ISQUIOS"
+                    rec = "Flexión moderada de rodilla (130°-145°): reparto equilibrado entre Glúteo Mayor e Isquiosurales."
+                else: # med_knee < 130.0 (alta flexión de rodilla)
+                    dom_j = "GLÚTEO MAYOR"
+                    t_bias = "GLÚTEO MAYOR"
+                    m_foc = "GLÚTEO MAYOR (Por flexión de rodilla)"
+                    rec = "Alta flexión de rodilla (<130°): mayor reclutamiento de Glúteo Mayor y menor tensión pasiva en Isquiosurales."
+
                 base_rep_verdict = {
                     "status": "OPTIMAL",
-                    "dominant_joint": "CADERA",
+                    "dominant_joint": dom_j,
                     "target_alignment": True,
-                    "primary_torque_bias": "ISQUIOSURALES",
+                    "primary_torque_bias": t_bias,
+                    "muscle_focus": m_foc,
+                    "min_bottom_knee_angle": round(med_knee, 1),
                     "inflection_knee_deg": round(med_knee, 1),
                     "inflection_hip_deg": round(med_hip, 1),
                     "inflection_elbow_deg": round(med_elbow, 1),
                     "d_hip_norm": round(float(abs(hp_x - wr_x)), 3),
                     "d_knee_norm": round(float(abs(kn_x - wr_x)), 3),
                     "d_shoulder_norm": 0.0,
-                    "recommendation": "Bisagra de cadera profunda con máxima tensión en isquiosurales."
+                    "recommendation": rec
                 }
 
         # Projected 2D Moment Arms for Canvas Overlay
@@ -2016,12 +2104,22 @@ def process_kinematics(
             f_d_hip = 0.0
             f_d_sh = 0.0
             f_d_el = 0.0
+        elif any(k in ex_lower for k in ["deadlift", "rdl", "rumano"]):
+            cur_force_dx = 0.0
+            cur_force_dy = 1.0
+            cur_force_dir = "vertical_down"
+            # Bug 2 Fix: En RDL y Deadlift, el vector de carga pasa verticalmente por la muñeca/mano (wr_x).
+            # d_hip y d_knee son distancias ortogonales horizontales a esa recta vertical.
+            f_d_knee = abs(kn_x - wr_x)
+            f_d_hip = abs(hp_x - wr_x)
+            f_d_sh = 0.0
+            f_d_el = 0.0
         else:
             cur_force_dx = force_dx
             cur_force_dy = force_dy
             cur_force_dir = force_dir_name
             f_d_knee = abs(kn_x - hp_x)
-            f_d_hip = abs(hp_x - ak_x) if not any(k in ex_lower for k in ["deadlift", "rdl"]) else abs(hp_x - wr_x)
+            f_d_hip = abs(hp_x - ak_x)
             f_d_sh = 0.0
             f_d_el = 0.0
             
@@ -2050,8 +2148,9 @@ def process_kinematics(
             "is_unilateral": bool(is_unilateral_flag),
             "main_angle": round(float(clean_primary[f]), 1),
             "secondary_angle": round(float(clean_secondary[f]), 1),
+            "neck_angle": round(float(clean_neck[f]), 1),
             "force_vector": {
-                "origin": force_origin,
+                "origin": "wrist" if any(k in ex_lower for k in ["deadlift", "rdl", "rumano"]) else force_origin,
                 "direction": cur_force_dir,
                 "dx": round(float(cur_force_dx), 2),
                 "dy": round(float(cur_force_dy), 2)
@@ -2108,12 +2207,81 @@ def process_kinematics(
     mean_pau = round(float(np.mean([r["pause_sec"] for r in repetitions_summary])), 2) if repetitions_summary else 0.0
     mean_con = round(float(np.mean([r["concentric_sec"] for r in repetitions_summary])), 2) if repetitions_summary else 0.0
 
+    # ---------------------------------------------------------------------
+    # Requirement 4: Effective Muscle Weights Calculation (Normalized to 1.0)
+    # ---------------------------------------------------------------------
+    effective_muscle_weights: Dict[str, float] = {}
+    is_rdl_deadlift_ex = any(k in ex_lower for k in ["rdl", "deadlift", "rumano"])
+    
+    if is_rdl_deadlift_ex:
+        if repetitions_summary:
+            eval_bottom_knee = float(np.median([r["verdict"].get("min_bottom_knee_angle", r["verdict"].get("inflection_knee_deg", 135.0)) for r in repetitions_summary]))
+        else:
+            eval_bottom_knee = float(np.median(clean_kn))
+            
+        if eval_bottom_knee >= 145.0:
+            effective_muscle_weights = {"hamstrings": 0.65, "glutes": 0.25, "erectors": 0.10}
+        elif eval_bottom_knee >= 130.0:
+            effective_muscle_weights = {"glutes": 0.45, "hamstrings": 0.45, "erectors": 0.10}
+        else:  # High knee flexion (< 130°)
+            effective_muscle_weights = {"glutes": 0.65, "hamstrings": 0.20, "quads": 0.10, "erectors": 0.05}
+            
+    elif is_hip_thrust:
+        if 82.0 <= frozen_hip_thrust_knee <= 98.0:
+            effective_muscle_weights = {"glutes": 0.80, "hamstrings": 0.10, "quads": 0.10}
+        elif frozen_hip_thrust_knee > 98.0:
+            effective_muscle_weights = {"glutes": 0.55, "hamstrings": 0.35, "quads": 0.10}
+        else:
+            effective_muscle_weights = {"glutes": 0.60, "quads": 0.30, "hamstrings": 0.10}
+            
+    elif any(k in ex_lower for k in ["squat", "leg_press", "hack", "bulgarian", "prensa", "sentadilla"]):
+        d_kn_vals = [frames_output[f]["moment_arms"]["d_knee"] for f in range(n_frames)]
+        d_hp_vals = [frames_output[f]["moment_arms"]["d_hip"] for f in range(n_frames)]
+        d_kn_med = float(np.median(d_kn_vals)) if d_kn_vals else 0.15
+        d_hp_med = float(np.median(d_hp_vals)) if d_hp_vals else 0.12
+        knee_ratio = d_kn_med / (d_kn_med + d_hp_med + 1e-4)
+        if knee_ratio >= 0.55:
+            effective_muscle_weights = {"quads": 0.70, "glutes": 0.25, "hamstrings": 0.05}
+        elif knee_ratio >= 0.45:
+            effective_muscle_weights = {"quads": 0.55, "glutes": 0.38, "hamstrings": 0.07}
+        else:
+            effective_muscle_weights = {"glutes": 0.55, "quads": 0.40, "hamstrings": 0.05}
+            
+    elif is_pattern_a or any(k in ex_lower for k in ["row", "remo", "pull", "jalon", "t_bar"]):
+        if is_upper_back_series:
+            effective_muscle_weights = {"upper_back": 0.55, "rear_delts": 0.15, "biceps": 0.20, "lats": 0.10}
+        else:
+            effective_muscle_weights = {"lats": 0.60, "biceps": 0.22, "upper_back": 0.10, "rear_delts": 0.08}
+            
+    elif is_pattern_b or any(k in ex_lower for k in ["press", "bench", "banca", "dips", "fondos", "incline"]):
+        d_sh_vals = [frames_output[f]["moment_arms"]["d_shoulder"] for f in range(n_frames)]
+        d_el_vals = [frames_output[f]["moment_arms"]["d_elbow"] for f in range(n_frames)]
+        d_sh_med = float(np.median(d_sh_vals)) if d_sh_vals else 0.18
+        d_el_med = float(np.median(d_el_vals)) if d_el_vals else 0.08
+        sh_ratio = d_sh_med / (d_sh_med + d_el_med + 1e-4)
+        if sh_ratio >= 0.65:
+            effective_muscle_weights = {"chest": 0.70, "triceps": 0.18, "front_delts": 0.12}
+        elif sh_ratio >= 0.50:
+            effective_muscle_weights = {"chest": 0.55, "triceps": 0.30, "front_delts": 0.15}
+        else:
+            effective_muscle_weights = {"triceps": 0.55, "chest": 0.32, "front_delts": 0.13}
+            
+    else:
+        effective_muscle_weights = {"target": 1.0}
+
+    # Normalize to ensure sum is strictly 1.0
+    tot_weight = sum(effective_muscle_weights.values())
+    if tot_weight > 0:
+        effective_muscle_weights = {k: round(v / tot_weight, 3) for k, v in effective_muscle_weights.items()}
+
     return {
         "fps": 15.0,
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
         "total_reps": total_reps,
+        "locked_side": locked_side,
         "hide_torso_line": bool(hide_torso_line),
         "is_upper_back": bool(is_upper_back_series),
+        "effective_muscle_weights": effective_muscle_weights,
         "mean_rom_deg": mean_rom,
         "mean_eccentric_time_s": mean_ecc,
         "mean_pause_time_s": mean_pau,
