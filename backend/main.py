@@ -178,6 +178,69 @@ def encode_keyframe_b64(img_rgb: np.ndarray, max_dim: int = 384, quality: int = 
         print(f"[Keyframe Encoder] Error encoding frame: {e}")
     return ""
 
+def normalize_vlm_point(raw_pt: Any) -> Optional[Tuple[float, float]]:
+    """
+    Normaliza un punto visual devuelto por Gemini.
+    Soporta formato diccionario {'x': ..., 'y': ...}, lista/tupla [x, y], o Gemini spatial point {'point': [y, x]}.
+    Normaliza automáticamente escala 0..1000 dividiendo por 1000.0 si el valor supera 1.5.
+    """
+    if raw_pt is None:
+        return None
+    x_val, y_val = None, None
+    if isinstance(raw_pt, dict):
+        if "x" in raw_pt and "y" in raw_pt:
+            try:
+                x_val, y_val = float(raw_pt["x"]), float(raw_pt["y"])
+            except (ValueError, TypeError):
+                return None
+        elif "point" in raw_pt and isinstance(raw_pt["point"], (list, tuple)) and len(raw_pt["point"]) >= 2:
+            try:
+                y_val, x_val = float(raw_pt["point"][0]), float(raw_pt["point"][1])
+            except (ValueError, TypeError):
+                return None
+        elif len(raw_pt) >= 2:
+            try:
+                vals = [float(v) for v in list(raw_pt.values())[:2]]
+                x_val, y_val = vals[0], vals[1]
+            except (ValueError, TypeError):
+                return None
+    elif isinstance(raw_pt, (list, tuple)) and len(raw_pt) >= 2:
+        try:
+            x_val, y_val = float(raw_pt[0]), float(raw_pt[1])
+        except (ValueError, TypeError):
+            return None
+
+    if x_val is None or y_val is None:
+        return None
+
+    if abs(x_val) > 1.5:
+        x_val /= 1000.0
+    if abs(y_val) > 1.5:
+        y_val /= 1000.0
+
+    return (round(max(0.0, min(1.0, float(x_val))), 4), round(max(0.0, min(1.0, float(y_val))), 4))
+
+def extract_anchor_dict(sub_dict: Any) -> Dict[str, Tuple[float, float]]:
+    """
+    Extrae puntos anatómicos normalizados con resolución de sinónimos:
+    proximal (shoulder/hip), middle (elbow/knee), distal (wrist/hand/ankle).
+    """
+    res = {}
+    if not isinstance(sub_dict, dict):
+        return res
+    for canonical, aliases in [
+        ("proximal", ["proximal", "shoulder", "hip", "prox"]),
+        ("middle", ["middle", "elbow", "knee", "mid"]),
+        ("distal", ["distal", "wrist", "hand", "ankle", "dist"])
+    ]:
+        for k in aliases:
+            if k in sub_dict and sub_dict[k] is not None:
+                pt = normalize_vlm_point(sub_dict[k])
+                if pt is not None:
+                    res[canonical] = pt
+                    break
+    return res
+
 def analyze_biomechanics_with_vlm(
     keyframes_b64: List[str],
     exercise_type: str,
@@ -245,11 +308,11 @@ def analyze_biomechanics_with_vlm(
         f"14. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
         f"15. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n"
         f"16. 'camera_plane': 'lateral_left' (perfil estricto atleta mirando a la izquierda), 'lateral_right' (perfil estricto atleta mirando a la derecha), 'frontal' (vista de frente o espaldas), 'contrapicado' (ángulo bajo apuntando hacia arriba), 'cenital' (ángulo picado o superior), 'oblique' (vista oblicua 3/4 o no perpendicular).\n"
-        f"17. 'visual_anchors': Puntos anatómicos visuales normalizados [x, y] (0.0 a 1.0) para validar la pose en los keyframes 3 ('kf_bottom', máxima elongación/flexión) y 4 ('kf_peak', máxima contracción/bloqueo):\n"
+        f"17. 'visual_anchors': OBLIGATORIO. En el keyframe de máxima flexión ('kf_bottom', fotograma 3) y máxima extensión ('kf_peak', fotograma 4), devuelve la posición exacta del hombro/articulación proximal real en el torso superior ('proximal'), el codo ('middle') y la mano/agarre ('distal'), en escala 0 a 1000 (donde x=0 izquierda, x=1000 derecha, y=0 borde superior, y=1000 borde inferior):\n"
         f"   - 'is_anchor_joint_supported': true si la articulación proximal (hombro en tren superior, cadera en tren inferior) está físicamente apoyada/fijada a un banco/respaldo/pad (ej. press banca, press máquina con respaldo, remo apoyado, hip thrust en banco); false si se desplaza libremente en el aire.\n"
-        f"   - 'kf_bottom': {{ 'proximal': [x, y], 'middle': [x, y], 'distal': [x, y] }}\n"
-        f"   - 'kf_peak': {{ 'proximal': [x, y], 'middle': [x, y], 'distal': [x, y] }}\n"
-        f"   (En tren superior: proximal=hombro, middle=codo, distal=muñeca/mano. En tren inferior: proximal=cadera, middle=rodilla, distal=tobillo/pie).\n\n"
+        f"   - 'kf_bottom': {{ 'proximal': {{ 'x': int, 'y': int }}, 'middle': {{ 'x': int, 'y': int }}, 'distal': {{ 'x': int, 'y': int }} }}\n"
+        f"   - 'kf_peak': {{ 'proximal': {{ 'x': int, 'y': int }}, 'middle': {{ 'x': int, 'y': int }}, 'distal': {{ 'x': int, 'y': int }} }}\n"
+        f"   (En tren superior: proximal=hombro anatómico real en el torso superior cerca del cuello/clavícula, middle=codo, distal=mano/muñeca. En planos contrapicados o tumbados, NUNCA confundas el hombro con el abdomen o el codo: sitúa 'proximal' exactamente en la articulación glenohumeral en el torso superior. En tren inferior: proximal=cadera, middle=rodilla, distal=tobillo/pie).\n\n"
         f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
         f"{{\n"
         f'  "detected_exercise_type": "chest_press_machine",\n'
@@ -260,8 +323,8 @@ def analyze_biomechanics_with_vlm(
         f'  "camera_plane": "lateral_right",\n'
         f'  "visual_anchors": {{\n'
         f'    "is_anchor_joint_supported": true,\n'
-        f'    "kf_bottom": {{ "proximal": [0.35, 0.45], "middle": [0.42, 0.58], "distal": [0.48, 0.40] }},\n'
-        f'    "kf_peak": {{ "proximal": [0.35, 0.45], "middle": [0.55, 0.45], "distal": [0.65, 0.38] }}\n'
+        f'    "kf_bottom": {{ "proximal": {{ "x": 350, "y": 450 }}, "middle": {{ "x": 420, "y": 580 }}, "distal": {{ "x": 480, "y": 400 }} }},\n'
+        f'    "kf_peak": {{ "proximal": {{ "x": 350, "y": 450 }}, "middle": {{ "x": 550, "y": 450 }}, "distal": {{ "x": 650, "y": 380 }} }}\n'
         f'  }},\n'
         f'  "is_bilateral_visible": false,\n'
         f'  "hide_torso_line": true,\n'
@@ -349,6 +412,20 @@ def analyze_biomechanics_with_vlm(
                             text_clean = re.sub(r"\s*```$", "", text_clean)
                         text_clean = text_clean.strip()
                         parsed = json.loads(text_clean)
+                        if isinstance(parsed, dict) and isinstance(parsed.get("visual_anchors"), dict):
+                            va_raw = parsed["visual_anchors"]
+                            va_norm = {
+                                "is_anchor_joint_supported": bool(va_raw.get("is_anchor_joint_supported", False))
+                            }
+                            for kf_k in ["kf_bottom", "bottom", "inflection", "keyframe_3", "kf3"]:
+                                if kf_k in va_raw and isinstance(va_raw[kf_k], dict):
+                                    va_norm["kf_bottom"] = extract_anchor_dict(va_raw[kf_k])
+                                    break
+                            for kf_k in ["kf_peak", "peak", "lockout", "top", "keyframe_4", "kf4"]:
+                                if kf_k in va_raw and isinstance(va_raw[kf_k], dict):
+                                    va_norm["kf_peak"] = extract_anchor_dict(va_raw[kf_k])
+                                    break
+                            parsed["visual_anchors"] = va_norm
                         print(f"[Biomechanics VLM] Inferencia {model_name} completada con éxito. Ejercicio detectado: {parsed.get('detected_exercise_type')}, Lado activo: {parsed.get('active_working_side')}")
                         return parsed, None
         except urllib.error.HTTPError as e:
@@ -996,13 +1073,25 @@ def process_kinematics(
     moment_arms_2d_valid = camera_plane in ("lateral_left", "lateral_right")
 
     va = vlm_result.get("visual_anchors") if (vlm_result and isinstance(vlm_result.get("visual_anchors"), dict)) else None
-    has_valid_va = False
-    if va and isinstance(va.get("kf_bottom"), dict) and isinstance(va.get("kf_peak"), dict):
-        va_bot = va["kf_bottom"]
-        va_peak = va["kf_peak"]
-        if (all(k in va_bot and isinstance(va_bot[k], (list, tuple)) and len(va_bot[k]) >= 2 for k in ["proximal", "middle", "distal"]) and
-            all(k in va_peak and isinstance(va_peak[k], (list, tuple)) and len(va_peak[k]) >= 2 for k in ["proximal", "middle", "distal"])):
-            has_valid_va = True
+    vlm_anchors_received = bool(va is not None and len(va) > 0)
+    parsed_bot = {}
+    parsed_peak = {}
+    if va:
+        for k_bot in ["kf_bottom", "bottom", "inflection", "keyframe_3", "kf3"]:
+            if k_bot in va and isinstance(va[k_bot], dict):
+                parsed_bot = extract_anchor_dict(va[k_bot])
+                break
+        for k_peak in ["kf_peak", "peak", "lockout", "top", "keyframe_4", "kf4"]:
+            if k_peak in va and isinstance(va[k_peak], dict):
+                parsed_peak = extract_anchor_dict(va[k_peak])
+                break
+
+    has_valid_va = (
+        "middle" in parsed_bot and "distal" in parsed_bot and
+        "middle" in parsed_peak and "distal" in parsed_peak
+    )
+    va_bot = parsed_bot
+    va_peak = parsed_peak
 
     # 2. Deterministic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
@@ -1182,53 +1271,54 @@ def process_kinematics(
     # Deterministic ViTPose Validation & Proximal Joint Hallucination Correction
     proximal_source = "vitpose_native"
     prox_err = 0.0
-    if has_valid_va:
-        p_bot_x, p_bot_y = float(va_bot["proximal"][0]), float(va_bot["proximal"][1])
-        p_peak_x, p_peak_y = float(va_peak["proximal"][0]), float(va_peak["proximal"][1])
+    p_bot_x, p_bot_y = None, None
+    p_peak_x, p_peak_y = None, None
 
-        err_prox_bot = math.hypot(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_bottom_idx] - p_bot_x, all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_bottom_idx] - p_bot_y)
-        err_prox_peak = math.hypot(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_peak_idx] - p_peak_x, all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_peak_idx] - p_peak_y)
+    if "proximal" in parsed_bot:
+        p_bot_x, p_bot_y = float(parsed_bot["proximal"][0]), float(parsed_bot["proximal"][1])
+    if "proximal" in parsed_peak:
+        p_peak_x, p_peak_y = float(parsed_peak["proximal"][0]), float(parsed_peak["proximal"][1])
+    elif p_bot_x is not None:
+        p_peak_x, p_peak_y = p_bot_x, p_bot_y
+    if p_bot_x is None and p_peak_x is not None:
+        p_bot_x, p_bot_y = p_peak_x, p_peak_y
+
+    if p_bot_x is not None and p_bot_y is not None:
+        vit_bot_x = float(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_bottom_idx])
+        vit_bot_y = float(all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_bottom_idx])
+        err_prox_bot = math.hypot(vit_bot_x - p_bot_x, vit_bot_y - p_bot_y)
+
+        vit_peak_x = float(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_peak_idx])
+        vit_peak_y = float(all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_peak_idx])
+        err_prox_peak = math.hypot(vit_peak_x - p_peak_x, vit_peak_y - p_peak_y)
+
         prox_err = 0.5 * (err_prox_bot + err_prox_peak)
 
-        prox_y_p95 = float(np.percentile(all_smoothed[f"{locked_side}_{prox_name}"]["y"], 95))
-        prox_y_p05 = float(np.percentile(all_smoothed[f"{locked_side}_{prox_name}"]["y"], 5))
-        prox_vert_disp = float(prox_y_p95 - prox_y_p05)
-        is_anchor_joint_supported = bool(va.get("is_anchor_joint_supported", False))
-
-        needs_anchor = (prox_err > 0.09) or (is_anchor_joint_supported and prox_vert_disp > 0.07)
-        if needs_anchor:
-            print(f"[Proximal Validation] Desviación detectada en {locked_side}_{prox_name}: err={prox_err:.3f}, vert_disp={prox_vert_disp:.3f}, supported={is_anchor_joint_supported}")
-            other_side = "right" if locked_side == "left" else "left"
-            candidate_found = False
-            candidates_to_check = [f"{other_side}_{prox_name}", f"{locked_side}_ear", f"{other_side}_ear", "nose"]
-            for cand in candidates_to_check:
-                if cand in all_smoothed:
-                    c_bot_d = math.hypot(all_smoothed[cand]["x"][kf_bottom_idx] - p_bot_x, all_smoothed[cand]["y"][kf_bottom_idx] - p_bot_y)
-                    c_peak_d = math.hypot(all_smoothed[cand]["x"][kf_peak_idx] - p_peak_x, all_smoothed[cand]["y"][kf_peak_idx] - p_peak_y)
-                    if 0.5 * (c_bot_d + c_peak_d) < 0.07:
-                        all_smoothed[f"{locked_side}_{prox_name}"]["x"] = all_smoothed[cand]["x"].copy()
-                        all_smoothed[f"{locked_side}_{prox_name}"]["y"] = all_smoothed[cand]["y"].copy()
-                        proximal_source = f"vitpose_remapped_{cand}"
-                        candidate_found = True
-                        print(f"[Proximal Validation] Articulación proximal re-mapeada a keypoint ViTPose: {cand}")
-                        break
-            if not candidate_found:
-                for f in range(n_frames):
-                    alpha = float(f) / float(max(1, n_frames - 1))
-                    all_smoothed[f"{locked_side}_{prox_name}"]["x"][f] = p_bot_x + alpha * (p_peak_x - p_bot_x)
-                    all_smoothed[f"{locked_side}_{prox_name}"]["y"][f] = p_bot_y + alpha * (p_peak_y - p_bot_y)
-                proximal_source = "vlm_anchored"
-                print(f"[Proximal Validation] Articulación proximal anclada mediante interpolación lineal VLM.")
+        # Si la distancia euclidiana supera 0.08 (en este vídeo el hombro de ViTPose está en el abdomen con error > 0.18),
+        # sustituye la serie (sh_x, sh_y) de todos los frames mediante interpolación lineal suave entre
+        # vlm_proximal_kf_bottom y vlm_proximal_kf_peak, y marca proximal_source = "vlm_anchored".
+        if err_prox_bot > 0.08 or prox_err > 0.08:
+            print(f"[Proximal Validation] Desviación anatómica detectada en {locked_side}_{prox_name}: bot_err={err_prox_bot:.3f}, avg_err={prox_err:.3f} > 0.08")
+            for f in range(n_frames):
+                alpha = float(f) / float(max(1, n_frames - 1))
+                all_smoothed[f"{locked_side}_{prox_name}"]["x"][f] = p_bot_x + alpha * (p_peak_x - p_bot_x)
+                all_smoothed[f"{locked_side}_{prox_name}"]["y"][f] = p_bot_y + alpha * (p_peak_y - p_bot_y)
+            proximal_source = "vlm_anchored"
+            print(f"[Proximal Validation] Articulación proximal {locked_side}_{prox_name} corregida mediante interpolación lineal suave VLM.")
         else:
             proximal_source = "vitpose_native"
-            print(f"[Proximal Validation] ViTPose {locked_side}_{prox_name} validado anatómicamente con éxito (error={prox_err:.3f} <= 0.09).")
+            print(f"[Proximal Validation] ViTPose {locked_side}_{prox_name} validado anatómicamente con éxito (error={prox_err:.3f} <= 0.08).")
+
+    vlm_prox_bottom_coords = [round(float(p_bot_x), 3), round(float(p_bot_y), 3)] if (p_bot_x is not None and p_bot_y is not None) else None
 
     debug_pose_audit = {
         "camera_plane": camera_plane,
         "moment_arms_2d_valid": bool(moment_arms_2d_valid),
         "locked_side": locked_side,
         "proximal_source": proximal_source,
-        "proximal_vitpose_error": round(float(prox_err), 3)
+        "proximal_vitpose_error": round(float(prox_err), 3),
+        "vlm_anchors_received": bool(vlm_anchors_received),
+        "vlm_proximal_kf_bottom": vlm_prox_bottom_coords
     }
     print(f"[Debug Pose Audit] {debug_pose_audit}")
 
