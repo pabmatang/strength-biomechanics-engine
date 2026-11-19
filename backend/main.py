@@ -359,6 +359,12 @@ def calculate_vbt_rir_rpe(vel_loss_pct: float) -> Tuple[float, float, str, str, 
       - vel_loss_pct >= 42% -> RIR 0, RPE 10.0 ("Fallo concéntrico / esfuerzo máximo", "absolute_failure")
     """
     loss = float(max(0.0, vel_loss_pct))
+    rir = 2.0
+    rpe = 8.0
+    rir_str = "RIR 2"
+    status_txt = "Zona óptima de hipertrofia"
+    proximity = "effective_growth"
+    verdict = ""
     if loss < 10.0:
         rir = 4.0
         rpe = 6.0
@@ -2253,6 +2259,15 @@ def process_kinematics(
         inflect_hip = float(clean_hp[bottom_frame])
         inflect_knee = float(clean_kn[bottom_frame])
 
+        status = "OPTIMAL"
+        dominant_joint = "CADERA" if not is_upper_body else "HOMBRO"
+        torque_bias = "GLOBAL"
+        muscle_focus_txt = "GLOBAL"
+        recom = "Técnica fluida y controlada."
+        d_sh = 0.0
+        d_el = 0.0
+        d_hp = 0.0
+        d_kn = 0.0
         pectoral_share = None
         triceps_share = None
         dorsal_share = None
@@ -2373,15 +2388,15 @@ def process_kinematics(
                 d_kn = 0.0
 
             elif any(k in ex_lower for k in ["rdl", "deadlift", "peso_muerto", "rumano"]) or (inflect_hip < 80.0 and inflect_knee > 105.0):
-
-
                 dominant_joint = "CADERA"
-
-
                 torque_bias = "GLÚTEO / ISQUIOS"
-
-
+                muscle_focus_txt = "GLÚTEO / ISQUIOS"
                 recom = "Bisagra de cadera óptima con flexión de rodilla contenida (>105°): máxima palanca en glúteos e isquiosurales."
+                status = "OPTIMAL"
+                d_sh = 0.0
+                d_el = 0.0
+                d_hp = float(abs(hp_x_inf - wr_x_inf))
+                d_kn = float(abs(kn_x_inf - wr_x_inf))
 
 
             elif any(k in ex_lower for k in ["squat", "leg_press", "hack", "bulgarian", "leg_extension"]):
@@ -2981,6 +2996,9 @@ def process_kinematics(
                 }
             elif is_hip_thrust:
                 eval_knee = frozen_hip_thrust_knee
+                ht_status = "OPTIMAL"
+                ht_bias = "GLÚTEO MAYOR"
+                ht_recom = f"Alineación articular óptima ({round(eval_knee)}° en rodilla). Bloqueo concéntrico directo sobre glúteo mayor."
                 if eval_knee < 78.0:
                     ht_recom = f"Pies demasiado retrasados ({round(eval_knee)}° < 78°): sobrecarga de cuádriceps. Adelanta los pies ~5-8 cm."
                     ht_status = "IMPROVEMENT_OPPORTUNITY"
