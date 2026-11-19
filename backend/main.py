@@ -257,75 +257,67 @@ def extract_anchor_dict(sub_dict: Any) -> Dict[str, Tuple[float, float]]:
                     break
     return res
 
-def prepare_video_for_gemini(video_path: str) -> Optional[str]:
+def read_original_video_b64(video_path: str, max_bytes: int = 8 * 1024 * 1024) -> Optional[str]:
     """
-    Prepara el vídeo para enviarlo a Gemini 2.5 Flash via inline_data.
-    Si el archivo supera 3.5 MB, lo re-encodéa a máx 320px y 4 FPS para no saturar payload ni cuota.
-    Devuelve la cadena base64 del MP4.
+    Lee los bytes originales del vídeo MP4 tal cual si pesan menos de 8 MB (sin re-codificar con OpenCV ni mp4v).
     """
     if not video_path or not os.path.exists(video_path):
         return None
     try:
         file_size = os.path.getsize(video_path)
-        if file_size <= 3.5 * 1024 * 1024:
-            with open(video_path, "rb") as vf:
-                return base64.b64encode(vf.read()).decode("utf-8")
-        
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            with open(video_path, "rb") as vf:
-                return base64.b64encode(vf.read()).decode("utf-8")
-        
-        orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
-        orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 360)
-        orig_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
-        
-        target_max_dim = 320
-        scale = min(1.0, float(target_max_dim) / max(orig_w, orig_h, 1))
-        out_w = max(16, int(orig_w * scale))
-        out_h = max(16, int(orig_h * scale))
-        out_w = out_w if out_w % 2 == 0 else out_w - 1
-        out_h = out_h if out_h % 2 == 0 else out_h - 1
-        
-        target_fps = 4.0
-        frame_interval = max(1, int(round(orig_fps / target_fps)))
-        
-        tmp_out = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-        tmp_out_path = tmp_out.name
-        tmp_out.close()
-        
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(tmp_out_path, fourcc, target_fps, (out_w, out_h))
-        
-        frame_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                break
-            if frame_idx % frame_interval == 0:
-                resized = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
-                writer.write(resized)
-            frame_idx += 1
-            if frame_idx > 300 * frame_interval:
-                break
-                
-        cap.release()
-        writer.release()
-        
-        with open(tmp_out_path, "rb") as out_f:
-            b64_data = base64.b64encode(out_f.read()).decode("utf-8")
-        try:
-            os.unlink(tmp_out_path)
-        except OSError:
-            pass
-        return b64_data
-    except Exception as e:
-        print(f"[prepare_video_for_gemini] Warning: re-encoding falló ({e}), intentando lectura directa.")
-        try:
-            with open(video_path, "rb") as vf:
-                return base64.b64encode(vf.read()).decode("utf-8")
-        except Exception:
+        if file_size > max_bytes:
+            print(f"[Gemini VLM] Vídeo original ({file_size / (1024*1024):.2f} MB) supera los 8 MB. Pasando a 6 keyframes JPEG.")
             return None
+        with open(video_path, "rb") as vf:
+            return base64.b64encode(vf.read()).decode("utf-8")
+    except Exception as e:
+        print(f"[Gemini VLM] Error al leer vídeo original: {e}")
+        return None
+
+def extract_6_keyframes_jpeg_b64(video_path: str) -> List[str]:
+    """
+    Extrae 6 fotogramas JPEG repartidos uniformemente a lo largo del vídeo (máx 480px, calidad 75).
+    Sin códec de vídeo intermedio.
+    """
+    if not video_path or not os.path.exists(video_path):
+        return []
+    cap = cv2.VideoCapture(video_path)
+    total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_f <= 0:
+        cap.release()
+        return []
+    
+    ratios = [0.08, 0.25, 0.42, 0.58, 0.75, 0.92]
+    target_indices = [max(0, min(total_f - 1, int(total_f * r))) for r in ratios]
+    
+    keyframes_b64 = []
+    for idx in target_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            h, w = frame.shape[:2]
+            max_dim = 480
+            scale = min(1.0, float(max_dim) / max(h, w, 1))
+            if scale < 1.0:
+                frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            ret_enc, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ret_enc:
+                keyframes_b64.append(base64.b64encode(buf).decode('utf-8'))
+    cap.release()
+    return keyframes_b64
+
+def parse_google_http_error(e: urllib.error.HTTPError, model_name: str) -> str:
+    """Extrae el mensaje exacto de error devuelto por la API de Google AI Studio."""
+    try:
+        raw_text = e.read().decode("utf-8", errors="ignore")
+        data = json.loads(raw_text)
+        err_msg = data.get("error", {}).get("message")
+        if err_msg:
+            return f"HTTP {e.code} ({model_name}): {err_msg}"
+        clean_snip = raw_text.replace("\n", " ").strip()[:180]
+        return f"HTTP {e.code} ({model_name}): {clean_snip}"
+    except Exception:
+        return f"HTTP {e.code} ({model_name})"
 
 def clean_gemini_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
     """Limpia markdown y formatea respuesta JSON de Gemini."""
@@ -667,7 +659,7 @@ def generate_deterministic_clinical_audit(
         "intensity_audit": intensity
     }
 
-def analyze_biomechanics_with_gemini_video(
+def analyze_biomechanics_with_vlm(
     video_path: Optional[str],
     exercise_type: str,
     total_reps: int,
@@ -675,16 +667,16 @@ def analyze_biomechanics_with_gemini_video(
     repetitions_summary: List[Dict[str, Any]],
     rep_comparison: Optional[Dict[str, Any]] = None,
     gemini_api_key: Optional[str] = None
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], str]:
     """
-    Capa 2: Análisis Biomecánico Multimodal enviando el Vídeo MP4 completo a Gemini 2.5 Flash.
-    Si el vídeo supera los 10 MB o falla, realiza fallback automático a 4 keyframes JPEG.
-    URL estricta: https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}
-    Modelos válidos probados: ["gemini-2.5-flash", "gemini-2.5-flash-lite"].
+    Análisis Biomecánico Multimodal con Gemini en 2 intentos:
+    1. Intento 1 (Vídeo original intacto): Si pesa < 8 MB, se envía tal cual (video/mp4) sin recodificar.
+    2. Intento 2 (Fallback automático a 6 Keyframes JPEG): Ante cualquier fallo HTTP o > 8 MB, envía 6 fotogramas JPEG (480px, q75).
+    Retorna (vlm_result, vlm_error, vlm_mode) donde vlm_mode es 'video_mp4' | 'keyframes_jpeg' | 'fallback'.
     """
     api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)"
+        return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)", "fallback"
 
     rep_summary_str = json.dumps([{
         "rep": r.get("rep_number", r.get("rep_index", i+1)),
@@ -763,13 +755,10 @@ def analyze_biomechanics_with_gemini_video(
     ]
     last_err = None
 
-    # Intento 1: Vídeo MP4 completo (si existe y base64 <= 10 MB)
-    video_b64 = None
-    if video_path and os.path.exists(video_path):
-        raw_b64 = prepare_video_for_gemini(video_path)
-        if raw_b64 and len(raw_b64) <= 10 * 1024 * 1024:
-            video_b64 = raw_b64
-
+    # -------------------------------------------------------------------------
+    # INTENTO 1: Vídeo MP4 original intacto (< 8 MB, sin re-codificar)
+    # -------------------------------------------------------------------------
+    video_b64 = read_original_video_b64(video_path, max_bytes=8 * 1024 * 1024) if video_path else None
     if video_b64:
         parts_video = [
             {"text": prompt_text},
@@ -783,11 +772,18 @@ def analyze_biomechanics_with_gemini_video(
 
         for model_name in models_to_try:
             clean_model = model_name.replace("models/", "").strip()
-            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
-            url_no_key = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
             try:
-                req = urllib.request.Request(endpoint, data=req_data_video, headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=25.0) as resp:
+                req = urllib.request.Request(
+                    url,
+                    data=req_data_video,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": api_key
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=30.0) as resp:
                     resp_bytes = resp.read()
                     resp_json = json.loads(resp_bytes.decode("utf-8"))
                     candidates = resp_json.get("candidates", [])
@@ -796,19 +792,20 @@ def analyze_biomechanics_with_gemini_video(
                         text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
-                            print(f"[Gemini Video VLM] Inferencia {clean_model} (MP4) con éxito: {parsed.get('detected_exercise_id')}")
-                            return parsed, None
+                            print(f"[Gemini Video VLM] Inferencia {clean_model} (MP4 intacto) con éxito: {parsed.get('detected_exercise_id')}")
+                            return parsed, None, "video_mp4"
             except urllib.error.HTTPError as e:
-                err_body = e.read().decode("utf-8", errors="ignore")
-                last_err = f"HTTP {e.code} ({clean_model}) at {url_no_key}: {err_body}"
-                print(f"[Gemini Video VLM] {last_err}")
+                last_err = parse_google_http_error(e, clean_model)
+                print(f"[Gemini Video VLM] Intento 1 Falló ({clean_model}): {last_err}")
             except Exception as e:
-                last_err = f"Exception ({clean_model}) at {url_no_key}: {type(e).__name__} - {e}"
-                print(f"[Gemini Video VLM] {last_err}")
+                last_err = f"Exception ({clean_model}): {type(e).__name__} - {e}"
+                print(f"[Gemini Video VLM] Intento 1 Falló ({clean_model}): {last_err}")
 
-    # Intento 2: Fallback automático a 4 Keyframes JPEG
-    print("[Gemini VLM] Fallback automático a 4 Keyframes JPEG...")
-    kf_b64_list = extract_4_keyframes_jpeg_b64(video_path) if (video_path and os.path.exists(video_path)) else []
+    # -------------------------------------------------------------------------
+    # INTENTO 2: Fallback automático a 6 Keyframes JPEG (480px, q75)
+    # -------------------------------------------------------------------------
+    print(f"[Gemini VLM] Intento 2: Extrayendo 6 keyframes JPEG uniformes (motivo previo: {last_err or 'Vídeo > 8 MB'})...")
+    kf_b64_list = extract_6_keyframes_jpeg_b64(video_path) if video_path else []
     if kf_b64_list:
         parts_kf = [{"text": prompt_text}]
         for kf_b64 in kf_b64_list:
@@ -821,11 +818,18 @@ def analyze_biomechanics_with_gemini_video(
 
         for model_name in models_to_try:
             clean_model = model_name.replace("models/", "").strip()
-            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
-            url_no_key = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
             try:
-                req = urllib.request.Request(endpoint, data=req_data_kf, headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=20.0) as resp:
+                req = urllib.request.Request(
+                    url,
+                    data=req_data_kf,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": api_key
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=25.0) as resp:
                     resp_bytes = resp.read()
                     resp_json = json.loads(resp_bytes.decode("utf-8"))
                     candidates = resp_json.get("candidates", [])
@@ -834,71 +838,19 @@ def analyze_biomechanics_with_gemini_video(
                         text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
-                            print(f"[Gemini Video VLM] Inferencia {clean_model} (4 Keyframes JPEG) con éxito: {parsed.get('detected_exercise_id')}")
-                            return parsed, None
+                            print(f"[Gemini Keyframes VLM] Inferencia {clean_model} (6 Keyframes JPEG) con éxito: {parsed.get('detected_exercise_id')}")
+                            return parsed, None, "keyframes_jpeg"
             except urllib.error.HTTPError as e:
-                err_body = e.read().decode("utf-8", errors="ignore")
-                last_err = f"HTTP {e.code} ({clean_model}) at {url_no_key}: {err_body}"
-                print(f"[Gemini Keyframes VLM] {last_err}")
+                last_err = parse_google_http_error(e, clean_model)
+                print(f"[Gemini Keyframes VLM] Intento 2 Falló ({clean_model}): {last_err}")
             except Exception as e:
-                last_err = f"Exception ({clean_model}) at {url_no_key}: {type(e).__name__} - {e}"
-                print(f"[Gemini Keyframes VLM] {last_err}")
+                last_err = f"Exception ({clean_model}): {type(e).__name__} - {e}"
+                print(f"[Gemini Keyframes VLM] Intento 2 Falló ({clean_model}): {last_err}")
 
-    return None, (last_err or "Inferencia Gemini falló en todos los modelos")
+    return None, (last_err or "Inferencia Gemini falló en ambos intentos"), "fallback"
 
-def analyze_biomechanics_with_vlm(
-    keyframes_b64: List[str],
-    exercise_type: str,
-    vbt_summary: Dict[str, Any],
-    raw_side_metrics: Dict[str, Any],
-    gemini_api_key: Optional[str] = None
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Llamada directa con keyframes JPEG a Gemini 2.5 Flash."""
-    api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return None, "GEMINI_API_KEY no configurada"
-    if not keyframes_b64:
-        return None, "Sin keyframes disponibles para VLM"
-
-    prompt_text = (
-        f"Actúa como un Ph.D. en Biomecánica del Ejercicio y Entrenador de Fuerza de Élite.\n"
-        f"Analiza estos fotogramas clave de un ejercicio de fuerza (ejercicio asignado: '{exercise_type}').\n"
-        f"Identifica el ejercicio exacto (`detected_exercise_id`), nombre formal en español (`detected_exercise_name`), "
-        f"equipo (`equipment_type`), región ('upper'|'lower'), cues temporales (`timeline_cues`), "
-        f"comprobaciones de alineación (`alignment_and_discomfort`), perfil de tensión (`stimulus_and_specificity`) "
-        f"y auditoría de esfuerzo (`intensity_audit`).\n"
-        f"Devuelve estrictamente un objeto JSON."
-    )
-    parts = [{"text": prompt_text}]
-    for kf in keyframes_b64[:4]:
-        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": kf}})
-    body = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
-    }
-    req_data = json.dumps(body).encode("utf-8")
-    last_err = None
-    for model_name in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
-        clean_model = model_name.replace("models/", "").strip()
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
-        url_no_key = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
-        try:
-            req = urllib.request.Request(endpoint, data=req_data, headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=20.0) as resp:
-                resp_json = json.loads(resp.read().decode("utf-8"))
-                candidates = resp_json.get("candidates", [])
-                if candidates:
-                    cand = candidates[0]
-                    text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
-                    parsed = clean_gemini_json_response(text_content)
-                    if parsed and isinstance(parsed, dict):
-                        return parsed, None
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="ignore")
-            last_err = f"HTTP {e.code} ({clean_model}) at {url_no_key}: {err_body}"
-        except Exception as e:
-            last_err = f"Exception ({clean_model}) at {url_no_key}: {type(e).__name__} - {e}"
-    return None, last_err
+# Alias para compatibilidad total
+analyze_biomechanics_with_gemini_video = analyze_biomechanics_with_vlm
 
 def sample_video_frames(
     video_path: str,
@@ -2840,8 +2792,9 @@ def process_kinematics(
     vlm_result = None
     vlm_used = False
     vlm_error = None
+    vlm_mode = "fallback"
     try:
-        vlm_res, vlm_err = analyze_biomechanics_with_gemini_video(
+        vlm_res, vlm_err, vlm_mode_detected = analyze_biomechanics_with_vlm(
             video_path=video_path,
             exercise_type=exercise_type,
             total_reps=total_reps,
@@ -2854,11 +2807,13 @@ def process_kinematics(
             vlm_result = vlm_res
             vlm_used = True
             vlm_error = None
+            vlm_mode = vlm_mode_detected
             if vlm_result.get("detected_exercise_id"):
                 exercise_type = vlm_result["detected_exercise_id"]
         else:
             vlm_used = False
             vlm_error = vlm_err
+            vlm_mode = "fallback"
             vlm_result = generate_deterministic_clinical_audit(
                 exercise_type=exercise_type,
                 body_region=body_region,
@@ -2868,9 +2823,10 @@ def process_kinematics(
                 rep_comparison=rep_comparison
             )
     except Exception as e_vlm:
-        print(f"[VLM Layer 2] Error during Gemini Video call: {e_vlm}")
+        print(f"[VLM Layer 2] Error during Gemini call: {e_vlm}")
         vlm_used = False
         vlm_error = str(e_vlm)
+        vlm_mode = "fallback"
         vlm_result = generate_deterministic_clinical_audit(
             exercise_type=exercise_type,
             body_region=body_region,
@@ -2879,6 +2835,11 @@ def process_kinematics(
             repetitions_summary=repetitions_summary,
             rep_comparison=rep_comparison
         )
+
+    # Actualizar debug_pose_audit con datos del VLM para auditoría y visualización
+    debug_pose_audit["vlm_error"] = str(vlm_error) if vlm_error else None
+    debug_pose_audit["vlm_mode"] = vlm_mode
+    print(f"[MIA Audit Backend] {debug_pose_audit}")
     # 9. Per-Frame Output Projection
     frames_output = []
     for f in range(n_frames):
@@ -3532,6 +3493,7 @@ def process_kinematics(
         "vlm_analysis": vlm_result,
         "vlm_used": bool(vlm_used),
         "vlm_error": str(vlm_error) if vlm_error else None,
+        "vlm_mode": vlm_mode,
         "frames": frames_output
     })
 
