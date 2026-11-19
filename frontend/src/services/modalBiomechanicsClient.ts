@@ -101,9 +101,13 @@ export interface AnthropometricProfile {
 
 export interface RepetitionSummary {
   rep_number: number;
+  rep_index?: number;
   start_time: number;
+  start_sec?: number;
   inflection_time: number;
+  inflection_sec?: number;
   end_time: number;
+  peak_sec?: number;
   eccentric_sec: number;
   pause_sec: number;
   concentric_sec: number;
@@ -114,7 +118,67 @@ export interface RepetitionSummary {
   min_primary_angle: number;
   max_primary_angle: number;
   rom_deg?: number;
+  rom_px?: number;
+  rom_pct_of_rep1?: number;
+  mean_concentric_vel?: number;
+  sticking_point_sec?: number;
+  path_points?: [number, number, number][];
   verdict: RepetitionVerdict;
+}
+
+export interface TimelineCue {
+  timestamp_sec: number;
+  type: 'warning' | 'error' | 'critical' | 'positive' | string;
+  badge: 'Sticking Point' | 'Desaceleración' | 'Pérdida de ROM' | 'Asimetría' | 'Control Óptimo' | string;
+  message: string;
+  technical_fix: string;
+  affected_joint: 'elbow' | 'shoulder' | 'lumbar' | 'wrist' | 'knee' | 'hip' | string;
+}
+
+export interface AlignmentCheck {
+  joint: string;
+  status: 'pass' | 'warning' | 'critical';
+  observation: string;
+  fix: string;
+}
+
+export interface AlignmentAndDiscomfort {
+  joint_stress_level: 'low' | 'moderate' | 'high';
+  discomfort_risk_summary: string;
+  checks: AlignmentCheck[];
+}
+
+export interface StimulusAndSpecificity {
+  target_muscle: string;
+  secondary_muscles: string[];
+  tension_profile: 'peak_stretched' | 'peak_mid' | 'peak_shortened' | 'constant';
+  muscle_split_pct: { primary: number; secondary: number };
+  suggested_volume_multiplier: number;
+  actionable_adjustments: string[];
+}
+
+export interface IntensityAudit {
+  reps_completed: number;
+  rir_estimated: number;
+  rpe_estimated: number;
+  velocity_loss_pct: number;
+  failure_proximity: 'safe' | 'effective_growth' | 'absolute_failure' | 'submaximal';
+  coach_verdict: string;
+}
+
+export interface RepComparisonPoint {
+  rep_index: number;
+  path_points: [number, number, number][];
+  rom_px: number;
+  mean_vel: number;
+  duration_sec: number;
+}
+
+export interface RepComparison {
+  rep1: RepComparisonPoint;
+  last_rep: RepComparisonPoint;
+  rom_loss_pct: number;
+  velocity_loss_pct: number;
 }
 
 export interface BiomechanicsFrame {
@@ -125,6 +189,9 @@ export interface BiomechanicsFrame {
   rep_index?: number;
   phase: 'IDLE' | 'ECCENTRIC' | 'BOTTOM' | 'CONCENTRIC' | 'LOCKOUT' | string;
   body_region?: 'upper' | 'lower';
+  load_point?: [number, number];
+  load_speed_px_s?: number;
+  load_speed_norm?: number;
   angles?: {
     elbow?: number;
     shoulder?: number;
@@ -224,9 +291,20 @@ export interface BiomechanicsAnalysisResponse {
     proximal_vitpose_error: number;
   };
   detected_exercise_type?: string;
+  target_muscle?: string;
+  load_type?: string;
   body_region?: 'upper' | 'lower';
   is_upper_body?: boolean;
   repetitions_summary: RepetitionSummary[];
+  rep_comparison?: RepComparison;
+  snapshot_stretch_b64?: string | null;
+  snapshot_peak_b64?: string | null;
+  joints_stretch?: Record<string, [number, number]>;
+  joints_peak?: Record<string, [number, number]>;
+  timeline_cues?: TimelineCue[];
+  alignment_and_discomfort?: AlignmentAndDiscomfort;
+  stimulus_and_specificity?: StimulusAndSpecificity;
+  intensity_audit?: IntensityAudit;
   intensity_metrics?: IntensityMetrics;
   effective_muscle_weights?: Record<string, number>;
   vlm_analysis?: VlmAnalysis;
