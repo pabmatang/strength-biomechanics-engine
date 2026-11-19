@@ -11,6 +11,7 @@ import { blobToBase64 } from '../utils/videoCompressor';
 
 export interface ExerciseConfig {
   exerciseType: string;
+  exerciseName?: string;
   targetMuscle: string;
   loadType: string;
   isManualOverride?: boolean;
@@ -427,6 +428,7 @@ export async function analyzeVideoWithModal(
           body: JSON.stringify({
             video_base64: base64Data,
             exercise_type: String(config.exerciseType),
+            exercise_name: String(config.exerciseName || ''),
             target_muscle: String(config.targetMuscle),
             load_type: String(config.loadType),
             is_manual_override: Boolean(config.isManualOverride),
@@ -442,6 +444,7 @@ export async function analyzeVideoWithModal(
         const formData = new FormData();
         formData.append('video', videoBlob, 'input_video.webm');
         formData.append('exercise_type', String(config.exerciseType));
+        formData.append('exercise_name', String(config.exerciseName || ''));
         formData.append('target_muscle', String(config.targetMuscle));
         formData.append('load_type', String(config.loadType));
         formData.append('gemini_api_key', geminiApiKey);

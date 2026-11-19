@@ -493,7 +493,8 @@ def generate_deterministic_clinical_audit(
     total_reps: int,
     intensity_metrics: Dict[str, Any],
     repetitions_summary: List[Dict[str, Any]],
-    rep_comparison: Optional[Dict[str, Any]] = None
+    rep_comparison: Optional[Dict[str, Any]] = None,
+    exercise_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Generador determinista de auditoría clínica biomecánica comercial.
@@ -522,10 +523,12 @@ def generate_deterministic_clinical_audit(
         "lat_pulldown": "Jalón al Pecho en Polea",
         "hip_thrust": "Hip Thrust en Máquina / Banco",
         "rdl": "Peso Muerto Rumano",
+        "rdl_unilateral": "Peso Muerto Rumano Unilateral / B-Stance (Glúteo)",
+        "bulgarian_split_squat": "Sentadilla Búlgara / Zancada B-Stance",
         "squat": "Sentadilla Libre / Multipower",
         "leg_press": "Prensa de Piernas Inclinada"
     }
-    formal_name = names_map.get(exercise_type, exercise_type.replace("_", " ").title())
+    formal_name = exercise_name or names_map.get(exercise_type, exercise_type.replace("_", " ").title())
     
     cues = []
     if len(repetitions_summary) > 0:
@@ -727,7 +730,8 @@ def analyze_biomechanics_with_vlm(
     intensity_metrics: Dict[str, Any],
     repetitions_summary: List[Dict[str, Any]],
     rep_comparison: Optional[Dict[str, Any]] = None,
-    gemini_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None,
+    exercise_name: Optional[str] = None
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], str, Optional[str]]:
     """
     Análisis Biomecánico Multimodal con Gemini en 2 intentos con auto-descubrimiento de modelos:
@@ -750,10 +754,23 @@ def analyze_biomechanics_with_vlm(
     v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
     rir = float(intensity_metrics.get("exact_rir", 2.0))
 
+    target_name_display = (exercise_name or "").strip() or exercise_type.replace("_", " ").title()
+    strict_constraint_text = ""
+    if exercise_type.lower() not in ["auto", "", "none"]:
+        strict_constraint_text = (
+            f"RESTRICCIÓN VINCULANTE: El atleta está realizando OBLIGATORIAMENTE el ejercicio: '{target_name_display}' (`{exercise_type}`). "
+            f"NO lo reclasifiques a otro ejercicio. Evalúa la alineación, el perfil de estímulo y las correcciones del Coach IA estrictamente "
+            f"bajo los estándares biomecánicos de '{target_name_display}' (por ejemplo, si el usuario indicó Peso Muerto Rumano Unilateral "
+            f"pero flexiona demasiado la rodilla como una zancada, corrígele eso mismo en lugar de llamarlo Sentadilla Búlgara).\n"
+            f"- 'detected_exercise_id' DEBE SER EXACTAMENTE: '{exercise_type}'.\n"
+            f"- 'detected_exercise_name' DEBE SER EXACTAMENTE: '{target_name_display}'.\n\n"
+        )
+
     prompt_text = (
         f"Actúa como un Ph.D. en Biomecánica del Ejercicio y Entrenador de Fuerza de Élite.\n"
+        f"{strict_constraint_text}"
         f"Analiza este vídeo de entrenamiento completo junto con los datos de cinemática computacional calculados:\n"
-        f"- Ejercicio asignado inicialmente: '{exercise_type}'.\n"
+        f"- Ejercicio asignado inicialmente: '{target_name_display}' (`{exercise_type}`).\n"
         f"- Repeticiones detectadas: {total_reps}.\n"
         f"- Pérdida de velocidad concéntrica registrada: {v_loss:.1f}%.\n"
         f"- RIR estimado por cinemática: {rir:.1f}.\n"
@@ -766,8 +783,8 @@ def analyze_biomechanics_with_vlm(
         f"5. Genera `intensity_audit`: repeticiones completadas, estimación precisa de RIR y RPE, `failure_proximity` ('safe'|'effective_growth'|'absolute_failure'|'submaximal') y veredicto del entrenador (`coach_verdict`).\n\n"
         f"Responde estrictamente con un objeto JSON válido con este formato:\n"
         f"{{\n"
-        f'  "detected_exercise_id": "chest_press_machine",\n'
-        f'  "detected_exercise_name": "Press en Máquina Convergente",\n'
+        f'  "detected_exercise_id": "{exercise_type if exercise_type.lower() not in ["auto", "", "none"] else "chest_press_machine"}",\n'
+        f'  "detected_exercise_name": "{target_name_display if exercise_type.lower() not in ["auto", "", "none"] else "Press en Máquina Convergente"}",\n'
         f'  "equipment_type": "machine",\n'
         f'  "body_region": "upper",\n'
         f'  "timeline_cues": [\n'
@@ -864,6 +881,9 @@ def analyze_biomechanics_with_vlm(
                         text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
+                            if exercise_type.lower() not in ["auto", "", "none"]:
+                                parsed["detected_exercise_id"] = exercise_type
+                                parsed["detected_exercise_name"] = target_name_display
                             print(f"[Gemini Video VLM] Inferencia {clean_model} (MP4 intacto) con éxito: {parsed.get('detected_exercise_id')}")
                             return parsed, None, "video_mp4", clean_model
             except urllib.error.HTTPError as e:
@@ -913,6 +933,9 @@ def analyze_biomechanics_with_vlm(
                         text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
+                            if exercise_type.lower() not in ["auto", "", "none"]:
+                                parsed["detected_exercise_id"] = exercise_type
+                                parsed["detected_exercise_name"] = target_name_display
                             print(f"[Gemini Keyframes VLM] Inferencia {clean_model} (6 Keyframes JPEG) con éxito: {parsed.get('detected_exercise_id')}")
                             return parsed, None, "keyframes_jpeg", clean_model
             except urllib.error.HTTPError as e:
@@ -1400,7 +1423,8 @@ def process_kinematics(
     frames_rgb: Optional[List[np.ndarray]] = None,
     is_manual_override: bool = False,
     gemini_api_key: Optional[str] = None,
-    video_path: Optional[str] = None
+    video_path: Optional[str] = None,
+    exercise_name: Optional[str] = None
 ):
     """
     Capa 1: Visión 2D Pura e Inmutable sobre ViTPose + RT-DETR.
@@ -2880,7 +2904,8 @@ def process_kinematics(
             intensity_metrics=intensity_metrics,
             repetitions_summary=repetitions_summary,
             rep_comparison=rep_comparison,
-            gemini_api_key=gemini_api_key
+            gemini_api_key=gemini_api_key,
+            exercise_name=exercise_name
         )
         if vlm_res:
             vlm_result = vlm_res
@@ -2888,7 +2913,10 @@ def process_kinematics(
             vlm_error = None
             vlm_mode = vlm_mode_detected
             vlm_model_used = vlm_model_detected
-            if vlm_result.get("detected_exercise_id"):
+            if exercise_type.lower() not in ["auto", "", "none"]:
+                vlm_result["detected_exercise_id"] = exercise_type
+                vlm_result["detected_exercise_name"] = exercise_name or vlm_result.get("detected_exercise_name", exercise_type.replace("_", " ").title())
+            elif vlm_result.get("detected_exercise_id"):
                 exercise_type = vlm_result["detected_exercise_id"]
         else:
             vlm_used = False
@@ -2901,7 +2929,8 @@ def process_kinematics(
                 total_reps=total_reps,
                 intensity_metrics=intensity_metrics,
                 repetitions_summary=repetitions_summary,
-                rep_comparison=rep_comparison
+                rep_comparison=rep_comparison,
+                exercise_name=exercise_name
             )
     except Exception as e_vlm:
         print(f"[VLM Layer 2] Error during Gemini call: {e_vlm}")
@@ -2915,7 +2944,8 @@ def process_kinematics(
             total_reps=total_reps,
             intensity_metrics=intensity_metrics,
             repetitions_summary=repetitions_summary,
-            rep_comparison=rep_comparison
+            rep_comparison=rep_comparison,
+            exercise_name=exercise_name
         )
 
     # Actualizar debug_pose_audit con datos del VLM para auditoría y visualización
@@ -3555,6 +3585,7 @@ def process_kinematics(
         "is_upper_body": bool(is_upper_body),
         "body_region": body_region,
         "detected_exercise_type": exercise_type,
+        "detected_exercise_name": exercise_name or (vlm_result.get("detected_exercise_name") if vlm_result else exercise_type.replace("_", " ").title()),
         "target_muscle": target_muscle,
         "load_type": load_type,
         "effective_muscle_weights": effective_muscle_weights,
@@ -3776,6 +3807,7 @@ def analyze(
     video_url=None,
     video=None,
     exercise_type="auto",
+    exercise_name=None,
     target_muscle="auto",
     load_type="auto",
     start_time=0.0,
@@ -3804,6 +3836,7 @@ def analyze(
         video_url = payload.get("video_url")
         video = payload.get("video")
         exercise_type = payload.get("exercise_type", exercise_type or "auto")
+        exercise_name = payload.get("exercise_name", payload.get("exerciseName", exercise_name))
         target_muscle = payload.get("target_muscle", target_muscle or "auto")
         load_type = payload.get("load_type", load_type or "auto")
         start_time_val = payload.get("start_time", 0.0)
@@ -3815,6 +3848,7 @@ def analyze(
         gemini_api_key = payload.get("gemini_api_key") or kwargs.get("gemini_api_key") or gemini_api_key or os.environ.get("GEMINI_API_KEY", "").strip()
     else:
         exercise_type = exercise_type or kwargs.get("exercise_type", "auto")
+        exercise_name = exercise_name or kwargs.get("exercise_name", kwargs.get("exerciseName", ""))
         target_muscle = target_muscle or kwargs.get("target_muscle", "auto")
         load_type = load_type or kwargs.get("load_type", "auto")
         start_time_val = kwargs.get("start_time", start_time if start_time is not None else 0.0)
@@ -3826,6 +3860,7 @@ def analyze(
         gemini_api_key = gemini_api_key or kwargs.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "").strip()
 
     exercise_type = str(exercise_type)
+    exercise_name = str(exercise_name) if exercise_name else None
     target_muscle = str(target_muscle)
     load_type = str(load_type)
 
@@ -3858,6 +3893,7 @@ def analyze(
             raw_keypoints=raw_keypoints,
             timestamps=timestamps,
             exercise_type=exercise_type,
+            exercise_name=exercise_name,
             target_muscle=target_muscle,
             load_type=load_type,
             athlete_boxes=athlete_boxes,
@@ -3885,6 +3921,7 @@ def predict(
     video_url=None,
     video=None,
     exercise_type="auto",
+    exercise_name=None,
     target_muscle="auto",
     load_type="auto",
     start_time=0.0,
@@ -3898,6 +3935,7 @@ def predict(
         video_url=video_url,
         video=video,
         exercise_type=exercise_type,
+        exercise_name=exercise_name,
         target_muscle=target_muscle,
         load_type=load_type,
         start_time=start_time,

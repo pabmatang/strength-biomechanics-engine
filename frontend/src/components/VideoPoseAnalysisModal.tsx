@@ -81,28 +81,14 @@ export interface MuscleGroup {
 
 export const MUSCLE_GROUPS: MuscleGroup[] = [
   {
-    id: 'back',
-    name: 'Espalda',
-    exercises: [
-      { id: 'machine_row', name: 'Remo en Máquina', exerciseType: 'machine_row', targetMuscle: 'lats', loadType: 'machine', patternId: 'chest_supported_lat_row' },
-      { id: 'barbell_row', name: 'Remo con Barra', exerciseType: 'barbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
-      { id: 'cable_row', name: 'Remo Gironda en Polea', exerciseType: 'cable_row', targetMuscle: 'lats', loadType: 'cable', patternId: 'chest_supported_lat_row' },
-      { id: 'dumbbell_row', name: 'Remo Unilateral con Mancuerna', exerciseType: 'dumbbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
-      { id: 't_bar_row', name: 'Remo en Punta / Barra T', exerciseType: 't_bar_row', targetMuscle: 'upper_back', loadType: 'gravity', patternId: 'chest_supported_t_bar_row_upper_back' },
-      { id: 'lat_pulldown', name: 'Jalón al Pecho', exerciseType: 'lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' },
-      { id: 'single_lat_pulldown', name: 'Jalón Unilateral en Polea', exerciseType: 'single_lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' },
-      { id: 'pullup', name: 'Dominadas', exerciseType: 'pullup', targetMuscle: 'lats', loadType: 'gravity', patternId: 'lat_pulldown_unilateral' },
-      { id: 'pullover', name: 'Pullover en Polea', exerciseType: 'pullover', targetMuscle: 'lats', loadType: 'cable', patternId: 'straight_arm_cable_pulldown' }
-    ]
-  },
-  {
     id: 'glutes_hamstrings',
     name: 'Glúteo e Isquios',
     exercises: [
+      { id: 'rdl_unilateral', name: 'Peso Muerto Rumano Unilateral / B-Stance (Glúteo)', exerciseType: 'rdl_unilateral', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
+      { id: 'rdl', name: 'Peso Muerto Rumano (Barra/Mancuernas)', exerciseType: 'rdl', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
       { id: 'hip_thrust', name: 'Hip Thrust con Barra', exerciseType: 'hip_thrust', targetMuscle: 'glutes_max', loadType: 'gravity', patternId: 'hip_thrust_barbell' },
       { id: 'machine_hip_thrust', name: 'Hip Thrust en Máquina', exerciseType: 'machine_hip_thrust', targetMuscle: 'glutes_max', loadType: 'machine', patternId: 'hip_thrust_barbell' },
       { id: 'kas_glute_bridge', name: 'Kas Glute Bridge', exerciseType: 'kas_glute_bridge', targetMuscle: 'glutes_max', loadType: 'gravity', patternId: 'hip_thrust_barbell' },
-      { id: 'rdl', name: 'Peso Muerto Rumano (RDL)', exerciseType: 'rdl', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
       { id: 'deadlift', name: 'Peso Muerto Convencional', exerciseType: 'deadlift', targetMuscle: 'hamstrings', loadType: 'gravity', patternId: 'rdl_strict_hamstring' },
       { id: 'seated_leg_curl', name: 'Curl Femoral Sentado', exerciseType: 'seated_leg_curl', targetMuscle: 'hamstrings', loadType: 'machine', patternId: 'seated_leg_curl_machine' },
       { id: 'lying_leg_curl', name: 'Curl Femoral Tumbado', exerciseType: 'lying_leg_curl', targetMuscle: 'hamstrings', loadType: 'machine', patternId: 'lying_leg_curl_machine' },
@@ -115,10 +101,11 @@ export const MUSCLE_GROUPS: MuscleGroup[] = [
     name: 'Cuádriceps',
     exercises: [
       { id: 'squat', name: 'Sentadilla Libre con Barra', exerciseType: 'squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
+      { id: 'barbell_squat', name: 'Sentadilla con Barra / Multipower', exerciseType: 'barbell_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
+      { id: 'bulgarian_split_squat', name: 'Sentadilla Búlgara / Zancada B-Stance', exerciseType: 'bulgarian_split_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'bulgarian_split_squat_glute' },
       { id: 'hack_squat', name: 'Sentadilla Hack en Máquina', exerciseType: 'hack_squat', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'hack_squat_machine' },
       { id: 'leg_press', name: 'Prensa Inclinada 45°', exerciseType: 'leg_press', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'leg_press_high_feet' },
       { id: 'leg_extension', name: 'Extensión de Cuádriceps', exerciseType: 'leg_extension', targetMuscle: 'quadriceps', loadType: 'machine', patternId: 'leg_extension_machine' },
-      { id: 'bulgarian_squat', name: 'Zancada Búlgara', exerciseType: 'bulgarian_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'bulgarian_split_squat_glute' },
       { id: 'front_squat', name: 'Sentadilla Frontal', exerciseType: 'front_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'squat_high_bar' },
       { id: 'sissy_squat', name: 'Sissy Squat', exerciseType: 'sissy_squat', targetMuscle: 'quadriceps', loadType: 'gravity', patternId: 'sissy_squat_bodyweight' }
     ]
@@ -129,11 +116,28 @@ export const MUSCLE_GROUPS: MuscleGroup[] = [
     exercises: [
       { id: 'bench_press', name: 'Press Banca Plano con Barra', exerciseType: 'bench_press', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'converging_chest_press_machine' },
       { id: 'incline_press', name: 'Press Inclinado con Mancuernas', exerciseType: 'incline_press', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'incline_dumbbell_press' },
+      { id: 'chest_press_machine', name: 'Press de Pecho en Máquina', exerciseType: 'chest_press_machine', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'converging_chest_press_machine' },
       { id: 'machine_chest_press', name: 'Press en Máquina Convergente', exerciseType: 'machine_chest_press', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'converging_chest_press_machine' },
       { id: 'cable_fly', name: 'Aperturas / Cruces en Polea', exerciseType: 'cable_fly', targetMuscle: 'pectorals', loadType: 'cable', patternId: 'cable_fly_mid_sternal' },
       { id: 'pec_deck', name: 'Pec Deck / Contractora', exerciseType: 'pec_deck', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'cable_fly_mid_sternal' },
       { id: 'chest_dips', name: 'Fondos en Paralelas para Pecho', exerciseType: 'chest_dips', targetMuscle: 'pectorals', loadType: 'gravity', patternId: 'dips_chest_lean' },
       { id: 'machine_dips', name: 'Fondos en Máquina para Pecho', exerciseType: 'machine_dips', targetMuscle: 'pectorals', loadType: 'machine', patternId: 'dips_chest_lean' }
+    ]
+  },
+  {
+    id: 'back',
+    name: 'Espalda',
+    exercises: [
+      { id: 'seated_row', name: 'Remo Sentado en Máquina / Polea', exerciseType: 'seated_row', targetMuscle: 'lats', loadType: 'machine', patternId: 'chest_supported_lat_row' },
+      { id: 'machine_row', name: 'Remo en Máquina', exerciseType: 'machine_row', targetMuscle: 'lats', loadType: 'machine', patternId: 'chest_supported_lat_row' },
+      { id: 'barbell_row', name: 'Remo con Barra', exerciseType: 'barbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
+      { id: 'cable_row', name: 'Remo Gironda en Polea', exerciseType: 'cable_row', targetMuscle: 'lats', loadType: 'cable', patternId: 'chest_supported_lat_row' },
+      { id: 'dumbbell_row', name: 'Remo Unilateral con Mancuerna', exerciseType: 'dumbbell_row', targetMuscle: 'lats', loadType: 'gravity', patternId: 'chest_supported_lat_row' },
+      { id: 't_bar_row', name: 'Remo en Punta / Barra T', exerciseType: 't_bar_row', targetMuscle: 'upper_back', loadType: 'gravity', patternId: 'chest_supported_t_bar_row_upper_back' },
+      { id: 'lat_pulldown', name: 'Jalón al Pecho', exerciseType: 'lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' },
+      { id: 'single_lat_pulldown', name: 'Jalón Unilateral en Polea', exerciseType: 'single_lat_pulldown', targetMuscle: 'lats', loadType: 'cable', patternId: 'lat_pulldown_unilateral' },
+      { id: 'pullup', name: 'Dominadas', exerciseType: 'pullup', targetMuscle: 'lats', loadType: 'gravity', patternId: 'lat_pulldown_unilateral' },
+      { id: 'pullover', name: 'Pullover en Polea', exerciseType: 'pullover', targetMuscle: 'lats', loadType: 'cable', patternId: 'straight_arm_cable_pulldown' }
     ]
   },
   {
@@ -289,6 +293,12 @@ export function resolveExercise(exerciseId?: string | null, exerciseName?: strin
   // 3. Substring / semantic heuristic match on ID or Name
   const combined = `${targetId} ${targetName}`;
 
+  if (combined.includes('rdl_unilateral') || combined.includes('b-stance') || combined.includes('bstance') || (combined.includes('rdl') && combined.includes('unilateral'))) {
+    return ALL_EXERCISES.find(e => e.id === 'rdl_unilateral') || ALL_EXERCISES.find(e => e.id === 'rdl') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('bulgarian') || combined.includes('búlgara') || combined.includes('bulgara') || combined.includes('zancada')) {
+    return ALL_EXERCISES.find(e => e.id === 'bulgarian_split_squat') || ALL_EXERCISES.find(e => e.id === 'squat') || ALL_EXERCISES[0];
+  }
   if (combined.includes('hip_thrust') || combined.includes('thrust') || combined.includes('bridge') || combined.includes('glute')) {
     if (combined.includes('mach') || combined.includes('máquina')) {
       return ALL_EXERCISES.find(e => e.id === 'machine_hip_thrust') || ALL_EXERCISES[0];
@@ -300,15 +310,18 @@ export function resolveExercise(exerciseId?: string | null, exerciseName?: strin
   }
   if (combined.includes('hack') || combined.includes('squat') || combined.includes('sentadilla') || combined.includes('prensa') || combined.includes('leg_press')) {
     if (combined.includes('hack')) return ALL_EXERCISES.find(e => e.id === 'hack_squat') || ALL_EXERCISES[0];
-    if (combined.includes('prensa') || combined.includes('press')) return ALL_EXERCISES.find(e => e.id === 'leg_press') || ALL_EXERCISES[0];
-    return ALL_EXERCISES.find(e => e.id === 'barbell_squat') || ALL_EXERCISES[0];
+    if (combined.includes('prensa') || combined.includes('press') || combined.includes('leg_press')) return ALL_EXERCISES.find(e => e.id === 'leg_press') || ALL_EXERCISES[0];
+    return ALL_EXERCISES.find(e => e.id === 'squat') || ALL_EXERCISES.find(e => e.id === 'barbell_squat') || ALL_EXERCISES[0];
   }
   if (combined.includes('extension') || combined.includes('cuadriceps')) {
     return ALL_EXERCISES.find(e => e.id === 'leg_extension') || ALL_EXERCISES[0];
   }
-  if (combined.includes('bench') || combined.includes('banca') || combined.includes('chest') || combined.includes('pecho')) {
+  if (combined.includes('seated_row')) {
+    return ALL_EXERCISES.find(e => e.id === 'seated_row') || ALL_EXERCISES.find(e => e.id === 'machine_row') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('chest_press') || combined.includes('bench') || combined.includes('banca') || combined.includes('chest') || combined.includes('pecho')) {
     if (combined.includes('inclin')) return ALL_EXERCISES.find(e => e.id === 'incline_press') || ALL_EXERCISES[0];
-    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'machine_chest_press') || ALL_EXERCISES[0];
+    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'chest_press_machine') || ALL_EXERCISES.find(e => e.id === 'machine_chest_press') || ALL_EXERCISES[0];
     return ALL_EXERCISES.find(e => e.id === 'bench_press') || ALL_EXERCISES[0];
   }
   if (combined.includes('row') || combined.includes('remo') || combined.includes('gironda') || combined.includes('dorsal')) {
@@ -324,6 +337,7 @@ export function resolveExercise(exerciseId?: string | null, exerciseName?: strin
     return ALL_EXERCISES.find(e => e.id === 'overhead_press') || ALL_EXERCISES[0];
   }
   if (combined.includes('lateral')) {
+    if (combined.includes('polea') || combined.includes('cable')) return ALL_EXERCISES.find(e => e.id === 'cable_lateral_raise') || ALL_EXERCISES[0];
     return ALL_EXERCISES.find(e => e.id === 'lateral_raise') || ALL_EXERCISES[0];
   }
   if (combined.includes('biceps') || combined.includes('curl')) {
@@ -333,8 +347,8 @@ export function resolveExercise(exerciseId?: string | null, exerciseName?: strin
     return ALL_EXERCISES.find(e => e.id === 'triceps_extension') || ALL_EXERCISES[0];
   }
 
-  // 4. Default fallback: Hip Thrust
-  return ALL_EXERCISES.find(e => e.id === 'hip_thrust') || ALL_EXERCISES[0];
+  // 4. Default fallback: RDL (clean lower-body default instead of machine_row)
+  return ALL_EXERCISES.find(e => e.id === 'rdl') || ALL_EXERCISES[0];
 }
 
 // =========================================================================
@@ -354,6 +368,13 @@ interface SnapshotViewerProps {
   onSetPulleyOrigin: (pt: { x: number; y: number }) => void;
 }
 
+interface LeverInfo {
+  distPx: number | null;
+  ratioText: string | null;
+  mode: 'cable' | 'gravity';
+  targetJointName: string;
+}
+
 const SingleSnapshotCanvas: React.FC<{
   title: string;
   badge: string;
@@ -367,11 +388,7 @@ const SingleSnapshotCanvas: React.FC<{
 }> = ({ title, badge, b64, joints, isUpperBody, isCalibrating, pulleyOrigin, onSetPulleyOrigin }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [leverInfo, setLeverInfo] = useState<{
-    distPx: number;
-    mode: 'cable' | 'gravity';
-    targetJointName: string;
-  } | null>(null);
+  const [leverInfo, setLeverInfo] = useState<LeverInfo | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -388,17 +405,15 @@ const SingleSnapshotCanvas: React.FC<{
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      if (!joints) return;
-
       const px = (nx: number) => nx * canvas.width;
       const py = (ny: number) => ny * canvas.height;
 
-      const pSh = joints.shoulder ? { x: px(joints.shoulder[0]), y: py(joints.shoulder[1]), valid: true } : null;
-      const pEl = joints.elbow ? { x: px(joints.elbow[0]), y: py(joints.elbow[1]), valid: true } : null;
-      const pWr = joints.wrist ? { x: px(joints.wrist[0]), y: py(joints.wrist[1]), valid: true } : null;
-      const pHp = joints.hip ? { x: px(joints.hip[0]), y: py(joints.hip[1]), valid: true } : null;
-      const pKn = joints.knee ? { x: px(joints.knee[0]), y: py(joints.knee[1]), valid: true } : null;
-      const pAk = joints.ankle ? { x: px(joints.ankle[0]), y: py(joints.ankle[1]), valid: true } : null;
+      const pSh = joints?.shoulder ? { x: px(joints.shoulder[0]), y: py(joints.shoulder[1]), valid: true } : null;
+      const pEl = joints?.elbow ? { x: px(joints.elbow[0]), y: py(joints.elbow[1]), valid: true } : null;
+      const pWr = joints?.wrist ? { x: px(joints.wrist[0]), y: py(joints.wrist[1]), valid: true } : null;
+      const pHp = joints?.hip ? { x: px(joints.hip[0]), y: py(joints.hip[1]), valid: true } : null;
+      const pKn = joints?.knee ? { x: px(joints.knee[0]), y: py(joints.knee[1]), valid: true } : null;
+      const pAk = joints?.ankle ? { x: px(joints.ankle[0]), y: py(joints.ankle[1]), valid: true } : null;
 
       const drawSeg = (p1: any, p2: any, color: string, w = 3) => {
         if (!p1 || !p2) return;
@@ -438,83 +453,155 @@ const SingleSnapshotCanvas: React.FC<{
         drawNode(pAk, '#38BDF8', 5);
       }
 
-      const activeLoad = isUpperBody ? pWr : pHp;
-      const targetJoint = isUpperBody ? pSh : (pHp || pKn);
-
-      if (pulleyOrigin && activeLoad && targetJoint) {
-        // Pro Pulley Mode
+      // Pro Pulley Mode
+      if (pulleyOrigin && (pWr || pSh || pHp)) {
         const po = { x: px(pulleyOrigin.x), y: py(pulleyOrigin.y) };
-        // Cable line
-        ctx.beginPath();
-        ctx.setLineDash([5, 4]);
-        ctx.moveTo(po.x, po.y);
-        ctx.lineTo(activeLoad.x, activeLoad.y);
-        ctx.strokeStyle = '#06B6D4';
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const activeLoad = isUpperBody ? (pWr || pEl) : (pWr || pHp);
+        const targetJoint = isUpperBody ? pSh : (pHp || pKn);
 
-        // Origin crosshair node
-        ctx.beginPath();
-        ctx.arc(po.x, po.y, 7, 0, 2 * Math.PI);
-        ctx.fillStyle = '#06B6D4';
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.stroke();
-
-        let dx = activeLoad.x - po.x;
-        let dy = activeLoad.y - po.y;
-        const len = Math.hypot(dx, dy);
-        if (len > 1e-4) {
-          dx /= len;
-          dy /= len;
-          const t = (targetJoint.x - po.x) * dx + (targetJoint.y - po.y) * dy;
-          const proj = { x: po.x + t * dx, y: po.y + t * dy };
-          const dist = Math.abs((targetJoint.x - po.x) * dy - (targetJoint.y - po.y) * dx);
-
-          // Perpendicular lever line
+        if (activeLoad && targetJoint) {
           ctx.beginPath();
-          ctx.setLineDash([3, 3]);
-          ctx.moveTo(targetJoint.x, targetJoint.y);
-          ctx.lineTo(proj.x, proj.y);
-          ctx.strokeStyle = '#FBBF24';
-          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 4]);
+          ctx.moveTo(po.x, po.y);
+          ctx.lineTo(activeLoad.x, activeLoad.y);
+          ctx.strokeStyle = '#06B6D4';
+          ctx.lineWidth = 2.5;
           ctx.stroke();
           ctx.setLineDash([]);
 
+          ctx.beginPath();
+          ctx.arc(po.x, po.y, 7, 0, 2 * Math.PI);
+          ctx.fillStyle = '#06B6D4';
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.stroke();
+
+          let dx = activeLoad.x - po.x;
+          let dy = activeLoad.y - po.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 1e-4) {
+            dx /= len;
+            dy /= len;
+            const t = (targetJoint.x - po.x) * dx + (targetJoint.y - po.y) * dy;
+            const proj = { x: po.x + t * dx, y: po.y + t * dy };
+            const dist = Math.abs((targetJoint.x - po.x) * dy - (targetJoint.y - po.y) * dx);
+
+            ctx.beginPath();
+            ctx.setLineDash([3, 3]);
+            ctx.moveTo(targetJoint.x, targetJoint.y);
+            ctx.lineTo(proj.x, proj.y);
+            ctx.strokeStyle = '#FBBF24';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            setLeverInfo({
+              distPx: Math.round(dist),
+              ratioText: null,
+              mode: 'cable',
+              targetJointName: isUpperBody ? 'Hombro' : 'Cadera'
+            });
+            return;
+          }
+        }
+      }
+
+      // Gravity Plumb Line & Moment Arm Analysis
+      if (isUpperBody) {
+        const loadX = pWr ? pWr.x : (pEl ? pEl.x : canvas.width * 0.5);
+        if (pSh) {
+          ctx.beginPath();
+          ctx.setLineDash([5, 4]);
+          ctx.moveTo(loadX, 0);
+          ctx.lineTo(loadX, canvas.height);
+          ctx.strokeStyle = '#FBBF24';
+          ctx.lineWidth = 2.2;
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.beginPath();
+          ctx.setLineDash([3, 3]);
+          ctx.moveTo(pSh.x, pSh.y);
+          ctx.lineTo(loadX, pSh.y);
+          ctx.strokeStyle = '#38BDF8';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          const dSh = Math.abs(pSh.x - loadX);
+          const dEl = pEl ? Math.abs(pEl.x - loadX) : 0;
+          const totD = dSh + dEl;
+
+          let ratioText = 'Pectoral: 70% · Codo: 30%';
+          if (totD > 5) {
+            const pctSh = Math.round((dSh / totD) * 100);
+            const pctEl = 100 - pctSh;
+            ratioText = `Pectoral/Hombro: ${pctSh}% · Tríceps/Codo: ${pctEl}%`;
+          }
+
           setLeverInfo({
-            distPx: Math.round(dist),
-            mode: 'cable',
-            targetJointName: isUpperBody ? 'Hombro' : 'Cadera/Rodilla'
+            distPx: Math.round(dSh),
+            ratioText,
+            mode: 'gravity',
+            targetJointName: 'Hombro'
+          });
+        } else {
+          setLeverInfo({
+            distPx: Math.round(canvas.width * 0.18),
+            ratioText: 'Pectoral: 68% · Tríceps: 32%',
+            mode: 'gravity',
+            targetJointName: 'Hombro'
           });
         }
-      } else if (activeLoad && targetJoint) {
-        // Free weight plumb line
+      } else {
+        // Lower Body (RDL, Squat, Bulgarian, Hip Thrust)
+        const loadX = (pWr && pWr.y > (pHp ? pHp.y : 0)) ? pWr.x : (pAk ? pAk.x : (pKn ? pKn.x : canvas.width * 0.5));
+        
         ctx.beginPath();
         ctx.setLineDash([5, 4]);
-        ctx.moveTo(activeLoad.x, 0);
-        ctx.lineTo(activeLoad.x, canvas.height);
+        ctx.moveTo(loadX, 0);
+        ctx.lineTo(loadX, canvas.height);
         ctx.strokeStyle = '#FBBF24';
         ctx.lineWidth = 2.2;
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Horizontal distance line
-        ctx.beginPath();
-        ctx.setLineDash([3, 3]);
-        ctx.moveTo(targetJoint.x, targetJoint.y);
-        ctx.lineTo(activeLoad.x, targetJoint.y);
-        ctx.strokeStyle = '#38BDF8';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        const dHp = pHp ? Math.abs(pHp.x - loadX) : 0;
+        const dKn = pKn ? Math.abs(pKn.x - loadX) : 0;
+        const tot = dHp + dKn;
+
+        if (pHp) {
+          ctx.beginPath();
+          ctx.setLineDash([3, 3]);
+          ctx.moveTo(pHp.x, pHp.y);
+          ctx.lineTo(loadX, pHp.y);
+          ctx.strokeStyle = '#38BDF8';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        if (pKn) {
+          ctx.beginPath();
+          ctx.setLineDash([3, 3]);
+          ctx.moveTo(pKn.x, pKn.y);
+          ctx.lineTo(loadX, pKn.y);
+          ctx.strokeStyle = '#34D399';
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+        }
         ctx.setLineDash([]);
 
-        const dist = Math.abs(targetJoint.x - activeLoad.x);
+        let ratioText = 'Cadera: 68% · Rodilla: 32%';
+        if (tot > 5) {
+          const pctHp = Math.round((dHp / tot) * 100);
+          const pctKn = 100 - pctHp;
+          ratioText = `Cadera: ${pctHp}% · Rodilla: ${pctKn}%`;
+        }
+
         setLeverInfo({
-          distPx: Math.round(dist),
+          distPx: Math.round(dHp > 0 ? dHp : canvas.width * 0.22),
+          ratioText,
           mode: 'gravity',
-          targetJointName: isUpperBody ? 'Hombro' : 'Cadera/Rodilla'
+          targetJointName: 'Cadera'
         });
       }
     };
@@ -562,9 +649,16 @@ const SingleSnapshotCanvas: React.FC<{
         </div>
         <div className="flex items-center gap-1.5">
           <span className="font-mono font-black text-amber-300">
-            {leverInfo ? `${leverInfo.distPx} px` : '--'}
+            {leverInfo?.distPx != null && leverInfo.distPx > 0
+              ? `${leverInfo.distPx} px`
+              : (leverInfo?.ratioText || (isUpperBody ? 'Hombro: 70% · Codo: 30%' : 'Cadera: 68% · Rodilla: 32%'))}
           </span>
-          <span className="text-slate-400 text-[10px]">({leverInfo?.targetJointName ?? 'Articulación'})</span>
+          {leverInfo?.ratioText && leverInfo?.distPx != null && leverInfo.distPx > 0 && (
+            <span className="text-cyan-300 font-mono text-[10px] font-bold">
+              ({leverInfo.ratioText})
+            </span>
+          )}
+          <span className="text-slate-400 text-[10px]">({leverInfo?.targetJointName ?? (isUpperBody ? 'Hombro' : 'Cadera')})</span>
         </div>
       </div>
     </div>
@@ -849,7 +943,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     exType: string,
     muscle: string,
     load: string,
-    range?: { startTime: number; endTime: number }
+    range?: { startTime: number; endTime: number },
+    exerciseName?: string
   ) => {
     try {
       setPipelineState('analyzing');
@@ -867,6 +962,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
       const config: ExerciseConfig = {
         exerciseType: exType,
+        exerciseName: exerciseName || (isManualOverride ? activeExercise?.name : (defaultExerciseName || undefined)),
         targetMuscle: muscle,
         loadType: backendLoad,
         isManualOverride: isManualOverride || Boolean(defaultExerciseId && defaultExerciseId !== 'auto'),
@@ -1017,6 +1113,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       compressedBlobRef.current = videoBlobToSend;
 
       const exToSend = isManualOverride ? activeExercise.exerciseType : (defaultExerciseId && defaultExerciseId !== 'auto' ? defaultExerciseId : 'auto');
+      const exNameToSend = isManualOverride ? activeExercise.name : (defaultExerciseName || undefined);
       const muscleToSend = isManualOverride ? activeExercise.targetMuscle : 'auto';
       const loadToSend = isManualOverride ? activeExercise.loadType : 'auto';
 
@@ -1026,7 +1123,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         exToSend,
         muscleToSend,
         loadToSend,
-        range
+        range,
+        exNameToSend
       );
 
       if (videoElementRef.current) {
@@ -1045,6 +1143,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const handleExerciseSelect = (item: ExerciseItem) => {
     setIsManualOverride(true);
     setSelectedExerciseId(item.id);
+    const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === item.id));
+    if (parentGroup) {
+      setSelectedMuscleGroupId(parentGroup.id);
+    }
     setTargetMuscle(item.targetMuscle);
     setLoadType(item.loadType);
 
@@ -1057,7 +1159,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         item.exerciseType,
         item.targetMuscle,
         item.loadType,
-        range
+        range,
+        item.name
       );
     }
   };
@@ -2516,6 +2619,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         const val = e.target.value;
                         if (val === 'auto') {
                           setIsManualOverride(false);
+                          setSelectedExerciseId('auto');
                         } else {
                           const item = ALL_EXERCISES.find(x => x.id === val);
                           if (item) {
@@ -2526,26 +2630,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 shadow-md truncate"
                     >
                       <option value="auto">✨ Auto-detectar ejercicio con IA</option>
-                      <optgroup label="Pecho / Empujes">
-                        {ALL_EXERCISES.filter(x => x.targetMuscle === 'pectorals').map(x => (
-                          <option key={x.id} value={x.id}>{x.name}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Espalda / Tracciones">
-                        {ALL_EXERCISES.filter(x => x.targetMuscle === 'lats' || x.targetMuscle === 'upper_back').map(x => (
-                          <option key={x.id} value={x.id}>{x.name}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Pierna / Glúteo / Isquios">
-                        {ALL_EXERCISES.filter(x => ['quadriceps', 'glutes_max', 'hamstrings'].includes(x.targetMuscle)).map(x => (
-                          <option key={x.id} value={x.id}>{x.name}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Brazos">
-                        {ALL_EXERCISES.filter(x => ['biceps', 'triceps'].includes(x.targetMuscle)).map(x => (
-                          <option key={x.id} value={x.id}>{x.name}</option>
-                        ))}
-                      </optgroup>
+                      {MUSCLE_GROUPS.map((group) => (
+                        <optgroup key={group.id} label={group.name}>
+                          {group.exercises.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
 
                     <button
@@ -2946,6 +3039,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       const val = e.target.value;
                       if (val === 'auto') {
                         setIsManualOverride(false);
+                        setSelectedExerciseId('auto');
                       } else {
                         const item = ALL_EXERCISES.find(x => x.id === val);
                         if (item) {
@@ -2956,26 +3050,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     className="w-full bg-slate-900 border border-slate-700 hover:border-cyan-500 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 transition truncate shadow-inner"
                   >
                     <option value="auto">✨ Auto-detectar ejercicio con IA</option>
-                    <optgroup label="Pecho / Empujes">
-                      {ALL_EXERCISES.filter(x => x.targetMuscle === 'pectorals').map(x => (
-                        <option key={x.id} value={x.id}>{x.name}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Espalda / Tracciones">
-                      {ALL_EXERCISES.filter(x => x.targetMuscle === 'lats' || x.targetMuscle === 'upper_back').map(x => (
-                        <option key={x.id} value={x.id}>{x.name}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Pierna / Glúteo / Isquios">
-                      {ALL_EXERCISES.filter(x => ['quadriceps', 'glutes_max', 'hamstrings'].includes(x.targetMuscle)).map(x => (
-                        <option key={x.id} value={x.id}>{x.name}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Brazos">
-                      {ALL_EXERCISES.filter(x => ['biceps', 'triceps'].includes(x.targetMuscle)).map(x => (
-                        <option key={x.id} value={x.id}>{x.name}</option>
-                      ))}
-                    </optgroup>
+                    {MUSCLE_GROUPS.map((group) => (
+                      <optgroup key={group.id} label={group.name}>
+                        {group.exercises.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </div>
 
