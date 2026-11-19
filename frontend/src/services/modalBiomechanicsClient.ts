@@ -122,13 +122,47 @@ export interface BiomechanicsFrame {
   time: number;
   timestamp_sec?: number;
   rep_number: number;
+  rep_index?: number;
   phase: 'IDLE' | 'ECCENTRIC' | 'BOTTOM' | 'CONCENTRIC' | 'LOCKOUT' | string;
+  body_region?: 'upper' | 'lower';
+  angles?: {
+    elbow?: number;
+    shoulder?: number;
+    hip?: number;
+    knee?: number;
+    neck?: number;
+    [key: string]: number | undefined;
+  };
+  keypoints?: {
+    shoulder?: [number, number];
+    elbow?: [number, number];
+    wrist?: [number, number];
+    hip?: [number, number];
+    knee?: [number, number];
+    ankle?: [number, number];
+    ear?: [number, number];
+    [key: string]: [number, number] | undefined;
+  };
   main_angle: number;
   secondary_angle: number;
   keypoints_norm: NormalizedKeypoints;
   moment_arms: MomentArms;
   verdict: RepetitionVerdict;
-  force_vector?: { origin?: string; direction?: string; dx?: number; dy?: number };
+  force_vector?: {
+    origin?: [number, number] | string;
+    ux?: number;
+    uy?: number;
+    d_primary_px?: number;
+    d_secondary_px?: number;
+    primary_pct?: number;
+    secondary_pct?: number;
+    primary_short?: string;
+    secondary_short?: string;
+    direction?: string;
+    dx?: number;
+    dy?: number;
+    [key: string]: any;
+  };
   [key: string]: any;
 }
 

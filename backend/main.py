@@ -773,7 +773,7 @@ def process_kinematics(
                 scene_cut_indices.append(f)
     scene_cut_indices.append(n_frames)
 
-    canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
+    canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle", "ear"]
 
     # Safe universal fallbacks for mechanical helpers
     machine_u_per_frame = None
@@ -785,9 +785,9 @@ def process_kinematics(
     for side in ["left", "right"]:
         for c_name in canonical_joints:
             k_name = f"{side}_{c_name}"
-            x_arr = np.array([raw_keypoints[f][k_name]["x"] for f in range(n_frames)], dtype=np.float64)
-            y_arr = np.array([raw_keypoints[f][k_name]["y"] for f in range(n_frames)], dtype=np.float64)
-            s_arr = np.array([raw_keypoints[f][k_name]["score"] for f in range(n_frames)], dtype=np.float64)
+            x_arr = np.array([raw_keypoints[f].get(k_name, raw_keypoints[f].get("nose", {"x": 0.5}))["x"] for f in range(n_frames)], dtype=np.float64)
+            y_arr = np.array([raw_keypoints[f].get(k_name, raw_keypoints[f].get("nose", {"y": 0.2}))["y"] for f in range(n_frames)], dtype=np.float64)
+            s_arr = np.array([raw_keypoints[f].get(k_name, raw_keypoints[f].get("nose", {"score": 0.5}))["score"] for f in range(n_frames)], dtype=np.float64)
             
             # Max Joint Jump Clamp: if wrist or elbow jumps > 0.07 in 1 frame (clothing flutter / baggy sweatshirt noise), clamp as outlier
             if c_name in ["wrist", "elbow"] and n_frames > 1:
@@ -919,7 +919,7 @@ def process_kinematics(
                 load_type = "machine"
             print(f"[Auto-Detection Kinematic] Tren Inferior detectado por ROM: {exercise_type} ({target_muscle})")
 
-    canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
+    canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle", "ear"]
     ex_lower = exercise_type.lower()
     load_lower = load_type.lower()
     
@@ -2395,12 +2395,140 @@ def process_kinematics(
             "hand_grip": {"x": round(float(cur_hx), 3), "y": round(float(cur_hy), 3), "z": 0.0}
         }
 
+        # Force vector origin and normalized moment arm / percentage metadata
+        if is_upper_body:
+            anchor_x = cur_hx
+            anchor_y = cur_hy
+            d_primary = f_d_sh * 1000.0
+            d_secondary = f_d_el * 1000.0
+            tot_d = f_d_sh + f_d_el
+            if is_pattern_a or any(k in ex_lower for k in ["row", "remo", "pull", "jalon", "t_bar"]):
+                primary_short_label = "EA" if is_upper_back_series else "D"
+                secondary_short_label = "B"
+                if tot_d > 0.005:
+                    primary_pct = round((f_d_sh / tot_d) * 100.0, 1)
+                    secondary_pct = round((f_d_el / tot_d) * 100.0, 1)
+                else:
+                    primary_pct = 85.0
+                    secondary_pct = 15.0
+            else:
+                primary_short_label = "P"
+                secondary_short_label = "T"
+                if tot_d > 0.005:
+                    primary_pct = round((f_d_sh / tot_d) * 100.0, 1)
+                    secondary_pct = round((f_d_el / tot_d) * 100.0, 1)
+                else:
+                    primary_pct = 70.0
+                    secondary_pct = 30.0
+        elif is_hip_thrust:
+            anchor_x = hp_x
+            anchor_y = hp_y
+            d_primary = 80.0
+            d_secondary = 20.0
+            primary_pct = 85.0
+            secondary_pct = 15.0
+            primary_short_label = "G"
+            secondary_short_label = "R"
+        elif any(k in ex_lower for k in ["deadlift", "rdl", "rumano"]):
+            anchor_x = wr_x
+            anchor_y = wr_y
+            d_primary = f_d_hip * 1000.0
+            d_secondary = f_d_knee * 1000.0
+            tot_d = f_d_hip + f_d_knee
+            primary_short_label = "I"
+            secondary_short_label = "G"
+            if tot_d > 0.005:
+                primary_pct = round((f_d_hip / tot_d) * 100.0, 1)
+                secondary_pct = round((f_d_knee / tot_d) * 100.0, 1)
+            else:
+                primary_pct = 65.0
+                secondary_pct = 35.0
+        else:
+            anchor_x = sh_x
+            anchor_y = sh_y
+            d_primary = f_d_knee * 1000.0
+            d_secondary = f_d_hip * 1000.0
+            tot_d = f_d_knee + f_d_hip
+            primary_short_label = "C"
+            secondary_short_label = "G"
+            if tot_d > 0.005:
+                primary_pct = round((f_d_knee / tot_d) * 100.0, 1)
+                secondary_pct = round((f_d_hip / tot_d) * 100.0, 1)
+            else:
+                primary_pct = 70.0
+                secondary_pct = 30.0
+
+        fv_ux = float(cur_force_dx)
+        fv_uy = float(cur_force_dy)
+        fv_norm = math.hypot(fv_ux, fv_uy)
+        if fv_norm > 1e-4:
+            fv_ux /= fv_norm
+            fv_uy /= fv_norm
+        else:
+            fv_ux = 1.0 if is_upper_body else 0.0
+            fv_uy = 0.0 if is_upper_body else 1.0
+
+        ear_raw_x = primary_joints["ear"]["x"][f] if "ear" in primary_joints else smoothed_head["x"][f]
+        ear_raw_y = primary_joints["ear"]["y"][f] if "ear" in primary_joints else smoothed_head["y"][f]
+
+        sh_x_c = min(1.0, max(0.0, float(sh_x)))
+        sh_y_c = min(1.0, max(0.0, float(sh_y)))
+        el_x_c = min(1.0, max(0.0, float(el_x)))
+        el_y_c = min(1.0, max(0.0, float(el_y)))
+        wr_x_c = min(1.0, max(0.0, float(wr_x)))
+        wr_y_c = min(1.0, max(0.0, float(wr_y)))
+        hp_x_c = min(1.0, max(0.0, float(hp_x)))
+        hp_y_c = min(1.0, max(0.0, float(hp_y)))
+        kn_x_c = min(1.0, max(0.0, float(kn_x)))
+        kn_y_c = min(1.0, max(0.0, float(kn_y)))
+        ak_x_c = min(1.0, max(0.0, float(ak_x)))
+        ak_y_c = min(1.0, max(0.0, float(ak_y)))
+        ear_x_c = min(1.0, max(0.0, float(ear_raw_x)))
+        ear_y_c = min(1.0, max(0.0, float(ear_raw_y)))
+        anc_x_c = min(1.0, max(0.0, float(anchor_x)))
+        anc_y_c = min(1.0, max(0.0, float(anchor_y)))
+
         frames_output.append({
+            "timestamp_sec": round(float(timestamps[f]), 4),
+            "phase": phase,
+            "rep_index": int(rep_num),
+            "body_region": "upper" if is_upper_body else "lower",
+            "angles": {
+                "elbow": round(float(clean_el[f]), 1),
+                "shoulder": round(float(clean_hu[f]), 1),
+                "hip": round(float(clean_hp[f]), 1),
+                "knee": round(float(clean_kn[f]), 1),
+                "neck": round(float(clean_neck[f]), 1),
+            },
+            "keypoints": {
+                "shoulder": [round(sh_x_c, 4), round(sh_y_c, 4)],
+                "elbow": [round(el_x_c, 4), round(el_y_c, 4)],
+                "wrist": [round(wr_x_c, 4), round(wr_y_c, 4)],
+                "hip": [round(hp_x_c, 4), round(hp_y_c, 4)],
+                "knee": [round(kn_x_c, 4), round(kn_y_c, 4)],
+                "ankle": [round(ak_x_c, 4), round(ak_y_c, 4)],
+                "ear": [round(ear_x_c, 4), round(ear_y_c, 4)],
+            },
+            "force_vector": {
+                "origin": [round(anc_x_c, 4), round(anc_y_c, 4)],
+                "ux": round(float(fv_ux), 4),
+                "uy": round(float(fv_uy), 4),
+                "d_primary_px": round(float(d_primary), 1),
+                "d_secondary_px": round(float(d_secondary), 1),
+                "primary_pct": round(float(primary_pct), 1),
+                "secondary_pct": round(float(secondary_pct), 1),
+                "primary_short": primary_short_label,
+                "secondary_short": secondary_short_label,
+                # Backwards-compatibility
+                "direction": cur_force_dir,
+                "dx": round(float(fv_ux), 2),
+                "dy": round(float(fv_uy), 2),
+                "origin_joint": "wrist" if any(k in ex_lower for k in ["deadlift", "rdl", "rumano"]) else force_origin
+            },
+            # Backwards-compatibility fields
             "frame_idx": f,
             "time": round(float(timestamps[f]), 4),
-            "timestamp_sec": round(float(timestamps[f]), 4),
             "rep_number": rep_num,
-            "phase": phase,
             "hide_torso_line": bool(hide_torso_line),
             "hide_neck_line": bool(hide_neck_line),
             "is_upper_back": bool(is_upper_back_series),
@@ -2408,16 +2536,10 @@ def process_kinematics(
             "main_angle": round(float(clean_primary[f]), 1),
             "secondary_angle": round(float(clean_secondary[f]), 1),
             "neck_angle": round(float(clean_neck[f]), 1),
-            "force_vector": {
-                "origin": "wrist" if any(k in ex_lower for k in ["deadlift", "rdl", "rumano"]) else force_origin,
-                "direction": cur_force_dir,
-                "dx": round(float(cur_force_dx), 2),
-                "dy": round(float(cur_force_dy), 2)
-            },
             "keypoints_norm": {
                 # Bilateral anatomical skeleton
                 "left_shoulder": {"x": round(float(all_smoothed["left_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["left_shoulder"]["y"][f]), 4), "score": round(float(all_smoothed["left_shoulder"]["score"][f]), 2)},
-                "right_shoulder": {"x": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "score": round(float(all_smoothed["right_shoulder"]["score"][f]), 2)},
+                "right_shoulder": {"x": round(float(all_smoothed["right_shoulder"]["x"][f]), 4), "y": round(float(all_smoothed["right_shoulder"]["y"][f]), 4), "score": round(float(all_smoothed["right_shoulder"]["score"][f]), 2)},
                 "left_elbow": {"x": round(float(all_smoothed["left_elbow"]["x"][f]), 4), "y": round(float(all_smoothed["left_elbow"]["y"][f]), 4), "score": round(float(all_smoothed["left_elbow"]["score"][f]), 2)},
                 "right_elbow": {"x": round(float(all_smoothed["right_elbow"]["x"][f]), 4), "y": round(float(all_smoothed["right_elbow"]["y"][f]), 4), "score": round(float(all_smoothed["right_elbow"]["score"][f]), 2)},
                 "left_wrist": {"x": round(float(all_smoothed["left_wrist"]["x"][f]), 4), "y": round(float(all_smoothed["left_wrist"]["y"][f]), 4), "score": round(float(all_smoothed["left_wrist"]["score"][f]), 2)},
@@ -2430,13 +2552,14 @@ def process_kinematics(
                 "right_ankle": {"x": round(float(all_smoothed["right_ankle"]["x"][f]), 4), "y": round(float(all_smoothed["right_ankle"]["y"][f]), 4), "score": round(float(all_smoothed["right_ankle"]["score"][f]), 2)},
                 "head": {"x": round(float(smoothed_head["x"][f]), 4), "y": round(float(smoothed_head["y"][f]), 4), "score": round(float(smoothed_head["score"][f]), 2)},
                 # Canonical primary tracked joints
-                "shoulder": {"x": round(float(sh_x), 4), "y": round(float(sh_y), 4), "score": round(float(primary_joints["shoulder"]["score"][f]), 2)},
-                "elbow": {"x": round(float(el_x), 4), "y": round(float(el_y), 4), "score": round(float(primary_joints["elbow"]["score"][f]), 2)},
-                "wrist": {"x": round(float(wr_x), 4), "y": round(float(wr_y), 4), "score": round(float(primary_joints["wrist"]["score"][f]), 2)},
+                "shoulder": {"x": round(sh_x_c, 4), "y": round(sh_y_c, 4), "score": round(float(primary_joints["shoulder"]["score"][f]), 2)},
+                "elbow": {"x": round(el_x_c, 4), "y": round(el_y_c, 4), "score": round(float(primary_joints["elbow"]["score"][f]), 2)},
+                "wrist": {"x": round(wr_x_c, 4), "y": round(wr_y_c, 4), "score": round(float(primary_joints["wrist"]["score"][f]), 2)},
                 "hand_grip": {"x": round(float(cur_hx), 4), "y": round(float(cur_hy), 4), "score": round(float(primary_joints["wrist"]["score"][f]), 2)},
-                "hip": {"x": round(float(hp_x), 4), "y": round(float(hp_y), 4), "score": round(float(primary_joints["hip"]["score"][f]), 2)},
-                "knee": {"x": round(float(kn_x), 4), "y": round(float(kn_y), 4), "score": round(float(primary_joints["knee"]["score"][f]), 2)},
-                "ankle": {"x": round(float(ak_x), 4), "y": round(float(ak_y), 4), "score": round(float(primary_joints["ankle"]["score"][f]), 2)}
+                "hip": {"x": round(hp_x_c, 4), "y": round(hp_y_c, 4), "score": round(float(primary_joints["hip"]["score"][f]), 2)},
+                "knee": {"x": round(kn_x_c, 4), "y": round(kn_y_c, 4), "score": round(float(primary_joints["knee"]["score"][f]), 2)},
+                "ankle": {"x": round(ak_x_c, 4), "y": round(ak_y_c, 4), "score": round(float(primary_joints["ankle"]["score"][f]), 2)},
+                "ear": {"x": round(ear_x_c, 4), "y": round(ear_y_c, 4), "score": round(float(primary_joints["ear"]["score"][f]), 2) if "ear" in primary_joints else round(float(smoothed_head["score"][f]), 2)}
             },
             "keypoints_3d": f_3d,
             "moment_arms": {
@@ -2458,6 +2581,14 @@ def process_kinematics(
             for f in range(n_frames):
                 frames_output[f]["moment_arms"]["d_shoulder"] = round(float(smooth_d_sh[f]), 4)
                 frames_output[f]["moment_arms"]["d_elbow"] = round(float(smooth_d_el[f]), 4)
+
+    assert len(frames_output) > 0, "frames_output cannot be empty"
+    first_kps = frames_output[0]["keypoints"]
+    for j_name in ["shoulder", "elbow", "wrist"]:
+        pt = first_kps[j_name]
+        assert isinstance(pt, (list, tuple)) and len(pt) == 2, f"keypoint {j_name} must be [x, y]"
+        assert 0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0, f"keypoint {j_name} must be in [0, 1], got {pt}"
+    print(f"[Frames Schema Verification] len(frames)={len(frames_output)}, first keypoints verified within [0, 1].")
 
     # Overall set summary
     total_reps = len(repetitions_summary)
