@@ -34,13 +34,15 @@ import {
   MessageSquare,
   Scissors,
   Edit3,
-  Target
+  Target,
+  Sparkles
 } from 'lucide-react';
 import { AnthropometricProfileModal } from './AnthropometricProfileModal';
 import { EffectiveVolumeAudit } from './EffectiveVolumeAudit';
 import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
   analyzeVideoWithModal,
+  requestCoachReviewWithModal,
   BiomechanicsAnalysisResponse,
   BiomechanicsFrame,
   ExerciseConfig,
@@ -660,7 +662,6 @@ const SingleSnapshotCanvas: React.FC<{
           <span className="font-mono font-black text-amber-300">
             {leverInfo?.ratioText || (isUpperBody ? 'Hombro: 70% · Codo: 30%' : 'Cadera: 68% · Rodilla: 32%')}
           </span>
-          <span className="text-slate-400 text-[10px]">({leverInfo?.targetJointName ?? (isUpperBody ? 'Hombro' : 'Cadera')})</span>
         </div>
       </div>
     </div>
@@ -767,17 +768,27 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === initialExercise.id));
     return parentGroup ? parentGroup.id : 'chest';
   });
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(hasInitialExercise ? initialExercise.id : 'auto');
-  const [isManualOverride, setIsManualOverride] = useState<boolean>(hasInitialExercise);
-  const isManualOverrideRef = useRef<boolean>(hasInitialExercise);
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(() => {
+    if (hasInitialExercise && initialExercise.id && initialExercise.id !== 'auto') {
+      return initialExercise.id;
+    }
+    return ALL_EXERCISES[0]?.id || 'bench_press';
+  });
+  const [isManualOverride, setIsManualOverride] = useState<boolean>(true);
+  const isManualOverrideRef = useRef<boolean>(true);
   const [showManualExerciseSelector, setShowManualExerciseSelector] = useState<boolean>(false);
+
+  // States for on-demand Coach IA review and Pro snapshots
+  const [isGeneratingCoachReview, setIsGeneratingCoachReview] = useState<boolean>(false);
+  const [coachReviewError, setCoachReviewError] = useState<string | null>(null);
+  const [showProSnapshots, setShowProSnapshots] = useState<boolean>(false);
 
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
     if (isOpen) {
       const hasDef = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
-      isManualOverrideRef.current = hasDef;
-      setIsManualOverride(hasDef);
+      isManualOverrideRef.current = true;
+      setIsManualOverride(true);
       if (hasDef) {
         const resolved = resolveExercise(defaultExerciseId, defaultExerciseName);
         setSelectedExerciseId(resolved.id);
@@ -788,7 +799,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         setLoadType(resolved.loadType);
         setTargetMuscle(resolved.targetMuscle);
       } else {
-        setSelectedExerciseId('auto');
+        const fallback = ALL_EXERCISES[0];
+        setSelectedExerciseId(fallback.id);
+        const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === fallback.id));
+        if (parentGroup) {
+          setSelectedMuscleGroupId(parentGroup.id);
+        }
+        setLoadType(fallback.loadType);
+        setTargetMuscle(fallback.targetMuscle);
       }
     }
   }, [isOpen, defaultExerciseId, defaultExerciseName]);
@@ -1064,6 +1082,60 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineMessage(err?.message || 'Error al conectar con el microservicio GPU.');
     }
   }, [weightKg, targetReps]);
+
+  // On-demand Coach IA Review Handler
+  const handleGenerateCoachReview = async () => {
+    const blob = compressedBlobRef.current || uploadedFileRef.current;
+    if (!blob || !analysisData) return;
+    setIsGeneratingCoachReview(true);
+    setCoachReviewError(null);
+    try {
+      const config: ExerciseConfig = {
+        exerciseType: selectedExerciseId,
+        exerciseName: activeExercise.name,
+        targetMuscle: targetMuscle,
+        loadType: loadType,
+        weightKg,
+        targetReps,
+        runVlm: true,
+      };
+      const summaryData = {
+        total_reps: analysisData.total_reps,
+        intensity_metrics: analysisData.intensity_metrics,
+        repetitions_summary: analysisData.repetitions_summary,
+        rep_comparison: analysisData.rep_comparison,
+      };
+      const res = await requestCoachReviewWithModal(blob, config, summaryData);
+      if (res.success && res.coach_review) {
+        if (res.coach_review.timeline_cues) {
+          setAnalysisData(prev => prev ? {
+            ...prev,
+            timeline_cues: res.coach_review.timeline_cues,
+            vlm_analysis: res.coach_review,
+            vlm_used: true,
+            vlm_mode: res.vlm_mode as any,
+            vlm_model_used: res.vlm_model_used
+          } : prev);
+        }
+      } else {
+        const errStr = res.vlm_error || res.error || 'No se pudo obtener la revisión del Coach IA.';
+        if (errStr.includes('429')) {
+          setCoachReviewError('Cuota de Gemini temporalmente superada (429). Puedes volver a intentarlo en unos instantes sin perder tu análisis biomecánico.');
+        } else {
+          setCoachReviewError(errStr);
+        }
+      }
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      if (msg.includes('429')) {
+        setCoachReviewError('Cuota de Gemini temporalmente superada (429). Puedes volver a intentarlo en unos instantes sin perder tu análisis biomecánico.');
+      } else {
+        setCoachReviewError(msg);
+      }
+    } finally {
+      setIsGeneratingCoachReview(false);
+    }
+  };
 
   // Video File Upload Handler - Loads video preview and shows Trimmer before analyzing
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1443,11 +1515,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const curLoadPt = getPoint(frame.load_point || (isUpper ? kps.wrist : kps.hip));
       if (curLoadPt.valid) {
         drawNodePoint(curLoadPt, '#06B6D4', 6);
-        const maxV = Number(analysisData?.intensity_metrics?.max_rep_vel || 1);
-        const curV = Number(frame.load_speed_px_s || 0);
-        const relPct = maxV > 0 ? Math.min(100, Math.max(0, Math.round((curV / maxV) * 100))) : 100;
-        const velText = `Vel. Relativa: ${relPct}%`;
-        drawPillTag(curLoadPt.x - 42, curLoadPt.y - 20, velText, '#06B6D4', '#67E8F9');
       }
 
       // Sticking Point detection badge: estrictamente durante la fase CONCENTRIC y vel_loss >= 15%
@@ -1635,16 +1702,29 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         const hpAngle = Math.round(frame.angles?.hip ?? 120);
         const knAngle = Math.round(frame.angles?.knee ?? 90);
 
+        let hpTagY = pHp.y - 18;
+        let knTagY = pKn.y - 14;
+        // Anti-collision: if vertical distance between Cadera and Rodilla is < 34px, push them apart
+        if (Math.abs(hpTagY - knTagY) < 34) {
+          if (hpTagY < knTagY) {
+            hpTagY -= 18;
+            knTagY += 18;
+          } else {
+            hpTagY += 18;
+            knTagY -= 18;
+          }
+        }
+
         if (hpStatus === 'warning' || hpStatus === 'critical') {
-          drawPillTag(pHp.x - 48, pHp.y - 18, `⚠️ Cadera: ${hpAngle}°`, hpStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+          drawPillTag(pHp.x - 48, hpTagY, `⚠️ Cadera: ${hpAngle}°`, hpStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
         } else {
-          drawPillTag(pHp.x - 42, pHp.y - 18, `Cadera: ${hpAngle}°`, '#38BDF8', '#38BDF8');
+          drawPillTag(pHp.x - 42, hpTagY, `Cadera: ${hpAngle}°`, '#38BDF8', '#38BDF8');
         }
 
         if (knStatus === 'warning' || knStatus === 'critical') {
-          drawPillTag(pKn.x - 48, pKn.y - 14, `⚠️ Rodilla: ${knAngle}°`, knStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+          drawPillTag(pKn.x - 48, knTagY, `⚠️ Rodilla: ${knAngle}°`, knStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
         } else {
-          drawPillTag(pKn.x - 42, pKn.y - 14, `Rodilla: ${knAngle}°`, '#10B981', '#10B981');
+          drawPillTag(pKn.x - 42, knTagY, `Rodilla: ${knAngle}°`, '#10B981', '#10B981');
         }
       }
 
@@ -1681,22 +1761,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     // VIEW 4: ESTÍMULO Y RADIOGRAFÍA (VÍDEO EN DIRECTO)
     // -------------------------------------------------------------
     else if (view === 'stimulus') {
-      if (isUpper) {
-        drawThickSegment(pSh, pEl, '#A855F7', 3.5);
-        drawThickSegment(pEl, pWr, '#C084FC', 3.5);
-        drawNodePoint(pSh, '#A855F7', 5.0);
-        drawNodePoint(pEl, '#A855F7', 5.0);
-        drawNodePoint(pWr, '#C084FC', 5.0);
-        drawAngleArc(pEl, pSh, pWr, 24, '#C084FC');
-      } else {
-        drawThickSegment(pSh, pHp, '#A855F7', 3.5);
-        drawThickSegment(pHp, pKn, '#A855F7', 3.5);
-        drawThickSegment(pKn, pAk, '#C084FC', 3.5);
-        drawNodePoint(pSh, '#A855F7', 5.0);
-        drawNodePoint(pHp, '#A855F7', 5.0);
-        drawNodePoint(pKn, '#A855F7', 5.0);
-        drawNodePoint(pAk, '#C084FC', 5.0);
-      }
+      // El vídeo se mantiene limpio sin sobrecargar con esqueleto morado en directo
     }
 
     // Ghost session comparison overlay
@@ -2358,6 +2423,45 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   })();
 
+  // 1-line compact executive summary bar above the 4 tabs
+  const executiveSummaryBar = useMemo(() => {
+    if (!analysisData || analysisData.total_reps <= 0) return null;
+    const reps = analysisData.repetitions_summary || [];
+    let tempoStr = '';
+    if (reps.length > 0) {
+      const eccs = reps.map(r => r.eccentric_sec || r.eccentric_time_s || 0);
+      const pauses = reps.map(r => r.pause_sec || r.pause_time_s || 0);
+      const concs = reps.map(r => r.concentric_sec || r.concentric_time_s || 0);
+      const calcMed = (arr: number[]) => {
+        const s = [...arr].sort((a, b) => a - b);
+        const mid = Math.floor(s.length / 2);
+        return s.length % 2 !== 0 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+      };
+      tempoStr = `${calcMed(eccs).toFixed(1)}-${calcMed(pauses).toFixed(1)}-${calcMed(concs).toFixed(1)}s`;
+    }
+
+    const rirVal = analysisData.intensity_audit?.rir_estimated ?? analysisData.intensity_metrics?.exact_rir ?? '2';
+    const stim = analysisData.stimulus_and_specificity;
+    const limitingMuscle = stim?.limiting_factor?.muscle_name || stim?.target_muscle || activeExercise.targetMuscle || 'Objetivo';
+    const credit = stim?.limiting_factor?.effective_set_credit ?? 1.0;
+
+    return (
+      <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-900/95 border border-slate-800 text-[11px] font-mono shadow-sm overflow-x-auto whitespace-nowrap gap-2">
+        <div className="flex items-center gap-1.5 text-cyan-300 font-bold">
+          <span>{analysisData.total_reps} reps</span>
+          {tempoStr && <span className="text-slate-600 font-normal">·</span>}
+          {tempoStr && <span className="text-slate-300 font-normal">{tempoStr}</span>}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-600">·</span>
+          <span className="text-amber-400 font-bold">RIR {rirVal}</span>
+          <span className="text-slate-600">·</span>
+          <span className="text-purple-300 font-bold">+{credit.toFixed(2)} {limitingMuscle}</span>
+        </div>
+      </div>
+    );
+  }, [analysisData, activeExercise]);
+
   // 4 Commercial Biomechanical View Switcher Buttons
   const viewTabs: { id: AnalysisView; label: string; sub: string; icon: any }[] = [
     { id: 'velocity', label: 'Velocidad', sub: 'VBT e Intensidad', icon: Gauge },
@@ -2560,9 +2664,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     setTrimStart(0);
                     const end = Math.min(dur, 30);
                     setTrimEnd(end);
-                    if (dur > 15.0) {
-                      setShowTrimmer(true);
-                    }
+                    // Mobile-first: Trimmer permanece cerrado por defecto
                   }}
                   onTimeUpdate={(e) => {
                     const target = e.currentTarget;
@@ -2754,7 +2856,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </span>
                   {activeView === 'velocity' ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
-                      Vel. Relativa: {currentFrame?.load_speed_px_s && (analysisData?.intensity_metrics?.max_rep_vel ?? 0) > 0 ? Math.min(100, Math.round(((currentFrame.load_speed_px_s) / analysisData!.intensity_metrics!.max_rep_vel!) * 100)) : 100}%
+                      {(() => {
+                        const curRepNum = currentFrame?.rep_number ?? 0;
+                        const reps = analysisData?.repetitions_summary || [];
+                        const completed = reps.filter(r => (r.rep_number || (r as any).rep_index || 0) <= curRepNum && (r.mean_concentric_vel || r.concentric_velocity_deg_s));
+                        const targetRep = completed.length > 0 ? completed[completed.length - 1] : reps[0];
+                        const maxV = analysisData?.intensity_metrics?.max_rep_vel || 1;
+                        const lastV = targetRep?.mean_concentric_vel || analysisData?.intensity_metrics?.last_rep_vel || 0;
+                        const staticPct = maxV > 0 && lastV > 0 ? Math.min(100, Math.round((lastV / maxV) * 100)) : 100;
+                        return `Última rep: ${staticPct}% vel`;
+                      })()}
                     </span>
                   ) : activeView === 'coach' ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-200 text-[10px] font-mono font-bold shadow-md">
@@ -2963,7 +3074,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           </div>
 
           {/* RIGHT COLUMN: Mode Switcher, Exercise Selector & Biomechanical Diagnosis */}
-          <div className="flex flex-col gap-3 min-w-0 lg:col-span-5">
+          <div className="flex flex-col gap-2.5 min-w-0 lg:col-span-5">
+            {executiveSummaryBar}
             <div className="block">
               {viewSwitcherButtons}
             </div>
@@ -3038,23 +3150,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     Modo / Ejercicio para Análisis
                   </label>
                   <select
-                    value={isManualOverride ? selectedExerciseId : 'auto'}
+                    value={selectedExerciseId}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === 'auto') {
-                        isManualOverrideRef.current = false;
-                        setIsManualOverride(false);
-                        setSelectedExerciseId('auto');
-                      } else {
-                        const item = ALL_EXERCISES.find(x => x.id === val);
-                        if (item) {
-                          handleExerciseSelect(item);
-                        }
+                      const item = ALL_EXERCISES.find(x => x.id === val);
+                      if (item) {
+                        handleExerciseSelect(item);
                       }
                     }}
                     className="w-full bg-slate-950 border border-slate-700 hover:border-cyan-500 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 transition truncate shadow-inner"
                   >
-                    <option value="auto">Auto-detectar ejercicio con IA</option>
                     {MUSCLE_GROUPS.map((group) => (
                       <optgroup key={group.id} label={group.name}>
                         {group.exercises.map((item) => (
@@ -3214,6 +3319,22 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   )}
                 </div>
 
+                {/* Comparativa con Sesión Anterior (si existe en historial local) */}
+                {previousSessionData?.v_best && analysisData?.intensity_metrics?.v_best && (() => {
+                  const curV = analysisData.intensity_metrics.v_best;
+                  const prevV = previousSessionData.v_best;
+                  const diffPct = Math.round(((curV - prevV) / prevV) * 100);
+                  const isFaster = diffPct >= 0;
+                  return (
+                    <div className="flex items-center justify-between px-3.5 py-2 rounded-2xl bg-cyan-950/30 border border-cyan-800/40 text-xs font-mono text-cyan-300">
+                      <span className="text-slate-400">Historial de ejercicio:</span>
+                      <span className={`font-bold ${isFaster ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        vs. última sesión: {isFaster ? `+${diffPct}% más rápido` : `${diffPct}% vel`}
+                      </span>
+                    </div>
+                  );
+                })()}
+
                 {/* CARD 2: Progresión de Velocidad por Repetición */}
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-300">
@@ -3285,67 +3406,118 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* ============================================================== */}
             {activeView === 'coach' && (
               <div className="space-y-3">
-                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <MessageSquare className="w-4 h-4 text-emerald-400" />
-                      Intervenciones del Coach IA ({analysisData?.timeline_cues?.length || 0})
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      Pines interactivos 0.5x
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Pulsa en cualquier tarjeta para saltar al segundo exacto en cámara lenta y ver la corrección técnica.
-                  </p>
-                </div>
-
-                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                  {analysisData?.timeline_cues && analysisData.timeline_cues.length > 0 ? (
-                    analysisData.timeline_cues.map((cue, idx) => {
-                      const isCritical = cue.type === 'critical' || cue.type === 'error';
-                      const isWarning = cue.type === 'warning';
-                      const isSelected = activeTimelineCue === cue;
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => handleCueClick(cue)}
-                          className={`p-3 rounded-2xl border transition cursor-pointer space-y-1.5 ${
-                            isSelected
-                              ? 'bg-cyan-950/50 border-cyan-500/80 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-500/30'
-                              : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full ${isCritical ? 'bg-rose-500' : isWarning ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                              <span className="text-xs font-black text-white">{cue.badge}</span>
-                            </div>
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-cyan-300 font-bold">
-                              {cue.timestamp_sec.toFixed(1)}s
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-300 leading-relaxed">{cue.message}</p>
-                          <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-cyan-300">
-                            <span className="font-bold text-slate-400 block mb-0.5">🔧 Solución Técnica:</span>
-                            <span>{cue.technical_fix}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-[10px] text-cyan-400 font-bold pt-0.5">
-                            <span className="flex items-center gap-1">
-                              <Play className="w-3 h-3 fill-current" />
-                              <span>Ver a 0.5x cámara lenta</span>
-                            </span>
-                            <span className="text-slate-500 uppercase font-mono">{cue.affected_joint}</span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-center text-xs text-slate-400">
-                      No se han detectado anomalías técnicas severas. Ejecución estable y limpia.
+                {/* On-demand Coach Review Generator Banner */}
+                {(!analysisData?.vlm_used || !analysisData?.timeline_cues || analysisData.timeline_cues.length === 0) && (
+                  <div className="p-4 bg-slate-900/90 rounded-2xl border border-slate-800 text-center space-y-3">
+                    <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                      <Sparkles className="w-5 h-5" />
                     </div>
-                  )}
-                </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-slate-200">Revisión del Coach IA Multimodal</h4>
+                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                        Genera una auditoría con Gemini VLM para detectar sticking points y correcciones biomecánicas fotograma a fotograma.
+                      </p>
+                    </div>
+
+                    {isGeneratingCoachReview ? (
+                      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 text-cyan-300 text-xs font-semibold animate-pulse border border-slate-700">
+                        <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                        <span>Analizando con Coach IA (Gemini VLM)...</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleGenerateCoachReview}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs shadow-lg hover:from-emerald-500 hover:to-teal-500 transition active:scale-95 shadow-emerald-500/20"
+                      >
+                        <Sparkles className="w-4 h-4 text-emerald-200" />
+                        <span>Generar Revisión del Coach IA</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Friendly Error Banner (e.g. 429 quota error) */}
+                {coachReviewError && (
+                  <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl text-xs text-amber-200 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <span className="font-bold block text-amber-300">Aviso de Cuota</span>
+                        <p className="text-[11px] text-amber-200/90 leading-relaxed mt-0.5">{coachReviewError}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleGenerateCoachReview}
+                      disabled={isGeneratingCoachReview}
+                      className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] font-bold text-amber-300 transition"
+                    >
+                      Reintentar Revisión
+                    </button>
+                  </div>
+                )}
+
+                {/* Timeline Cues List (if cues exist) */}
+                {analysisData?.timeline_cues && analysisData.timeline_cues.length > 0 && (
+                  <>
+                    <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                          <MessageSquare className="w-4 h-4 text-emerald-400" />
+                          Intervenciones del Coach IA ({analysisData.timeline_cues.length})
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          Pines interactivos 0.5x
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Pulsa en cualquier tarjeta para saltar al segundo exacto en cámara lenta y ver la corrección técnica.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                      {analysisData.timeline_cues.map((cue, idx) => {
+                        const isCritical = cue.type === 'critical' || cue.type === 'error';
+                        const isWarning = cue.type === 'warning';
+                        const isSelected = activeTimelineCue === cue;
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => handleCueClick(cue)}
+                            className={`p-3 rounded-2xl border transition cursor-pointer space-y-1.5 ${
+                              isSelected
+                                ? 'bg-cyan-950/50 border-cyan-500/80 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-500/30'
+                                : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${isCritical ? 'bg-rose-500' : isWarning ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                                <span className="text-xs font-black text-white">{cue.badge}</span>
+                              </div>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-cyan-300 font-bold">
+                                {cue.timestamp_sec.toFixed(1)}s
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-300 leading-relaxed">{cue.message}</p>
+                            <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-cyan-300">
+                              <span className="font-bold text-slate-400 block mb-0.5">🔧 Solución Técnica:</span>
+                              <span>{cue.technical_fix}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-cyan-400 font-bold pt-0.5">
+                              <span className="flex items-center gap-1">
+                                <Play className="w-3 h-3 fill-current" />
+                                <span>Ver a 0.5x cámara lenta</span>
+                              </span>
+                              <span className="text-slate-500 uppercase font-mono">{cue.affected_joint}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -3432,83 +3604,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* ============================================================== */}
             {activeView === 'stimulus' && (
               <div className="space-y-3">
-                {/* CARD 0: Radiografía Biomecánica (Fotogramas Clave & Palancas) */}
-                {analysisData && (analysisData.snapshot_stretch_b64 || analysisData.snapshot_peak_b64) && (
-                  <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                        <Camera className="w-4 h-4 text-purple-400" />
-                        Radiografía (Fotogramas Clave)
-                      </span>
-                      {/* Tabs [Ambas] | [Estiramiento] | [Bloqueo] */}
-                      <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-xl border border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => setActiveSnapshotTab('both')}
-                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
-                            activeSnapshotTab === 'both' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Ambas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveSnapshotTab('stretch')}
-                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
-                            activeSnapshotTab === 'stretch' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Estiramiento
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveSnapshotTab('peak')}
-                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
-                            activeSnapshotTab === 'peak' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Bloqueo
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Calibrate Pulley Toolbar */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-slate-400">
-                        Inspección estática de brazos de palanca
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setIsCalibratingPulley(prev => !prev)}
-                        className={`px-2 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1 transition ${
-                          isCalibratingPulley
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 animate-pulse'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                        title="Haz clic sobre la polea en la foto para calcular el brazo de palanca real"
-                      >
-                        <Crosshair className="w-3 h-3" />
-                        <span>{isCalibratingPulley ? 'Modo Clic Activo' : 'Calibrar Polea'}</span>
-                      </button>
-                    </div>
-
-                    {/* Snapshot Viewer */}
-                    <SnapshotViewer
-                      stretchB64={analysisData.snapshot_stretch_b64}
-                      peakB64={analysisData.snapshot_peak_b64}
-                      jointsStretch={analysisData.joints_stretch}
-                      jointsPeak={analysisData.joints_peak}
-                      loadType={activeExercise.loadType}
-                      isUpperBody={isUpperBody}
-                      activeTab={activeSnapshotTab}
-                      isCalibrating={isCalibratingPulley}
-                      pulleyOrigin={proPulleyOrigin}
-                      onSetPulleyOrigin={setProPulleyOrigin}
-                    />
-                  </div>
-                )}
-
-                {/* CARD 1: Factor Limitante y Sinergistas Fraccionales */}
+                {/* CARD 1: Factor Limitante y Sinergistas Fraccionales (Top) */}
                 {(() => {
                   const stim = analysisData?.stimulus_and_specificity;
                   const limiting = stim?.limiting_factor || {
@@ -3632,6 +3728,97 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </>
                   );
                 })()}
+
+                {/* Collapsible Accordion: Radiografía Biomecánica (Fotogramas Clave & Palancas Pro) */}
+                {analysisData && (analysisData.snapshot_stretch_b64 || analysisData.snapshot_peak_b64) && (
+                  <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowProSnapshots(prev => !prev)}
+                      className="w-full flex items-center justify-between text-xs font-bold text-slate-200 hover:text-white transition"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-purple-400" />
+                        Ver Radiografía de Palancas (Pro)
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showProSnapshots ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showProSnapshots && (
+                      <div className="space-y-3 pt-2 border-t border-slate-800/80">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="text-[11px] font-semibold text-slate-400">
+                            Fotogramas Clave en Máxima Flexión y Extensión
+                          </span>
+                          {/* Tabs [Ambas] | [Estiramiento] | [Bloqueo] */}
+                          <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-xl border border-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => setActiveSnapshotTab('both')}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                                activeSnapshotTab === 'both' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              Ambas
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveSnapshotTab('stretch')}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                                activeSnapshotTab === 'stretch' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              Estiramiento
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveSnapshotTab('peak')}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                                activeSnapshotTab === 'peak' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              Bloqueo
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Calibrate Pulley Toolbar */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400">
+                            Inspección estática de brazos de palanca
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsCalibratingPulley(prev => !prev)}
+                            className={`px-2 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1 transition ${
+                              isCalibratingPulley
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 animate-pulse'
+                                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                            title="Haz clic sobre la polea en la foto para calcular el brazo de palanca real"
+                          >
+                            <Crosshair className="w-3 h-3" />
+                            <span>{isCalibratingPulley ? 'Modo Clic Activo' : 'Calibrar Polea'}</span>
+                          </button>
+                        </div>
+
+                        {/* Snapshot Viewer */}
+                        <SnapshotViewer
+                          stretchB64={analysisData.snapshot_stretch_b64}
+                          peakB64={analysisData.snapshot_peak_b64}
+                          jointsStretch={analysisData.joints_stretch}
+                          jointsPeak={analysisData.joints_peak}
+                          loadType={activeExercise.loadType}
+                          isUpperBody={isUpperBody}
+                          activeTab={activeSnapshotTab}
+                          isCalibrating={isCalibratingPulley}
+                          pulleyOrigin={proPulleyOrigin}
+                          onSetPulleyOrigin={setProPulleyOrigin}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

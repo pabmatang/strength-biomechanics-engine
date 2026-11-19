@@ -20,6 +20,7 @@ export interface ExerciseConfig {
   weightKg?: number;
   targetReps?: number;
   anthropometry?: any;
+  runVlm?: boolean;
 }
 
 export interface Keypoint2D {
@@ -454,7 +455,8 @@ export async function analyzeVideoWithModal(
             end_time: endTime,
             weight_kg: config.weightKg,
             target_reps: config.targetReps,
-            anthropometry: config.anthropometry
+            anthropometry: config.anthropometry,
+            run_vlm: Boolean(config.runVlm)
           })
         });
       } else {
@@ -466,6 +468,7 @@ export async function analyzeVideoWithModal(
         formData.append('load_type', String(config.loadType));
         formData.append('gemini_api_key', geminiApiKey);
         formData.append('start_time', String(startTime));
+        formData.append('run_vlm', String(Boolean(config.runVlm)));
         if (endTime !== null) {
           formData.append('end_time', String(endTime));
         }
@@ -584,5 +587,66 @@ export async function analyzeAnthropometry(
 
   const rawJson = await response.json();
   const data = (rawJson.result || rawJson.data || rawJson) as AnthropometricProfile;
+  return data;
+}
+
+export interface CoachReviewResponse {
+  success: boolean;
+  coach_review?: any;
+  vlm_error?: string | null;
+  vlm_mode?: string;
+  vlm_model_used?: string | null;
+  error?: string;
+}
+
+export async function requestCoachReviewWithModal(
+  videoBlob: Blob,
+  config: ExerciseConfig,
+  summaryData: any
+): Promise<CoachReviewResponse> {
+  const rawEndpoint =
+    (import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_MODAL_ENDPOINT_URL as string | undefined)?.trim() ||
+    'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
+
+  const endpointUrl = rawEndpoint && rawEndpoint.length > 0
+    ? rawEndpoint
+    : 'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
+
+  const apiKey =
+    (import.meta.env.VITE_CEREBRIUM_API_KEY as string | undefined)?.trim() ||
+    (import.meta.env.VITE_CEREBRIUM_TOKEN as string | undefined)?.trim() ||
+    '';
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const base64Data = await blobToBase64(videoBlob);
+  const geminiApiKey = config.geminiApiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+
+  const resp = await fetch(endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'coach_review',
+      video_base64: base64Data,
+      exercise_type: String(config.exerciseType),
+      exercise_name: String(config.exerciseName || ''),
+      summary_data: summaryData,
+      gemini_api_key: geminiApiKey,
+    }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 100)}`);
+  }
+
+  const rawJson = await resp.json();
+  const data = (rawJson.result || rawJson.data || rawJson) as CoachReviewResponse;
   return data;
 }

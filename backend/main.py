@@ -331,7 +331,7 @@ def get_available_flash_models(api_key: str) -> List[str]:
     if _CACHED_FLASH_MODELS:
         return _CACHED_FLASH_MODELS
 
-    default_fallback_models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"]
+    default_fallback_models = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.0-flash"]
     if not api_key:
         return default_fallback_models
 
@@ -361,7 +361,7 @@ def get_available_flash_models(api_key: str) -> List[str]:
                         continue
                     valid_models.append(clean_name)
 
-            priority_order = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"]
+            priority_order = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.0-flash"]
             sorted_models = []
             for p in priority_order:
                 if p in valid_models:
@@ -1623,7 +1623,8 @@ def process_kinematics(
     is_manual_override: bool = False,
     gemini_api_key: Optional[str] = None,
     video_path: Optional[str] = None,
-    exercise_name: Optional[str] = None
+    exercise_name: Optional[str] = None,
+    run_vlm: bool = False
 ):
     """
     Capa 1: Visión 2D Pura e Inmutable sobre ViTPose + RT-DETR.
@@ -2924,6 +2925,37 @@ def process_kinematics(
                 rom_pen = (last_r["rom_deg"] / max(best_rom, 1.0)) ** 2
                 last_r["concentric_velocity_deg_s"] = round(float(np.clip(last_r["concentric_velocity_deg_s"] * rom_pen, 25.0, 140.0)), 1)
 
+    # 7.5 Filtro de Repeticiones Fantasma de Montaje / Desmontaje
+    if len(repetitions_summary) >= 2:
+        med_rom_val = float(np.median([r["rom_deg"] for r in repetitions_summary]))
+        med_conc_val = float(np.median([r["concentric_sec"] for r in repetitions_summary]))
+        valid_reps = []
+        n_reps_total = len(repetitions_summary)
+        for idx, rep in enumerate(repetitions_summary):
+            is_first = (idx == 0)
+            is_last = (idx == n_reps_total - 1)
+            is_ghost = False
+            
+            # Check last rep (dismounting / unfinished)
+            if is_last:
+                if rep["rom_deg"] < 0.55 * med_rom_val or rep["concentric_sec"] < 0.45:
+                    is_ghost = True
+            
+            # Check first rep (mounting / setup)
+            if is_first:
+                if rep["rom_deg"] < 0.55 * med_rom_val or rep["concentric_sec"] < 0.45:
+                    is_ghost = True
+                elif rep.get("start_sec", 0.0) < 0.3 and rep["rom_deg"] < 0.70 * med_rom_val:
+                    is_ghost = True
+            
+            if not is_ghost:
+                valid_reps.append(rep)
+                
+        if len(valid_reps) > 0:
+            for new_i, r in enumerate(valid_reps):
+                r["rep_num"] = new_i + 1
+            repetitions_summary = valid_reps
+
     total_reps = len(repetitions_summary)
 
     # Issue 3: Refine Force Vector strictly from Validated Repetitions (eliminating IDLE/intro frames)
@@ -3111,37 +3143,53 @@ def process_kinematics(
         for c_name in canonical_joints_list if c_name in primary_joints
     }
 
-    # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini 2.5 Flash Video or Clinical Deterministic Audit)
+    # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini Flash Video or Clinical Deterministic Audit)
     vlm_result = None
     vlm_used = False
     vlm_error = None
-    vlm_mode = "fallback"
+    vlm_mode = "deterministic"
     vlm_model_used = None
-    try:
-        vlm_res, vlm_err, vlm_mode_detected, vlm_model_detected = analyze_biomechanics_with_vlm(
-            video_path=video_path,
-            exercise_type=exercise_type,
-            total_reps=total_reps,
-            intensity_metrics=intensity_metrics,
-            repetitions_summary=repetitions_summary,
-            rep_comparison=rep_comparison,
-            gemini_api_key=gemini_api_key,
-            exercise_name=exercise_name
-        )
-        if vlm_res:
-            vlm_result = vlm_res
-            vlm_used = True
-            vlm_error = None
-            vlm_mode = vlm_mode_detected
-            vlm_model_used = vlm_model_detected
-            if is_manual_override or exercise_type.lower() not in ["auto", "", "none"]:
-                vlm_result["detected_exercise_id"] = exercise_type
-                vlm_result["detected_exercise_name"] = exercise_name or vlm_result.get("detected_exercise_name", exercise_type.replace("_", " ").title())
-            elif vlm_result.get("detected_exercise_id"):
-                exercise_type = vlm_result["detected_exercise_id"]
-        else:
+    if run_vlm and gemini_api_key:
+        try:
+            vlm_res, vlm_err, vlm_mode_detected, vlm_model_detected = analyze_biomechanics_with_vlm(
+                video_path=video_path,
+                exercise_type=exercise_type,
+                total_reps=total_reps,
+                intensity_metrics=intensity_metrics,
+                repetitions_summary=repetitions_summary,
+                rep_comparison=rep_comparison,
+                gemini_api_key=gemini_api_key,
+                exercise_name=exercise_name
+            )
+            if vlm_res:
+                vlm_result = vlm_res
+                vlm_used = True
+                vlm_error = None
+                vlm_mode = vlm_mode_detected
+                vlm_model_used = vlm_model_detected
+                if is_manual_override or exercise_type.lower() not in ["auto", "", "none"]:
+                    vlm_result["detected_exercise_id"] = exercise_type
+                    vlm_result["detected_exercise_name"] = exercise_name or vlm_result.get("detected_exercise_name", exercise_type.replace("_", " ").title())
+                elif vlm_result.get("detected_exercise_id"):
+                    exercise_type = vlm_result["detected_exercise_id"]
+            else:
+                vlm_used = False
+                vlm_error = vlm_err
+                vlm_mode = "fallback"
+                vlm_model_used = None
+                vlm_result = generate_deterministic_clinical_audit(
+                    exercise_type=exercise_type,
+                    body_region=body_region,
+                    total_reps=total_reps,
+                    intensity_metrics=intensity_metrics,
+                    repetitions_summary=repetitions_summary,
+                    rep_comparison=rep_comparison,
+                    exercise_name=exercise_name
+                )
+        except Exception as e_vlm:
+            print(f"[VLM Layer 2] Error during Gemini call: {e_vlm}")
             vlm_used = False
-            vlm_error = vlm_err
+            vlm_error = str(e_vlm)
             vlm_mode = "fallback"
             vlm_model_used = None
             vlm_result = generate_deterministic_clinical_audit(
@@ -3153,12 +3201,7 @@ def process_kinematics(
                 rep_comparison=rep_comparison,
                 exercise_name=exercise_name
             )
-    except Exception as e_vlm:
-        print(f"[VLM Layer 2] Error during Gemini call: {e_vlm}")
-        vlm_used = False
-        vlm_error = str(e_vlm)
-        vlm_mode = "fallback"
-        vlm_model_used = None
+    else:
         vlm_result = generate_deterministic_clinical_audit(
             exercise_type=exercise_type,
             body_region=body_region,
@@ -4023,6 +4066,73 @@ def analyze_anthropometry(
         "custom_thresholds": custom_thresholds
     })
 
+def coach_review(
+    video_base64=None,
+    video_url=None,
+    video=None,
+    exercise_type="auto",
+    exercise_name=None,
+    summary_data=None,
+    gemini_api_key=None,
+    **kwargs
+) -> dict:
+    """
+    On-demand AI Coach review using Gemini VLM.
+    Called explicitly when user taps 'Generar Revisión del Coach IA'.
+    """
+    api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return sanitize_for_json({
+            "success": False,
+            "coach_review": None,
+            "vlm_error": "GEMINI_API_KEY no configurada",
+            "vlm_mode": "failed",
+            "vlm_model_used": None
+        })
+    
+    summary = summary_data or {}
+    total_reps = summary.get("total_reps", 0)
+    intensity_metrics = summary.get("intensity_metrics", {})
+    repetitions_summary = summary.get("repetitions_summary", [])
+    rep_comparison = summary.get("rep_comparison", None)
+    
+    temp_path = None
+    try:
+        if video_base64 or video_url or video:
+            temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
+            
+        vlm_res, vlm_err, vlm_mode, vlm_model = analyze_biomechanics_with_vlm(
+            video_path=temp_path,
+            exercise_type=exercise_type,
+            total_reps=total_reps,
+            intensity_metrics=intensity_metrics,
+            repetitions_summary=repetitions_summary,
+            rep_comparison=rep_comparison,
+            gemini_api_key=api_key,
+            exercise_name=exercise_name
+        )
+        return sanitize_for_json({
+            "success": vlm_res is not None,
+            "coach_review": vlm_res,
+            "vlm_error": vlm_err,
+            "vlm_mode": vlm_mode,
+            "vlm_model_used": vlm_model
+        })
+    except Exception as e:
+        return sanitize_for_json({
+            "success": False,
+            "coach_review": None,
+            "vlm_error": str(e),
+            "vlm_mode": "failed",
+            "vlm_model_used": None
+        })
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
 def analyze(
     video_base64=None,
     video_url=None,
@@ -4038,6 +4148,7 @@ def analyze(
     anthropometry=None,
     is_manual_override=False,
     gemini_api_key=None,
+    run_vlm=False,
     **kwargs
 ) -> dict:
     """
@@ -4053,6 +4164,17 @@ def analyze(
                 front_image_base64=payload.get("front_image_base64"),
                 side_image_base64=payload.get("side_image_base64")
             )
+        # Route to coach_review if requested
+        if payload.get("action") == "coach_review":
+            return coach_review(
+                video_base64=payload.get("video_base64") or payload.get("video"),
+                video_url=payload.get("video_url"),
+                exercise_type=payload.get("exercise_type", exercise_type or "auto"),
+                exercise_name=payload.get("exercise_name", payload.get("exerciseName", exercise_name)),
+                summary_data=payload.get("summary_data") or payload.get("summary"),
+                gemini_api_key=payload.get("gemini_api_key") or kwargs.get("gemini_api_key") or gemini_api_key or os.environ.get("GEMINI_API_KEY", "").strip(),
+                **kwargs
+            )
         video_base64 = payload.get("video_base64")
         video_url = payload.get("video_url")
         video = payload.get("video")
@@ -4067,6 +4189,7 @@ def analyze(
         anthropometry = payload.get("anthropometry", anthropometry)
         is_manual_override = bool(payload.get("is_manual_override", is_manual_override))
         gemini_api_key = payload.get("gemini_api_key") or kwargs.get("gemini_api_key") or gemini_api_key or os.environ.get("GEMINI_API_KEY", "").strip()
+        run_vlm = bool(payload.get("run_vlm", run_vlm))
     else:
         exercise_type = exercise_type or kwargs.get("exercise_type", "auto")
         exercise_name = exercise_name or kwargs.get("exercise_name", kwargs.get("exerciseName", ""))
@@ -4079,6 +4202,7 @@ def analyze(
         anthropometry = anthropometry or kwargs.get("anthropometry")
         is_manual_override = bool(kwargs.get("is_manual_override", is_manual_override))
         gemini_api_key = gemini_api_key or kwargs.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "").strip()
+        run_vlm = bool(kwargs.get("run_vlm", run_vlm))
 
     exercise_type = str(exercise_type)
     exercise_name = str(exercise_name) if exercise_name else None
@@ -4126,7 +4250,8 @@ def analyze(
             frames_rgb=frames_rgb,
             is_manual_override=is_manual_override,
             gemini_api_key=gemini_api_key,
-            video_path=temp_path
+            video_path=temp_path,
+            run_vlm=run_vlm
         )
         return sanitize_for_json(result)
     finally:
