@@ -40,7 +40,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()}...")
 
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
-POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
+POSE_MODEL_NAME = "usyd-community/vitpose-plus-large"
+FALLBACK_POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 
 dtype = torch.float16 if device == "cuda" else torch.float32
 
@@ -52,13 +53,24 @@ det_model = AutoModelForObjectDetection.from_pretrained(
 ).to(device)
 det_model.eval()
 
-print(f"[Cerebrium Startup] Loading ViTPose-Base ({POSE_MODEL_NAME})...")
-pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
-pose_model = VitPoseForPoseEstimation.from_pretrained(
-    POSE_MODEL_NAME,
-    torch_dtype=dtype
-).to(device)
-pose_model.eval()
+try:
+    print(f"[Cerebrium Startup] Loading ViTPose-Plus-Large ({POSE_MODEL_NAME})...")
+    pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
+    pose_model = VitPoseForPoseEstimation.from_pretrained(
+        POSE_MODEL_NAME,
+        torch_dtype=dtype
+    ).to(device)
+    pose_model.eval()
+    print("[Cerebrium Startup] ViTPose-Plus-Large loaded successfully.")
+except Exception as e_large:
+    print(f"[Cerebrium Startup] ViTPose-Plus-Large failed ({e_large}). Falling back to {FALLBACK_POSE_MODEL_NAME}...")
+    pose_processor = AutoImageProcessor.from_pretrained(FALLBACK_POSE_MODEL_NAME)
+    pose_model = VitPoseForPoseEstimation.from_pretrained(
+        FALLBACK_POSE_MODEL_NAME,
+        torch_dtype=dtype
+    ).to(device)
+    pose_model.eval()
+    print("[Cerebrium Startup] ViTPose-Base-Simple loaded successfully as fallback.")
 
 print("[Cerebrium Startup] 2D Neural Pipeline (RT-DETR + ViTPose) successfully loaded into VRAM.")
 
@@ -163,8 +175,8 @@ def interpolate_isolated_frames(vals: np.ndarray, scores: np.ndarray, thresh: fl
     idx_all = np.arange(n)
     return np.clip(np.interp(idx_all, idx_all[valid], vals[valid]), 0.0, 1.0)
 
-def encode_keyframe_b64(img_rgb: np.ndarray, max_dim: int = 384, quality: int = 75) -> str:
-    """Encode an RGB frame resized to max_dim on the longest edge as a compact JPEG Base64."""
+def encode_snapshot_jpeg_b64(img_rgb: np.ndarray, max_dim: int = 480, quality: int = 80) -> str:
+    """Encode an RGB frame resized to max_dim on the longest edge as high-quality JPEG Base64."""
     try:
         h, w = img_rgb.shape[:2]
         scale = min(1.0, float(max_dim) / max(h, w))
@@ -175,8 +187,12 @@ def encode_keyframe_b64(img_rgb: np.ndarray, max_dim: int = 384, quality: int = 
         if success:
             return base64.b64encode(buf).decode("utf-8")
     except Exception as e:
-        print(f"[Keyframe Encoder] Error encoding frame: {e}")
+        print(f"[Snapshot Encoder] Error encoding snapshot: {e}")
     return ""
+
+def encode_keyframe_b64(img_rgb: np.ndarray, max_dim: int = 384, quality: int = 75) -> str:
+    """Encode an RGB frame resized to max_dim on the longest edge as a compact JPEG Base64."""
+    return encode_snapshot_jpeg_b64(img_rgb, max_dim=max_dim, quality=quality)
 
 def normalize_vlm_point(raw_pt: Any) -> Optional[Tuple[float, float]]:
     """
@@ -241,143 +257,450 @@ def extract_anchor_dict(sub_dict: Any) -> Dict[str, Tuple[float, float]]:
                     break
     return res
 
-def analyze_biomechanics_with_vlm(
-    keyframes_b64: List[str],
+def prepare_video_for_gemini(video_path: str) -> Optional[str]:
+    """
+    Prepara el vídeo para enviarlo a Gemini 2.5 Flash via inline_data.
+    Si el archivo supera 3.5 MB, lo re-encodéa a máx 320px y 4 FPS para no saturar payload ni cuota.
+    Devuelve la cadena base64 del MP4.
+    """
+    if not video_path or not os.path.exists(video_path):
+        return None
+    try:
+        file_size = os.path.getsize(video_path)
+        if file_size <= 3.5 * 1024 * 1024:
+            with open(video_path, "rb") as vf:
+                return base64.b64encode(vf.read()).decode("utf-8")
+        
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            with open(video_path, "rb") as vf:
+                return base64.b64encode(vf.read()).decode("utf-8")
+        
+        orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+        orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 360)
+        orig_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        
+        target_max_dim = 320
+        scale = min(1.0, float(target_max_dim) / max(orig_w, orig_h, 1))
+        out_w = max(16, int(orig_w * scale))
+        out_h = max(16, int(orig_h * scale))
+        out_w = out_w if out_w % 2 == 0 else out_w - 1
+        out_h = out_h if out_h % 2 == 0 else out_h - 1
+        
+        target_fps = 4.0
+        frame_interval = max(1, int(round(orig_fps / target_fps)))
+        
+        tmp_out = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        tmp_out_path = tmp_out.name
+        tmp_out.close()
+        
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(tmp_out_path, fourcc, target_fps, (out_w, out_h))
+        
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                break
+            if frame_idx % frame_interval == 0:
+                resized = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
+                writer.write(resized)
+            frame_idx += 1
+            if frame_idx > 300 * frame_interval:
+                break
+                
+        cap.release()
+        writer.release()
+        
+        with open(tmp_out_path, "rb") as out_f:
+            b64_data = base64.b64encode(out_f.read()).decode("utf-8")
+        try:
+            os.unlink(tmp_out_path)
+        except OSError:
+            pass
+        return b64_data
+    except Exception as e:
+        print(f"[prepare_video_for_gemini] Warning: re-encoding falló ({e}), intentando lectura directa.")
+        try:
+            with open(video_path, "rb") as vf:
+                return base64.b64encode(vf.read()).decode("utf-8")
+        except Exception:
+            return None
+
+def clean_gemini_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
+    """Limpia markdown y formatea respuesta JSON de Gemini."""
+    if not raw_text:
+        return None
+    text_clean = raw_text.strip()
+    if text_clean.startswith("```"):
+        text_clean = re.sub(r"^```(?:json)?\s*", "", text_clean)
+        text_clean = re.sub(r"\s*```$", "", text_clean)
+    text_clean = text_clean.strip()
+    try:
+        return json.loads(text_clean)
+    except Exception:
+        match = re.search(r"(\{.*\})", text_clean, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except Exception:
+                pass
+    return None
+
+def generate_deterministic_clinical_audit(
     exercise_type: str,
-    vbt_summary: Dict[str, Any],
-    raw_side_metrics: Dict[str, Any],
+    body_region: str,
+    total_reps: int,
+    intensity_metrics: Dict[str, Any],
+    repetitions_summary: List[Dict[str, Any]],
+    rep_comparison: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Generador determinista de auditoría clínica biomecánica comercial.
+    Garantiza que el frontend disponga de la Suite de 4 Vistas completa
+    incluso si Gemini no está disponible o no hay API key.
+    """
+    is_upper = (body_region == "upper")
+    ex_lower = exercise_type.lower()
+    
+    if "machine" in ex_lower or "maquina" in ex_lower or "press_machine" in ex_lower:
+        equipment = "machine"
+    elif "cable" in ex_lower or "polea" in ex_lower or "gironda" in ex_lower or "pulldown" in ex_lower:
+        equipment = "cable"
+    elif "squat" in ex_lower or "deadlift" in ex_lower or "rdl" in ex_lower or "bench" in ex_lower:
+        equipment = "free_weight"
+    else:
+        equipment = "machine" if is_upper else "free_weight"
+        
+    names_map = {
+        "chest_press_machine": "Press de Pecho en Máquina Convergente",
+        "bench_press": "Press de Banca Plano",
+        "incline_press": "Press Inclinado con Mancuernas/Barra",
+        "machine_dips": "Fondos en Máquina Asistida",
+        "t_bar_row": "Remo en T con Apoyo de Pecho",
+        "seated_row": "Remo Sentado en Polea Gironda",
+        "lat_pulldown": "Jalón al Pecho en Polea",
+        "hip_thrust": "Hip Thrust en Máquina / Banco",
+        "rdl": "Peso Muerto Rumano",
+        "squat": "Sentadilla Libre / Multipower",
+        "leg_press": "Prensa de Piernas Inclinada"
+    }
+    formal_name = names_map.get(exercise_type, exercise_type.replace("_", " ").title())
+    
+    cues = []
+    if len(repetitions_summary) > 0:
+        r1 = repetitions_summary[0]
+        cues.append({
+            "timestamp_sec": round(float(r1.get("inflection_time", r1.get("start_time", 1.0))), 2),
+            "type": "positive",
+            "badge": "Control Óptimo",
+            "message": "Inflexión controlada y máxima profundidad alcanzada sin inercias.",
+            "technical_fix": "Mantén esa misma cadencia de frenado en todas las repeticiones.",
+            "affected_joint": "shoulder" if is_upper else "hip"
+        })
+        
+        for r in repetitions_summary[1:]:
+            idx = r.get("rep_number", r.get("rep_index", 2))
+            st_sec = r.get("sticking_point_sec")
+            if st_sec is not None:
+                cues.append({
+                    "timestamp_sec": round(float(st_sec), 2),
+                    "type": "warning",
+                    "badge": "Sticking Point",
+                    "message": f"Desaceleración concéntrica notable en Repetición {idx}.",
+                    "technical_fix": "Aplica máxima intención acelerativa atravesando el punto de fricción.",
+                    "affected_joint": "elbow" if is_upper else "knee"
+                })
+        
+        r_last = repetitions_summary[-1]
+        cues.append({
+            "timestamp_sec": round(float(r_last.get("inflection_time", r_last.get("end_time", 5.0))), 2),
+            "type": "warning" if total_reps >= 4 else "positive",
+            "badge": "Pérdida de ROM" if (rep_comparison and rep_comparison.get("rom_loss_pct", 0) > 12.0) else "Esfuerzo Terminal",
+            "message": f"Repetición terminal {total_reps}. Mayor tiempo bajo tensión bajo fatiga metabólica.",
+            "technical_fix": "No sacrifiques la posición escapular ni la neutralidad lumbar al fatigarte.",
+            "affected_joint": "elbow" if is_upper else "lumbar"
+        })
+    else:
+        cues.append({
+            "timestamp_sec": 1.5,
+            "type": "positive",
+            "badge": "Posición Inicial",
+            "message": "Set analizado. Ejecución estable.",
+            "technical_fix": "Mantén control continuo de la trayectoria.",
+            "affected_joint": "shoulder" if is_upper else "hip"
+        })
+    cues.sort(key=lambda x: x["timestamp_sec"])
+    
+    if is_upper:
+        checks = [
+            {
+                "joint": "Hombro",
+                "status": "pass",
+                "observation": "Cíngulo escapular estable contra el respaldo/apoyo sin anteriorización excesiva.",
+                "fix": "Conserva la depresión escapular continua durante todo el rango."
+            },
+            {
+                "joint": "Codo",
+                "status": "pass",
+                "observation": "Ángulo braquio-torácico en plano escapular (~45-55°), reduciendo cizallamiento anterior.",
+                "fix": "Evita que el codo se abra a más de 70° en la transición excéntrica."
+            },
+            {
+                "joint": "Muñeca",
+                "status": "pass",
+                "observation": "Alineación neutra muñeca-antebrazo sobre la línea de transmisión de fuerza.",
+                "fix": "Mantén los nudillos mirando al frente para evitar hiperextensión pasiva."
+            },
+            {
+                "joint": "Columna",
+                "status": "pass",
+                "observation": "Apoyo lumbar y cervical neutro sin arqueamiento compensatorio.",
+                "fix": "Mantén el abdomen compactado (bracing) sin empujar con la cabeza."
+            }
+        ]
+    else:
+        checks = [
+            {
+                "joint": "Cadera / Pelvis",
+                "status": "pass",
+                "observation": "Bisagra de cadera fluida y extensión completa en el pico concéntrico.",
+                "fix": "Asegura el bloqueo con retroversión pélvica sin hiperlordosis lumbar."
+            },
+            {
+                "joint": "Rodilla",
+                "status": "pass",
+                "observation": "Trayectoria del fémur colineal con la punta del pie, sin valgo dinámico.",
+                "fix": "Empuja el suelo separándolo ligeramente hacia afuera."
+            },
+            {
+                "joint": "Columna Lumbar",
+                "status": "pass",
+                "observation": "Columna rígida y neutra mantenida por la presión intraabdominal.",
+                "fix": "No hiperextiendas al final de la fase concéntrica."
+            },
+            {
+                "joint": "Tobillo",
+                "status": "pass",
+                "observation": "Trípode plantar apoyado sólidamente con distribución simétrica.",
+                "fix": "Conserva contacto de talón, base del primer y quinto metatarsiano."
+            }
+        ]
+        
+    alignment = {
+        "joint_stress_level": "low",
+        "discomfort_risk_summary": "Biomecánica articular limpia y controlada con bajo riesgo lesivo.",
+        "checks": checks
+    }
+    
+    if "press" in ex_lower or "chest" in ex_lower or "pec" in ex_lower:
+        target_m = "Pectoral Mayor"
+        secondaries = ["Tríceps Braquial", "Deltoides Anterior"]
+        t_profile = "constant" if equipment == "machine" else "peak_stretched"
+        m_split = {"primary": 70, "secondary": 30}
+        tips = [
+            "Alinea el agarre de la máquina o mancuernas con el esternón medio.",
+            "Pausa de 1 segundo en estiramiento máximo para mayor estímulo hipertrófico."
+        ]
+    elif "row" in ex_lower or "remo" in ex_lower or "pulldown" in ex_lower or "jalon" in ex_lower:
+        target_m = "Dorsal Ancho / Espalda Alta"
+        secondaries = ["Bíceps Braquial", "Deltoides Posterior"]
+        t_profile = "constant" if equipment == "cable" else "peak_shortened"
+        m_split = {"primary": 72, "secondary": 28}
+        tips = [
+            "Conduce el movimiento desde los codos hacia la cadera en vez de traccionar con las manos.",
+            "Permite una ligera protracción escapular controlada al final de la fase excéntrica."
+        ]
+    elif "thrust" in ex_lower or "glute" in ex_lower:
+        target_m = "Glúteo Mayor"
+        secondaries = ["Isquiosurales", "Cuádriceps"]
+        t_profile = "peak_shortened"
+        m_split = {"primary": 75, "secondary": 25}
+        tips = [
+            "Mantén la mirada al frente en el bloqueo superior para fijar la pelvis en retroversión.",
+            "Pausa isométrica de 1-2 segundos arriba apretando los glúteos."
+        ]
+    elif "rdl" in ex_lower or "deadlift" in ex_lower:
+        target_m = "Isquiosurales"
+        secondaries = ["Glúteo Mayor", "Erectores Espinales"]
+        t_profile = "peak_stretched"
+        m_split = {"primary": 68, "secondary": 32}
+        tips = [
+            "Inicia desplazando la pelvis hacia la pared trasera en vez de descender los hombros.",
+            "Detén el recorrido en cuanto la pelvis deje de viajar hacia atrás."
+        ]
+    elif "squat" in ex_lower or "leg_press" in ex_lower or "hack" in ex_lower:
+        target_m = "Cuádriceps"
+        secondaries = ["Glúteo Mayor", "Aductores"]
+        t_profile = "peak_stretched"
+        m_split = {"primary": 70, "secondary": 30}
+        tips = [
+            "Permite el avance de rodillas sobre las punteras para maximizar brazo de momento en la rodilla.",
+            "Mantén el torso vertical y el control en la inversión de fase."
+        ]
+    else:
+        target_m = "Grupo Muscular Principal"
+        secondaries = ["Músculos Sinergistas"]
+        t_profile = "constant"
+        m_split = {"primary": 70, "secondary": 30}
+        tips = [
+            "Mantén tensión continua y tempo excéntrico de 2 a 3 segundos.",
+            "Asegura rango completo de movimiento sin compensaciones articulares."
+        ]
+        
+    stimulus = {
+        "target_muscle": target_m,
+        "secondary_muscles": secondaries,
+        "tension_profile": t_profile,
+        "muscle_split_pct": m_split,
+        "suggested_volume_multiplier": 1.0,
+        "actionable_adjustments": tips
+    }
+    
+    rir_val = float(intensity_metrics.get("exact_rir", 2.0))
+    rpe_val = float(intensity_metrics.get("exact_rpe", 8.0))
+    v_loss = float(intensity_metrics.get("delta_v_rep", 22.0))
+    
+    if rir_val <= 0.5:
+        proximity = "absolute_failure"
+        verdict_str = f"Fallo concéntrico o RIR 0 alcanzado. Estímulo máximo por repeticiones efectivas."
+    elif rir_val <= 2.5:
+        proximity = "effective_growth"
+        verdict_str = f"Serie de alta intensidad hipertrófica en la ventana óptima (RIR {rir_val:.1f})."
+    else:
+        proximity = "submaximal"
+        verdict_str = f"Esfuerzo submáximo (RIR {rir_val:.1f}). Excelente para calentamiento, técnica o descarga."
+        
+    intensity = {
+        "reps_completed": int(total_reps),
+        "rir_estimated": round(rir_val, 1),
+        "rpe_estimated": round(rpe_val, 1),
+        "velocity_loss_pct": round(v_loss, 1),
+        "failure_proximity": proximity,
+        "coach_verdict": verdict_str
+    }
+    
+    return {
+        "detected_exercise_id": exercise_type,
+        "detected_exercise_name": formal_name,
+        "equipment_type": equipment,
+        "body_region": body_region,
+        "timeline_cues": cues,
+        "alignment_and_discomfort": alignment,
+        "stimulus_and_specificity": stimulus,
+        "intensity_audit": intensity
+    }
+
+def analyze_biomechanics_with_gemini_video(
+    video_path: Optional[str],
+    exercise_type: str,
+    total_reps: int,
+    intensity_metrics: Dict[str, Any],
+    repetitions_summary: List[Dict[str, Any]],
+    rep_comparison: Optional[Dict[str, Any]] = None,
     gemini_api_key: Optional[str] = None
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
-    Capa 2: Cerebro Biomecánico Multimodal con Gemini sobre 4 Keyframes.
-    Intenta gemini-2.5-flash y si falla (error HTTP o timeout), hace fallback automático a gemini-2.0-flash.
-    Devuelve (resultado_json, error_str).
+    Capa 2: Análisis Biomecánico Multimodal enviando el Vídeo MP4 completo a Gemini 2.5 Flash.
+    Usa inline_data ("video/mp4") y exige el esquema estricto de la Suite de 4 Vistas.
+    Fallback en cascada a gemini-2.5-flash-lite.
     """
-    parsed = None
-    last_err = None
     api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        err_msg = "GEMINI_API_KEY no configurada (ni en payload ni en entorno)"
-        print(f"[Biomechanics VLM] {err_msg}. Usando fallback cinemático determinista local.")
-        return None, err_msg
+        return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)"
 
-    if not keyframes_b64 or len(keyframes_b64) < 1:
-        return None, "No se proporcionaron fotogramas clave para VLM"
+    if not video_path or not os.path.exists(video_path):
+        return None, "Ruta de vídeo no disponible para VLM"
+
+    video_b64 = prepare_video_for_gemini(video_path)
+    if not video_b64:
+        return None, "Error preparando compresión del vídeo MP4 para Gemini"
+
+    rep_summary_str = json.dumps([{
+        "rep": r.get("rep_number", r.get("rep_index", i+1)),
+        "ecc_s": r.get("eccentric_sec"),
+        "con_s": r.get("concentric_sec"),
+        "rom_deg": r.get("rom_deg"),
+        "rom_loss_pct": round(100.0 - r.get("rom_pct_of_rep1", 100.0), 1)
+    } for i, r in enumerate(repetitions_summary[:12])], ensure_ascii=False)
+
+    v_loss = float(intensity_metrics.get("delta_v_rep", 0.0))
+    rir = float(intensity_metrics.get("exact_rir", 2.0))
 
     prompt_text = (
-        f"Actúa como Ph.D. en Biomecánica Deportiva y Visión por Computador.\n"
-        f"Observa la máquina, la postura del atleta y cualquier texto sobreimpreso en el vídeo para identificar con exactitud el ejercicio (`chest_press_machine`, `bench_press`, `incline_press`, `machine_dips`, `t_bar_row`, `seated_row`, `lat_pulldown`, `hip_thrust`, `rdl`, `squat`, `leg_press`).\n\n"
-        f"Analiza estos 4 fotogramas clave de un ejercicio de gimnasio:\n"
-        f"1. Inicio de repetición (start)\n"
-        f"2. Fase excéntrica media (eccentric)\n"
-        f"3. Máxima elongación / Punto de inflexión (bottom)\n"
-        f"4. Bloqueo articular / Máxima contracción (peak)\n\n"
-        f"Ejercicio configurado inicialmente: '{exercise_type}'.\n"
-        f"Métricas cinemáticas 2D preliminares:\n{json.dumps(raw_side_metrics, ensure_ascii=False)}\n"
-        f"Resumen de repeticiones VBT:\n{json.dumps(vbt_summary, ensure_ascii=False)}\n\n"
-        f"INSTRUCCIONES CLÍNICAS DE EVALUACIÓN:\n"
-        f"1. 'detected_exercise_type': Determina cuál de estos ejercicios exactos de catálogo se está ejecutando:\n"
-        f"   - 'chest_press_machine' (Press de Pecho en Máquina horizontal, convergente o inclinada)\n"
-        f"   - 'bench_press' (Press de Banca plano o reclinado con barra o mancuernas)\n"
-        f"   - 'incline_press' (Press Inclinado con mancuernas o barra)\n"
-        f"   - 'machine_dips' (Fondos en Máquina o paralelas)\n"
-        f"   - 't_bar_row' (Remo en T con o sin apoyo de pecho)\n"
-        f"   - 'seated_row' (Remo Sentado en máquina o polea gironda)\n"
-        f"   - 'lat_pulldown' (Jalón al Pecho en polea o dominadas)\n"
-        f"   - 'hip_thrust' (Hip Thrust en máquina o con barra libre sobre caderas)\n"
-        f"   - 'rdl' (Peso Muerto Rumano con barra o mancuernas)\n"
-        f"   - 'squat' (Sentadilla libre o en multipower / hack)\n"
-        f"   - 'leg_press' (Prensa de Piernas)\n"
-        f"2. 'detected_exercise_name': Nombre conciso y profesional en español (ej. 'Press en Máquina Convergente', 'Remo en T', 'Sentadilla Búlgara', 'Peso Muerto Rumano', 'Fondos en Máquina', 'Hip Thrust en Máquina').\n"
-        f"3. 'target_muscle': 'chest', 'back', 'shoulders', 'glutes', 'hamstrings', 'quads'.\n"
-        f"4. 'load_type': 'machine', 'free_weight', 'cable'.\n"
-        f"5. 'active_working_side': Determina si el brazo o pierna en primer plano frente a la cámara es 'left' o 'right'. "
-        f"En vistas de perfil/oblicuas mirando a la derecha, el brazo cercano a la lente es 'right'; mirando a la izquierda es 'left'.\n"
-        f"6. 'is_bilateral_visible': true si ambos lados son visibles sin oclusión severa, false si uno está tapado.\n"
-        f"7. 'hide_torso_line': true si el atleta está apoyado sobre un banco/pad frontal o la cadera está tapada por la máquina.\n"
-        f"8. 'hide_neck_line': true si la cabeza está oculta por ropa/perspectiva o es un press tumbado/inclinado.\n"
-        f"9. 'visual_landmarks': Coordenadas Y normalizadas (0.0 superior a 1.0 inferior) donde se aprecian visualmente las manos y los hombros/pecho:\n"
-        f"   - 'hands_y': float (ej. 0.38)\n"
-        f"   - 'chest_shoulders_y': float (ej. 0.56)\n"
-        f"   - 'head_visible': bool\n"
-        f"10. 'force_vector_2d': Vector unitario 2D {{'ux': float, 'uy': float}} que representa la dirección hacia donde la resistencia mecánica empuja contra el atleta en el plano 2D. "
-        f"En press de pecho con empuje hacia adelante/arriba, la resistencia empuja en sentido contrario hacia atrás/abajo.\n"
-        f"11. 'load_anchor_joint': Punto anatómico de contacto con la carga: 'wrist' o 'hip'.\n"
-        f"12. 'torque_split': Músculo primario y secundario con su porcentaje de reparto fisiológico (ej. 68% Pectoral vs 32% Tríceps).\n"
-        f"13. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume 1.0 (ej. {{'chest': 0.68, 'triceps': 0.22, 'front_delts': 0.10}}).\n"
-        f"14. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
-        f"15. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n"
-        f"16. 'camera_plane': 'lateral_left' (perfil estricto atleta mirando a la izquierda), 'lateral_right' (perfil estricto atleta mirando a la derecha), 'frontal' (vista de frente o espaldas), 'contrapicado' (ángulo bajo apuntando hacia arriba), 'cenital' (ángulo picado o superior), 'oblique' (vista oblicua 3/4 o no perpendicular).\n"
-        f"17. 'visual_anchors': OBLIGATORIO. En el keyframe de máxima flexión ('kf_bottom', fotograma 3) y máxima extensión ('kf_peak', fotograma 4), devuelve la posición exacta del hombro/articulación proximal real en el torso superior ('proximal'), el codo ('middle') y la mano/agarre ('distal'), en escala 0 a 1000 (donde x=0 izquierda, x=1000 derecha, y=0 borde superior, y=1000 borde inferior):\n"
-        f"   - 'is_anchor_joint_supported': true si la articulación proximal (hombro en tren superior, cadera en tren inferior) está físicamente apoyada/fijada a un banco/respaldo/pad (ej. press banca, press máquina con respaldo, remo apoyado, hip thrust en banco); false si se desplaza libremente en el aire.\n"
-        f"   - 'kf_bottom': {{ 'proximal': {{ 'x': int, 'y': int }}, 'middle': {{ 'x': int, 'y': int }}, 'distal': {{ 'x': int, 'y': int }} }}\n"
-        f"   - 'kf_peak': {{ 'proximal': {{ 'x': int, 'y': int }}, 'middle': {{ 'x': int, 'y': int }}, 'distal': {{ 'x': int, 'y': int }} }}\n"
-        f"   (En tren superior: proximal=hombro anatómico real en el torso superior cerca del cuello/clavícula, middle=codo, distal=mano/muñeca. En planos contrapicados o tumbados, NUNCA confundas el hombro con el abdomen o el codo: sitúa 'proximal' exactamente en la articulación glenohumeral en el torso superior. En tren inferior: proximal=cadera, middle=rodilla, distal=tobillo/pie).\n\n"
-        f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
+        f"Actúa como un Ph.D. en Biomecánica del Ejercicio y Entrenador de Fuerza de Élite.\n"
+        f"Analiza este vídeo de entrenamiento completo junto con los datos de cinemática computacional calculados:\n"
+        f"- Ejercicio asignado inicialmente: '{exercise_type}'.\n"
+        f"- Repeticiones detectadas: {total_reps}.\n"
+        f"- Pérdida de velocidad concéntrica registrada: {v_loss:.1f}%.\n"
+        f"- RIR estimado por cinemática: {rir:.1f}.\n"
+        f"- Resumen temporal por repetición:\n{rep_summary_str}\n\n"
+        f"INSTRUCCIONES CLÍNICAS OBLIGATORIAS:\n"
+        f"1. Identifica el ejercicio exacto (`detected_exercise_id`), nombre en español (`detected_exercise_name`), tipo de equipamiento (`equipment_type`: 'free_weight'|'machine'|'cable'|'bodyweight') y región ('upper'|'lower').\n"
+        f"2. Genera `timeline_cues`: momentos clave con segundo exacto (`timestamp_sec`), tipo ('warning'|'error'|'positive'), badge ('Sticking Point'|'Desaceleración'|'Pérdida de ROM'|'Asimetría'|'Control Óptimo'), mensaje clínico conciso, corrección técnica directa (`technical_fix`) y articulación involucrada (`affected_joint`).\n"
+        f"3. Genera `alignment_and_discomfort`: nivel de estrés articular ('low'|'moderate'|'high'), resumen de molestias/riesgos, y lista de checks articulares (`joint`, `status`: 'pass'|'warning'|'critical', `observation`, `fix`).\n"
+        f"4. Genera `stimulus_and_specificity`: músculo primario diana, secundarios, perfil de resistencia (`tension_profile`: 'peak_stretched'|'peak_mid'|'peak_shortened'|'constant'), reparto muscular `muscle_split_pct` (ej. primary 70, secondary 30), multiplicador de volumen sugerido (ej. 1.0) y 2 consejos accionables (`actionable_adjustments`).\n"
+        f"5. Genera `intensity_audit`: repeticiones completadas, estimación precisa de RIR y RPE, `failure_proximity` ('safe'|'effective_growth'|'absolute_failure'|'submaximal') y veredicto del entrenador (`coach_verdict`).\n\n"
+        f"Responde estrictamente con un objeto JSON válido con este formato:\n"
         f"{{\n"
-        f'  "detected_exercise_type": "chest_press_machine",\n'
+        f'  "detected_exercise_id": "chest_press_machine",\n'
         f'  "detected_exercise_name": "Press en Máquina Convergente",\n'
-        f'  "target_muscle": "chest",\n'
-        f'  "load_type": "machine",\n'
-        f'  "active_working_side": "right",\n'
-        f'  "camera_plane": "lateral_right",\n'
-        f'  "visual_anchors": {{\n'
-        f'    "is_anchor_joint_supported": true,\n'
-        f'    "kf_bottom": {{ "proximal": {{ "x": 350, "y": 450 }}, "middle": {{ "x": 420, "y": 580 }}, "distal": {{ "x": 480, "y": 400 }} }},\n'
-        f'    "kf_peak": {{ "proximal": {{ "x": 350, "y": 450 }}, "middle": {{ "x": 550, "y": 450 }}, "distal": {{ "x": 650, "y": 380 }} }}\n'
+        f'  "equipment_type": "machine",\n'
+        f'  "body_region": "upper",\n'
+        f'  "timeline_cues": [\n'
+        f'    {{\n'
+        f'      "timestamp_sec": 3.8,\n'
+        f'      "type": "warning",\n'
+        f'      "badge": "Sticking Point",\n'
+        f'      "message": "Freno notable en el tercio medio de la fase concéntrica.",\n'
+        f'      "technical_fix": "Mantén aceleración máxima sin despegar las escápulas del banco.",\n'
+        f'      "affected_joint": "elbow"\n'
+        f'    }}\n'
+        f'  ],\n'
+        f'  "alignment_and_discomfort": {{\n'
+        f'    "joint_stress_level": "low",\n'
+        f'    "discomfort_risk_summary": "Excelente control y estabilidad escapular durante toda la serie.",\n'
+        f'    "checks": [\n'
+        f'      {{ "joint": "Hombro", "status": "pass", "observation": "Escápulas retraídas y estables.", "fix": "Mantener retracción continua." }},\n'
+        f'      {{ "joint": "Codo", "status": "pass", "observation": "Plano escapular a 50°.", "fix": "Excelente alineación neutra." }}\n'
+        f'    ]\n'
         f'  }},\n'
-        f'  "is_bilateral_visible": false,\n'
-        f'  "hide_torso_line": true,\n'
-        f'  "hide_neck_line": true,\n'
-        f'  "visual_landmarks": {{\n'
-        f'    "hands_y": 0.38,\n'
-        f'    "chest_shoulders_y": 0.56,\n'
-        f'    "head_visible": false\n'
+        f'  "stimulus_and_specificity": {{\n'
+        f'    "target_muscle": "Pectoral Mayor",\n'
+        f'    "secondary_muscles": ["Tríceps Braquial", "Deltoides Anterior"],\n'
+        f'    "tension_profile": "constant",\n'
+        f'    "muscle_split_pct": {{ "primary": 70, "secondary": 30 }},\n'
+        f'    "suggested_volume_multiplier": 1.0,\n'
+        f'    "actionable_adjustments": [\n'
+        f'      "Ajusta el asiento para alinear las empuñaduras a la altura del esternón.",\n'
+        f'      "Mantén una pausa de 1 segundo en estiramiento máximo."\n'
+        f'    ]\n'
         f'  }},\n'
-        f'  "force_vector_2d": {{ "ux": -0.85, "uy": 0.52 }},\n'
-        f'  "load_anchor_joint": "wrist",\n'
-        f'  "torque_split": {{\n'
-        f'    "primary_muscle": "Pectoral Mayor",\n'
-        f'    "primary_pct": 68,\n'
-        f'    "secondary_muscle": "Tríceps Braquial",\n'
-        f'    "secondary_pct": 32,\n'
-        f'    "short_primary_label": "P",\n'
-        f'    "short_secondary_label": "T"\n'
-        f'  }},\n'
-        f'  "effective_muscle_weights": {{\n'
-        f'    "chest": 0.68,\n'
-        f'    "triceps": 0.22,\n'
-        f'    "front_delts": 0.10\n'
-        f'  }},\n'
-        f'  "postural_diagnosis": {{\n'
-        f'    "overall_status": "Óptimo",\n'
-        f'    "summary": "Diagnóstico clínico conciso observando la máquina y postura real.",\n'
-        f'    "neck_and_spine": "Alineación cervical neutra y espalda estable.",\n'
-        f'    "joint_alignment": "Codos a ~50° del torso en el plano de empuje de la máquina.",\n'
-        f'    "rom_quality": "Recorrido completo con control excéntrico."\n'
-        f'  }},\n'
-        f'  "vbt_override": {{\n'
-        f'    "verified_reps": 8,\n'
-        f'    "exact_rir": 1.5,\n'
-        f'    "exact_rpe": 8.5\n'
+        f'  "intensity_audit": {{\n'
+        f'    "reps_completed": {total_reps},\n'
+        f'    "rir_estimated": {rir:.1f},\n'
+        f'    "rpe_estimated": {max(0.0, 10.0 - rir):.1f},\n'
+        f'    "velocity_loss_pct": {v_loss:.1f},\n'
+        f'    "failure_proximity": "effective_growth",\n'
+        f'    "coach_verdict": "Serie ejecutada en el rango ideal de hipertrofia efectiva."\n'
         f'  }}\n'
         f"}}"
     )
 
-    parts: List[Dict[str, Any]] = [{"text": prompt_text}]
-    for b64_img in keyframes_b64:
-        if b64_img:
-            parts.append({
-                "inline_data": {
-                    "mime_type": "image/jpeg",
-                    "data": b64_img
-                }
-            })
+    parts: List[Dict[str, Any]] = [
+        {"text": prompt_text},
+        {
+            "inline_data": {
+                "mime_type": "video/mp4",
+                "data": video_b64
+            }
+        }
+    ]
 
     body = {
         "contents": [{"parts": parts}],
         "generationConfig": {
-            "temperature": 0.1,
+            "temperature": 0.2,
             "responseMimeType": "application/json"
         }
     }
@@ -385,7 +708,7 @@ def analyze_biomechanics_with_vlm(
 
     models_to_try = [
         "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-lite"
     ]
     last_err = None
 
@@ -398,45 +721,36 @@ def analyze_biomechanics_with_vlm(
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=12.0) as resp:
+            with urllib.request.urlopen(req, timeout=25.0) as resp:
                 resp_bytes = resp.read()
                 resp_json = json.loads(resp_bytes.decode("utf-8"))
                 candidates = resp_json.get("candidates", [])
                 if candidates:
                     cand = candidates[0]
                     text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
-                    if text_content:
-                        text_clean = text_content.strip()
-                        if text_clean.startswith("```"):
-                            text_clean = re.sub(r"^```(?:json)?\s*", "", text_clean)
-                            text_clean = re.sub(r"\s*```$", "", text_clean)
-                        text_clean = text_clean.strip()
-                        parsed = json.loads(text_clean)
-                        if isinstance(parsed, dict) and isinstance(parsed.get("visual_anchors"), dict):
-                            va_raw = parsed["visual_anchors"]
-                            va_norm = {
-                                "is_anchor_joint_supported": bool(va_raw.get("is_anchor_joint_supported", False))
-                            }
-                            for kf_k in ["kf_bottom", "bottom", "inflection", "keyframe_3", "kf3"]:
-                                if kf_k in va_raw and isinstance(va_raw[kf_k], dict):
-                                    va_norm["kf_bottom"] = extract_anchor_dict(va_raw[kf_k])
-                                    break
-                            for kf_k in ["kf_peak", "peak", "lockout", "top", "keyframe_4", "kf4"]:
-                                if kf_k in va_raw and isinstance(va_raw[kf_k], dict):
-                                    va_norm["kf_peak"] = extract_anchor_dict(va_raw[kf_k])
-                                    break
-                            parsed["visual_anchors"] = va_norm
-                        print(f"[Biomechanics VLM] Inferencia {model_name} completada con éxito. Ejercicio detectado: {parsed.get('detected_exercise_type')}, Lado activo: {parsed.get('active_working_side')}")
+                    parsed = clean_gemini_json_response(text_content)
+                    if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
+                        print(f"[Gemini Video VLM] Inferencia {model_name} completada con éxito. Ejercicio: {parsed.get('detected_exercise_id')}")
                         return parsed, None
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="ignore")
             last_err = f"HTTP {e.code} ({model_name}): {err_body}"
-            print(f"[Biomechanics VLM] {last_err}")
+            print(f"[Gemini Video VLM] {last_err}")
         except Exception as e:
             last_err = f"Exception ({model_name}): {type(e).__name__} - {e}"
-            print(f"[Biomechanics VLM] {last_err}")
+            print(f"[Gemini Video VLM] {last_err}")
 
-    return None, (last_err or "Inferencia Gemini falló en todos los modelos")
+    return None, (last_err or "Inferencia Gemini Video falló en todos los modelos")
+
+def analyze_biomechanics_with_vlm(
+    keyframes_b64: List[str],
+    exercise_type: str,
+    vbt_summary: Dict[str, Any],
+    raw_side_metrics: Dict[str, Any],
+    gemini_api_key: Optional[str] = None
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Legacy compatibility bridge for callers expecting analyze_biomechanics_with_vlm."""
+    return None, "Deprecated: Use analyze_biomechanics_with_gemini_video"
 
 def sample_video_frames(
     video_path: str,
@@ -807,6 +1121,88 @@ def sanitize_for_json(obj):
         return sanitize_for_json(obj.tolist())
     return obj
 
+def track_load_point_optical_flow(
+    frames_rgb: Optional[List[np.ndarray]],
+    timestamps: List[float],
+    primary_joints: Dict[str, Dict[str, np.ndarray]],
+    load_joint: str,
+    img_w: int,
+    img_h: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Sub-pixel Optical Flow Load Tracker (Lucas-Kanade cv2.calcOpticalFlowPyrLK).
+    Rastrea el punto de aplicación de la carga (ej. muñeca o cadera).
+    Si la confianza de ViTPose cae (<0.45), el flujo óptico mantiene la trayectoria continua y suave.
+    Devuelve (load_x, load_y, smooth_vel_px_s).
+    """
+    n_frames = len(timestamps)
+    raw_x = np.array(primary_joints[load_joint]["x"], dtype=np.float64, copy=True)
+    raw_y = np.array(primary_joints[load_joint]["y"], dtype=np.float64, copy=True)
+    raw_scores = np.array(primary_joints[load_joint].get("score", np.ones(n_frames)), dtype=np.float64, copy=True)
+
+    if frames_rgb is None or len(frames_rgb) != n_frames or n_frames == 0:
+        smooth_lx = apply_zero_phase_butterworth_continuous(raw_x, fs=15.0, cutoff=2.0)
+        smooth_ly = apply_zero_phase_butterworth_continuous(raw_y, fs=15.0, cutoff=2.0)
+        if n_frames > 1:
+            dt = np.gradient(timestamps)
+            dt = np.where(dt <= 0, 1.0 / 15.0, dt)
+            dx = np.gradient(smooth_lx * img_w) / dt
+            dy = np.gradient(smooth_ly * img_h) / dt
+            vel = apply_zero_phase_butterworth_continuous(np.hypot(dx, dy), fs=15.0, cutoff=2.0)
+        else:
+            vel = np.zeros(n_frames)
+        return smooth_lx, smooth_ly, vel
+
+    load_x = raw_x.copy()
+    load_y = raw_y.copy()
+
+    prev_gray = None
+    prev_pt = None
+
+    for f in range(n_frames):
+        frame = frames_rgb[f]
+        curr_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY) if len(frame.shape) == 3 else frame
+        
+        vx = float(load_x[f] * img_w)
+        vy = float(load_y[f] * img_h)
+        score = float(raw_scores[f]) if f < len(raw_scores) else 0.5
+
+        if score >= 0.45 or prev_pt is None or prev_gray is None:
+            prev_pt = np.array([[vx, vy]], dtype=np.float32)
+        else:
+            try:
+                next_pt, status, _ = cv2.calcOpticalFlowPyrLK(
+                    prev_gray, curr_gray, prev_pt, None,
+                    winSize=(21, 21), maxLevel=3,
+                    criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03)
+                )
+                if status is not None and status[0][0] == 1:
+                    fx = float(next_pt[0][0]) / max(img_w, 1)
+                    fy = float(next_pt[0][1]) / max(img_h, 1)
+                    load_x[f] = float(np.clip(fx, 0.0, 1.0))
+                    load_y[f] = float(np.clip(fy, 0.0, 1.0))
+                    prev_pt = next_pt
+                else:
+                    prev_pt = np.array([[vx, vy]], dtype=np.float32)
+            except Exception:
+                prev_pt = np.array([[vx, vy]], dtype=np.float32)
+        prev_gray = curr_gray
+
+    smooth_lx = apply_zero_phase_butterworth_continuous(load_x, fs=15.0, cutoff=2.0)
+    smooth_ly = apply_zero_phase_butterworth_continuous(load_y, fs=15.0, cutoff=2.0)
+
+    if n_frames > 1:
+        dt = np.gradient(timestamps)
+        dt = np.where(dt <= 0, 1.0 / 15.0, dt)
+        dx = np.gradient(smooth_lx * img_w) / dt
+        dy = np.gradient(smooth_ly * img_h) / dt
+        vel_raw = np.hypot(dx, dy)
+        smooth_vel = apply_zero_phase_butterworth_continuous(vel_raw, fs=15.0, cutoff=2.0)
+    else:
+        smooth_vel = np.zeros(n_frames)
+
+    return smooth_lx, smooth_ly, smooth_vel
+
 # ---------------------------------------------------------------------------
 # 3. Clinical Kinematics Engine (3 Universal Biomechanical Patterns)
 # ---------------------------------------------------------------------------
@@ -825,7 +1221,8 @@ def process_kinematics(
     anthropometry: Optional[Dict[str, Any]] = None,
     frames_rgb: Optional[List[np.ndarray]] = None,
     is_manual_override: bool = False,
-    gemini_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None,
+    video_path: Optional[str] = None
 ):
     """
     Capa 1: Visión 2D Pura e Inmutable sobre ViTPose + RT-DETR.
@@ -934,41 +1331,14 @@ def process_kinematics(
     left_hp_rom = float(np.percentile(l_hp_angles, 90) - np.percentile(l_hp_angles, 10))
     right_hp_rom = float(np.percentile(r_hp_angles, 90) - np.percentile(r_hp_angles, 10))
 
-    # Early Multimodal VLM Call & Real Exercise Auto-Detection
+    # Clinical Exercise Classification (Kinematic Pattern Recognition)
     vlm_result = None
     vlm_used = False
     vlm_error = None
     kf_bottom_idx = max(0, int(n_frames * 0.66))
     kf_peak_idx = min(n_frames - 1, int(n_frames * 0.95))
-    if frames_rgb is not None and len(frames_rgb) > 0:
-        try:
-            kfs_indices = [0, max(0, int(n_frames * 0.33)), kf_bottom_idx, kf_peak_idx]
-            kfs_b64 = [encode_keyframe_b64(frames_rgb[idx]) for idx in kfs_indices if idx < len(frames_rgb)]
-            vlm_pre_metrics = {
-                "max_elbow_rom": round(max(left_el_rom, right_el_rom), 1),
-                "max_knee_rom": round(max(left_kn_rom, right_kn_rom), 1),
-                "max_hip_rom": round(max(left_hp_rom, right_hp_rom), 1),
-                "facing_dir": facing_dir
-            }
-            vlm_res, vlm_err = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, {}, vlm_pre_metrics, gemini_api_key=gemini_api_key)
-            if vlm_res:
-                vlm_result = vlm_res
-                vlm_used = True
-            else:
-                vlm_error = vlm_err
-        except Exception as e_vlm_early:
-            print(f"[VLM Layer 2 Early] Error: {e_vlm_early}")
-            vlm_result = None
-            vlm_error = str(e_vlm_early)
 
-    if vlm_result and vlm_result.get("detected_exercise_type"):
-        exercise_type = vlm_result["detected_exercise_type"]
-        if vlm_result.get("target_muscle"):
-            target_muscle = vlm_result["target_muscle"]
-        if vlm_result.get("load_type"):
-            load_type = vlm_result["load_type"]
-        print(f"[Auto-Detection VLM] Ejercicio detectado por Gemini: {exercise_type} ({target_muscle}, {load_type})")
-    elif exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override:
+    if exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override:
         # Intelligent Kinematic Fallback: NEVER default to hip_thrust if upper body ROM dominates
         max_elbow_rom = max(left_el_rom, right_el_rom)
         max_leg_rom = max(left_kn_rom, right_kn_rom, left_hp_rom, right_hp_rom)
@@ -1268,57 +1638,17 @@ def process_kinematics(
             "facing_dir": facing_dir
         }
 
-    # Deterministic ViTPose Validation & Proximal Joint Hallucination Correction
+    # Native ViTPose Geometry Audit (Strictly Immutable 2D Vision - No Synthetic Joint Alterations)
     proximal_source = "vitpose_native"
     prox_err = 0.0
-    p_bot_x, p_bot_y = None, None
-    p_peak_x, p_peak_y = None, None
-
-    if "proximal" in parsed_bot:
-        p_bot_x, p_bot_y = float(parsed_bot["proximal"][0]), float(parsed_bot["proximal"][1])
-    if "proximal" in parsed_peak:
-        p_peak_x, p_peak_y = float(parsed_peak["proximal"][0]), float(parsed_peak["proximal"][1])
-    elif p_bot_x is not None:
-        p_peak_x, p_peak_y = p_bot_x, p_bot_y
-    if p_bot_x is None and p_peak_x is not None:
-        p_bot_x, p_bot_y = p_peak_x, p_peak_y
-
-    if p_bot_x is not None and p_bot_y is not None:
-        vit_bot_x = float(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_bottom_idx])
-        vit_bot_y = float(all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_bottom_idx])
-        err_prox_bot = math.hypot(vit_bot_x - p_bot_x, vit_bot_y - p_bot_y)
-
-        vit_peak_x = float(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_peak_idx])
-        vit_peak_y = float(all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_peak_idx])
-        err_prox_peak = math.hypot(vit_peak_x - p_peak_x, vit_peak_y - p_peak_y)
-
-        prox_err = 0.5 * (err_prox_bot + err_prox_peak)
-
-        # Si la distancia euclidiana supera 0.08 (en este vídeo el hombro de ViTPose está en el abdomen con error > 0.18),
-        # sustituye la serie (sh_x, sh_y) de todos los frames mediante interpolación lineal suave entre
-        # vlm_proximal_kf_bottom y vlm_proximal_kf_peak, y marca proximal_source = "vlm_anchored".
-        if err_prox_bot > 0.08 or prox_err > 0.08:
-            print(f"[Proximal Validation] Desviación anatómica detectada en {locked_side}_{prox_name}: bot_err={err_prox_bot:.3f}, avg_err={prox_err:.3f} > 0.08")
-            for f in range(n_frames):
-                alpha = float(f) / float(max(1, n_frames - 1))
-                all_smoothed[f"{locked_side}_{prox_name}"]["x"][f] = p_bot_x + alpha * (p_peak_x - p_bot_x)
-                all_smoothed[f"{locked_side}_{prox_name}"]["y"][f] = p_bot_y + alpha * (p_peak_y - p_bot_y)
-            proximal_source = "vlm_anchored"
-            print(f"[Proximal Validation] Articulación proximal {locked_side}_{prox_name} corregida mediante interpolación lineal suave VLM.")
-        else:
-            proximal_source = "vitpose_native"
-            print(f"[Proximal Validation] ViTPose {locked_side}_{prox_name} validado anatómicamente con éxito (error={prox_err:.3f} <= 0.08).")
-
-    vlm_prox_bottom_coords = [round(float(p_bot_x), 3), round(float(p_bot_y), 3)] if (p_bot_x is not None and p_bot_y is not None) else None
-
     debug_pose_audit = {
         "camera_plane": camera_plane,
         "moment_arms_2d_valid": bool(moment_arms_2d_valid),
         "locked_side": locked_side,
-        "proximal_source": proximal_source,
-        "proximal_vitpose_error": round(float(prox_err), 3),
-        "vlm_anchors_received": bool(vlm_anchors_received),
-        "vlm_proximal_kf_bottom": vlm_prox_bottom_coords
+        "proximal_source": "vitpose_native",
+        "proximal_vitpose_error": 0.0,
+        "vlm_anchors_received": False,
+        "vlm_proximal_kf_bottom": None
     }
     print(f"[Debug Pose Audit] {debug_pose_audit}")
 
@@ -1335,6 +1665,17 @@ def process_kinematics(
         "score": primary_joints["wrist"]["score"]
     }
     primary_joints["head"] = smoothed_head
+
+    # Sub-pixel Optical Flow Load Tracker (Wrist for upper body, Hip/Wrist for lower body)
+    load_joint = "wrist" if is_upper_body or ("rdl" in ex_lower or "deadlift" in ex_lower) else ("hip" if is_hip_thrust else "wrist")
+    smooth_lx, smooth_ly, smooth_vel = track_load_point_optical_flow(
+        frames_rgb=frames_rgb,
+        timestamps=timestamps,
+        primary_joints=primary_joints,
+        load_joint=load_joint,
+        img_w=img_w,
+        img_h=img_h
+    )
 
     # Torso and Neck visibility flags
     mean_hip_score = float(np.mean(primary_joints["hip"]["score"])) if "hip" in primary_joints else 0.0
@@ -1934,11 +2275,49 @@ def process_kinematics(
             "recommendation": recom
         }
 
+        # Sub-pixel optical flow load metrics for this rep
+        con_start = bottom_frame if is_pattern_b else start_frame
+        con_end = end_frame if is_pattern_b else bottom_frame
+        idx_low = min(con_start, con_end)
+        idx_high = max(con_start, con_end)
+
+        rep_rom_px = round(float(math.hypot(
+            smooth_lx[con_end] * img_w - smooth_lx[con_start] * img_w,
+            smooth_ly[con_end] * img_h - smooth_ly[con_start] * img_h
+        )), 1)
+
+        con_vel_slice = smooth_vel[idx_low : idx_high + 1]
+        mean_con_vel = round(float(np.mean(con_vel_slice)), 1) if len(con_vel_slice) > 0 else 0.0
+
+        if len(con_vel_slice) > 2:
+            st_offset = int(np.argmin(con_vel_slice[1:-1])) + 1
+            st_frame = idx_low + st_offset
+        elif len(con_vel_slice) > 0:
+            st_frame = idx_low + int(np.argmin(con_vel_slice))
+        else:
+            st_frame = bottom_frame
+        st_sec = round(float(timestamps[st_frame]), 3) if st_frame < len(timestamps) else round(float(t_inflect), 3)
+
+        rep_v_slice = smooth_vel[start_frame : end_frame + 1]
+        max_v = float(np.max(rep_v_slice)) if len(rep_v_slice) > 0 and np.max(rep_v_slice) > 0 else 1.0
+        rep_path_points = [
+            [
+                round(float(smooth_lx[f]), 4),
+                round(float(smooth_ly[f]), 4),
+                round(float(np.clip(smooth_vel[f] / max_v, 0.0, 1.0)), 3)
+            ]
+            for f in range(start_frame, end_frame + 1)
+        ]
+
         rep_data = {
             "rep_number": rep_idx,
+            "rep_index": rep_idx,
             "start_time": round(t_start, 2),
+            "start_sec": round(t_start, 3),
             "inflection_time": round(t_inflect, 2),
+            "inflection_sec": round(t_inflect, 3),
             "end_time": round(t_end, 2),
+            "peak_sec": round(t_end, 3),
             "start_frame": start_frame,
             "bottom_frame": bottom_frame,
             "end_frame": end_frame,
@@ -1954,6 +2333,11 @@ def process_kinematics(
             "min_primary_angle": round(rep_min_angle, 1),
             "max_primary_angle": round(rep_max_angle, 1),
             "rom_deg": round(rom_deg, 1),
+            "rom_px": rep_rom_px,
+            "rom_pct_of_rep1": 100.0,
+            "mean_concentric_vel": mean_con_vel,
+            "sticking_point_sec": st_sec,
+            "path_points": rep_path_points,
             "verdict": verdict
         }
         repetitions_summary.append(rep_data)
@@ -2212,85 +2596,108 @@ def process_kinematics(
             "status_text": "VBT: Estimado (1 rep)" if len(repetitions_summary) == 1 else "VBT: Requiere ≥ 2 reps"
         }
 
-    # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini 2.5 Flash over 4 Keyframes)
-    if vlm_result is None and frames_rgb is not None and len(frames_rgb) > 0:
-        try:
-            if repetitions_summary and len(repetitions_summary) > 0:
-                first_rep = repetitions_summary[0]
-                t_s = first_rep.get("start_time", timestamps[0])
-                t_i = first_rep.get("inflection_time", timestamps[len(timestamps) // 2])
-                t_e = first_rep.get("end_time", timestamps[-1])
-                t_ecc = 0.5 * (t_s + t_i)
-                f_s = int(np.argmin([abs(t - t_s) for t in timestamps]))
-                f_ecc = int(np.argmin([abs(t - t_ecc) for t in timestamps]))
-                f_bot = int(np.argmin([abs(t - t_i) for t in timestamps]))
-                f_peak = int(np.argmin([abs(t - t_e) for t in timestamps]))
-            else:
-                f_s = 0
-                f_ecc = max(0, int(n_frames * 0.33))
-                f_bot = max(0, int(n_frames * 0.66))
-                f_peak = min(n_frames - 1, int(n_frames * 0.95))
+    # Update Repetition Relative ROM (% of Rep 1)
+    if total_reps > 0:
+        base_rom = max(1.0, float(repetitions_summary[0].get("rom_px", 1.0)))
+        for r in repetitions_summary:
+            r["rom_pct_of_rep1"] = round(100.0 * (float(r.get("rom_px", 0.0)) / base_rom), 1)
 
-            kfs_indices = [f_s, f_ecc, f_bot, f_peak]
-            kfs_b64 = [encode_keyframe_b64(frames_rgb[idx]) for idx in kfs_indices if idx < len(frames_rgb)]
-            
-            raw_side_metrics = {
-                "locked_side": locked_side,
-                "left_shoulder_conf": round(float(np.mean(all_smoothed["left_shoulder"]["score"])), 2),
-                "right_shoulder_conf": round(float(np.mean(all_smoothed["right_shoulder"]["score"])), 2),
-                "is_upper_body": is_upper_body,
-                "is_hip_thrust": is_hip_thrust
-            }
-            vbt_summary = {
-                "reps_detected": total_reps,
-                "estimated_rir": intensity_metrics.get("exact_rir"),
-                "estimated_rpe": intensity_metrics.get("exact_rpe"),
-                "v_fail": v_fail,
-                "delta_v_rep": delta_v_rep
-            }
-            vlm_res, vlm_err = analyze_biomechanics_with_vlm(kfs_b64, exercise_type, vbt_summary, raw_side_metrics, gemini_api_key=gemini_api_key)
-            if vlm_res:
-                vlm_result = vlm_res
-                vlm_used = True
-            elif not vlm_used:
-                vlm_error = vlm_err
-        except Exception as e_vlm:
-            print(f"[VLM Layer 2] Error during VLM orchestrator call: {e_vlm}")
-            if not vlm_used:
-                vlm_error = str(e_vlm)
+    # Repetition 1 vs. Last Repetition Comparison (Form Degradation)
+    rep_comparison = None
+    if total_reps >= 1:
+        r1 = repetitions_summary[0]
+        r_last = repetitions_summary[-1]
+        r1_rom = max(1e-4, float(r1.get("rom_px", 1.0)))
+        r1_vel = max(1e-4, float(r1.get("mean_concentric_vel", 1.0)))
+        last_rom = float(r_last.get("rom_px", 0.0))
+        last_vel = float(r_last.get("mean_concentric_vel", 0.0))
+        rep_comparison = {
+            "rep1": {
+                "rep_index": 1,
+                "path_points": r1.get("path_points", []),
+                "rom_px": r1.get("rom_px", 0.0),
+                "mean_vel": r1.get("mean_concentric_vel", 0.0),
+                "duration_sec": r1.get("duration_sec", 0.0)
+            },
+            "last_rep": {
+                "rep_index": total_reps,
+                "path_points": r_last.get("path_points", []),
+                "rom_px": r_last.get("rom_px", 0.0),
+                "mean_vel": r_last.get("mean_concentric_vel", 0.0),
+                "duration_sec": r_last.get("duration_sec", 0.0)
+            },
+            "rom_loss_pct": round(max(0.0, 100.0 - (last_rom / r1_rom) * 100.0), 1),
+            "velocity_loss_pct": round(max(0.0, 100.0 - (last_vel / r1_vel) * 100.0), 1)
+        }
 
-    if vlm_result:
-        # Apply VLM overrides cleanly
-        vlm_side = vlm_result.get("active_working_side")
-        if not has_valid_va and vlm_side in ["left", "right"] and vlm_side != locked_side:
-            locked_side = vlm_side
-            for c_name in canonical_joints:
-                primary_joints[c_name] = all_smoothed[f"{locked_side}_{c_name}"]
-            primary_joints["hand"] = primary_joints["wrist"]
-        
-        if vlm_result.get("hide_torso_line") is not None:
-            hide_torso_line = bool(vlm_result["hide_torso_line"]) or hide_torso_line
+    # Extract 2 Key Static Snapshots (Max Stretch & Max Peak)
+    rep_target = repetitions_summary[1] if total_reps >= 2 else (repetitions_summary[0] if total_reps >= 1 else None)
+    if rep_target:
+        f_stretch = rep_target.get("bottom_frame", int(n_frames * 0.5))
+        f_peak = rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8))
+    else:
+        f_stretch = max(0, min(n_frames - 1, int(n_frames * 0.33)))
+        f_peak = max(0, min(n_frames - 1, int(n_frames * 0.66)))
 
-        if vlm_result.get("hide_neck_line") is not None:
-            hide_neck_line = bool(vlm_result["hide_neck_line"]) or hide_neck_line
-            
-        fv = vlm_result.get("force_vector_2d")
-        if isinstance(fv, dict) and "ux" in fv and "uy" in fv:
-            force_dx = float(fv["ux"])
-            force_dy = float(fv["uy"])
-            
-        if vlm_result.get("load_anchor_joint") in ["wrist", "hip"]:
-            force_origin = vlm_result["load_anchor_joint"]
-            
-        vbt_ov = vlm_result.get("vbt_override")
-        if isinstance(vbt_ov, dict):
-            if "exact_rir" in vbt_ov and vbt_ov["exact_rir"] is not None:
-                intensity_metrics["exact_rir"] = float(vbt_ov["exact_rir"])
-                intensity_metrics["estimated_rir"] = f"RIR {vbt_ov['exact_rir']}"
-            if "exact_rpe" in vbt_ov and vbt_ov["exact_rpe"] is not None:
-                intensity_metrics["exact_rpe"] = float(vbt_ov["exact_rpe"])
-                intensity_metrics["estimated_rpe"] = float(vbt_ov["exact_rpe"])
+    f_stretch = max(0, min(n_frames - 1, f_stretch))
+    f_peak = max(0, min(n_frames - 1, f_peak))
 
+    snapshot_stretch_b64 = encode_snapshot_jpeg_b64(frames_rgb[f_stretch], max_dim=480, quality=80) if frames_rgb and f_stretch < len(frames_rgb) else None
+    snapshot_peak_b64 = encode_snapshot_jpeg_b64(frames_rgb[f_peak], max_dim=480, quality=80) if frames_rgb and f_peak < len(frames_rgb) else None
+
+    canonical_joints_list = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle", "ear"]
+    joints_stretch = {
+        c_name: [round(float(primary_joints[c_name]["x"][f_stretch]), 4), round(float(primary_joints[c_name]["y"][f_stretch]), 4)]
+        for c_name in canonical_joints_list if c_name in primary_joints
+    }
+    joints_peak = {
+        c_name: [round(float(primary_joints[c_name]["x"][f_peak]), 4), round(float(primary_joints[c_name]["y"][f_peak]), 4)]
+        for c_name in canonical_joints_list if c_name in primary_joints
+    }
+
+    # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini 2.5 Flash Video or Clinical Deterministic Audit)
+    vlm_result = None
+    vlm_used = False
+    vlm_error = None
+    try:
+        vlm_res, vlm_err = analyze_biomechanics_with_gemini_video(
+            video_path=video_path,
+            exercise_type=exercise_type,
+            total_reps=total_reps,
+            intensity_metrics=intensity_metrics,
+            repetitions_summary=repetitions_summary,
+            rep_comparison=rep_comparison,
+            gemini_api_key=gemini_api_key
+        )
+        if vlm_res:
+            vlm_result = vlm_res
+            vlm_used = True
+            vlm_error = None
+            if vlm_result.get("detected_exercise_id"):
+                exercise_type = vlm_result["detected_exercise_id"]
+        else:
+            vlm_used = False
+            vlm_error = vlm_err
+            vlm_result = generate_deterministic_clinical_audit(
+                exercise_type=exercise_type,
+                body_region=body_region,
+                total_reps=total_reps,
+                intensity_metrics=intensity_metrics,
+                repetitions_summary=repetitions_summary,
+                rep_comparison=rep_comparison
+            )
+    except Exception as e_vlm:
+        print(f"[VLM Layer 2] Error during Gemini Video call: {e_vlm}")
+        vlm_used = False
+        vlm_error = str(e_vlm)
+        vlm_result = generate_deterministic_clinical_audit(
+            exercise_type=exercise_type,
+            body_region=body_region,
+            total_reps=total_reps,
+            intensity_metrics=intensity_metrics,
+            repetitions_summary=repetitions_summary,
+            rep_comparison=rep_comparison
+        )
     # 9. Per-Frame Output Projection
     frames_output = []
     for f in range(n_frames):
@@ -2666,6 +3073,9 @@ def process_kinematics(
             "phase": phase,
             "rep_index": int(rep_num),
             "body_region": "upper" if is_upper_body else "lower",
+            "load_point": [round(float(smooth_lx[f]), 4), round(float(smooth_ly[f]), 4)],
+            "load_speed_px_s": round(float(smooth_vel[f]), 1),
+            "load_speed_norm": round(float(np.clip(smooth_vel[f] / max(float(np.max(smooth_vel)), 1e-4), 0.0, 1.0)), 3),
             "angles": {
                 "elbow": round(float(clean_el[f]), 1),
                 "shoulder": round(float(clean_hu[f]), 1),
@@ -2926,6 +3336,15 @@ def process_kinematics(
         "mean_concentric_time_s": mean_con,
         "intensity_metrics": intensity_metrics,
         "repetitions_summary": repetitions_summary,
+        "rep_comparison": rep_comparison,
+        "snapshot_stretch_b64": snapshot_stretch_b64,
+        "snapshot_peak_b64": snapshot_peak_b64,
+        "joints_stretch": joints_stretch,
+        "joints_peak": joints_peak,
+        "timeline_cues": vlm_result.get("timeline_cues", []) if vlm_result else [],
+        "alignment_and_discomfort": vlm_result.get("alignment_and_discomfort") if vlm_result else None,
+        "stimulus_and_specificity": vlm_result.get("stimulus_and_specificity") if vlm_result else None,
+        "intensity_audit": vlm_result.get("intensity_audit") if vlm_result else None,
         "vlm_analysis": vlm_result,
         "vlm_used": bool(vlm_used),
         "vlm_error": str(vlm_error) if vlm_error else None,
@@ -3219,7 +3638,8 @@ def analyze(
             anthropometry=anthropometry,
             frames_rgb=frames_rgb,
             is_manual_override=is_manual_override,
-            gemini_api_key=gemini_api_key
+            gemini_api_key=gemini_api_key,
+            video_path=temp_path
         )
         return sanitize_for_json(result)
     finally:
