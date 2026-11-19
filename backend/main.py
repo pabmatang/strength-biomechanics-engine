@@ -243,7 +243,13 @@ def analyze_biomechanics_with_vlm(
         f"12. 'torque_split': Músculo primario y secundario con su porcentaje de reparto fisiológico (ej. 68% Pectoral vs 32% Tríceps).\n"
         f"13. 'effective_muscle_weights': Diccionario de pesos musculares normalizado que sume 1.0 (ej. {{'chest': 0.68, 'triceps': 0.22, 'front_delts': 0.10}}).\n"
         f"14. 'postural_diagnosis': Diagnóstico clínico conciso observando la postura real y máquina.\n"
-        f"15. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n\n"
+        f"15. 'vbt_override': Repeticiones verificadas y estimación precisa de RIR y RPE.\n"
+        f"16. 'camera_plane': 'lateral_left' (perfil estricto atleta mirando a la izquierda), 'lateral_right' (perfil estricto atleta mirando a la derecha), 'frontal' (vista de frente o espaldas), 'contrapicado' (ángulo bajo apuntando hacia arriba), 'cenital' (ángulo picado o superior), 'oblique' (vista oblicua 3/4 o no perpendicular).\n"
+        f"17. 'visual_anchors': Puntos anatómicos visuales normalizados [x, y] (0.0 a 1.0) para validar la pose en los keyframes 3 ('kf_bottom', máxima elongación/flexión) y 4 ('kf_peak', máxima contracción/bloqueo):\n"
+        f"   - 'is_anchor_joint_supported': true si la articulación proximal (hombro en tren superior, cadera en tren inferior) está físicamente apoyada/fijada a un banco/respaldo/pad (ej. press banca, press máquina con respaldo, remo apoyado, hip thrust en banco); false si se desplaza libremente en el aire.\n"
+        f"   - 'kf_bottom': {{ 'proximal': [x, y], 'middle': [x, y], 'distal': [x, y] }}\n"
+        f"   - 'kf_peak': {{ 'proximal': [x, y], 'middle': [x, y], 'distal': [x, y] }}\n"
+        f"   (En tren superior: proximal=hombro, middle=codo, distal=muñeca/mano. En tren inferior: proximal=cadera, middle=rodilla, distal=tobillo/pie).\n\n"
         f"Responde estrictamente con un objeto JSON válido con este esquema exacto:\n"
         f"{{\n"
         f'  "detected_exercise_type": "chest_press_machine",\n'
@@ -251,6 +257,12 @@ def analyze_biomechanics_with_vlm(
         f'  "target_muscle": "chest",\n'
         f'  "load_type": "machine",\n'
         f'  "active_working_side": "right",\n'
+        f'  "camera_plane": "lateral_right",\n'
+        f'  "visual_anchors": {{\n'
+        f'    "is_anchor_joint_supported": true,\n'
+        f'    "kf_bottom": {{ "proximal": [0.35, 0.45], "middle": [0.42, 0.58], "distal": [0.48, 0.40] }},\n'
+        f'    "kf_peak": {{ "proximal": [0.35, 0.45], "middle": [0.55, 0.45], "distal": [0.65, 0.38] }}\n'
+        f'  }},\n'
         f'  "is_bilateral_visible": false,\n'
         f'  "hide_torso_line": true,\n'
         f'  "hide_neck_line": true,\n'
@@ -311,8 +323,6 @@ def analyze_biomechanics_with_vlm(
     models_to_try = [
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
-        "gemini-3.5-flash-lite",
-        "gemini-3.8-flash"
     ]
     last_err = None
 
@@ -849,9 +859,13 @@ def process_kinematics(
 
     # Early Multimodal VLM Call & Real Exercise Auto-Detection
     vlm_result = None
-    if frames_rgb is not None and len(frames_rgb) > 0 and (exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override):
+    vlm_used = False
+    vlm_error = None
+    kf_bottom_idx = max(0, int(n_frames * 0.66))
+    kf_peak_idx = min(n_frames - 1, int(n_frames * 0.95))
+    if frames_rgb is not None and len(frames_rgb) > 0:
         try:
-            kfs_indices = [0, max(0, int(n_frames * 0.33)), max(0, int(n_frames * 0.66)), min(n_frames - 1, int(n_frames * 0.95))]
+            kfs_indices = [0, max(0, int(n_frames * 0.33)), kf_bottom_idx, kf_peak_idx]
             kfs_b64 = [encode_keyframe_b64(frames_rgb[idx]) for idx in kfs_indices if idx < len(frames_rgb)]
             vlm_pre_metrics = {
                 "max_elbow_rom": round(max(left_el_rom, right_el_rom), 1),
@@ -967,43 +981,28 @@ def process_kinematics(
     hide_neck_line_forced = False
     hide_torso_line_forced = False
 
-    # Anatomical re-mapping for low-angle contrapicado shots in lying/inclined chest press
-    if is_press_exercise:
-        crop_center_x = [b["cx"] for b in athlete_boxes] if (athlete_boxes and len(athlete_boxes) == n_frames) else [mid_torso_x] * n_frames
-        torso_center_x = float(np.median(crop_center_x))
-        for side in ["left", "right"]:
-            med_s_y = float(np.median(all_smoothed[f"{side}_shoulder"]["y"]))
-            med_w_y = float(np.median(all_smoothed[f"{side}_wrist"]["y"]))
-            # In any chest press, hands are geometrically above shoulders (y is smaller at top).
-            # If ViTPose places wrist below shoulder (med_w_y > med_s_y), fix arm chain:
-            if med_w_y > med_s_y:
-                print(f"[Contrapicado Press Fix] Inversión de brazo detectada en lado {side} (muñeca y={med_w_y:.2f} > hombro y={med_s_y:.2f}). Reconstruyendo hombro pectoral anatómico.")
-                # Hands are at the top (where ViTPose placed shoulder)
-                wrist_x = all_smoothed[f"{side}_shoulder"]["x"].copy()
-                wrist_y = all_smoothed[f"{side}_shoulder"]["y"].copy()
-                elbow_x = all_smoothed[f"{side}_elbow"]["x"]
-                elbow_y = all_smoothed[f"{side}_elbow"]["y"]
+    if is_upper_body:
+        prox_name = "shoulder"
+        mid_name = "elbow"
+        dist_name = "wrist"
+    else:
+        prox_name = "hip"
+        mid_name = "knee"
+        dist_name = "ankle"
 
-                # Reconstruct anatomical shoulder at pectoral height, NOT at the waist/abdomen
-                forearm_len = np.hypot(elbow_x - wrist_x, elbow_y - wrist_y)
-                shoulder_x = elbow_x + 0.35 * (torso_center_x - elbow_x)
-                shoulder_y = elbow_y + 0.45 * forearm_len
+    camera_plane = "lateral_right"
+    if vlm_result and vlm_result.get("camera_plane"):
+        camera_plane = str(vlm_result["camera_plane"]).strip().lower()
+    moment_arms_2d_valid = camera_plane in ("lateral_left", "lateral_right")
 
-                all_smoothed[f"{side}_wrist"]["x"] = wrist_x
-                all_smoothed[f"{side}_wrist"]["y"] = wrist_y
-                all_smoothed[f"{side}_shoulder"]["x"] = shoulder_x
-                all_smoothed[f"{side}_shoulder"]["y"] = shoulder_y
-                all_smoothed[f"{side}_shoulder"]["score"] = all_smoothed[f"{side}_elbow"]["score"].copy()
-                all_smoothed[f"{side}_wrist"]["score"] = np.maximum(all_smoothed[f"{side}_wrist"]["score"], 0.85)
-
-                hide_neck_line_forced = True
-                hide_torso_line_forced = True
-
-        # Re-sync bilateral elbow angles with reconstructed shoulder/wrist
-        l_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}, {"x": all_smoothed["left_elbow"]["x"][f], "y": all_smoothed["left_elbow"]["y"][f]}, {"x": all_smoothed["left_wrist"]["x"][f], "y": all_smoothed["left_wrist"]["y"][f]}) for f in range(n_frames)])
-        r_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}, {"x": all_smoothed["right_elbow"]["x"][f], "y": all_smoothed["right_elbow"]["y"][f]}, {"x": all_smoothed["right_wrist"]["x"][f], "y": all_smoothed["right_wrist"]["y"][f]}) for f in range(n_frames)])
-        left_el_rom = float(np.percentile(l_el_angles, 90) - np.percentile(l_el_angles, 10))
-        right_el_rom = float(np.percentile(r_el_angles, 90) - np.percentile(r_el_angles, 10))
+    va = vlm_result.get("visual_anchors") if (vlm_result and isinstance(vlm_result.get("visual_anchors"), dict)) else None
+    has_valid_va = False
+    if va and isinstance(va.get("kf_bottom"), dict) and isinstance(va.get("kf_peak"), dict):
+        va_bot = va["kf_bottom"]
+        va_peak = va["kf_peak"]
+        if (all(k in va_bot and isinstance(va_bot[k], (list, tuple)) and len(va_bot[k]) >= 2 for k in ["proximal", "middle", "distal"]) and
+            all(k in va_peak and isinstance(va_peak[k], (list, tuple)) and len(va_peak[k]) >= 2 for k in ["proximal", "middle", "distal"])):
+            has_valid_va = True
 
     # 2. Deterministic Active Limb Selector based on Apparent Optical Length (2D Foreshortening Invariant) & Visibility
     primary_joints = {}
@@ -1056,7 +1055,22 @@ def process_kinematics(
         left_score_total = (left_conf ** 2) * (left_horiz_reach ** 2) * (left_rom + 10.0) * left_pen
         right_score_total = (right_conf ** 2) * (right_horiz_reach ** 2) * (right_rom + 10.0) * right_pen
 
-        if vlm_result and vlm_result.get("active_working_side") in ["left", "right"]:
+        if has_valid_va:
+            d_left = (
+                math.hypot(all_smoothed[f"left_{mid_name}"]["x"][kf_bottom_idx] - float(va_bot["middle"][0]), all_smoothed[f"left_{mid_name}"]["y"][kf_bottom_idx] - float(va_bot["middle"][1])) +
+                math.hypot(all_smoothed[f"left_{mid_name}"]["x"][kf_peak_idx] - float(va_peak["middle"][0]), all_smoothed[f"left_{mid_name}"]["y"][kf_peak_idx] - float(va_peak["middle"][1])) +
+                math.hypot(all_smoothed[f"left_{dist_name}"]["x"][kf_bottom_idx] - float(va_bot["distal"][0]), all_smoothed[f"left_{dist_name}"]["y"][kf_bottom_idx] - float(va_bot["distal"][1])) +
+                math.hypot(all_smoothed[f"left_{dist_name}"]["x"][kf_peak_idx] - float(va_peak["distal"][0]), all_smoothed[f"left_{dist_name}"]["y"][kf_peak_idx] - float(va_peak["distal"][1]))
+            )
+            d_right = (
+                math.hypot(all_smoothed[f"right_{mid_name}"]["x"][kf_bottom_idx] - float(va_bot["middle"][0]), all_smoothed[f"right_{mid_name}"]["y"][kf_bottom_idx] - float(va_bot["middle"][1])) +
+                math.hypot(all_smoothed[f"right_{mid_name}"]["x"][kf_peak_idx] - float(va_peak["middle"][0]), all_smoothed[f"right_{mid_name}"]["y"][kf_peak_idx] - float(va_peak["middle"][1])) +
+                math.hypot(all_smoothed[f"right_{dist_name}"]["x"][kf_bottom_idx] - float(va_bot["distal"][0]), all_smoothed[f"right_{dist_name}"]["y"][kf_bottom_idx] - float(va_bot["distal"][1])) +
+                math.hypot(all_smoothed[f"right_{dist_name}"]["x"][kf_peak_idx] - float(va_peak["distal"][0]), all_smoothed[f"right_{dist_name}"]["y"][kf_peak_idx] - float(va_peak["distal"][1]))
+            )
+            locked_side = "left" if d_left <= d_right else "right"
+            print(f"[Visual Anchors] locked_side seleccionado por 2D Pointing: {locked_side} (d_left={d_left:.3f}, d_right={d_right:.3f})")
+        elif vlm_result and vlm_result.get("active_working_side") in ["left", "right"]:
             locked_side = vlm_result["active_working_side"]
         else:
             locked_side = "left" if left_score_total >= right_score_total else "right"
@@ -1105,38 +1119,54 @@ def process_kinematics(
             all_smoothed["right_ankle"]["score"]
         ])))
 
-        is_leg_work_exercise = any(k in ex_lower for k in ["rdl", "deadlift", "rumano", "squat", "bulgarian", "lunge"])
-        if is_leg_work_exercise:
-            l_ank_x = all_smoothed["left_ankle"]["x"]
-            r_ank_x = all_smoothed["right_ankle"]["x"]
-            l_forward = float(np.median(l_ank_x) * facing_dir)
-            r_forward = float(np.median(r_ank_x) * facing_dir)
-            l_std = float(np.std(l_ank_x))
-            r_std = float(np.std(r_ank_x))
-
-            if abs(l_forward - r_forward) > 0.025:
-                locked_side = "left" if l_forward > r_forward else "right"
-                is_unilateral_flag = True
-            elif abs(l_std - r_std) > 0.015:
-                locked_side = "left" if l_std < r_std else "right"
-                is_unilateral_flag = False
-            elif abs(left_conf - right_conf) > 0.12:
-                locked_side = "left" if left_conf > right_conf else "right"
-                is_unilateral_flag = False
-            else:
-                left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
-                right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
-                is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
-                locked_side = "left" if left_activity >= right_activity else "right"
+        if has_valid_va:
+            d_left = (
+                math.hypot(all_smoothed[f"left_{mid_name}"]["x"][kf_bottom_idx] - float(va_bot["middle"][0]), all_smoothed[f"left_{mid_name}"]["y"][kf_bottom_idx] - float(va_bot["middle"][1])) +
+                math.hypot(all_smoothed[f"left_{mid_name}"]["x"][kf_peak_idx] - float(va_peak["middle"][0]), all_smoothed[f"left_{mid_name}"]["y"][kf_peak_idx] - float(va_peak["middle"][1])) +
+                math.hypot(all_smoothed[f"left_{dist_name}"]["x"][kf_bottom_idx] - float(va_bot["distal"][0]), all_smoothed[f"left_{dist_name}"]["y"][kf_bottom_idx] - float(va_bot["distal"][1])) +
+                math.hypot(all_smoothed[f"left_{dist_name}"]["x"][kf_peak_idx] - float(va_peak["distal"][0]), all_smoothed[f"left_{dist_name}"]["y"][kf_peak_idx] - float(va_peak["distal"][1]))
+            )
+            d_right = (
+                math.hypot(all_smoothed[f"right_{mid_name}"]["x"][kf_bottom_idx] - float(va_bot["middle"][0]), all_smoothed[f"right_{mid_name}"]["y"][kf_bottom_idx] - float(va_bot["middle"][1])) +
+                math.hypot(all_smoothed[f"right_{mid_name}"]["x"][kf_peak_idx] - float(va_peak["middle"][0]), all_smoothed[f"right_{mid_name}"]["y"][kf_peak_idx] - float(va_peak["middle"][1])) +
+                math.hypot(all_smoothed[f"right_{dist_name}"]["x"][kf_bottom_idx] - float(va_bot["distal"][0]), all_smoothed[f"right_{dist_name}"]["y"][kf_bottom_idx] - float(va_bot["distal"][1])) +
+                math.hypot(all_smoothed[f"right_{dist_name}"]["x"][kf_peak_idx] - float(va_peak["distal"][0]), all_smoothed[f"right_{dist_name}"]["y"][kf_peak_idx] - float(va_peak["distal"][1]))
+            )
+            locked_side = "left" if d_left <= d_right else "right"
+            print(f"[Visual Anchors] locked_side inferior seleccionado por 2D Pointing: {locked_side} (d_left={d_left:.3f}, d_right={d_right:.3f})")
         else:
-            if abs(left_conf - right_conf) > 0.12:
-                locked_side = "left" if left_conf > right_conf else "right"
-                is_unilateral_flag = False
+            is_leg_work_exercise = any(k in ex_lower for k in ["rdl", "deadlift", "rumano", "squat", "bulgarian", "lunge"])
+            if is_leg_work_exercise:
+                l_ank_x = all_smoothed["left_ankle"]["x"]
+                r_ank_x = all_smoothed["right_ankle"]["x"]
+                l_forward = float(np.median(l_ank_x) * facing_dir)
+                r_forward = float(np.median(r_ank_x) * facing_dir)
+                l_std = float(np.std(l_ank_x))
+                r_std = float(np.std(r_ank_x))
+
+                if abs(l_forward - r_forward) > 0.025:
+                    locked_side = "left" if l_forward > r_forward else "right"
+                    is_unilateral_flag = True
+                elif abs(l_std - r_std) > 0.015:
+                    locked_side = "left" if l_std < r_std else "right"
+                    is_unilateral_flag = False
+                elif abs(left_conf - right_conf) > 0.12:
+                    locked_side = "left" if left_conf > right_conf else "right"
+                    is_unilateral_flag = False
+                else:
+                    left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
+                    right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
+                    is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
+                    locked_side = "left" if left_activity >= right_activity else "right"
             else:
-                left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
-                right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
-                is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
-                locked_side = "left" if left_activity >= right_activity else "right"
+                if abs(left_conf - right_conf) > 0.12:
+                    locked_side = "left" if left_conf > right_conf else "right"
+                    is_unilateral_flag = False
+                else:
+                    left_activity = left_rom * (left_ankle_travel + 0.05) * (left_conf ** 2)
+                    right_activity = right_rom * (right_ankle_travel + 0.05) * (right_conf ** 2)
+                    is_unilateral_flag = bool(left_activity > 1.40 * right_activity or right_activity > 1.40 * left_activity)
+                    locked_side = "left" if left_activity >= right_activity else "right"
 
         raw_side_metrics = {
             "body_region": "lower_body",
@@ -1148,6 +1178,59 @@ def process_kinematics(
             "right_knee_rom_deg": round(right_rom, 1),
             "facing_dir": facing_dir
         }
+
+    # Deterministic ViTPose Validation & Proximal Joint Hallucination Correction
+    proximal_source = "vitpose_native"
+    prox_err = 0.0
+    if has_valid_va:
+        p_bot_x, p_bot_y = float(va_bot["proximal"][0]), float(va_bot["proximal"][1])
+        p_peak_x, p_peak_y = float(va_peak["proximal"][0]), float(va_peak["proximal"][1])
+
+        err_prox_bot = math.hypot(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_bottom_idx] - p_bot_x, all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_bottom_idx] - p_bot_y)
+        err_prox_peak = math.hypot(all_smoothed[f"{locked_side}_{prox_name}"]["x"][kf_peak_idx] - p_peak_x, all_smoothed[f"{locked_side}_{prox_name}"]["y"][kf_peak_idx] - p_peak_y)
+        prox_err = 0.5 * (err_prox_bot + err_prox_peak)
+
+        prox_y_p95 = float(np.percentile(all_smoothed[f"{locked_side}_{prox_name}"]["y"], 95))
+        prox_y_p05 = float(np.percentile(all_smoothed[f"{locked_side}_{prox_name}"]["y"], 5))
+        prox_vert_disp = float(prox_y_p95 - prox_y_p05)
+        is_anchor_joint_supported = bool(va.get("is_anchor_joint_supported", False))
+
+        needs_anchor = (prox_err > 0.09) or (is_anchor_joint_supported and prox_vert_disp > 0.07)
+        if needs_anchor:
+            print(f"[Proximal Validation] Desviación detectada en {locked_side}_{prox_name}: err={prox_err:.3f}, vert_disp={prox_vert_disp:.3f}, supported={is_anchor_joint_supported}")
+            other_side = "right" if locked_side == "left" else "left"
+            candidate_found = False
+            candidates_to_check = [f"{other_side}_{prox_name}", f"{locked_side}_ear", f"{other_side}_ear", "nose"]
+            for cand in candidates_to_check:
+                if cand in all_smoothed:
+                    c_bot_d = math.hypot(all_smoothed[cand]["x"][kf_bottom_idx] - p_bot_x, all_smoothed[cand]["y"][kf_bottom_idx] - p_bot_y)
+                    c_peak_d = math.hypot(all_smoothed[cand]["x"][kf_peak_idx] - p_peak_x, all_smoothed[cand]["y"][kf_peak_idx] - p_peak_y)
+                    if 0.5 * (c_bot_d + c_peak_d) < 0.07:
+                        all_smoothed[f"{locked_side}_{prox_name}"]["x"] = all_smoothed[cand]["x"].copy()
+                        all_smoothed[f"{locked_side}_{prox_name}"]["y"] = all_smoothed[cand]["y"].copy()
+                        proximal_source = f"vitpose_remapped_{cand}"
+                        candidate_found = True
+                        print(f"[Proximal Validation] Articulación proximal re-mapeada a keypoint ViTPose: {cand}")
+                        break
+            if not candidate_found:
+                for f in range(n_frames):
+                    alpha = float(f) / float(max(1, n_frames - 1))
+                    all_smoothed[f"{locked_side}_{prox_name}"]["x"][f] = p_bot_x + alpha * (p_peak_x - p_bot_x)
+                    all_smoothed[f"{locked_side}_{prox_name}"]["y"][f] = p_bot_y + alpha * (p_peak_y - p_bot_y)
+                proximal_source = "vlm_anchored"
+                print(f"[Proximal Validation] Articulación proximal anclada mediante interpolación lineal VLM.")
+        else:
+            proximal_source = "vitpose_native"
+            print(f"[Proximal Validation] ViTPose {locked_side}_{prox_name} validado anatómicamente con éxito (error={prox_err:.3f} <= 0.09).")
+
+    debug_pose_audit = {
+        "camera_plane": camera_plane,
+        "moment_arms_2d_valid": bool(moment_arms_2d_valid),
+        "locked_side": locked_side,
+        "proximal_source": proximal_source,
+        "proximal_vitpose_error": round(float(prox_err), 3)
+    }
+    print(f"[Debug Pose Audit] {debug_pose_audit}")
 
     # Bind primary joints directly to native ViTPose coordinates of the active locked side (Immutable 2D Vision)
     for c_name in canonical_joints:
@@ -2089,7 +2172,7 @@ def process_kinematics(
     if vlm_result:
         # Apply VLM overrides cleanly
         vlm_side = vlm_result.get("active_working_side")
-        if vlm_side in ["left", "right"] and vlm_side != locked_side:
+        if not has_valid_va and vlm_side in ["left", "right"] and vlm_side != locked_side:
             locked_side = vlm_side
             for c_name in canonical_joints:
                 primary_joints[c_name] = all_smoothed[f"{locked_side}_{c_name}"]
@@ -2582,6 +2665,65 @@ def process_kinematics(
                 frames_output[f]["moment_arms"]["d_shoulder"] = round(float(smooth_d_sh[f]), 4)
                 frames_output[f]["moment_arms"]["d_elbow"] = round(float(smooth_d_el[f]), 4)
 
+    # ---------------------------------------------------------------------
+    # Requirement 3: Moment Arms & Torque Split Synchronization
+    # ---------------------------------------------------------------------
+    if moment_arms_2d_valid:
+        # Compute median concentric primary percentage from orthogonal 2D moment arms
+        concentric_p_pcts = [
+            frames_output[f]["force_vector"]["primary_pct"]
+            for f in range(n_frames)
+            if frame_phase_map[f] == "CONCENTRIC"
+        ]
+        if not concentric_p_pcts:
+            concentric_p_pcts = [frames_output[f]["force_vector"]["primary_pct"] for f in range(n_frames)]
+        med_p = float(np.median(concentric_p_pcts)) if concentric_p_pcts else 70.0
+        med_s = round(100.0 - med_p, 1)
+        med_p = round(med_p, 1)
+
+        # Update vlm_result torque_split as single official truth
+        if vlm_result is None:
+            vlm_result = {}
+        if "torque_split" not in vlm_result or not isinstance(vlm_result["torque_split"], dict):
+            p_name = "Pectoral Mayor" if is_upper_body else "Cuádriceps"
+            s_name = "Tríceps Braquial" if is_upper_body else "Glúteo Mayor"
+            vlm_result["torque_split"] = {
+                "primary_muscle": p_name,
+                "primary_pct": med_p,
+                "secondary_muscle": s_name,
+                "secondary_pct": med_s,
+                "short_primary_label": "P" if is_upper_body else "C",
+                "short_secondary_label": "T" if is_upper_body else "G"
+            }
+        else:
+            vlm_result["torque_split"]["primary_pct"] = med_p
+            vlm_result["torque_split"]["secondary_pct"] = med_s
+
+        # Sync repetitions summary verdicts
+        for r_item in repetitions_summary:
+            if "verdict" in r_item and isinstance(r_item["verdict"], dict):
+                r_item["verdict"]["torque_split"] = f"{round(med_p)}% vs {round(med_s)}%"
+    else:
+        # Non-lateral camera plane (contrapicado, frontal, etc.): VLM torque_split is single source of truth
+        vlm_ts = vlm_result.get("torque_split", {}) if vlm_result else {}
+        official_p = float(vlm_ts.get("primary_pct", 70.0))
+        official_s = float(vlm_ts.get("secondary_pct", 30.0))
+        
+        # Override all frames to zero 2D moment arm pixels and set official VLM percentages
+        for f in range(n_frames):
+            frames_output[f]["force_vector"]["d_primary_px"] = 0.0
+            frames_output[f]["force_vector"]["d_secondary_px"] = 0.0
+            frames_output[f]["force_vector"]["primary_pct"] = round(official_p, 1)
+            frames_output[f]["force_vector"]["secondary_pct"] = round(official_s, 1)
+            frames_output[f]["moment_arms"]["d_shoulder"] = 0.0
+            frames_output[f]["moment_arms"]["d_elbow"] = 0.0
+            frames_output[f]["moment_arms"]["d_hip"] = 0.0
+            frames_output[f]["moment_arms"]["d_knee"] = 0.0
+
+        for r_item in repetitions_summary:
+            if "verdict" in r_item and isinstance(r_item["verdict"], dict):
+                r_item["verdict"]["torque_split"] = f"{round(official_p)}% vs {round(official_s)}%"
+
     assert len(frames_output) > 0, "frames_output cannot be empty"
     first_kps = frames_output[0]["keypoints"]
     for j_name in ["shoulder", "elbow", "wrist"]:
@@ -2676,6 +2818,9 @@ def process_kinematics(
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
         "total_reps": total_reps,
         "locked_side": locked_side,
+        "camera_plane": camera_plane,
+        "moment_arms_2d_valid": bool(moment_arms_2d_valid),
+        "debug_pose_audit": debug_pose_audit,
         "hide_torso_line": bool(hide_torso_line),
         "hide_neck_line": bool(hide_neck_line),
         "is_upper_back": bool(is_upper_back_series),

@@ -166,11 +166,23 @@ export interface BiomechanicsFrame {
   [key: string]: any;
 }
 
+export interface VlmVisualAnchors {
+  is_anchor_joint_supported: boolean;
+  kf_bottom: { proximal: [number, number]; middle: [number, number]; distal: [number, number] };
+  kf_peak: { proximal: [number, number]; middle: [number, number]; distal: [number, number] };
+}
+
 export interface VlmAnalysis {
   detected_exercise_name?: string;
+  detected_exercise_type?: string;
+  target_muscle?: string;
+  load_type?: string;
+  camera_plane?: string;
+  visual_anchors?: VlmVisualAnchors;
   active_working_side?: 'left' | 'right';
   is_bilateral_visible?: boolean;
   hide_torso_line?: boolean;
+  hide_neck_line?: boolean;
   force_vector_2d?: { ux: number; uy: number };
   load_anchor_joint?: 'wrist' | 'hip';
   torque_split?: {
@@ -202,6 +214,15 @@ export interface BiomechanicsAnalysisResponse {
   total_duration_sec?: number;
   total_reps: number;
   locked_side: 'left' | 'right';
+  camera_plane?: string;
+  moment_arms_2d_valid?: boolean;
+  debug_pose_audit?: {
+    camera_plane: string;
+    moment_arms_2d_valid: boolean;
+    locked_side: string;
+    proximal_source: string;
+    proximal_vitpose_error: number;
+  };
   detected_exercise_type?: string;
   body_region?: 'upper' | 'lower';
   is_upper_body?: boolean;

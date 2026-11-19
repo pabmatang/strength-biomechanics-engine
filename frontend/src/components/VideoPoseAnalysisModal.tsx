@@ -465,6 +465,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     }
   }, [isOpen]);
 
+  // Log telemetry pose audit
+  useEffect(() => {
+    if (analysisData?.debug_pose_audit) {
+      console.info("[MIA Audit]", analysisData.debug_pose_audit);
+    }
+  }, [analysisData]);
+
   // Load previous session for ghost skeleton
   useEffect(() => {
     const exId = selectedExerciseId || activeExercise?.id || 'exercise';
@@ -515,6 +522,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       };
 
       const result = await analyzeVideoWithModal(blob, config, fileId, { range });
+      if (result.debug_pose_audit) {
+        console.info("[MIA Audit]", result.debug_pose_audit);
+      }
       setAnalysisData(result);
       setRepCount(result.total_reps);
       setPipelineState('ready');
@@ -911,6 +921,30 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       ctx.stroke();
     };
 
+    // Estela suave de trayectoria de la carga (últimos 15 frames) para ambos modos
+    if (analysisData?.frames && analysisData.frames.length > 0) {
+      const curIdx = frame.frame_idx ?? 0;
+      const trailStart = Math.max(0, curIdx - 15);
+      for (let i = trailStart; i < curIdx; i++) {
+        const fPrev = analysisData.frames[i];
+        const fNext = analysisData.frames[i + 1];
+        if (!fPrev || !fNext) continue;
+        const kPrev = (fPrev.keypoints || fPrev.keypoints_norm || {}) as any;
+        const kNext = (fNext.keypoints || fNext.keypoints_norm || {}) as any;
+        const ptPrev = getPoint(isUpper ? (kPrev.wrist || kPrev.hand_grip) : (kPrev.hip || kPrev.knee));
+        const ptNext = getPoint(isUpper ? (kNext.wrist || kNext.hand_grip) : (kNext.hip || kNext.knee));
+        if (!ptPrev.valid || !ptNext.valid) continue;
+
+        const alpha = ((i - trailStart + 1) / (curIdx - trailStart + 1)) * 0.85;
+        ctx.beginPath();
+        ctx.moveTo(ptPrev.x, ptPrev.y);
+        ctx.lineTo(ptNext.x, ptNext.y);
+        ctx.strokeStyle = `rgba(56, 189, 248, ${alpha.toFixed(2)})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+    }
+
     if (mode === 'technique') {
       // -------------------------------------------------------------
       // MODO 1: CORRECCIÓN TÉCNICA
@@ -954,30 +988,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           const kneeAngle = Math.round(frame.angles?.knee ?? frame.secondary_angle ?? 90);
           drawPillTag(pHp.x - 42, pHp.y - 18, `Cadera: ${hipAngle}°`, '#38BDF8', '#38BDF8');
           drawPillTag(pKn.x - 42, pKn.y - 14, `Rodilla: ${kneeAngle}°`, '#10B981', '#10B981');
-        }
-      }
-
-      // Estela suave de trayectoria de la carga (últimos 15 frames)
-      if (analysisData?.frames && analysisData.frames.length > 0) {
-        const curIdx = frame.frame_idx ?? 0;
-        const trailStart = Math.max(0, curIdx - 15);
-        for (let i = trailStart; i < curIdx; i++) {
-          const fPrev = analysisData.frames[i];
-          const fNext = analysisData.frames[i + 1];
-          if (!fPrev || !fNext) continue;
-          const kPrev = (fPrev.keypoints || fPrev.keypoints_norm || {}) as any;
-          const kNext = (fNext.keypoints || fNext.keypoints_norm || {}) as any;
-          const ptPrev = getPoint(isUpper ? (kPrev.wrist || kPrev.hand_grip) : (kPrev.hip || kPrev.knee));
-          const ptNext = getPoint(isUpper ? (kNext.wrist || kNext.hand_grip) : (kNext.hip || kNext.knee));
-          if (!ptPrev.valid || !ptNext.valid) continue;
-
-          const alpha = ((i - trailStart + 1) / (curIdx - trailStart + 1)) * 0.85;
-          ctx.beginPath();
-          ctx.moveTo(ptPrev.x, ptPrev.y);
-          ctx.lineTo(ptNext.x, ptNext.y);
-          ctx.strokeStyle = `rgba(56, 189, 248, ${alpha.toFixed(2)})`;
-          ctx.lineWidth = 2.5;
-          ctx.stroke();
         }
       }
     } else {
@@ -1071,35 +1081,42 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       // Nodo en el origen de fuerza
       drawNodePoint(pOrigin, '#FBBF24', 4.5);
 
-      // Líneas discontinuas perpendiculares desde las articulaciones activas a la línea de fuerza
-      drawThickSegment(j1, proj1, '#3B82F6', 1.8, true);
-      drawThickSegment(j2, proj2, '#10B981', 1.8, true);
+      const momentArmsValid = analysisData?.moment_arms_2d_valid ?? true;
 
-      // Píldoras compactas anti-colisión (P: XX y T: XX)
-      if (options.showCanvasText) {
-        const pShort = fv.primary_short || (isUpper ? 'P' : 'C');
-        const sShort = fv.secondary_short || (isUpper ? 'T' : 'G');
-        const pVal = fv.primary_pct !== undefined ? Math.round(fv.primary_pct) : Math.round(dist1);
-        const sVal = fv.secondary_pct !== undefined ? Math.round(fv.secondary_pct) : Math.round(dist2);
+      if (!momentArmsValid) {
+        // Discreto pill en el canvas indicando estimación VLM
+        drawPillTag(16, 16, 'Vista no lateral · Torque estimado por VLM', '#F59E0B', '#FDE68A');
+      } else {
+        // Líneas discontinuas perpendiculares desde las articulaciones activas a la línea de fuerza
+        drawThickSegment(j1, proj1, '#3B82F6', 1.8, true);
+        drawThickSegment(j2, proj2, '#10B981', 1.8, true);
 
-        let tag1X = (j1.x + proj1.x) / 2 + (uy > 0 ? 8 : -48);
-        let tag1Y = (j1.y + proj1.y) / 2 - 8;
-        let tag2X = (j2.x + proj2.x) / 2 + (uy > 0 ? 8 : -48);
-        let tag2Y = (j2.y + proj2.y) / 2 - 8;
+        // Píldoras compactas anti-colisión (P: XX y T: XX)
+        if (options.showCanvasText) {
+          const pShort = fv.primary_short || (isUpper ? 'P' : 'C');
+          const sShort = fv.secondary_short || (isUpper ? 'T' : 'G');
+          const pVal = fv.primary_pct !== undefined ? Math.round(fv.primary_pct) : Math.round(dist1);
+          const sVal = fv.secondary_pct !== undefined ? Math.round(fv.secondary_pct) : Math.round(dist2);
 
-        // Anti-colisión si están a menos de 26px
-        if (Math.hypot(tag1X - tag2X, tag1Y - tag2Y) < 26) {
-          if (tag1Y <= tag2Y) {
-            tag1Y -= 13;
-            tag2Y += 13;
-          } else {
-            tag1Y += 13;
-            tag2Y -= 13;
+          let tag1X = (j1.x + proj1.x) / 2 + (uy > 0 ? 8 : -48);
+          let tag1Y = (j1.y + proj1.y) / 2 - 8;
+          let tag2X = (j2.x + proj2.x) / 2 + (uy > 0 ? 8 : -48);
+          let tag2Y = (j2.y + proj2.y) / 2 - 8;
+
+          // Anti-colisión si están a menos de 26px
+          if (Math.hypot(tag1X - tag2X, tag1Y - tag2Y) < 26) {
+            if (tag1Y <= tag2Y) {
+              tag1Y -= 13;
+              tag2Y += 13;
+            } else {
+              tag1Y += 13;
+              tag2Y -= 13;
+            }
           }
-        }
 
-        drawPillTag(tag1X, tag1Y, `${pShort}: ${pVal}`, '#3B82F6', '#93C5FD');
-        drawPillTag(tag2X, tag2Y, `${sShort}: ${sVal}`, '#10B981', '#6EE7B7');
+          drawPillTag(tag1X, tag1Y, `${pShort}: ${pVal}`, '#3B82F6', '#93C5FD');
+          drawPillTag(tag2X, tag2Y, `${sShort}: ${sVal}`, '#10B981', '#6EE7B7');
+        }
       }
     }
 
@@ -1521,7 +1538,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const rawVerdict = currentFrame?.verdict;
   const curElbowDeg = currentFrame ? currentFrame.main_angle : (rawVerdict?.inflection_elbow_deg || 90.0);
 
-  if (!isLowerBody) {
+  const vlmSplit = analysisData?.vlm_analysis?.torque_split;
+  const is2dValid = analysisData?.moment_arms_2d_valid ?? true;
+
+  if (!is2dValid && vlmSplit) {
+    primaryLeverName = `Brazo ${vlmSplit.primary_muscle}`;
+    secondaryLeverName = `Brazo ${vlmSplit.secondary_muscle}`;
+    primaryLeverShare = Math.round(vlmSplit.primary_pct);
+    secondaryLeverShare = Math.round(vlmSplit.secondary_pct);
+    torqueBadgeText = `${primaryLeverShare}% ${vlmSplit.primary_muscle} vs ${secondaryLeverShare}% ${vlmSplit.secondary_muscle}`;
+  } else if (!isLowerBody) {
     if (selectedMuscleGroupId === 'chest' || safeExerciseId.includes('bench') || safeExerciseId.includes('chest') || safeExerciseId.includes('press') || safeExerciseId.includes('dip')) {
       const eff_d_sh = Math.max(d_sh_val, 0.05);
       const totD = eff_d_sh + d_el_val;
