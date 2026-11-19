@@ -128,6 +128,7 @@ export interface RepetitionSummary {
 }
 
 export interface TimelineCue {
+  rep_index?: number;
   timestamp_sec: number;
   type: 'warning' | 'error' | 'critical' | 'positive' | string;
   badge: 'Sticking Point' | 'Desaceleración' | 'Pérdida de ROM' | 'Asimetría' | 'Control Óptimo' | string;
@@ -149,13 +150,29 @@ export interface AlignmentAndDiscomfort {
   checks: AlignmentCheck[];
 }
 
+export interface LimitingFactorMuscle {
+  muscle_id: string;
+  muscle_name: string;
+  effective_set_credit: number;
+  reason?: string;
+}
+
+export interface SynergistMuscle {
+  muscle_id: string;
+  muscle_name: string;
+  effective_set_credit: number;
+  reason?: string;
+}
+
 export interface StimulusAndSpecificity {
-  target_muscle: string;
-  secondary_muscles: string[];
-  tension_profile: 'peak_stretched' | 'peak_mid' | 'peak_shortened' | 'constant';
-  muscle_split_pct: { primary: number; secondary: number };
-  suggested_volume_multiplier: number;
-  actionable_adjustments: string[];
+  target_muscle?: string;
+  secondary_muscles?: string[];
+  tension_profile?: string;
+  limiting_factor?: LimitingFactorMuscle;
+  synergists?: SynergistMuscle[];
+  muscle_split_pct?: { primary: number; secondary: number };
+  suggested_volume_multiplier?: number;
+  actionable_adjustments?: string[];
 }
 
 export interface IntensityAudit {

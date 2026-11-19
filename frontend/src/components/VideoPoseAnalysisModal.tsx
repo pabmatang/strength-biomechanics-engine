@@ -5,7 +5,6 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Sparkles,
   ShieldCheck,
   AlertTriangle,
   Upload,
@@ -31,7 +30,11 @@ import {
   Eye,
   EyeOff,
   Dna,
-  Flame
+  Flame,
+  MessageSquare,
+  Scissors,
+  Edit3,
+  Target
 } from 'lucide-react';
 import { AnthropometricProfileModal } from './AnthropometricProfileModal';
 import { EffectiveVolumeAudit } from './EffectiveVolumeAudit';
@@ -655,15 +658,8 @@ const SingleSnapshotCanvas: React.FC<{
         </div>
         <div className="flex items-center gap-1.5">
           <span className="font-mono font-black text-amber-300">
-            {leverInfo?.distPx != null && leverInfo.distPx > 0
-              ? `${leverInfo.distPx} px`
-              : (leverInfo?.ratioText || (isUpperBody ? 'Hombro: 70% · Codo: 30%' : 'Cadera: 68% · Rodilla: 32%'))}
+            {leverInfo?.ratioText || (isUpperBody ? 'Hombro: 70% · Codo: 30%' : 'Cadera: 68% · Rodilla: 32%')}
           </span>
-          {leverInfo?.ratioText && leverInfo?.distPx != null && leverInfo.distPx > 0 && (
-            <span className="text-cyan-300 font-mono text-[10px] font-bold">
-              ({leverInfo.ratioText})
-            </span>
-          )}
           <span className="text-slate-400 text-[10px]">({leverInfo?.targetJointName ?? (isUpperBody ? 'Hombro' : 'Cadera')})</span>
         </div>
       </div>
@@ -839,6 +835,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [isCalibratingPulley, setIsCalibratingPulley] = useState<boolean>(false);
   const [proPulleyOrigin, setProPulleyOrigin] = useState<{ x: number; y: number } | null>(null);
   const [volumeMultiplierApplied, setVolumeMultiplierApplied] = useState<boolean>(false);
+  const [showExerciseConfigEdit, setShowExerciseConfigEdit] = useState<boolean>(false);
 
   const handleCueClick = (cue: TimelineCue) => {
     setActiveTimelineCue(cue);
@@ -991,6 +988,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         }
       }
       setAnalysisData(result);
+      setShowExerciseConfigEdit(false);
       setRepCount(result.total_reps);
       setPipelineState('ready');
       setPipelineMessage('');
@@ -1089,7 +1087,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     setPanOffset({ x: 0, y: 0 });
     setPlaybackSpeed(1.0);
     setShowConfigBottomSheet(false);
-    setShowTrimmer(true);
+    setShowTrimmer(false);
     setAnalysisData(null);
     setCurrentFrame(null);
     const hasDef = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
@@ -1445,8 +1443,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const curLoadPt = getPoint(frame.load_point || (isUpper ? kps.wrist : kps.hip));
       if (curLoadPt.valid) {
         drawNodePoint(curLoadPt, '#06B6D4', 6);
-        const velText = `${Math.round(frame.load_speed_px_s || 0)} px/s`;
-        drawPillTag(curLoadPt.x - 30, curLoadPt.y - 20, velText, '#06B6D4', '#67E8F9');
+        const maxV = Number(analysisData?.intensity_metrics?.max_rep_vel || 1);
+        const curV = Number(frame.load_speed_px_s || 0);
+        const relPct = maxV > 0 ? Math.min(100, Math.max(0, Math.round((curV / maxV) * 100))) : 100;
+        const velText = `Vel. Relativa: ${relPct}%`;
+        drawPillTag(curLoadPt.x - 42, curLoadPt.y - 20, velText, '#06B6D4', '#67E8F9');
       }
 
       // Sticking Point detection badge: estrictamente durante la fase CONCENTRIC y vel_loss >= 15%
@@ -1482,7 +1483,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           ctx.restore();
           const p1Start = getPoint(r1.path_points[0]);
           if (p1Start.valid) {
-            drawPillTag(p1Start.x + 8, p1Start.y - 8, `Rep #1 (${r1.rom_px}px)`, '#06B6D4', '#A5F3FC');
+            drawPillTag(p1Start.x + 8, p1Start.y - 8, 'Rep #1 (100% ROM)', '#06B6D4', '#A5F3FC');
           }
         }
 
@@ -1501,7 +1502,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           ctx.restore();
           const pLastEnd = getPoint(rLast.path_points[rLast.path_points.length - 1]);
           if (pLastEnd.valid) {
-            drawPillTag(pLastEnd.x + 8, pLastEnd.y - 8, `Última Rep (${rLast.rom_px}px)`, '#F97316', '#FDBA74');
+            const lastRomPct = (r1?.rom_px ?? 0) > 0 ? Math.round((rLast.rom_px / r1.rom_px) * 100) : 100;
+            drawPillTag(pLastEnd.x + 8, pLastEnd.y - 8, `Última Rep (${lastRomPct}% ROM)`, '#F97316', '#FDBA74');
           }
         }
       }
@@ -1583,6 +1585,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     // VIEW 3: ALINEACIÓN Y MOLESTIAS (ESQUELETO LIMPIO Y PREVENCIÓN)
     // -------------------------------------------------------------
     else if (view === 'alignment') {
+      const checks = options.alignmentChecks || [];
+      const getJointStatus = (jointKey: string) => {
+        const found = checks.find(c => (c.joint || '').toLowerCase().includes(jointKey));
+        return found ? found.status : 'pass';
+      };
+
       if (isUpper) {
         drawThickSegment(pSh, pEl, '#10B981', 3.5);
         drawThickSegment(pEl, pWr, '#34D399', 3.5);
@@ -1590,8 +1598,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawNodePoint(pEl, '#10B981', 5.0);
         drawNodePoint(pWr, '#34D399', 5.0);
         drawAngleArc(pEl, pSh, pWr, 24, '#38BDF8');
-        drawPillTag(pEl.x - 36, pEl.y - 18, `Codo: ${Math.round(frame.angles?.elbow ?? 90)}°`, '#38BDF8', '#38BDF8');
-        drawPillTag(pSh.x - 40, pSh.y - 18, `Hombro: ${Math.round(frame.angles?.shoulder ?? 45)}°`, '#10B981', '#10B981');
+
+        const elStatus = getJointStatus('codo') !== 'pass' ? getJointStatus('codo') : getJointStatus('elbow');
+        const shStatus = getJointStatus('hombro') !== 'pass' ? getJointStatus('hombro') : getJointStatus('shoulder');
+        const elAngle = Math.round(frame.angles?.elbow ?? 90);
+        const shAngle = Math.round(frame.angles?.shoulder ?? 45);
+
+        if (elStatus === 'warning' || elStatus === 'critical') {
+          drawPillTag(pEl.x - 45, pEl.y - 18, `⚠️ Codo: ${elAngle}°`, elStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+        } else {
+          drawPillTag(pEl.x - 36, pEl.y - 18, `Codo: ${elAngle}°`, '#38BDF8', '#38BDF8');
+        }
+
+        if (shStatus === 'warning' || shStatus === 'critical') {
+          drawPillTag(pSh.x - 48, pSh.y - 18, `⚠️ Hombro: ${shAngle}°`, shStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+        } else {
+          drawPillTag(pSh.x - 40, pSh.y - 18, `Hombro: ${shAngle}°`, '#10B981', '#10B981');
+        }
       } else {
         if (pEar.valid) {
           drawThickSegment(pEar, pSh, '#10B981', 3.5);
@@ -1606,24 +1629,40 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawNodePoint(pAk, '#38BDF8', 5.0);
         drawAngleArc(pHp, pSh, pKn, 24, '#38BDF8');
         drawAngleArc(pKn, pHp, pAk, 20, '#10B981');
-        drawPillTag(pHp.x - 42, pHp.y - 18, `Cadera: ${Math.round(frame.angles?.hip ?? 120)}°`, '#38BDF8', '#38BDF8');
-        drawPillTag(pKn.x - 42, pKn.y - 14, `Rodilla: ${Math.round(frame.angles?.knee ?? 90)}°`, '#10B981', '#10B981');
+
+        const hpStatus = getJointStatus('cadera') !== 'pass' ? getJointStatus('cadera') : (getJointStatus('hip') !== 'pass' ? getJointStatus('hip') : getJointStatus('pelvis'));
+        const knStatus = getJointStatus('rodilla') !== 'pass' ? getJointStatus('rodilla') : getJointStatus('knee');
+        const hpAngle = Math.round(frame.angles?.hip ?? 120);
+        const knAngle = Math.round(frame.angles?.knee ?? 90);
+
+        if (hpStatus === 'warning' || hpStatus === 'critical') {
+          drawPillTag(pHp.x - 48, pHp.y - 18, `⚠️ Cadera: ${hpAngle}°`, hpStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+        } else {
+          drawPillTag(pHp.x - 42, pHp.y - 18, `Cadera: ${hpAngle}°`, '#38BDF8', '#38BDF8');
+        }
+
+        if (knStatus === 'warning' || knStatus === 'critical') {
+          drawPillTag(pKn.x - 48, pKn.y - 14, `⚠️ Rodilla: ${knAngle}°`, knStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+        } else {
+          drawPillTag(pKn.x - 42, pKn.y - 14, `Rodilla: ${knAngle}°`, '#10B981', '#10B981');
+        }
       }
 
-      // Check alignment warnings
-      const checks = options.alignmentChecks || [];
+      // Check non-angle alignment warnings (e.g. Lumbar / Muñeca)
       checks.forEach(chk => {
         if (chk.status === 'warning' || chk.status === 'critical') {
           const jName = (chk.joint || '').toLowerCase();
           let targetJ = null;
-          if (jName.includes('hombro') || jName.includes('shoulder')) targetJ = pSh;
-          else if (jName.includes('codo') || jName.includes('elbow')) targetJ = pEl;
-          else if (jName.includes('muñeca') || jName.includes('wrist')) targetJ = pWr;
-          else if (jName.includes('rodilla') || jName.includes('knee')) targetJ = pKn;
-          else if (jName.includes('cadera') || jName.includes('pelvis') || jName.includes('hip')) targetJ = pHp;
-          else if (jName.includes('columna') || jName.includes('lumbar') || jName.includes('espalda')) targetJ = pHp;
+          let label = `⚠️ ${chk.joint}`;
+          if (jName.includes('columna') || jName.includes('lumbar') || jName.includes('espalda')) {
+            targetJ = pHp;
+            label = '⚠️ Lumbar';
+          } else if (jName.includes('muñeca') || jName.includes('wrist')) {
+            targetJ = pWr;
+            label = '⚠️ Muñeca';
+          }
 
-          if (targetJ && targetJ.valid) {
+          if (targetJ && targetJ.valid && !jName.includes('rodilla') && !jName.includes('knee') && !jName.includes('cadera') && !jName.includes('hip') && !jName.includes('codo') && !jName.includes('elbow') && !jName.includes('hombro') && !jName.includes('shoulder')) {
             ctx.save();
             ctx.beginPath();
             ctx.arc(targetJ.x, targetJ.y, 16, 0, 2 * Math.PI);
@@ -1632,7 +1671,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             ctx.setLineDash([4, 3]);
             ctx.stroke();
             ctx.restore();
-            drawPillTag(targetJ.x - 24, targetJ.y - 20, `⚠️ ${chk.joint}`, chk.status === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+            drawPillTag(targetJ.x - 24, targetJ.y - 32, label, chk.status === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
           }
         }
       });
@@ -2215,6 +2254,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             : 'Alineación articular óptima (~90° en rodilla). Bloqueo concéntrico directo sin compensación lumbar.')))
   };
 
+  const alignmentHealth = useMemo(() => {
+    if (!analysisData) {
+      return { level: 'optimal' as const, label: 'Alineación Óptima', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10', dot: 'bg-emerald-400' };
+    }
+    const stress = analysisData.alignment_and_discomfort?.joint_stress_level || 'low';
+    const checks = analysisData.alignment_and_discomfort?.checks || [];
+    const hasCritical = checks.some(c => c.status === 'critical') || stress === 'high';
+    const hasWarning = checks.some(c => c.status === 'warning') || stress === 'moderate';
+
+    if (hasCritical) {
+      return { level: 'danger' as const, label: 'Riesgo Articular', bg: 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-sm shadow-rose-500/10', dot: 'bg-rose-400' };
+    }
+    if (hasWarning) {
+      return { level: 'warning' as const, label: 'Alineación: Supervisión', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/10', dot: 'bg-amber-400' };
+    }
+    return { level: 'optimal' as const, label: 'Alineación Óptima', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10', dot: 'bg-emerald-400' };
+  }, [analysisData]);
+
   // Real clinical statistics from repetition summaries
   const minRomAngle = analysisData?.repetitions_summary?.length
     ? Math.round(Math.min(...analysisData.repetitions_summary.map(r => r.min_primary_angle)))
@@ -2304,7 +2361,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   // 4 Commercial Biomechanical View Switcher Buttons
   const viewTabs: { id: AnalysisView; label: string; sub: string; icon: any }[] = [
     { id: 'velocity', label: 'Velocidad', sub: 'VBT e Intensidad', icon: Gauge },
-    { id: 'coach', label: 'Coach IA', sub: 'Línea de Tiempo', icon: Sparkles },
+    { id: 'coach', label: 'Coach IA', sub: 'Línea de Tiempo', icon: MessageSquare },
     { id: 'alignment', label: 'Alineación', sub: 'Salud y Lesiones', icon: ShieldCheck },
     { id: 'stimulus', label: 'Estímulo', sub: 'Radiografía y Polea', icon: Dna },
   ];
@@ -2346,33 +2403,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3 landscape:p-2 lg:p-4 bg-black/95 backdrop-blur-md overflow-hidden">
       <div className="w-full h-[100dvh] sm:h-auto sm:max-h-[96dvh] landscape:h-[100dvh] lg:landscape:h-auto lg:landscape:max-h-[95dvh] max-w-6xl bg-[#0f111a] sm:border border-blue-500/30 rounded-none sm:rounded-3xl p-2.5 sm:p-4 lg:p-5 shadow-2xl text-white flex flex-col gap-2 sm:gap-3 overflow-hidden my-auto">
 
-        {/* Compact Header */}
+        {/* Compact Clean Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-2 gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25 shrink-0">
               <Video className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <h3 className="text-sm sm:text-lg font-black text-white truncate">Análisis Biomecánico Clínico</h3>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${
-                  pipelineState === 'ready'
-                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                    : pipelineState === 'analyzing' || pipelineState === 'compressing'
-                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30 animate-pulse'
-                    : pipelineState === 'error'
-                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                    : 'bg-slate-800 text-slate-300 border-slate-700'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${pipelineState === 'ready' ? 'bg-emerald-400' : pipelineState === 'error' ? 'bg-rose-400' : 'bg-cyan-400 animate-ping'}`} />
-                  <span>
-                    {pipelineState === 'ready' ? 'Cerebrium GPU T4 Activo' : pipelineState === 'analyzing' ? 'Inferencia GPU...' : pipelineState === 'compressing' ? 'Comprimiendo...' : pipelineState === 'error' ? 'Error' : 'Listo'}
-                  </span>
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 hidden lg:block">
-                RT-DETR + ViTPose 2D + SciPy Butterworth Fase-Cero (Cerebrium T4 GPU)
-              </p>
+              <h3 className="text-sm sm:text-lg font-black text-white truncate">Análisis Biomecánico</h3>
             </div>
           </div>
 
@@ -2384,11 +2422,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               <X className="w-5 h-5" />
             </button>
           </div>
-        </div>
-
-        {/* Mobile Mode Switcher */}
-        <div className="shrink-0 landscape:hidden lg:hidden">
-          {viewSwitcherButtons}
         </div>
 
         {/* Main 2-Column Responsive Layout */}
@@ -2424,13 +2457,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               {/* Alignment Status Badge + Zoom Controls */}
               <div className="flex items-center gap-2">
                 {currentFrame && (
-                  <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition ${
-                    activeVerdict.status === 'OPTIMAL'
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
-                      : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${activeVerdict.status === 'OPTIMAL' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                    <span>{activeVerdict.status === 'OPTIMAL' ? '✓ Alineación Articular Óptima' : '⚠️ Ajustar Alineación'}</span>
+                  <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition ${alignmentHealth.bg}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${alignmentHealth.dot}`} />
+                    <span>{alignmentHealth.label}</span>
                   </span>
                 )}
 
@@ -2651,7 +2680,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       }}
                       className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 shadow-md truncate"
                     >
-                      <option value="auto">✨ Auto-detectar ejercicio con IA</option>
+                      <option value="auto">Auto-detectar ejercicio con IA</option>
                       {MUSCLE_GROUPS.map((group) => (
                         <optgroup key={group.id} label={group.name}>
                           {group.exercises.map((item) => (
@@ -2668,7 +2697,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       onClick={handleStartAnalysis}
                       className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
                     >
-                      <Sparkles className="w-4 h-4 text-cyan-200" />
+                      <RefreshCw className="w-4 h-4 text-cyan-200" />
                       <span>Iniciar Análisis</span>
                     </button>
                   </div>
@@ -2686,7 +2715,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                         : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     }`}>
-                      <Sparkles className="w-4 h-4" />
+                      <MessageSquare className="w-4 h-4" />
                     </span>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2725,7 +2754,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </span>
                   {activeView === 'velocity' ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
-                      Vel: {Math.round(currentFrame?.load_speed_px_s || 0)} px/s
+                      Vel. Relativa: {currentFrame?.load_speed_px_s && (analysisData?.intensity_metrics?.max_rep_vel ?? 0) > 0 ? Math.min(100, Math.round(((currentFrame.load_speed_px_s) / analysisData!.intensity_metrics!.max_rep_vel!) * 100)) : 100}%
                     </span>
                   ) : activeView === 'coach' ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-200 text-[10px] font-mono font-bold shadow-md">
@@ -2810,30 +2839,44 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <span>{formatVideoTime(videoCurrentTime)} / {formatVideoTime(effectiveTotalDuration)}</span>
                 </div>
 
-                <div className="flex items-center gap-1">
-                  {[0.5, 1.0, 1.5].map((spd) => (
-                    <button
-                      key={spd}
-                      type="button"
-                      onClick={() => handleSpeedChange(spd)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                        playbackSpeed === spd ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {spd}x
-                    </button>
-                  ))}
+                <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
+                    {[0.5, 1.0, 1.5].map((spd) => (
+                      <button
+                        key={spd}
+                        type="button"
+                        onClick={() => handleSpeedChange(spd)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          playbackSpeed === spd ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {spd}x
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTrimmer(prev => !prev)}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                      showTrimmer
+                        ? 'bg-cyan-600/20 text-cyan-300 border-cyan-500/40'
+                        : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                    }`}
+                  >
+                    <Scissors className="w-3 h-3" />
+                    <span>Recortar</span>
+                  </button>
                 </div>
               </div>
             </div>
 
             {/* Range Trimmer Component (Interactive Dual Slider & Controls) */}
-            {uploadedVideoUrl && (
+            {uploadedVideoUrl && showTrimmer && (
               <div className="p-3 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Sliders className="w-4 h-4 text-cyan-400" />
-                    <span className="text-xs font-bold text-slate-300">Recortador de Rango (Dual-Range Trimmer)</span>
+                    <span className="text-xs font-bold text-slate-300">Recortador de Rango</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
@@ -2845,16 +2888,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setShowTrimmer(prev => !prev)}
+                      onClick={() => setShowTrimmer(false)}
                       className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700"
                     >
-                      {showTrimmer ? 'Ocultar' : '✂️ Recortar tramo'}
+                      Ocultar
                     </button>
                   </div>
                 </div>
 
-                {showTrimmer && (
-                  <div className="space-y-3 pt-1">
+                <div className="space-y-3 pt-1">
                     <div className="grid grid-cols-2 gap-3 text-xs font-mono">
                       <div className="space-y-1">
                         <div className="flex justify-between text-slate-400 text-[11px]">
@@ -2910,12 +2952,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
                         className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/30 transition"
                       >
-                        <Sparkles className={`w-3.5 h-3.5 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={`w-3.5 h-3.5 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
                         <span>{analysisData ? 'Re-analizar tramo' : 'Iniciar Análisis Biomecánico'}</span>
                       </button>
                     </div>
                   </div>
-                )}
               </div>
             )}
 
@@ -2923,136 +2964,77 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
           {/* RIGHT COLUMN: Mode Switcher, Exercise Selector & Biomechanical Diagnosis */}
           <div className="flex flex-col gap-3 min-w-0 lg:col-span-5">
-            <div className="hidden lg:block">
+            <div className="block">
               {viewSwitcherButtons}
             </div>
 
             {/* Exercise Configuration & Auto-Detection */}
-            <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Configuración y Ejercicio
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowAnthropometryModal(true)}
-                    className="px-2.5 py-1 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/90 border border-cyan-800/70 text-cyan-300 text-[10px] font-bold flex items-center gap-1 transition active:scale-95 shadow-sm"
-                    title="Configurar Pasaporte Biomecánico del Atleta"
-                  >
-                    <Dna className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Pasaporte</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowVolumeAuditModal(true)}
-                    className="px-2.5 py-1 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-800/70 text-emerald-300 text-[10px] font-bold flex items-center gap-1 transition active:scale-95 shadow-sm"
-                    title="Auditoría de Volumen Efectivo Real por Músculo"
-                  >
-                    <Flame className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Volumen Real</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Pastilla Superior Limpia: Detección Automática con Toggle "Cambiar" */}
-              <div
-                title={analysisData?.vlm_error || undefined}
-                className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 shadow-inner transition-colors duration-200 ${
-                analysisData && analysisData.vlm_used === true
-                  ? 'bg-emerald-950/70 border-emerald-800/80 shadow-emerald-950/30'
-                  : analysisData && analysisData.vlm_used === false
-                  ? 'bg-amber-950/50 border-amber-800/70 shadow-amber-950/30'
-                  : 'bg-slate-950/90 border-slate-800'
-              }`}>
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="text-sm shrink-0">
-                    {analysisData && analysisData.vlm_used === false ? '⚠️' : '✨'}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <span className="text-[11px] font-bold block truncate">
-                      {analysisData && analysisData.vlm_used === false ? (
-                        <span className="text-amber-400 font-bold">
-                          ⚠️ Fallback Cinemático Local (VLM inactivo)
-                        </span>
-                      ) : analysisData && analysisData.vlm_used === true ? (
-                        <span className="text-emerald-400 font-bold">
-                          ✨ IA Multimodal VLM Activa ({analysisData.vlm_model_used || 'Gemini'} · {analysisData.vlm_mode === 'video_mp4' ? 'Vídeo' : 'Keyframes'}) · {analysisData?.vlm_analysis?.detected_exercise_name || activeExercise.name}
-                        </span>
-                      ) : analysisData?.vlm_analysis?.detected_exercise_name ? (
-                        <span className="text-slate-200">Detectado: {analysisData.vlm_analysis.detected_exercise_name}</span>
-                      ) : (isManualOverride
-                            ? <span className="text-slate-200">Selección Manual: {activeExercise.name}</span>
-                            : <span className="text-slate-200">✨ Detección Automática de Ejercicio · Reconocimiento por VLM</span>)}
-                      {(analysisData || isManualOverride) && activeExercise?.targetMuscle && (
-                        <span className="text-slate-400 font-normal"> · {activeExercise.targetMuscle}</span>
-                      )}
+            {analysisData && !showExerciseConfigEdit ? (
+              <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 shadow-sm">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Target className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-white text-xs truncate">
+                      {analysisData?.vlm_analysis?.detected_exercise_name || activeExercise.name}
                     </span>
-                    {analysisData && analysisData.vlm_used === false && analysisData.vlm_error ? (
-                      <span
-                        className="text-[10px] text-amber-300 font-mono block break-words mt-0.5 line-clamp-2"
-                        title={analysisData.vlm_error}
-                      >
-                        {analysisData.vlm_error.slice(0, 120)}{analysisData.vlm_error.length > 120 ? '...' : ''}
-                      </span>
-                    ) : (
-                      <span className="text-[9px] text-slate-500 block truncate font-mono">
-                        {analysisData
-                          ? (analysisData.vlm_used === false
-                              ? 'Cinemática determinista por rangos articulares 2D (ViTPose + Butterworth)'
-                              : `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada (Gemini 2.5 Flash)`)
-                          : (isManualOverride
-                              ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Selección manual por usuario`
-                              : 'Clasificación inteligente multivariante y biomecánica (Gemini + ViTPose)')}
+                    {activeExercise?.targetMuscle && (
+                      <span className="text-slate-400 text-[11px] truncate">
+                        · {activeExercise.targetMuscle}
                       </span>
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowManualExerciseSelector(!showManualExerciseSelector)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold transition whitespace-nowrap border border-slate-700/60"
-                >
-                  {showManualExerciseSelector ? 'Ocultar' : 'Cambiar'}
-                </button>
-              </div>
-
-              {/* VBT Compact Configuration: Peso (kg) y Reps objetivo */}
-              <div className="grid grid-cols-2 gap-2 p-2 rounded-xl bg-slate-950/80 border border-slate-800/90 text-xs">
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-1">
-                    Peso / Carga (kg)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    placeholder="Opcional (e1RM)"
-                    value={weightKg ?? ''}
-                    onChange={(e) => setWeightKg(e.target.value ? parseFloat(e.target.value) : undefined)}
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-1">
-                    Reps Objetivo
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="Opcional"
-                    value={targetReps ?? ''}
-                    onChange={(e) => setTargetReps(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
-                  />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowExerciseConfigEdit(true)}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700/80 transition active:scale-95"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    <span>Editar</span>
+                  </button>
                 </div>
               </div>
+            ) : (
+              <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Configuración y Ejercicio
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowAnthropometryModal(true)}
+                      className="px-2.5 py-1 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/90 border border-cyan-800/70 text-cyan-300 text-[10px] font-bold flex items-center gap-1 transition active:scale-95 shadow-sm"
+                      title="Configurar Pasaporte Biomecánico del Atleta"
+                    >
+                      <Dna className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Pasaporte</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowVolumeAuditModal(true)}
+                      className="px-2.5 py-1 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-800/70 text-emerald-300 text-[10px] font-bold flex items-center gap-1 transition active:scale-95 shadow-sm"
+                      title="Auditoría de Volumen Efectivo Real por Músculo"
+                    >
+                      <Flame className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Volumen Real</span>
+                    </button>
+                    {analysisData && (
+                      <button
+                        type="button"
+                        onClick={() => setShowExerciseConfigEdit(false)}
+                        className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-[10px] font-semibold transition"
+                      >
+                        Cerrar
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-              {/* Selector Rápido Pre-Análisis en 1 Clic & Botón Iniciar Análisis Biomecánico */}
-              <div className="space-y-2">
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                {/* Selector de Ejercicio */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold text-slate-400 block">
                     Modo / Ejercicio para Análisis
                   </label>
                   <select
@@ -3070,9 +3052,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         }
                       }
                     }}
-                    className="w-full bg-slate-900 border border-slate-700 hover:border-cyan-500 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 transition truncate shadow-inner"
+                    className="w-full bg-slate-950 border border-slate-700 hover:border-cyan-500 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 transition truncate shadow-inner"
                   >
-                    <option value="auto">✨ Auto-detectar ejercicio con IA</option>
+                    <option value="auto">Auto-detectar ejercicio con IA</option>
                     {MUSCLE_GROUPS.map((group) => (
                       <optgroup key={group.id} label={group.name}>
                         {group.exercises.map((item) => (
@@ -3085,67 +3067,66 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </select>
                 </div>
 
+                {/* VBT Compact Configuration: Peso (kg) y Reps objetivo */}
+                <div className="grid grid-cols-2 gap-2 p-2 rounded-xl bg-slate-950/80 border border-slate-800/90 text-xs">
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                      Peso / Carga (kg)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      placeholder="Opcional"
+                      value={weightKg ?? ''}
+                      onChange={(e) => setWeightKg(e.target.value ? parseFloat(e.target.value) : undefined)}
+                      className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                      Reps Objetivo
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Opcional"
+                      value={targetReps ?? ''}
+                      onChange={(e) => setTargetReps(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                      className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  onClick={handleStartAnalysis}
+                  onClick={() => {
+                    handleStartAnalysis();
+                    setShowExerciseConfigEdit(false);
+                  }}
                   disabled={pipelineState === 'compressing' || pipelineState === 'analyzing'}
                   className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/30 transition active:scale-[0.99]"
                 >
-                  <Sparkles className={`w-4 h-4 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${pipelineState === 'analyzing' ? 'animate-spin' : ''}`} />
                   <span>{analysisData ? 'Re-analizar Ejercicio' : 'Iniciar Análisis Biomecánico'}</span>
                 </button>
               </div>
+            )}
 
-              {/* Cuadrícula manual desplegable (Oculta por defecto) */}
-              {showManualExerciseSelector && (
-                <div className="space-y-2.5 pt-2 border-t border-slate-800">
-                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-800">
-                    {MUSCLE_GROUPS.map((group) => {
-                      const isSelected = selectedMuscleGroupId === group.id;
-                      return (
-                        <button
-                          key={group.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedMuscleGroupId(group.id);
-                          }}
-                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition border ${
-                            isSelected
-                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20'
-                              : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
-                          }`}
-                        >
-                          {group.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-56 overflow-y-auto pr-1">
-                    {activeMuscleGroup?.exercises.map((item) => {
-                      const isSelected = selectedExerciseId === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => handleExerciseSelect(item)}
-                          className={`p-2 rounded-xl text-left border transition flex flex-col justify-between ${
-                            isSelected
-                              ? 'bg-blue-600/25 border-blue-500 text-blue-200 shadow-sm shadow-blue-500/20'
-                              : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                          }`}
-                        >
-                          <span className="text-xs font-bold leading-tight">{item.name}</span>
-                          <span className="text-[9px] font-mono text-slate-400 mt-1 uppercase">
-                            {item.loadType === 'gravity' ? 'Peso Libre' : item.loadType === 'cable' ? 'Polea' : 'Máquina'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+            {/* Discrete Error notice if VLM failed and fell back */}
+            {analysisData && analysisData.vlm_used === false && analysisData.vlm_error && (
+              <div
+                className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/60 text-[11px] text-amber-300 flex items-start gap-2"
+                title={analysisData.vlm_error}
+              >
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <span className="font-bold block">Modo fallback local</span>
+                  <span className="text-[10px] text-amber-300/80 line-clamp-2">{analysisData.vlm_error}</span>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* DYNAMIC 4-VIEW METRIC PANELS */}
 
@@ -3241,7 +3222,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       Progresión de Velocidad Concéntrica
                     </span>
                     <span className="text-cyan-400 font-mono text-[11px]">
-                      Pico: {Math.round(intensity.max_rep_vel || 300)} px/s
+                      Pérdida Fatiga: -{Math.round(analysisData?.intensity_audit?.velocity_loss_pct ?? intensity.velocity_loss_pct ?? 0)}%
                     </span>
                   </div>
 
@@ -3255,6 +3236,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           <div
                             key={idx}
                             className="flex-1 h-full flex flex-col justify-end items-center gap-0.5 group relative"
+                            title={`Rep #${idx + 1}: ${barHeightPct}% de velocidad inicial`}
                           >
                             <div className="w-full flex-1 flex items-end justify-center">
                               <div
@@ -3280,7 +3262,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <Activity className="w-4 h-4 text-emerald-400" />
                       Veredicto de Intensidad Clínica
                     </span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
@@ -3306,7 +3288,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <MessageSquare className="w-4 h-4 text-emerald-400" />
                       Intervenciones del Coach IA ({analysisData?.timeline_cues?.length || 0})
                     </span>
                     <span className="text-[10px] font-mono text-slate-400">
@@ -3526,96 +3508,130 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                 )}
 
-                {/* CARD 1: Perfil de Resistencia & Reparto */}
-                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <Scale className="w-4 h-4 text-purple-400" />
-                      Perfil de Tensión Mecánica
-                    </span>
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                      {analysisData?.stimulus_and_specificity?.tension_profile === 'peak_stretched'
-                        ? 'Pico en Estiramiento'
-                        : analysisData?.stimulus_and_specificity?.tension_profile === 'peak_shortened'
-                        ? 'Pico en Contracción'
-                        : analysisData?.stimulus_and_specificity?.tension_profile === 'peak_mid'
-                        ? 'Pico a Medio Rango'
-                        : 'Tensión Constante'}
-                    </span>
-                  </div>
+                {/* CARD 1: Factor Limitante y Sinergistas Fraccionales */}
+                {(() => {
+                  const stim = analysisData?.stimulus_and_specificity;
+                  const limiting = stim?.limiting_factor || {
+                    muscle_id: 'target',
+                    muscle_name: stim?.target_muscle || activeExercise.targetMuscle,
+                    effective_set_credit: 1.0,
+                    reason: 'Factor limitante principal de la serie.'
+                  };
+                  const synergists = stim?.synergists || (stim?.secondary_muscles || []).map((m, idx) => ({
+                    muscle_id: `syn_${idx}`,
+                    muscle_name: m,
+                    effective_set_credit: idx === 0 ? 0.5 : 0.3,
+                    reason: 'Sinergista agonista / estabilizador.'
+                  }));
+                  const tensionProfile = stim?.tension_profile || 'Uniforme';
 
-                  {/* Muscle stimulus split bar */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] font-mono text-slate-400 font-bold">
-                      <span>{analysisData?.stimulus_and_specificity?.target_muscle || 'Músculo Principal'}: {analysisData?.stimulus_and_specificity?.muscle_split_pct?.primary ?? 70}%</span>
-                      <span>Sinergistas: {analysisData?.stimulus_and_specificity?.muscle_split_pct?.secondary ?? 30}%</span>
-                    </div>
-                    <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-                      <div className="bg-purple-500 transition-all" style={{ width: `${analysisData?.stimulus_and_specificity?.muscle_split_pct?.primary ?? 70}%` }} />
-                      <div className="bg-cyan-500 transition-all" style={{ width: `${analysisData?.stimulus_and_specificity?.muscle_split_pct?.secondary ?? 30}%` }} />
-                    </div>
-                  </div>
+                  const rir = analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2.0;
+                  const intensityMult = rir <= 2.0 ? 1.0 : (rir <= 3.0 ? 0.8 : 0.5);
 
-                  <div className="text-[11px] text-slate-400 space-y-1">
-                    <div>
-                      <span className="text-slate-300 font-bold">Músculo Objetivo:</span>{' '}
-                      <span className="text-purple-300">{analysisData?.stimulus_and_specificity?.target_muscle || activeExercise.targetMuscle}</span>
-                    </div>
-                    {analysisData?.stimulus_and_specificity?.secondary_muscles && analysisData.stimulus_and_specificity.secondary_muscles.length > 0 && (
-                      <div>
-                        <span className="text-slate-300 font-bold">Sinergistas:</span>{' '}
-                        <span>{analysisData.stimulus_and_specificity.secondary_muscles.join(', ')}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* CARD 2: Ajustes Biomecánicos Recomendados */}
-                <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
-                  <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <Crosshair className="w-4 h-4 text-amber-400" />
-                    Ajustes Biomecánicos Recomendados
-                  </span>
-                  <div className="space-y-1.5 text-xs text-slate-200">
-                    {analysisData?.stimulus_and_specificity?.actionable_adjustments && analysisData.stimulus_and_specificity.actionable_adjustments.map((adj, idx) => (
-                      <div key={idx} className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 flex items-start gap-2">
-                        <span className="text-amber-400 font-bold">•</span>
-                        <span className="leading-snug">{adj}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* CARD 3: Aplicar Ponderación al Volumen Semanal */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVolumeMultiplierApplied(true);
-                    if (onApplyVolumeMultiplier && analysisData?.stimulus_and_specificity) {
-                      onApplyVolumeMultiplier(
-                        analysisData.stimulus_and_specificity.suggested_volume_multiplier,
-                        analysisData.stimulus_and_specificity.target_muscle
-                      );
-                    }
-                  }}
-                  className={`w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 border shadow-lg transition active:scale-95 ${
-                    volumeMultiplierApplied
-                      ? 'bg-emerald-600/30 text-emerald-200 border-emerald-500/50'
-                      : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-500/40 hover:from-purple-500 hover:to-indigo-500 shadow-purple-500/20'
-                  }`}
-                >
-                  {volumeMultiplierApplied ? (
+                  return (
                     <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      <span>¡Ponderación Aplicada al Volumen! (×{analysisData?.stimulus_and_specificity?.suggested_volume_multiplier ?? 1.1})</span>
+                      <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <Scale className="w-4 h-4 text-purple-400" />
+                            Modelo de Estímulo e Hipertrofia
+                          </span>
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                            {tensionProfile}
+                          </span>
+                        </div>
+
+                        {/* Factor Limitante Principal Card */}
+                        <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-800/60 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                              Factor Limitante Principal
+                            </span>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-600 text-white shadow-sm shadow-purple-500/30">
+                              1.0 Serie Efectiva
+                            </span>
+                          </div>
+                          <p className="text-sm font-black text-white">{limiting.muscle_name}</p>
+                          {limiting.reason && (
+                            <p className="text-[11px] text-purple-200/80 leading-snug">{limiting.reason}</p>
+                          )}
+                        </div>
+
+                        {/* Sinergistas Fraccionales */}
+                        {synergists.length > 0 && (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                              Sinergistas Agonistas y Estabilizadores
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {synergists.map((syn, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-semibold text-slate-200"
+                                  title={syn.reason}
+                                >
+                                  <span className="text-cyan-400 font-mono font-bold">+{syn.effective_set_credit.toFixed(1)}</span>
+                                  <span>{syn.muscle_name}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CARD 2: Ajustes Biomecánicos Recomendados */}
+                      {stim?.actionable_adjustments && stim.actionable_adjustments.length > 0 && (
+                        <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <Crosshair className="w-4 h-4 text-amber-400" />
+                            Ajustes Biomecánicos Recomendados
+                          </span>
+                          <div className="space-y-1.5 text-xs text-slate-200">
+                            {stim.actionable_adjustments.map((adj, idx) => (
+                              <div key={idx} className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 flex items-start gap-2">
+                                <span className="text-amber-400 font-bold">•</span>
+                                <span className="leading-snug">{adj}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CARD 3: Aplicar Ponderación al Volumen Semanal */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVolumeMultiplierApplied(true);
+                          if (onApplyVolumeMultiplier) {
+                            onApplyVolumeMultiplier(
+                              Math.round(1.0 * intensityMult * 100) / 100,
+                              limiting.muscle_name
+                            );
+                          }
+                        }}
+                        className={`w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 border shadow-lg transition active:scale-95 ${
+                          volumeMultiplierApplied
+                            ? 'bg-emerald-600/30 text-emerald-200 border-emerald-500/50'
+                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-500/40 hover:from-purple-500 hover:to-indigo-500 shadow-purple-500/20'
+                        }`}
+                      >
+                        {volumeMultiplierApplied ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <span>¡Volumen Añadido! (+{(1.0 * intensityMult).toFixed(2)} serie en {limiting.muscle_name})</span>
+                          </>
+                        ) : (
+                          <>
+                            <Flame className="w-4 h-4 text-amber-300" />
+                            <span>
+                              Añadir al Volumen Semanal (RIR {rir.toFixed(1)} · ×{intensityMult.toFixed(1)}): +{(1.0 * intensityMult).toFixed(2)} {limiting.muscle_name}
+                            </span>
+                          </>
+                        )}
+                      </button>
                     </>
-                  ) : (
-                    <>
-                      <Flame className="w-4 h-4 text-amber-300" />
-                      <span>Aplicar Ponderación al Volumen Semanal (×{analysisData?.stimulus_and_specificity?.suggested_volume_multiplier ?? 1.1})</span>
-                    </>
-                  )}
-                </button>
+                  );
+                })()}
               </div>
             )}
 

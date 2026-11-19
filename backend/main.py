@@ -534,6 +534,7 @@ def generate_deterministic_clinical_audit(
     if len(repetitions_summary) > 0:
         r1 = repetitions_summary[0]
         cues.append({
+            "rep_index": 1,
             "timestamp_sec": round(float(r1.get("inflection_time", r1.get("start_time", 1.0))), 2),
             "type": "positive",
             "badge": "Control Óptimo",
@@ -547,6 +548,7 @@ def generate_deterministic_clinical_audit(
             st_sec = r.get("sticking_point_sec")
             if st_sec is not None:
                 cues.append({
+                    "rep_index": idx,
                     "timestamp_sec": round(float(st_sec), 2),
                     "type": "warning",
                     "badge": "Sticking Point",
@@ -557,6 +559,7 @@ def generate_deterministic_clinical_audit(
         
         r_last = repetitions_summary[-1]
         cues.append({
+            "rep_index": total_reps,
             "timestamp_sec": round(float(r_last.get("inflection_time", r_last.get("end_time", 5.0))), 2),
             "type": "warning" if total_reps >= 4 else "positive",
             "badge": "Pérdida de ROM" if (rep_comparison and rep_comparison.get("rom_loss_pct", 0) > 12.0) else "Esfuerzo Terminal",
@@ -566,6 +569,7 @@ def generate_deterministic_clinical_audit(
         })
     else:
         cues.append({
+            "rep_index": 1,
             "timestamp_sec": 1.5,
             "type": "positive",
             "badge": "Posición Inicial",
@@ -637,67 +641,114 @@ def generate_deterministic_clinical_audit(
     }
     
     if "press" in ex_lower or "chest" in ex_lower or "pec" in ex_lower:
-        target_m = "Pectoral Mayor"
-        secondaries = ["Tríceps Braquial", "Deltoides Anterior"]
-        t_profile = "constant" if equipment == "machine" else "peak_stretched"
-        m_split = {"primary": 70, "secondary": 30}
+        limiting = {
+            "muscle_id": "chest",
+            "muscle_name": "Pectoral Mayor",
+            "effective_set_credit": 1.0,
+            "reason": "Factor limitante principal en la aducción horizontal glenohumeral."
+        }
+        synergists = [
+            {"muscle_id": "triceps", "muscle_name": "Tríceps Braquial", "effective_set_credit": 0.5},
+            {"muscle_id": "front_delt", "muscle_name": "Deltoides Anterior", "effective_set_credit": 0.4}
+        ]
+        t_profile = "Uniforme" if equipment in ["machine", "cable"] else "Pico en Estiramiento"
         tips = [
             "Alinea el agarre de la máquina o mancuernas con el esternón medio.",
             "Pausa de 1 segundo en estiramiento máximo para mayor estímulo hipertrófico."
         ]
-    elif "row" in ex_lower or "remo" in ex_lower or "pulldown" in ex_lower or "jalon" in ex_lower:
-        target_m = "Dorsal Ancho / Espalda Alta"
-        secondaries = ["Bíceps Braquial", "Deltoides Posterior"]
-        t_profile = "constant" if equipment == "cable" else "peak_shortened"
-        m_split = {"primary": 72, "secondary": 28}
+    elif "row" in ex_lower or "remo" in ex_lower or "pulldown" in ex_lower or "jalon" in ex_lower or "t_bar" in ex_lower:
+        is_upper_b = "t_bar" in ex_lower or "upper_back" in ex_lower or "traps" in ex_lower
+        limiting = {
+            "muscle_id": "upper_back" if is_upper_b else "lats",
+            "muscle_name": "Espalda Alta (Trapecio/Romboides)" if is_upper_b else "Dorsal Ancho",
+            "effective_set_credit": 1.0,
+            "reason": "Tracción humeral y retracción escapular activa como motor primario."
+        }
+        synergists = [
+            {"muscle_id": "biceps", "muscle_name": "Bíceps Braquial", "effective_set_credit": 0.5},
+            {"muscle_id": "rear_delt", "muscle_name": "Deltoides Posterior", "effective_set_credit": 0.4},
+            {"muscle_id": "forearms", "muscle_name": "Flexores del Antebrazo", "effective_set_credit": 0.3}
+        ]
+        t_profile = "Uniforme" if equipment in ["cable", "machine"] else "Pico en Acortamiento"
         tips = [
             "Conduce el movimiento desde los codos hacia la cadera en vez de traccionar con las manos.",
             "Permite una ligera protracción escapular controlada al final de la fase excéntrica."
         ]
     elif "thrust" in ex_lower or "glute" in ex_lower:
-        target_m = "Glúteo Mayor"
-        secondaries = ["Isquiosurales", "Cuádriceps"]
-        t_profile = "peak_shortened"
-        m_split = {"primary": 75, "secondary": 25}
+        limiting = {
+            "muscle_id": "glutes",
+            "muscle_name": "Glúteo Mayor",
+            "effective_set_credit": 1.0,
+            "reason": "Máximo brazo de momento en extensión terminal de cadera (acortamiento)."
+        }
+        synergists = [
+            {"muscle_id": "hamstrings", "muscle_name": "Isquiosurales", "effective_set_credit": 0.4},
+            {"muscle_id": "quads", "muscle_name": "Cuádriceps", "effective_set_credit": 0.3}
+        ]
+        t_profile = "Pico en Acortamiento"
         tips = [
             "Mantén la mirada al frente en el bloqueo superior para fijar la pelvis en retroversión.",
             "Pausa isométrica de 1-2 segundos arriba apretando los glúteos."
         ]
-    elif "rdl" in ex_lower or "deadlift" in ex_lower:
-        target_m = "Isquiosurales"
-        secondaries = ["Glúteo Mayor", "Erectores Espinales"]
-        t_profile = "peak_stretched"
-        m_split = {"primary": 68, "secondary": 32}
-        tips = [
-            "Inicia desplazando la pelvis hacia la pared trasera en vez de descender los hombros.",
-            "Detén el recorrido en cuanto la pelvis deje de viajar hacia atrás."
+    elif "rdl" in ex_lower or "deadlift" in ex_lower or "muerto" in ex_lower:
+        is_unilateral = "unilateral" in ex_lower or "b-stance" in ex_lower or "bstance" in ex_lower
+        limiting = {
+            "muscle_id": "glutes" if is_unilateral else "hamstrings",
+            "muscle_name": "Glúteo Mayor" if is_unilateral else "Isquiosurales",
+            "effective_set_credit": 1.0,
+            "reason": "Factor limitante principal de la serie en la extensión de cadera." if is_unilateral else "Máxima elongación y tensión mecánica excéntrica en isquiosurales."
+        }
+        synergists = [
+            {"muscle_id": "hamstrings" if is_unilateral else "glutes", "muscle_name": "Isquiosurales" if is_unilateral else "Glúteo Mayor", "effective_set_credit": 0.5},
+            {"muscle_id": "lower_back", "muscle_name": "Erectores Espinales", "effective_set_credit": 0.3},
+            {"muscle_id": "glute_med", "muscle_name": "Glúteo Medio", "effective_set_credit": 0.3}
         ]
-    elif "squat" in ex_lower or "leg_press" in ex_lower or "hack" in ex_lower:
-        target_m = "Cuádriceps"
-        secondaries = ["Glúteo Mayor", "Aductores"]
-        t_profile = "peak_stretched"
-        m_split = {"primary": 70, "secondary": 30}
+        t_profile = "Pico en Estiramiento"
+        tips = [
+            "Reduce ligeramente la flexión de rodilla para desplazar más tensión a isquios y glúteo.",
+            "Mantén la mancuerna pegada a la espinilla para minimizar fatiga lumbar."
+        ]
+    elif "squat" in ex_lower or "leg_press" in ex_lower or "hack" in ex_lower or "bulgarian" in ex_lower:
+        limiting = {
+            "muscle_id": "quads",
+            "muscle_name": "Cuádriceps",
+            "effective_set_credit": 1.0,
+            "reason": "Factor limitante en la extensión de rodilla en el punto de máxima flexión."
+        }
+        synergists = [
+            {"muscle_id": "glutes", "muscle_name": "Glúteo Mayor", "effective_set_credit": 0.5},
+            {"muscle_id": "adductors", "muscle_name": "Aductores", "effective_set_credit": 0.4},
+            {"muscle_id": "lower_back", "muscle_name": "Erectores Espinales", "effective_set_credit": 0.3}
+        ]
+        t_profile = "Pico en Estiramiento"
         tips = [
             "Permite el avance de rodillas sobre las punteras para maximizar brazo de momento en la rodilla.",
             "Mantén el torso vertical y el control en la inversión de fase."
         ]
     else:
-        target_m = "Grupo Muscular Principal"
-        secondaries = ["Músculos Sinergistas"]
-        t_profile = "constant"
-        m_split = {"primary": 70, "secondary": 30}
+        limiting = {
+            "muscle_id": "target",
+            "muscle_name": formal_name,
+            "effective_set_credit": 1.0,
+            "reason": "Músculo motor principal del movimiento analizado."
+        }
+        synergists = [
+            {"muscle_id": "synergist_1", "muscle_name": "Músculos Estabilizadores", "effective_set_credit": 0.4}
+        ]
+        t_profile = "Uniforme"
         tips = [
             "Mantén tensión continua y tempo excéntrico de 2 a 3 segundos.",
             "Asegura rango completo de movimiento sin compensaciones articulares."
         ]
         
     stimulus = {
-        "target_muscle": target_m,
-        "secondary_muscles": secondaries,
         "tension_profile": t_profile,
-        "muscle_split_pct": m_split,
-        "suggested_volume_multiplier": 1.0,
-        "actionable_adjustments": tips
+        "limiting_factor": limiting,
+        "synergists": synergists,
+        "actionable_adjustments": tips,
+        "target_muscle": limiting["muscle_name"],
+        "secondary_muscles": [s["muscle_name"] for s in synergists],
+        "suggested_volume_multiplier": 1.0
     }
     
     v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
@@ -723,6 +774,144 @@ def generate_deterministic_clinical_audit(
         "intensity_audit": intensity
     }
 
+def sanitize_and_validate_vlm_output(
+    parsed: Dict[str, Any],
+    repetitions_summary: List[Dict[str, Any]],
+    exercise_type: str,
+    target_name_display: str
+) -> Dict[str, Any]:
+    """Valida y sanea la salida del VLM asegurando timestamps exactos por repetición y modelo de estímulo fisiológico."""
+    if not isinstance(parsed, dict):
+        return parsed
+
+    if exercise_type.lower() not in ["auto", "", "none"]:
+        parsed["detected_exercise_id"] = exercise_type
+        parsed["detected_exercise_name"] = target_name_display
+
+    # 1. Sanitize & Fix Timeline Cues Timestamps
+    cues = parsed.get("timeline_cues", [])
+    if isinstance(cues, list) and len(cues) > 0 and len(repetitions_summary) > 0:
+        total_dur = float(repetitions_summary[-1].get("end_time", repetitions_summary[-1].get("peak_sec", 0.0)))
+        all_early = len(cues) >= 2 and total_dur > 10.0 and all(float(c.get("timestamp_sec", 0.0)) <= 6.5 for c in cues)
+
+        fixed_cues = []
+        for idx_c, cue in enumerate(cues):
+            r_idx = cue.get("rep_index")
+            try:
+                r_idx = int(r_idx) if r_idx is not None else None
+            except (ValueError, TypeError):
+                r_idx = None
+
+            if r_idx is None or r_idx < 1 or r_idx > len(repetitions_summary):
+                if all_early:
+                    r_idx = min(len(repetitions_summary), max(1, int(round((idx_c + 1) * len(repetitions_summary) / (len(cues) + 1)))))
+                else:
+                    cur_t = float(cue.get("timestamp_sec", 0.0))
+                    matched_rep = None
+                    for r in repetitions_summary:
+                        st = float(r.get("start_sec", r.get("start_time", 0.0)))
+                        et = float(r.get("end_time", r.get("peak_sec", 0.0)))
+                        if st <= cur_t <= et:
+                            matched_rep = r.get("rep_index", r.get("rep_number", 1))
+                            break
+                    r_idx = matched_rep if matched_rep else min(len(repetitions_summary), max(1, idx_c + 1))
+
+            cue["rep_index"] = r_idx
+            rep_obj = repetitions_summary[r_idx - 1]
+            rep_start = float(rep_obj.get("start_sec", rep_obj.get("start_time", 0.0)))
+            rep_end = float(rep_obj.get("end_time", rep_obj.get("peak_sec", 0.0)))
+            rep_inflect = float(rep_obj.get("inflection_sec", rep_obj.get("inflection_time", (rep_start + rep_end) / 2.0)))
+            rep_sticking = rep_obj.get("sticking_point_sec")
+
+            cur_t = float(cue.get("timestamp_sec", 0.0))
+            badge = str(cue.get("badge", "")).lower()
+
+            if all_early or cur_t < (rep_start - 0.25) or cur_t > (rep_end + 0.25):
+                if "sticking" in badge and rep_sticking:
+                    cue["timestamp_sec"] = round(float(rep_sticking), 2)
+                elif "rom" in badge or "desaceleraci" in badge or "control" in badge:
+                    cue["timestamp_sec"] = round(rep_inflect, 2)
+                else:
+                    cue["timestamp_sec"] = round((rep_start + rep_end) / 2.0, 2)
+            else:
+                cue["timestamp_sec"] = round(cur_t, 2)
+
+            fixed_cues.append(cue)
+
+        fixed_cues.sort(key=lambda x: x.get("timestamp_sec", 0.0))
+        parsed["timeline_cues"] = fixed_cues
+
+    # 2. Sanitize & Normalize Stimulus and Specificity (Limiting Factor + Synergists)
+    stim = parsed.get("stimulus_and_specificity")
+    if not isinstance(stim, dict):
+        stim = {}
+        parsed["stimulus_and_specificity"] = stim
+
+    # Limiting factor
+    lf = stim.get("limiting_factor")
+    if not isinstance(lf, dict) or not lf.get("muscle_name"):
+        fallback_target = stim.get("target_muscle") or target_name_display
+        stim["limiting_factor"] = {
+            "muscle_id": "limiting_target",
+            "muscle_name": fallback_target,
+            "effective_set_credit": 1.0,
+            "reason": f"Factor limitante principal de la serie en la ejecución de {fallback_target}."
+        }
+    else:
+        stim["limiting_factor"]["effective_set_credit"] = 1.0
+        if not stim["limiting_factor"].get("reason"):
+            stim["limiting_factor"]["reason"] = f"Factor limitante principal en {stim['limiting_factor'].get('muscle_name')}."
+
+    # Synergists
+    syn = stim.get("synergists")
+    if not isinstance(syn, list) or len(syn) == 0:
+        sec_list = stim.get("secondary_muscles", [])
+        if isinstance(sec_list, list) and len(sec_list) > 0:
+            stim["synergists"] = [
+                {
+                    "muscle_id": f"syn_{i+1}",
+                    "muscle_name": str(s),
+                    "effective_set_credit": 0.5 if i == 0 else 0.3
+                }
+                for i, s in enumerate(sec_list[:3])
+            ]
+        else:
+            stim["synergists"] = [
+                {"muscle_id": "syn_stabilizer", "muscle_name": "Músculos Estabilizadores", "effective_set_credit": 0.4}
+            ]
+    else:
+        for s in stim["synergists"]:
+            try:
+                cred = float(s.get("effective_set_credit", 0.4))
+                s["effective_set_credit"] = round(min(0.8, max(0.2, cred)), 2)
+            except (ValueError, TypeError):
+                s["effective_set_credit"] = 0.4
+
+    # Tension profile
+    tp = str(stim.get("tension_profile", "Uniforme")).strip()
+    if tp.lower() in ["peak_stretched", "estiramiento"]:
+        stim["tension_profile"] = "Pico en Estiramiento"
+    elif tp.lower() in ["peak_shortened", "contraccion", "acortamiento"]:
+        stim["tension_profile"] = "Pico en Acortamiento"
+    elif tp.lower() in ["constant", "peak_mid", "uniforme"]:
+        stim["tension_profile"] = "Uniforme"
+    else:
+        stim["tension_profile"] = tp
+
+    # Actionable adjustments
+    if not stim.get("actionable_adjustments") or not isinstance(stim["actionable_adjustments"], list):
+        stim["actionable_adjustments"] = [
+            "Mantén control estricto de la fase excéntrica evitando aceleraciones parásitas.",
+            "Conserva la alineación neutra de la columna y de las articulaciones de apoyo."
+        ]
+
+    # Backwards-compatibility
+    stim["target_muscle"] = stim["limiting_factor"]["muscle_name"]
+    stim["secondary_muscles"] = [s["muscle_name"] for s in stim["synergists"]]
+    stim["suggested_volume_multiplier"] = 1.0
+
+    return parsed
+
 def analyze_biomechanics_with_vlm(
     video_path: Optional[str],
     exercise_type: str,
@@ -743,13 +932,16 @@ def analyze_biomechanics_with_vlm(
     if not api_key:
         return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)", "fallback", None
 
-    rep_summary_str = json.dumps([{
-        "rep": r.get("rep_number", r.get("rep_index", i+1)),
-        "ecc_s": r.get("eccentric_sec"),
-        "con_s": r.get("concentric_sec"),
-        "rom_deg": r.get("rom_deg"),
-        "rom_loss_pct": round(100.0 - r.get("rom_pct_of_rep1", 100.0), 1)
-    } for i, r in enumerate(repetitions_summary[:12])], ensure_ascii=False)
+    rep_intervals_list = []
+    for i, r in enumerate(repetitions_summary[:12]):
+        rep_num = r.get("rep_number", r.get("rep_index", i+1))
+        s_sec = r.get("start_sec")
+        e_sec = r.get("end_sec")
+        if s_sec is not None and e_sec is not None:
+            rep_intervals_list.append(f"- Rep {rep_num}: de {s_sec:.1f}s a {e_sec:.1f}s (excéntrico: {r.get('eccentric_sec', 0.0):.1f}s, concéntrico: {r.get('concentric_sec', 0.0):.1f}s, ROM: {r.get('rom_deg', 0.0):.1f}°)")
+        else:
+            rep_intervals_list.append(f"- Rep {rep_num}: excéntrico {r.get('eccentric_sec', 0.0):.1f}s, concéntrico {r.get('concentric_sec', 0.0):.1f}s, ROM {r.get('rom_deg', 0.0):.1f}°")
+    rep_timeline_str = "\n".join(rep_intervals_list) if rep_intervals_list else "- Repeticiones en curso."
 
     v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
     rir = float(intensity_metrics.get("exact_rir", 2.0))
@@ -774,12 +966,16 @@ def analyze_biomechanics_with_vlm(
         f"- Repeticiones detectadas: {total_reps}.\n"
         f"- Pérdida de velocidad concéntrica registrada: {v_loss:.1f}%.\n"
         f"- RIR estimado por cinemática: {rir:.1f}.\n"
-        f"- Resumen temporal por repetición:\n{rep_summary_str}\n\n"
+        f"- Intervalos temporales exactos por repetición (ViTPose + Cinemática):\n{rep_timeline_str}\n\n"
         f"INSTRUCCIONES CLÍNICAS OBLIGATORIAS:\n"
         f"1. Identifica el ejercicio exacto (`detected_exercise_id`), nombre en español (`detected_exercise_name`), tipo de equipamiento (`equipment_type`: 'free_weight'|'machine'|'cable'|'bodyweight') y región ('upper'|'lower').\n"
-        f"2. Genera `timeline_cues`: momentos clave con segundo exacto (`timestamp_sec`), tipo ('warning'|'error'|'positive'), badge ('Sticking Point'|'Desaceleración'|'Pérdida de ROM'|'Asimetría'|'Control Óptimo'), mensaje clínico conciso, corrección técnica directa (`technical_fix`) y articulación involucrada (`affected_joint`).\n"
+        f"2. Genera `timeline_cues`: Para cada momento clave o fallo técnico detectado, indica `rep_index` (número entero de la repetición a la que pertenece, e.g. 1, 2, 3...) y `timestamp_sec` (el segundo EXACTO dentro del intervalo de esa repetición, NUNCA amontonados en los primeros 5 segundos del vídeo). Incluye tipo ('warning'|'error'|'positive'), badge ('Sticking Point'|'Desaceleración'|'Pérdida de ROM'|'Asimetría'|'Control Óptimo'), mensaje clínico conciso, corrección técnica directa (`technical_fix`) y articulación involucrada (`affected_joint`).\n"
         f"3. Genera `alignment_and_discomfort`: nivel de estrés articular ('low'|'moderate'|'high'), resumen de molestias/riesgos, y lista de checks articulares (`joint`, `status`: 'pass'|'warning'|'critical', `observation`, `fix`).\n"
-        f"4. Genera `stimulus_and_specificity`: músculo primario diana, secundarios, perfil de resistencia (`tension_profile`: 'peak_stretched'|'peak_mid'|'peak_shortened'|'constant'), reparto muscular `muscle_split_pct` (ej. primary 70, secondary 30), multiplicador de volumen sugerido (ej. 1.0) y 2 consejos accionables (`actionable_adjustments`).\n"
+        f"4. Genera `stimulus_and_specificity` usando el modelo de Factor Limitante (1.0 serie efectiva) + Sinergistas Fraccionales (0.3 a 0.5 serie efectiva):\n"
+        f"   - `tension_profile`: 'Pico en Estiramiento' | 'Pico en Acortamiento' | 'Uniforme'\n"
+        f"   - `limiting_factor`: {{ 'muscle_id': '...', 'muscle_name': '...', 'effective_set_credit': 1.0, 'reason': '...' }}\n"
+        f"   - `synergists`: [ {{ 'muscle_id': '...', 'muscle_name': '...', 'effective_set_credit': 0.5, 'reason': '...' }}, ... ]\n"
+        f"   - `actionable_adjustments`: [ 'Consejo 1...', 'Consejo 2...' ]\n"
         f"5. Genera `intensity_audit`: repeticiones completadas, estimación precisa de RIR y RPE, `failure_proximity` ('safe'|'effective_growth'|'absolute_failure'|'submaximal') y veredicto del entrenador (`coach_verdict`).\n\n"
         f"Responde estrictamente con un objeto JSON válido con este formato:\n"
         f"{{\n"
@@ -789,6 +985,7 @@ def analyze_biomechanics_with_vlm(
         f'  "body_region": "upper",\n'
         f'  "timeline_cues": [\n'
         f'    {{\n'
+        f'      "rep_index": 1,\n'
         f'      "timestamp_sec": 3.8,\n'
         f'      "type": "warning",\n'
         f'      "badge": "Sticking Point",\n'
@@ -806,11 +1003,17 @@ def analyze_biomechanics_with_vlm(
         f'    ]\n'
         f'  }},\n'
         f'  "stimulus_and_specificity": {{\n'
-        f'    "target_muscle": "Pectoral Mayor",\n'
-        f'    "secondary_muscles": ["Tríceps Braquial", "Deltoides Anterior"],\n'
-        f'    "tension_profile": "constant",\n'
-        f'    "muscle_split_pct": {{ "primary": 70, "secondary": 30 }},\n'
-        f'    "suggested_volume_multiplier": 1.0,\n'
+        f'    "tension_profile": "Uniforme",\n'
+        f'    "limiting_factor": {{\n'
+        f'      "muscle_id": "chest",\n'
+        f'      "muscle_name": "Pectoral Mayor",\n'
+        f'      "effective_set_credit": 1.0,\n'
+        f'      "reason": "Factor limitante principal en la aducción horizontal de hombro."\n'
+        f'    }},\n'
+        f'    "synergists": [\n'
+        f'      {{ "muscle_id": "triceps", "muscle_name": "Tríceps Braquial", "effective_set_credit": 0.5, "reason": "Sinergista agonista en la extensión de codo." }},\n'
+        f'      {{ "muscle_id": "anterior_delt", "muscle_name": "Deltoides Anterior", "effective_set_credit": 0.3, "reason": "Sinergista en la flexión y aducción anterior." }}\n'
+        f'    ],\n'
         f'    "actionable_adjustments": [\n'
         f'      "Ajusta el asiento para alinear las empuñaduras a la altura del esternón.",\n'
         f'      "Mantén una pausa de 1 segundo en estiramiento máximo."\n'
@@ -881,9 +1084,7 @@ def analyze_biomechanics_with_vlm(
                         text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
-                            if exercise_type.lower() not in ["auto", "", "none"]:
-                                parsed["detected_exercise_id"] = exercise_type
-                                parsed["detected_exercise_name"] = target_name_display
+                            parsed = sanitize_and_validate_vlm_output(parsed, repetitions_summary, exercise_type, target_name_display)
                             print(f"[Gemini Video VLM] Inferencia {clean_model} (MP4 intacto) con éxito: {parsed.get('detected_exercise_id')}")
                             return parsed, None, "video_mp4", clean_model
             except urllib.error.HTTPError as e:
@@ -933,9 +1134,7 @@ def analyze_biomechanics_with_vlm(
                         text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
-                            if exercise_type.lower() not in ["auto", "", "none"]:
-                                parsed["detected_exercise_id"] = exercise_type
-                                parsed["detected_exercise_name"] = target_name_display
+                            parsed = sanitize_and_validate_vlm_output(parsed, repetitions_summary, exercise_type, target_name_display)
                             print(f"[Gemini Keyframes VLM] Inferencia {clean_model} (6 Keyframes JPEG) con éxito: {parsed.get('detected_exercise_id')}")
                             return parsed, None, "keyframes_jpeg", clean_model
             except urllib.error.HTTPError as e:
