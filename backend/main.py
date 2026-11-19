@@ -347,6 +347,87 @@ def clean_gemini_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
                 pass
     return None
 
+def calculate_vbt_rir_rpe(vel_loss_pct: float) -> Tuple[float, float, str, str, str, str]:
+    """
+    Calcula RIR, RPE, rir_str, status_text, proximity y coach_verdict
+    estrictamente a partir del porcentaje relativo de pérdida de velocidad concéntrica (vel_loss_pct).
+    Reglas obligatorias:
+      - vel_loss_pct < 10% -> RIR 4+, RPE 6.0 ("Serie de aproximación / lejos del fallo", "submaximal")
+      - 10% <= vel_loss_pct < 20% -> RIR 3, RPE 7.0 ("Estímulo moderado", "effective_growth")
+      - 20% <= vel_loss_pct < 30% -> RIR 2, RPE 8.0 ("Zona óptima de hipertrofia", "effective_growth")
+      - 30% <= vel_loss_pct < 42% -> RIR 1, RPE 9.0 ("Alta proximidad al fallo", "effective_growth")
+      - vel_loss_pct >= 42% -> RIR 0, RPE 10.0 ("Fallo concéntrico / esfuerzo máximo", "absolute_failure")
+    """
+    loss = float(max(0.0, vel_loss_pct))
+    if loss < 10.0:
+        rir = 4.0
+        rpe = 6.0
+        rir_str = "RIR 4+"
+        status_txt = "Serie de aproximación / lejos del fallo"
+        proximity = "submaximal"
+        verdict = f"Pérdida de velocidad baja ({loss:.1f}%). Serie de aproximación o técnica lejos del fallo muscular (RIR 4+ / RPE 6.0)."
+    elif loss < 20.0:
+        rir = 3.0
+        rpe = 7.0
+        rir_str = "RIR 3"
+        status_txt = "Estímulo moderado"
+        proximity = "effective_growth"
+        verdict = f"Pérdida de velocidad moderada ({loss:.1f}%). Estímulo moderado con buena velocidad residual (RIR 3 / RPE 7.0)."
+    elif loss < 30.0:
+        rir = 2.0
+        rpe = 8.0
+        rir_str = "RIR 2"
+        status_txt = "Zona óptima de hipertrofia"
+        proximity = "effective_growth"
+        verdict = f"Pérdida de velocidad óptima ({loss:.1f}%). Ventana ideal de hipertrofia y tensión mecánica (RIR 2 / RPE 8.0)."
+    elif loss < 42.0:
+        rir = 1.0
+        rpe = 9.0
+        rir_str = "RIR 1"
+        status_txt = "Alta proximidad al fallo"
+        proximity = "effective_growth"
+        verdict = f"Pérdida de velocidad elevada ({loss:.1f}%). Alta proximidad al fallo muscular con reclutamiento motor completo (RIR 1 / RPE 9.0)."
+    else:
+        rir = 0.0
+        rpe = 10.0
+        rir_str = "RIR 0"
+        status_txt = "Fallo concéntrico / esfuerzo máximo"
+        proximity = "absolute_failure"
+        verdict = f"Pérdida de velocidad terminal ({loss:.1f}%). Fallo concéntrico o esfuerzo terminal alcanzado (RIR 0 / RPE 10.0)."
+
+    return rir, rpe, rir_str, status_txt, proximity, verdict
+
+def extract_4_keyframes_jpeg_b64(video_path: str) -> List[str]:
+    """Extrae 4 keyframes clave en JPEG Base64 (máx 480px, calidad 80)."""
+    if not video_path or not os.path.exists(video_path):
+        return []
+    cap = cv2.VideoCapture(video_path)
+    total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_f <= 0:
+        cap.release()
+        return []
+    target_indices = [
+        max(0, int(total_f * 0.10)),
+        max(0, min(total_f - 1, int(total_f * 0.40))),
+        max(0, min(total_f - 1, int(total_f * 0.65))),
+        max(0, min(total_f - 1, int(total_f * 0.90)))
+    ]
+    keyframes_b64 = []
+    for idx in target_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            h, w = frame.shape[:2]
+            max_dim = 480
+            scale = min(1.0, max_dim / max(h, w))
+            if scale < 1.0:
+                frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            _, buf = cv2.imencode('.jpg', rgb, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            keyframes_b64.append(base64.b64encode(buf).decode('utf-8'))
+    cap.release()
+    return keyframes_b64
+
 def generate_deterministic_clinical_audit(
     exercise_type: str,
     body_region: str,
@@ -557,20 +638,9 @@ def generate_deterministic_clinical_audit(
         "actionable_adjustments": tips
     }
     
-    rir_val = float(intensity_metrics.get("exact_rir", 2.0))
-    rpe_val = float(intensity_metrics.get("exact_rpe", 8.0))
-    v_loss = float(intensity_metrics.get("delta_v_rep", 22.0))
+    v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
+    rir_val, rpe_val, rir_str, status_txt, proximity, verdict_str = calculate_vbt_rir_rpe(v_loss)
     
-    if rir_val <= 0.5:
-        proximity = "absolute_failure"
-        verdict_str = f"Fallo concéntrico o RIR 0 alcanzado. Estímulo máximo por repeticiones efectivas."
-    elif rir_val <= 2.5:
-        proximity = "effective_growth"
-        verdict_str = f"Serie de alta intensidad hipertrófica en la ventana óptima (RIR {rir_val:.1f})."
-    else:
-        proximity = "submaximal"
-        verdict_str = f"Esfuerzo submáximo (RIR {rir_val:.1f}). Excelente para calentamiento, técnica o descarga."
-        
     intensity = {
         "reps_completed": int(total_reps),
         "rir_estimated": round(rir_val, 1),
@@ -602,19 +672,13 @@ def analyze_biomechanics_with_gemini_video(
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Capa 2: Análisis Biomecánico Multimodal enviando el Vídeo MP4 completo a Gemini 2.5 Flash.
-    Usa inline_data ("video/mp4") y exige el esquema estricto de la Suite de 4 Vistas.
-    Fallback en cascada a gemini-2.5-flash-lite.
+    Si el vídeo supera los 10 MB o falla, realiza fallback automático a 4 keyframes JPEG.
+    URL estricta: https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}
+    Modelos válidos probados: ["gemini-2.5-flash", "gemini-2.5-flash-lite"].
     """
     api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)"
-
-    if not video_path or not os.path.exists(video_path):
-        return None, "Ruta de vídeo no disponible para VLM"
-
-    video_b64 = prepare_video_for_gemini(video_path)
-    if not video_b64:
-        return None, "Error preparando compresión del vídeo MP4 para Gemini"
 
     rep_summary_str = json.dumps([{
         "rep": r.get("rep_number", r.get("rep_index", i+1)),
@@ -624,7 +688,7 @@ def analyze_biomechanics_with_gemini_video(
         "rom_loss_pct": round(100.0 - r.get("rom_pct_of_rep1", 100.0), 1)
     } for i, r in enumerate(repetitions_summary[:12])], ensure_ascii=False)
 
-    v_loss = float(intensity_metrics.get("delta_v_rep", 0.0))
+    v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
     rir = float(intensity_metrics.get("exact_rir", 2.0))
 
     prompt_text = (
@@ -687,60 +751,94 @@ def analyze_biomechanics_with_gemini_video(
         f"}}"
     )
 
-    parts: List[Dict[str, Any]] = [
-        {"text": prompt_text},
-        {
-            "inline_data": {
-                "mime_type": "video/mp4",
-                "data": video_b64
-            }
-        }
-    ]
-
-    body = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "responseMimeType": "application/json"
-        }
-    }
-    req_data = json.dumps(body).encode("utf-8")
-
     models_to_try = [
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite"
     ]
     last_err = None
 
-    for model_name in models_to_try:
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        try:
-            req = urllib.request.Request(
-                endpoint,
-                data=req_data,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=25.0) as resp:
-                resp_bytes = resp.read()
-                resp_json = json.loads(resp_bytes.decode("utf-8"))
-                candidates = resp_json.get("candidates", [])
-                if candidates:
-                    cand = candidates[0]
-                    text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
-                    parsed = clean_gemini_json_response(text_content)
-                    if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
-                        print(f"[Gemini Video VLM] Inferencia {model_name} completada con éxito. Ejercicio: {parsed.get('detected_exercise_id')}")
-                        return parsed, None
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="ignore")
-            last_err = f"HTTP {e.code} ({model_name}): {err_body}"
-            print(f"[Gemini Video VLM] {last_err}")
-        except Exception as e:
-            last_err = f"Exception ({model_name}): {type(e).__name__} - {e}"
-            print(f"[Gemini Video VLM] {last_err}")
+    # Intento 1: Vídeo MP4 completo (si existe y base64 <= 10 MB)
+    video_b64 = None
+    if video_path and os.path.exists(video_path):
+        raw_b64 = prepare_video_for_gemini(video_path)
+        if raw_b64 and len(raw_b64) <= 10 * 1024 * 1024:
+            video_b64 = raw_b64
 
-    return None, (last_err or "Inferencia Gemini Video falló en todos los modelos")
+    if video_b64:
+        parts_video = [
+            {"text": prompt_text},
+            {"inline_data": {"mime_type": "video/mp4", "data": video_b64}}
+        ]
+        body_video = {
+            "contents": [{"parts": parts_video}],
+            "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
+        }
+        req_data_video = json.dumps(body_video).encode("utf-8")
+
+        for model_name in models_to_try:
+            clean_model = model_name.replace("models/", "").strip()
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+            url_no_key = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+            try:
+                req = urllib.request.Request(endpoint, data=req_data_video, headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=25.0) as resp:
+                    resp_bytes = resp.read()
+                    resp_json = json.loads(resp_bytes.decode("utf-8"))
+                    candidates = resp_json.get("candidates", [])
+                    if candidates:
+                        cand = candidates[0]
+                        text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
+                        parsed = clean_gemini_json_response(text_content)
+                        if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
+                            print(f"[Gemini Video VLM] Inferencia {clean_model} (MP4) con éxito: {parsed.get('detected_exercise_id')}")
+                            return parsed, None
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                last_err = f"HTTP {e.code} ({clean_model}) at {url_no_key}: {err_body}"
+                print(f"[Gemini Video VLM] {last_err}")
+            except Exception as e:
+                last_err = f"Exception ({clean_model}) at {url_no_key}: {type(e).__name__} - {e}"
+                print(f"[Gemini Video VLM] {last_err}")
+
+    # Intento 2: Fallback automático a 4 Keyframes JPEG
+    print("[Gemini VLM] Fallback automático a 4 Keyframes JPEG...")
+    kf_b64_list = extract_4_keyframes_jpeg_b64(video_path) if (video_path and os.path.exists(video_path)) else []
+    if kf_b64_list:
+        parts_kf = [{"text": prompt_text}]
+        for kf_b64 in kf_b64_list:
+            parts_kf.append({"inline_data": {"mime_type": "image/jpeg", "data": kf_b64}})
+        body_kf = {
+            "contents": [{"parts": parts_kf}],
+            "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
+        }
+        req_data_kf = json.dumps(body_kf).encode("utf-8")
+
+        for model_name in models_to_try:
+            clean_model = model_name.replace("models/", "").strip()
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+            url_no_key = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+            try:
+                req = urllib.request.Request(endpoint, data=req_data_kf, headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=20.0) as resp:
+                    resp_bytes = resp.read()
+                    resp_json = json.loads(resp_bytes.decode("utf-8"))
+                    candidates = resp_json.get("candidates", [])
+                    if candidates:
+                        cand = candidates[0]
+                        text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
+                        parsed = clean_gemini_json_response(text_content)
+                        if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
+                            print(f"[Gemini Video VLM] Inferencia {clean_model} (4 Keyframes JPEG) con éxito: {parsed.get('detected_exercise_id')}")
+                            return parsed, None
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                last_err = f"HTTP {e.code} ({clean_model}) at {url_no_key}: {err_body}"
+                print(f"[Gemini Keyframes VLM] {last_err}")
+            except Exception as e:
+                last_err = f"Exception ({clean_model}) at {url_no_key}: {type(e).__name__} - {e}"
+                print(f"[Gemini Keyframes VLM] {last_err}")
+
+    return None, (last_err or "Inferencia Gemini falló en todos los modelos")
 
 def analyze_biomechanics_with_vlm(
     keyframes_b64: List[str],
@@ -749,8 +847,52 @@ def analyze_biomechanics_with_vlm(
     raw_side_metrics: Dict[str, Any],
     gemini_api_key: Optional[str] = None
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Legacy compatibility bridge for callers expecting analyze_biomechanics_with_vlm."""
-    return None, "Deprecated: Use analyze_biomechanics_with_gemini_video"
+    """Llamada directa con keyframes JPEG a Gemini 2.5 Flash."""
+    api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None, "GEMINI_API_KEY no configurada"
+    if not keyframes_b64:
+        return None, "Sin keyframes disponibles para VLM"
+
+    prompt_text = (
+        f"Actúa como un Ph.D. en Biomecánica del Ejercicio y Entrenador de Fuerza de Élite.\n"
+        f"Analiza estos fotogramas clave de un ejercicio de fuerza (ejercicio asignado: '{exercise_type}').\n"
+        f"Identifica el ejercicio exacto (`detected_exercise_id`), nombre formal en español (`detected_exercise_name`), "
+        f"equipo (`equipment_type`), región ('upper'|'lower'), cues temporales (`timeline_cues`), "
+        f"comprobaciones de alineación (`alignment_and_discomfort`), perfil de tensión (`stimulus_and_specificity`) "
+        f"y auditoría de esfuerzo (`intensity_audit`).\n"
+        f"Devuelve estrictamente un objeto JSON."
+    )
+    parts = [{"text": prompt_text}]
+    for kf in keyframes_b64[:4]:
+        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": kf}})
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
+    }
+    req_data = json.dumps(body).encode("utf-8")
+    last_err = None
+    for model_name in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
+        clean_model = model_name.replace("models/", "").strip()
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+        url_no_key = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+        try:
+            req = urllib.request.Request(endpoint, data=req_data, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=20.0) as resp:
+                resp_json = json.loads(resp.read().decode("utf-8"))
+                candidates = resp_json.get("candidates", [])
+                if candidates:
+                    cand = candidates[0]
+                    text_content = cand.get("content", {}).get("parts", [{}])[0].get("text", "")
+                    parsed = clean_gemini_json_response(text_content)
+                    if parsed and isinstance(parsed, dict):
+                        return parsed, None
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            last_err = f"HTTP {e.code} ({clean_model}) at {url_no_key}: {err_body}"
+        except Exception as e:
+            last_err = f"Exception ({clean_model}) at {url_no_key}: {type(e).__name__} - {e}"
+    return None, last_err
 
 def sample_video_frames(
     video_path: str,
@@ -1365,12 +1507,23 @@ def process_kinematics(
                 load_type = "machine"
             print(f"[Auto-Detection Kinematic] Tren Superior detectado por ROM: {exercise_type} ({target_muscle})")
         else:
+            min_hip_val = float(min(np.percentile(l_hp_angles, 5), np.percentile(r_hp_angles, 5)))
+            min_knee_val = float(min(np.percentile(l_kn_angles, 5), np.percentile(r_kn_angles, 5)))
             max_knee_rom = max(left_kn_rom, right_kn_rom)
-            if max_knee_rom > 55.0:
+            max_hip_rom = max(left_hp_rom, right_hp_rom)
+
+            # Regla de Oro RDL: Si el torso baja horizontal (hip_angle < 80°) con rodilla semirrígida (knee_angle > 105°),
+            # clasifica estrictamente como rdl (Peso Muerto Rumano / Glúteo-Isquios), NUNCA sentadilla ni búlgara.
+            if (min_hip_val < 80.0 or max_hip_rom > 35.0) and min_knee_val > 105.0:
+                exercise_type = "rdl"
+                target_muscle = "hamstrings"
+                load_type = "free_weight"
+                print(f"[Auto-Detection Kinematic] RDL detectado: cadera profunda ({min_hip_val:.1f}° < 80°) y rodilla semirrígida ({min_knee_val:.1f}° > 105°)")
+            elif max_knee_rom > 55.0:
                 exercise_type = "squat"
                 target_muscle = "quads"
                 load_type = "free_weight"
-            elif max(left_hp_rom, right_hp_rom) > 40.0 and max_knee_rom < 40.0:
+            elif max_hip_rom > 40.0 and max_knee_rom < 40.0:
                 exercise_type = "rdl"
                 target_muscle = "hamstrings"
                 load_type = "free_weight"
@@ -1378,7 +1531,7 @@ def process_kinematics(
                 exercise_type = "hip_thrust"
                 target_muscle = "glutes"
                 load_type = "machine"
-            print(f"[Auto-Detection Kinematic] Tren Inferior detectado por ROM: {exercise_type} ({target_muscle})")
+            print(f"[Auto-Detection Kinematic] Tren Inferior detectado: {exercise_type} ({target_muscle})")
 
     canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle", "ear"]
     ex_lower = exercise_type.lower()
@@ -2219,6 +2372,18 @@ def process_kinematics(
                 d_hp = 0.0
                 d_kn = 0.0
 
+            elif any(k in ex_lower for k in ["rdl", "deadlift", "peso_muerto", "rumano"]) or (inflect_hip < 80.0 and inflect_knee > 105.0):
+
+
+                dominant_joint = "CADERA"
+
+
+                torque_bias = "GLÚTEO / ISQUIOS"
+
+
+                recom = "Bisagra de cadera óptima con flexión de rodilla contenida (>105°): máxima palanca en glúteos e isquiosurales."
+
+
             elif any(k in ex_lower for k in ["squat", "leg_press", "hack", "bulgarian", "leg_extension"]):
                 dominant_joint = "RODILLA"
                 torque_bias = "CUÁDRICEPS"
@@ -2288,15 +2453,26 @@ def process_kinematics(
 
         con_vel_slice = smooth_vel[idx_low : idx_high + 1]
         mean_con_vel = round(float(np.mean(con_vel_slice)), 1) if len(con_vel_slice) > 0 else 0.0
+        peak_con_vel = float(np.max(con_vel_slice)) if len(con_vel_slice) > 0 else 0.0
 
-        if len(con_vel_slice) > 2:
-            st_offset = int(np.argmin(con_vel_slice[1:-1])) + 1
-            st_frame = idx_low + st_offset
-        elif len(con_vel_slice) > 0:
-            st_frame = idx_low + int(np.argmin(con_vel_slice))
-        else:
-            st_frame = bottom_frame
-        st_sec = round(float(timestamps[st_frame]), 3) if st_frame < len(timestamps) else round(float(t_inflect), 3)
+        st_sec = None
+        # Regla biomecánica obligatoria:
+        # El sticking point solo puede detectarse estrictamente durante la fase CONCENTRIC,
+        # recortando el primer 20% y el último 20% del tiempo concéntrico
+        # (nunca en el bloqueo superior ni en el cambio de dirección inferior, ni en ECCENTRIC/IDLE).
+        con_len = idx_high - idx_low + 1
+        if con_len >= 5 and peak_con_vel > 1e-3:
+            trim_start = int(round(con_len * 0.20))
+            trim_end = max(trim_start + 1, int(round(con_len * 0.80)))
+            trimmed_slice = con_vel_slice[trim_start : trim_end]
+            if len(trimmed_slice) > 0:
+                min_local_v = float(np.min(trimmed_slice))
+                min_offset = int(np.argmin(trimmed_slice))
+                st_frame = idx_low + trim_start + min_offset
+
+                # Solo se marca si existe una caída real de velocidad (< 65% de la velocidad pico de esa misma repetición)
+                if min_local_v < (0.65 * peak_con_vel):
+                    st_sec = round(float(timestamps[st_frame]), 3) if st_frame < len(timestamps) else None
 
         rep_v_slice = smooth_vel[start_frame : end_frame + 1]
         max_v = float(np.max(rep_v_slice)) if len(rep_v_slice) > 0 and np.max(rep_v_slice) > 0 else 1.0
@@ -2518,28 +2694,20 @@ def process_kinematics(
         v_fail = 42.0
 
     if len(repetitions_summary) >= 2:
-        rep_vels = [float(r["concentric_velocity_deg_s"]) for r in repetitions_summary]
+        rep_vels = [float(r.get("mean_concentric_vel", r.get("concentric_velocity_deg_s", 0.0))) for r in repetitions_summary]
         N = len(rep_vels)
-        # Reference velocity v_best from fastest of first min(3, N) reps
-        v_best = float(max(rep_vels[:min(3, N)]))
+        v_initial_best = float(max(rep_vels[0], rep_vels[1])) if N >= 2 else float(rep_vels[0])
         v_last = float(rep_vels[-1])
         first_rep_vel = float(rep_vels[0])
         max_rep_vel = float(max(rep_vels))
 
-        # Velocity decay slope per rep towards terminal failure
-        delta_v_rep = float(max(1.5, (v_best - v_last) / max(1, N - 1)))
+        # Relative velocity loss % between best initial rep (max(rep1, rep2)) and last rep
+        if v_initial_best > 1e-4:
+            vel_loss = round(float(max(0.0, ((v_initial_best - v_last) / v_initial_best) * 100.0)), 1)
+        else:
+            vel_loss = 0.0
 
-        # Exact RIR & RPE calculation via linear decay towards critical failure velocity
-        exact_rir = round(float(max(0.0, min(5.0, (v_last - v_fail) / delta_v_rep))), 1)
-        exact_rpe = round(float(10.0 - exact_rir), 1)
-
-        vel_loss = round(float(max(0.0, ((v_best - v_last) / max(v_best, 1e-4)) * 100.0)), 1)
-        med_rom_val = float(np.median([r["rom_deg"] for r in repetitions_summary]))
-        has_rom_failure = bool(repetitions_summary[-1]["rom_deg"] < 0.70 * med_rom_val)
-
-        if has_rom_failure or v_last <= v_fail:
-            exact_rir = 0.0
-            exact_rpe = 10.0
+        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(vel_loss)
 
         estimated_1rm_kg = None
         if weight_kg is not None:
@@ -2550,51 +2718,49 @@ def process_kinematics(
             except (ValueError, TypeError):
                 estimated_1rm_kg = None
 
+        # Si la serie es ligera/constante (pérdida < 15%), suprimir alertas de sticking point en el vídeo
+        if vel_loss < 15.0:
+            for r in repetitions_summary:
+                r["sticking_point_sec"] = None
+
         intensity_metrics = {
-            "estimated_rir": f"RIR {exact_rir}",
+            "estimated_rir": rir_str,
             "estimated_rpe": exact_rpe,
             "exact_rir": exact_rir,
             "exact_rpe": exact_rpe,
-            "v_fail": v_fail,
-            "delta_v_rep": round(delta_v_rep, 1),
+            "delta_v_rep": round(float(max(1.0, (v_initial_best - v_last) / max(1, N - 1))), 1),
             "estimated_1rm_kg": estimated_1rm_kg,
             "velocity_loss_pct": vel_loss,
             "first_rep_vel": round(first_rep_vel, 1),
-            "v_best": round(v_best, 1),
+            "v_best": round(v_initial_best, 1),
             "last_rep_vel": round(v_last, 1),
             "max_rep_vel": round(max_rep_vel, 1),
             "rep_velocities": rep_vels,
-            "status_text": "VBT Óptimo (Linear V_fail)"
+            "status_text": status_text,
+            "failure_proximity": vbt_proximity,
+            "coach_verdict": vbt_verdict
         }
     else:
-        v_last = float(repetitions_summary[0]["concentric_velocity_deg_s"]) if repetitions_summary else 0.0
-        delta_v_rep = 5.0
-        exact_rir = round(float(max(0.0, min(5.0, (v_last - v_fail) / delta_v_rep))), 1) if v_last > 0 else 3.0
-        exact_rpe = round(float(10.0 - exact_rir), 1)
-        estimated_1rm_kg = None
-        if weight_kg is not None:
-            try:
-                w_val = float(weight_kg)
-                if w_val > 0:
-                    estimated_1rm_kg = round(w_val * (1.0 + (1 + exact_rir) / 30.0), 1)
-            except (ValueError, TypeError):
-                estimated_1rm_kg = None
-
+        v_last = float(repetitions_summary[0].get("mean_concentric_vel", 0.0)) if repetitions_summary else 0.0
+        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(0.0)
         intensity_metrics = {
-            "estimated_rir": f"RIR {exact_rir}" if len(repetitions_summary) == 1 else "N/A",
-            "estimated_rpe": exact_rpe if len(repetitions_summary) == 1 else 0.0,
-            "exact_rir": exact_rir if len(repetitions_summary) == 1 else None,
-            "exact_rpe": exact_rpe if len(repetitions_summary) == 1 else None,
-            "v_fail": v_fail,
-            "delta_v_rep": delta_v_rep,
-            "estimated_1rm_kg": estimated_1rm_kg,
+            "estimated_rir": rir_str,
+            "estimated_rpe": exact_rpe,
+            "exact_rir": exact_rir,
+            "exact_rpe": exact_rpe,
+            "delta_v_rep": 0.0,
+            "estimated_1rm_kg": None,
             "velocity_loss_pct": 0.0,
             "first_rep_vel": round(v_last, 1),
+            "v_best": round(v_last, 1),
             "last_rep_vel": round(v_last, 1),
             "max_rep_vel": round(v_last, 1),
-            "rep_velocities": [v_last] if repetitions_summary else [],
-            "status_text": "VBT: Estimado (1 rep)" if len(repetitions_summary) == 1 else "VBT: Requiere ≥ 2 reps"
+            "rep_velocities": [v_last] if v_last > 0 else [],
+            "status_text": "Serie de 1 rep",
+            "failure_proximity": vbt_proximity,
+            "coach_verdict": "Serie única completada. Registra ≥ 2 repeticiones para calcular la curva diferencial de fatiga."
         }
+        estimated_1rm_kg = None
 
     # Update Repetition Relative ROM (% of Rep 1)
     if total_reps > 0:
