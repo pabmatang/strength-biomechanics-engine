@@ -305,7 +305,13 @@ export function resolveExercise(exerciseId?: string | null, exerciseName?: strin
     }
     return ALL_EXERCISES.find(e => e.id === 'hip_thrust') || ALL_EXERCISES[0];
   }
-  if (combined.includes('rdl') || combined.includes('rumano') || combined.includes('deadlift') || combined.includes('muerto')) {
+  if (combined.includes('deadlift') || (combined.includes('peso') && combined.includes('muerto')) || combined.includes('muerto')) {
+    if (combined.includes('rdl') || combined.includes('rumano')) {
+      return ALL_EXERCISES.find(e => e.id === 'rdl') || ALL_EXERCISES[0];
+    }
+    return ALL_EXERCISES.find(e => e.id === 'deadlift') || ALL_EXERCISES.find(e => e.id === 'rdl') || ALL_EXERCISES[0];
+  }
+  if (combined.includes('rdl') || combined.includes('rumano')) {
     return ALL_EXERCISES.find(e => e.id === 'rdl') || ALL_EXERCISES[0];
   }
   if (combined.includes('hack') || combined.includes('squat') || combined.includes('sentadilla') || combined.includes('prensa') || combined.includes('leg_press')) {
@@ -767,12 +773,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   });
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>(hasInitialExercise ? initialExercise.id : 'auto');
   const [isManualOverride, setIsManualOverride] = useState<boolean>(hasInitialExercise);
+  const isManualOverrideRef = useRef<boolean>(hasInitialExercise);
   const [showManualExerciseSelector, setShowManualExerciseSelector] = useState<boolean>(false);
 
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
     if (isOpen) {
       const hasDef = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
+      isManualOverrideRef.current = hasDef;
       setIsManualOverride(hasDef);
       if (hasDef) {
         const resolved = resolveExercise(defaultExerciseId, defaultExerciseName);
@@ -944,11 +952,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     muscle: string,
     load: string,
     range?: { startTime: number; endTime: number },
-    exerciseName?: string
+    exerciseName?: string,
+    isManual?: boolean
   ) => {
     try {
       setPipelineState('analyzing');
       setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose 2D + SciPy)...');
+
+      const manualActive = typeof isManual === 'boolean' ? isManual : isManualOverrideRef.current;
 
       let backendLoad = 'free_weight';
       if (load === 'cable') backendLoad = 'cable';
@@ -962,10 +973,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
       const config: ExerciseConfig = {
         exerciseType: exType,
-        exerciseName: exerciseName || (isManualOverride ? activeExercise?.name : (defaultExerciseName || undefined)),
+        exerciseName: exerciseName || (manualActive ? activeExercise?.name : (defaultExerciseName || undefined)),
         targetMuscle: muscle,
         loadType: backendLoad,
-        isManualOverride: isManualOverride || Boolean(defaultExerciseId && defaultExerciseId !== 'auto'),
+        isManualOverride: manualActive || Boolean(defaultExerciseId && defaultExerciseId !== 'auto'),
         geminiApiKey: (import.meta as any).env?.VITE_GEMINI_API_KEY || '',
         weightKg: weightKg && weightKg > 0 ? weightKg : undefined,
         targetReps: targetReps && targetReps > 0 ? targetReps : undefined,
@@ -985,7 +996,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineMessage('');
 
       const detectedName = result.vlm_analysis?.detected_exercise_name || (result as any).detected_exercise_type;
-      if (detectedName && !isManualOverride && (!defaultExerciseId || defaultExerciseId === 'auto')) {
+      if (detectedName && !manualActive && (!defaultExerciseId || defaultExerciseId === 'auto')) {
         const detected = resolveExercise('', detectedName);
         if (detected) {
           setSelectedExerciseId(detected.id);
@@ -1081,7 +1092,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     setShowTrimmer(true);
     setAnalysisData(null);
     setCurrentFrame(null);
-    setIsManualOverride(Boolean(defaultExerciseId && defaultExerciseId !== 'auto'));
+    const hasDef = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
+    isManualOverrideRef.current = hasDef;
+    setIsManualOverride(hasDef);
     setPipelineState('idle');
     setPipelineMessage('');
 
@@ -1112,10 +1125,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       }
       compressedBlobRef.current = videoBlobToSend;
 
-      const exToSend = isManualOverride ? activeExercise.exerciseType : (defaultExerciseId && defaultExerciseId !== 'auto' ? defaultExerciseId : 'auto');
-      const exNameToSend = isManualOverride ? activeExercise.name : (defaultExerciseName || undefined);
-      const muscleToSend = isManualOverride ? activeExercise.targetMuscle : 'auto';
-      const loadToSend = isManualOverride ? activeExercise.loadType : 'auto';
+      const manualActive = isManualOverrideRef.current || isManualOverride;
+      const exToSend = manualActive ? activeExercise.exerciseType : (defaultExerciseId && defaultExerciseId !== 'auto' ? defaultExerciseId : 'auto');
+      const exNameToSend = manualActive ? activeExercise.name : (defaultExerciseName || undefined);
+      const muscleToSend = manualActive ? activeExercise.targetMuscle : 'auto';
+      const loadToSend = manualActive ? activeExercise.loadType : 'auto';
 
       await runPipelineAnalysis(
         videoBlobToSend,
@@ -1124,7 +1138,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         muscleToSend,
         loadToSend,
         range,
-        exNameToSend
+        exNameToSend,
+        manualActive
       );
 
       if (videoElementRef.current) {
@@ -1141,6 +1156,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
   // Trigger re-analysis when exercise configuration changes (Instant from cache if already processed)
   const handleExerciseSelect = (item: ExerciseItem) => {
+    isManualOverrideRef.current = true;
     setIsManualOverride(true);
     setSelectedExerciseId(item.id);
     const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === item.id));
@@ -1160,7 +1176,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         item.targetMuscle,
         item.loadType,
         range,
-        item.name
+        item.name,
+        true
       );
     }
   };
@@ -1199,11 +1216,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           setCurrentPhase(frame.phase);
 
           const resolvedExForCanvas = String(
-            analysisData?.detected_exercise_type ||
-            (analysisData as any)?.exercise_type ||
-            (selectedExerciseId !== 'auto' ? selectedExerciseId : '') ||
-            activeExercise?.id ||
-            'chest_press_machine'
+            (isManualOverride && selectedExerciseId !== 'auto')
+              ? selectedExerciseId
+              : (analysisData?.detected_exercise_type ||
+                 (analysisData as any)?.exercise_type ||
+                 (selectedExerciseId !== 'auto' ? selectedExerciseId : '') ||
+                 activeExercise?.id ||
+                 'chest_press_machine')
           ).toLowerCase();
 
           // Render canvas overlays
@@ -1811,11 +1830,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   ];
 
   const resolvedExercise = String(
-    analysisData?.detected_exercise_type ||
-    (analysisData as any)?.exercise_type ||
-    (selectedExerciseId !== 'auto' ? selectedExerciseId : '') ||
-    activeExercise?.id ||
-    'chest_press_machine'
+    (isManualOverride && selectedExerciseId !== 'auto')
+      ? selectedExerciseId
+      : (analysisData?.detected_exercise_type ||
+         (analysisData as any)?.exercise_type ||
+         (selectedExerciseId !== 'auto' ? selectedExerciseId : '') ||
+         activeExercise?.id ||
+         'chest_press_machine')
   ).toLowerCase();
 
   const isUpperBody = Boolean(
@@ -2618,6 +2639,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       onChange={(e) => {
                         const val = e.target.value;
                         if (val === 'auto') {
+                          isManualOverrideRef.current = false;
                           setIsManualOverride(false);
                           setSelectedExerciseId('auto');
                         } else {
@@ -3038,6 +3060,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     onChange={(e) => {
                       const val = e.target.value;
                       if (val === 'auto') {
+                        isManualOverrideRef.current = false;
                         setIsManualOverride(false);
                         setSelectedExerciseId('auto');
                       } else {
@@ -3085,10 +3108,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           type="button"
                           onClick={() => {
                             setSelectedMuscleGroupId(group.id);
-                            const firstEx = group.exercises[0];
-                            if (firstEx) {
-                              handleExerciseSelect(firstEx);
-                            }
                           }}
                           className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition border ${
                             isSelected

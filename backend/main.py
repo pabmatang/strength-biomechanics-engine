@@ -1540,7 +1540,7 @@ def process_kinematics(
     kf_bottom_idx = max(0, int(n_frames * 0.66))
     kf_peak_idx = min(n_frames - 1, int(n_frames * 0.95))
 
-    if exercise_type.lower() in ["auto", "", "none", "null"] or not is_manual_override:
+    if (exercise_type.lower() in ["auto", "", "none", "null"]) and not is_manual_override:
         # Intelligent Kinematic Fallback: NEVER default to hip_thrust if upper body ROM dominates
         max_elbow_rom = max(left_el_rom, right_el_rom)
         max_leg_rom = max(left_kn_rom, right_kn_rom, left_hp_rom, right_hp_rom)
@@ -1595,6 +1595,28 @@ def process_kinematics(
 
     canonical_joints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle", "ear"]
     ex_lower = exercise_type.lower()
+    if target_muscle.lower() in ["auto", "", "none"]:
+        if any(k in ex_lower for k in ["rdl", "deadlift", "femoral", "curl_femoral", "leg_curl"]):
+            target_muscle = "hamstrings"
+        elif any(k in ex_lower for k in ["hip_thrust", "glute", "abduction"]):
+            target_muscle = "glutes"
+        elif any(k in ex_lower for k in ["squat", "leg_press", "hack", "bulgarian", "extension"]):
+            target_muscle = "quads"
+        elif any(k in ex_lower for k in ["bench", "chest", "incline", "dips", "pec"]):
+            target_muscle = "chest"
+        elif any(k in ex_lower for k in ["row", "pulldown", "pullup", "pullover", "t_bar", "gironda"]):
+            target_muscle = "back"
+        elif any(k in ex_lower for k in ["shoulder", "overhead", "lateral", "face_pull"]):
+            target_muscle = "shoulders"
+        elif any(k in ex_lower for k in ["biceps", "triceps", "curl", "pushdown"]):
+            target_muscle = "arms"
+    if load_type.lower() in ["auto", "", "none"]:
+        if any(k in ex_lower for k in ["cable", "polea"]):
+            load_type = "cable"
+        elif any(k in ex_lower for k in ["machine", "maquina", "hack", "press_machine", "leg_press", "pec_deck"]):
+            load_type = "machine"
+        else:
+            load_type = "free_weight"
     load_lower = load_type.lower()
     
     # Universal Pattern & Body Region Classification
@@ -2913,7 +2935,7 @@ def process_kinematics(
             vlm_error = None
             vlm_mode = vlm_mode_detected
             vlm_model_used = vlm_model_detected
-            if exercise_type.lower() not in ["auto", "", "none"]:
+            if is_manual_override or exercise_type.lower() not in ["auto", "", "none"]:
                 vlm_result["detected_exercise_id"] = exercise_type
                 vlm_result["detected_exercise_name"] = exercise_name or vlm_result.get("detected_exercise_name", exercise_type.replace("_", " ").title())
             elif vlm_result.get("detected_exercise_id"):
