@@ -367,6 +367,11 @@ const SingleSnapshotCanvas: React.FC<{
 }> = ({ title, badge, b64, joints, isUpperBody, isCalibrating, pulleyOrigin, onSetPulleyOrigin }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [leverInfo, setLeverInfo] = useState<{
+    distPx: number;
+    mode: 'cable' | 'gravity';
+    targetJointName: string;
+  } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -478,16 +483,11 @@ const SingleSnapshotCanvas: React.FC<{
           ctx.stroke();
           ctx.setLineDash([]);
 
-          // Tag
-          ctx.font = 'bold 11px Inter, system-ui, sans-serif';
-          const txt = `Brazo Palanca: ${Math.round(dist)}px`;
-          const tw = ctx.measureText(txt).width;
-          const tagX = (targetJoint.x + proj.x) / 2 - tw / 2;
-          const tagY = (targetJoint.y + proj.y) / 2 - 8;
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-          ctx.fillRect(tagX - 4, tagY - 10, tw + 8, 16);
-          ctx.fillStyle = '#FBBF24';
-          ctx.fillText(txt, tagX, tagY + 2);
+          setLeverInfo({
+            distPx: Math.round(dist),
+            mode: 'cable',
+            targetJointName: isUpperBody ? 'Hombro' : 'Cadera/Rodilla'
+          });
         }
       } else if (activeLoad && targetJoint) {
         // Free weight plumb line
@@ -511,15 +511,11 @@ const SingleSnapshotCanvas: React.FC<{
         ctx.setLineDash([]);
 
         const dist = Math.abs(targetJoint.x - activeLoad.x);
-        ctx.font = 'bold 11px Inter, system-ui, sans-serif';
-        const txt = `Brazo Momento: ${Math.round(dist)}px`;
-        const tw = ctx.measureText(txt).width;
-        const tagX = (targetJoint.x + activeLoad.x) / 2 - tw / 2;
-        const tagY = targetJoint.y - 8;
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-        ctx.fillRect(tagX - 4, tagY - 10, tw + 8, 16);
-        ctx.fillStyle = '#38BDF8';
-        ctx.fillText(txt, tagX, tagY + 2);
+        setLeverInfo({
+          distPx: Math.round(dist),
+          mode: 'gravity',
+          targetJointName: isUpperBody ? 'Hombro' : 'Cadera/Rodilla'
+        });
       }
     };
   }, [b64, joints, isUpperBody, pulleyOrigin, isCalibrating]);
@@ -537,16 +533,16 @@ const SingleSnapshotCanvas: React.FC<{
   return (
     <div ref={containerRef} className="relative rounded-2xl overflow-hidden border border-slate-800 bg-black group flex flex-col items-center">
       <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 pointer-events-none">
-        <span className="px-2.5 py-1 rounded-lg bg-black/80 backdrop-blur-md border border-slate-700 text-white text-[11px] font-black shadow-lg">
+        <span className="px-2 py-0.5 rounded-lg bg-black/85 backdrop-blur-md border border-slate-700 text-white text-[10px] font-black shadow-lg">
           {title}
         </span>
-        <span className="px-2 py-0.5 rounded-full bg-purple-950/80 border border-purple-800/80 text-purple-300 text-[10px] font-mono font-bold">
+        <span className="px-1.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-800/80 text-purple-300 text-[9px] font-mono font-bold">
           {badge}
         </span>
       </div>
       {isCalibrating && (
-        <div className="absolute bottom-2 inset-x-2 z-10 pointer-events-none text-center">
-          <span className="px-3 py-1 rounded-full bg-amber-500/90 text-slate-950 text-[10px] font-black shadow-lg animate-pulse">
+        <div className="absolute bottom-10 inset-x-2 z-10 pointer-events-none text-center">
+          <span className="px-2.5 py-1 rounded-full bg-amber-500/90 text-slate-950 text-[10px] font-black shadow-lg animate-pulse">
             🎯 Haz clic sobre el anclaje de la polea en la foto
           </span>
         </div>
@@ -554,8 +550,23 @@ const SingleSnapshotCanvas: React.FC<{
       <canvas
         ref={canvasRef}
         onClick={handleCanvasClick}
-        className={`w-full h-auto max-h-[360px] object-contain rounded-2xl ${isCalibrating ? 'cursor-crosshair ring-2 ring-amber-400' : ''}`}
+        className={`w-full h-auto max-h-[260px] object-contain rounded-t-2xl ${isCalibrating ? 'cursor-crosshair ring-2 ring-amber-400' : ''}`}
       />
+      {/* Clean Info Bar below the photo - No overlapping text on joints */}
+      <div className="w-full bg-slate-950/95 px-3 py-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-cyan-400" />
+          <span className="text-slate-300 font-medium">
+            {leverInfo?.mode === 'cable' ? 'Brazo Palanca (Cable):' : 'Brazo Momento (Gravedad):'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono font-black text-amber-300">
+            {leverInfo ? `${leverInfo.distPx} px` : '--'}
+          </span>
+          <span className="text-slate-400 text-[10px]">({leverInfo?.targetJointName ?? 'Articulación'})</span>
+        </div>
+      </div>
     </div>
   );
 };
@@ -581,9 +592,9 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
   }
 
   return (
-    <div className="w-full p-2 space-y-2">
+    <div className="w-full space-y-3">
       {activeTab === 'both' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="space-y-3">
           {stretchB64 && (
             <SingleSnapshotCanvas
               title="1. Estiramiento (Bottom)"
@@ -810,6 +821,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   useEffect(() => {
     if (analysisData?.debug_pose_audit) {
       console.info("[MIA Audit]", analysisData.debug_pose_audit);
+      if (analysisData.vlm_error) {
+        console.warn("[MIA Audit] VLM Error Detail:", analysisData.vlm_error);
+      }
     }
   }, [analysisData]);
 
@@ -865,6 +879,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const result = await analyzeVideoWithModal(blob, config, fileId, { range });
       if (result.debug_pose_audit) {
         console.info("[MIA Audit]", result.debug_pose_audit);
+        if (result.vlm_error) {
+          console.warn("[MIA Audit] VLM Error Detail:", result.vlm_error);
+        }
       }
       setAnalysisData(result);
       setRepCount(result.total_reps);
@@ -1310,13 +1327,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         drawPillTag(curLoadPt.x - 30, curLoadPt.y - 20, velText, '#06B6D4', '#67E8F9');
       }
 
-      // Sticking Point detection badge
+      // Sticking Point detection badge: estrictamente durante la fase CONCENTRIC y vel_loss >= 15%
       if (analysisData?.repetitions_summary) {
-        const isNearSticking = analysisData.repetitions_summary.some(
-          r => r.sticking_point_sec && Math.abs(r.sticking_point_sec - (frame.timestamp_sec ?? frame.time ?? 0)) < 0.35
-        );
-        if (isNearSticking && curLoadPt.valid) {
-          drawPillTag(curLoadPt.x - 45, curLoadPt.y + 12, '⚠️ Sticking Point', '#EF4444', '#FCA5A5');
+        const setVelLoss = Number(analysisData.intensity_metrics?.velocity_loss_pct ?? 0);
+        const isConcentric = (frame.phase ?? '').toUpperCase() === 'CONCENTRIC';
+        const curTime = frame.timestamp_sec ?? frame.time ?? 0;
+        if (isConcentric && setVelLoss >= 15.0) {
+          const isNearSticking = analysisData.repetitions_summary.some(
+            r => r.sticking_point_sec && Math.abs(r.sticking_point_sec - curTime) < 0.35
+          );
+          if (isNearSticking && curLoadPt.valid) {
+            drawPillTag(curLoadPt.x - 45, curLoadPt.y + 12, '⚠️ Sticking Point', '#EF4444', '#FCA5A5');
+          }
         }
       }
 
@@ -2313,69 +2335,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </button>
                 </div>
 
-                {/* View 4 Snapshot Controls or Default Controls */}
-                {activeView === 'stimulus' ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setStimulusDisplayMode('snapshots')}
-                      className={`px-2 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1 transition ${
-                        stimulusDisplayMode === 'snapshots'
-                          ? 'bg-purple-600 text-white border-purple-500 shadow-sm'
-                          : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <Camera className="w-3 h-3" />
-                      <span>Fotos Clave</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStimulusDisplayMode('video')}
-                      className={`px-2 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1 transition ${
-                        stimulusDisplayMode === 'video'
-                          ? 'bg-purple-600 text-white border-purple-500 shadow-sm'
-                          : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <Film className="w-3 h-3" />
-                      <span>Vídeo</span>
-                    </button>
-                    {stimulusDisplayMode === 'snapshots' && (
-                      <button
-                        type="button"
-                        onClick={() => setIsCalibratingPulley(prev => !prev)}
-                        className={`px-2 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1 transition ${
-                          isCalibratingPulley
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 animate-pulse'
-                            : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                        title="Haz clic en la foto sobre la polea para calcular palancas"
-                      >
-                        <Crosshair className="w-3 h-3" />
-                        <span>{isCalibratingPulley ? 'Modo Clic Activo' : 'Calibrar Polea Pro'}</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowLeverArms(prev => {
-                        const next = !prev;
-                        setShowCanvasText(next);
-                        return next;
-                      });
-                    }}
-                    className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition active:scale-95 ${
-                      showLeverArms
-                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
-                        : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
-                    }`}
-                  >
-                    {showLeverArms ? <Eye className="w-3.5 h-3.5 text-cyan-300" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
-                    <span>{showLeverArms ? 'Detalles: ON' : 'Detalles: OFF'}</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLeverArms(prev => {
+                      const next = !prev;
+                      setShowCanvasText(next);
+                      return next;
+                    });
+                  }}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 transition active:scale-95 ${
+                    showLeverArms
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                      : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
+                  }`}
+                >
+                  {showLeverArms ? <Eye className="w-3.5 h-3.5 text-cyan-300" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{showLeverArms ? 'Detalles: ON' : 'Detalles: OFF'}</span>
+                </button>
 
                 {/* Ghost Skeleton Toggle */}
                 {previousSessionData && (
@@ -2414,23 +2391,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   transition: isDragging ? 'none' : 'transform 0.15s ease-out',
                 }}
               >
-                {/* Snapshot Viewer in View 4 */}
-                {activeView === 'stimulus' && stimulusDisplayMode === 'snapshots' && analysisData ? (
-                  <div className="w-full h-full overflow-y-auto p-1 flex items-center justify-center">
-                    <SnapshotViewer
-                      stretchB64={analysisData.snapshot_stretch_b64}
-                      peakB64={analysisData.snapshot_peak_b64}
-                      jointsStretch={analysisData.joints_stretch}
-                      jointsPeak={analysisData.joints_peak}
-                      loadType={activeExercise.loadType}
-                      isUpperBody={isUpperBody}
-                      activeTab={activeSnapshotTab}
-                      isCalibrating={isCalibratingPulley}
-                      pulleyOrigin={proPulleyOrigin}
-                      onSetPulleyOrigin={setProPulleyOrigin}
-                    />
-                  </div>
-                ) : null}
+
 
                 {/* Native HTML5 Video Element */}
                 <video
@@ -2880,26 +2841,28 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               </div>
 
               {/* Pastilla Superior Limpia: Detección Automática con Toggle "Cambiar" */}
-              <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 shadow-inner transition-colors duration-200 ${
+              <div
+                title={analysisData?.vlm_error || undefined}
+                className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 shadow-inner transition-colors duration-200 ${
                 analysisData && analysisData.vlm_used === true
                   ? 'bg-emerald-950/70 border-emerald-800/80 shadow-emerald-950/30'
                   : analysisData && analysisData.vlm_used === false
                   ? 'bg-amber-950/50 border-amber-800/70 shadow-amber-950/30'
                   : 'bg-slate-950/90 border-slate-800'
               }`}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="text-sm shrink-0">
                     {analysisData && analysisData.vlm_used === false ? '⚠️' : '✨'}
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <span className="text-[11px] font-bold block truncate">
                       {analysisData && analysisData.vlm_used === false ? (
                         <span className="text-amber-400 font-bold">
-                          ⚠️ Fallback Cinemático Local (VLM inactivo: {analysisData.vlm_error || 'Sin API Key'})
+                          ⚠️ Fallback Cinemático Local (VLM inactivo)
                         </span>
                       ) : analysisData && analysisData.vlm_used === true ? (
                         <span className="text-emerald-400 font-bold">
-                          ✨ IA Multimodal VLM Activa · {analysisData?.vlm_analysis?.detected_exercise_name || activeExercise.name}
+                          ✨ IA Multimodal VLM Activa ({analysisData.vlm_model_used || 'Gemini'} · {analysisData.vlm_mode === 'video_mp4' ? 'Vídeo' : 'Keyframes'}) · {analysisData?.vlm_analysis?.detected_exercise_name || activeExercise.name}
                         </span>
                       ) : analysisData?.vlm_analysis?.detected_exercise_name ? (
                         <span className="text-slate-200">Detectado: {analysisData.vlm_analysis.detected_exercise_name}</span>
@@ -2910,15 +2873,24 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         <span className="text-slate-400 font-normal"> · {activeExercise.targetMuscle}</span>
                       )}
                     </span>
-                    <span className="text-[9px] text-slate-500 block truncate font-mono">
-                      {analysisData
-                        ? (analysisData.vlm_used === false
-                            ? 'Cinemática determinista por rangos articulares 2D (ViTPose + Butterworth)'
-                            : `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada (Gemini 2.5 Flash)`)
-                        : (isManualOverride
-                            ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Selección manual por usuario`
-                            : 'Clasificación inteligente multivariante y biomecánica (Gemini + ViTPose)')}
-                    </span>
+                    {analysisData && analysisData.vlm_used === false && analysisData.vlm_error ? (
+                      <span
+                        className="text-[10px] text-amber-300 font-mono block break-words mt-0.5 line-clamp-2"
+                        title={analysisData.vlm_error}
+                      >
+                        {analysisData.vlm_error.slice(0, 120)}{analysisData.vlm_error.length > 120 ? '...' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-slate-500 block truncate font-mono">
+                        {analysisData
+                          ? (analysisData.vlm_used === false
+                              ? 'Cinemática determinista por rangos articulares 2D (ViTPose + Butterworth)'
+                              : `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Clasificación IA Sincronizada (Gemini 2.5 Flash)`)
+                          : (isManualOverride
+                              ? `${activeExercise?.loadType === 'gravity' ? 'Peso Libre' : activeExercise?.loadType === 'cable' ? 'Polea' : 'Máquina'} · Selección manual por usuario`
+                              : 'Clasificación inteligente multivariante y biomecánica (Gemini + ViTPose)')}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button
@@ -3376,6 +3348,82 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* ============================================================== */}
             {activeView === 'stimulus' && (
               <div className="space-y-3">
+                {/* CARD 0: Radiografía Biomecánica (Fotogramas Clave & Palancas) */}
+                {analysisData && (analysisData.snapshot_stretch_b64 || analysisData.snapshot_peak_b64) && (
+                  <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-purple-400" />
+                        Radiografía (Fotogramas Clave)
+                      </span>
+                      {/* Tabs [Ambas] | [Estiramiento] | [Bloqueo] */}
+                      <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setActiveSnapshotTab('both')}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                            activeSnapshotTab === 'both' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Ambas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveSnapshotTab('stretch')}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                            activeSnapshotTab === 'stretch' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Estiramiento
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveSnapshotTab('peak')}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                            activeSnapshotTab === 'peak' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Bloqueo
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Calibrate Pulley Toolbar */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">
+                        Inspección estática de brazos de palanca
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsCalibratingPulley(prev => !prev)}
+                        className={`px-2 py-1 rounded-xl text-[10px] font-bold border flex items-center gap-1 transition ${
+                          isCalibratingPulley
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 animate-pulse'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                        title="Haz clic sobre la polea en la foto para calcular el brazo de palanca real"
+                      >
+                        <Crosshair className="w-3 h-3" />
+                        <span>{isCalibratingPulley ? 'Modo Clic Activo' : 'Calibrar Polea'}</span>
+                      </button>
+                    </div>
+
+                    {/* Snapshot Viewer */}
+                    <SnapshotViewer
+                      stretchB64={analysisData.snapshot_stretch_b64}
+                      peakB64={analysisData.snapshot_peak_b64}
+                      jointsStretch={analysisData.joints_stretch}
+                      jointsPeak={analysisData.joints_peak}
+                      loadType={activeExercise.loadType}
+                      isUpperBody={isUpperBody}
+                      activeTab={activeSnapshotTab}
+                      isCalibrating={isCalibratingPulley}
+                      pulleyOrigin={proPulleyOrigin}
+                      onSetPulleyOrigin={setProPulleyOrigin}
+                    />
+                  </div>
+                )}
+
                 {/* CARD 1: Perfil de Resistencia & Reparto */}
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
                   <div className="flex items-center justify-between">

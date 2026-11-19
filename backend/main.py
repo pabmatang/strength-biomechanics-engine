@@ -306,18 +306,79 @@ def extract_6_keyframes_jpeg_b64(video_path: str) -> List[str]:
     cap.release()
     return keyframes_b64
 
-def parse_google_http_error(e: urllib.error.HTTPError, model_name: str) -> str:
-    """Extrae el mensaje exacto de error devuelto por la API de Google AI Studio."""
+def parse_google_http_error(e: urllib.error.HTTPError) -> Tuple[int, str]:
+    """Extrae código HTTP y mensaje descriptivo de la respuesta de Google AI Studio."""
+    code = e.code
     try:
         raw_text = e.read().decode("utf-8", errors="ignore")
         data = json.loads(raw_text)
         err_msg = data.get("error", {}).get("message")
         if err_msg:
-            return f"HTTP {e.code} ({model_name}): {err_msg}"
+            return code, err_msg
         clean_snip = raw_text.replace("\n", " ").strip()[:180]
-        return f"HTTP {e.code} ({model_name}): {clean_snip}"
+        return code, clean_snip
     except Exception:
-        return f"HTTP {e.code} ({model_name})"
+        return code, str(getattr(e, "reason", "Unknown HTTP Error"))
+
+_CACHED_FLASH_MODELS: Optional[List[str]] = None
+
+def get_available_flash_models(api_key: str) -> List[str]:
+    """
+    Auto-descubrimiento dinámico de modelos Gemini Flash disponibles vía GET /v1beta/models.
+    Cacheado en memoria global para no repetir la llamada en cada inferencia.
+    """
+    global _CACHED_FLASH_MODELS
+    if _CACHED_FLASH_MODELS:
+        return _CACHED_FLASH_MODELS
+
+    default_fallback_models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"]
+    if not api_key:
+        return default_fallback_models
+
+    try:
+        url = "https://generativelanguage.googleapis.com/v1beta/models"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key
+            },
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models_list = data.get("models", [])
+            valid_models = []
+            for m in models_list:
+                name = m.get("name", "")
+                clean_name = name.replace("models/", "").strip()
+                methods = m.get("supportedGenerationMethods", [])
+                
+                # Criterios: generateContent soportado, contiene 'flash' y sin variantes no aptas/retiradas
+                if "generateContent" in methods and "flash" in clean_name.lower():
+                    lower_name = clean_name.lower()
+                    if any(bad in lower_name for bad in ["tts", "audio", "image", "thinking-exp", "-exp", "lite"]):
+                        continue
+                    valid_models.append(clean_name)
+
+            priority_order = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"]
+            sorted_models = []
+            for p in priority_order:
+                if p in valid_models:
+                    sorted_models.append(p)
+            for v in valid_models:
+                if v not in sorted_models:
+                    sorted_models.append(v)
+
+            if sorted_models:
+                print(f"[Gemini VLM Auto-Discovery] Modelos Flash vigentes activos en API: {sorted_models}")
+                _CACHED_FLASH_MODELS = sorted_models
+                return _CACHED_FLASH_MODELS
+    except Exception as e:
+        print(f"[Gemini VLM Auto-Discovery] Advertencia: ListModels no respondió ({e}). Usando lista por defecto.")
+
+    _CACHED_FLASH_MODELS = default_fallback_models
+    return _CACHED_FLASH_MODELS
 
 def clean_gemini_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
     """Limpia markdown y formatea respuesta JSON de Gemini."""
@@ -667,16 +728,16 @@ def analyze_biomechanics_with_vlm(
     repetitions_summary: List[Dict[str, Any]],
     rep_comparison: Optional[Dict[str, Any]] = None,
     gemini_api_key: Optional[str] = None
-) -> Tuple[Optional[Dict[str, Any]], Optional[str], str]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], str, Optional[str]]:
     """
-    Análisis Biomecánico Multimodal con Gemini en 2 intentos:
+    Análisis Biomecánico Multimodal con Gemini en 2 intentos con auto-descubrimiento de modelos:
     1. Intento 1 (Vídeo original intacto): Si pesa < 8 MB, se envía tal cual (video/mp4) sin recodificar.
     2. Intento 2 (Fallback automático a 6 Keyframes JPEG): Ante cualquier fallo HTTP o > 8 MB, envía 6 fotogramas JPEG (480px, q75).
-    Retorna (vlm_result, vlm_error, vlm_mode) donde vlm_mode es 'video_mp4' | 'keyframes_jpeg' | 'fallback'.
+    Retorna (vlm_result, vlm_error, vlm_mode, vlm_model_used)
     """
     api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)", "fallback"
+        return None, "GEMINI_API_KEY no configurada (ni en payload ni en entorno)", "fallback", None
 
     rep_summary_str = json.dumps([{
         "rep": r.get("rep_number", r.get("rep_index", i+1)),
@@ -749,16 +810,27 @@ def analyze_biomechanics_with_vlm(
         f"}}"
     )
 
-    models_to_try = [
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite"
-    ]
-    last_err = None
+    models_to_try = get_available_flash_models(api_key)
+    print(f"[Gemini VLM] Evaluando modelos vigentes: {models_to_try}")
+
+    errors: List[str] = []
 
     # -------------------------------------------------------------------------
     # INTENTO 1: Vídeo MP4 original intacto (< 8 MB, sin re-codificar)
     # -------------------------------------------------------------------------
-    video_b64 = read_original_video_b64(video_path, max_bytes=8 * 1024 * 1024) if video_path else None
+    video_b64 = None
+    if video_path and os.path.exists(video_path):
+        f_size = os.path.getsize(video_path)
+        if f_size < 8 * 1024 * 1024:
+            try:
+                with open(video_path, "rb") as vf:
+                    video_b64 = base64.b64encode(vf.read()).decode("utf-8")
+                print(f"[Gemini Video VLM] Intento 1: Enviando vídeo original intacto ({f_size / (1024*1024):.2f} MB)...")
+            except Exception as e:
+                errors.append(f"local (read_mp4): Error lectura - {e}")
+        else:
+            errors.append(f"local (mp4): Vídeo de {f_size / (1024*1024):.2f} MB supera 8 MB")
+
     if video_b64:
         parts_video = [
             {"text": prompt_text},
@@ -793,18 +865,21 @@ def analyze_biomechanics_with_vlm(
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
                             print(f"[Gemini Video VLM] Inferencia {clean_model} (MP4 intacto) con éxito: {parsed.get('detected_exercise_id')}")
-                            return parsed, None, "video_mp4"
+                            return parsed, None, "video_mp4", clean_model
             except urllib.error.HTTPError as e:
-                last_err = parse_google_http_error(e, clean_model)
-                print(f"[Gemini Video VLM] Intento 1 Falló ({clean_model}): {last_err}")
+                code, msg = parse_google_http_error(e)
+                err_str = f"{clean_model} (mp4): HTTP {code} - {msg}"
+                errors.append(err_str)
+                print(f"[Gemini Video VLM] {err_str}")
             except Exception as e:
-                last_err = f"Exception ({clean_model}): {type(e).__name__} - {e}"
-                print(f"[Gemini Video VLM] Intento 1 Falló ({clean_model}): {last_err}")
+                err_str = f"{clean_model} (mp4): Exception - {type(e).__name__}: {e}"
+                errors.append(err_str)
+                print(f"[Gemini Video VLM] {err_str}")
 
     # -------------------------------------------------------------------------
     # INTENTO 2: Fallback automático a 6 Keyframes JPEG (480px, q75)
     # -------------------------------------------------------------------------
-    print(f"[Gemini VLM] Intento 2: Extrayendo 6 keyframes JPEG uniformes (motivo previo: {last_err or 'Vídeo > 8 MB'})...")
+    print(f"[Gemini VLM] Intento 2: Extrayendo 6 keyframes JPEG uniformes tras fallos en vídeo...")
     kf_b64_list = extract_6_keyframes_jpeg_b64(video_path) if video_path else []
     if kf_b64_list:
         parts_kf = [{"text": prompt_text}]
@@ -839,17 +914,20 @@ def analyze_biomechanics_with_vlm(
                         parsed = clean_gemini_json_response(text_content)
                         if parsed and isinstance(parsed, dict) and "timeline_cues" in parsed:
                             print(f"[Gemini Keyframes VLM] Inferencia {clean_model} (6 Keyframes JPEG) con éxito: {parsed.get('detected_exercise_id')}")
-                            return parsed, None, "keyframes_jpeg"
+                            return parsed, None, "keyframes_jpeg", clean_model
             except urllib.error.HTTPError as e:
-                last_err = parse_google_http_error(e, clean_model)
-                print(f"[Gemini Keyframes VLM] Intento 2 Falló ({clean_model}): {last_err}")
+                code, msg = parse_google_http_error(e)
+                err_str = f"{clean_model} (keyframes): HTTP {code} - {msg}"
+                errors.append(err_str)
+                print(f"[Gemini Keyframes VLM] {err_str}")
             except Exception as e:
-                last_err = f"Exception ({clean_model}): {type(e).__name__} - {e}"
-                print(f"[Gemini Keyframes VLM] Intento 2 Falló ({clean_model}): {last_err}")
+                err_str = f"{clean_model} (keyframes): Exception - {type(e).__name__}: {e}"
+                errors.append(err_str)
+                print(f"[Gemini Keyframes VLM] {err_str}")
 
-    return None, (last_err or "Inferencia Gemini falló en ambos intentos"), "fallback"
+    accumulated_error = " | ".join(errors) if errors else "Inferencia Gemini falló en todos los modelos"
+    return None, accumulated_error, "fallback", None
 
-# Alias para compatibilidad total
 analyze_biomechanics_with_gemini_video = analyze_biomechanics_with_vlm
 
 def sample_video_frames(
@@ -2793,8 +2871,9 @@ def process_kinematics(
     vlm_used = False
     vlm_error = None
     vlm_mode = "fallback"
+    vlm_model_used = None
     try:
-        vlm_res, vlm_err, vlm_mode_detected = analyze_biomechanics_with_vlm(
+        vlm_res, vlm_err, vlm_mode_detected, vlm_model_detected = analyze_biomechanics_with_vlm(
             video_path=video_path,
             exercise_type=exercise_type,
             total_reps=total_reps,
@@ -2808,12 +2887,14 @@ def process_kinematics(
             vlm_used = True
             vlm_error = None
             vlm_mode = vlm_mode_detected
+            vlm_model_used = vlm_model_detected
             if vlm_result.get("detected_exercise_id"):
                 exercise_type = vlm_result["detected_exercise_id"]
         else:
             vlm_used = False
             vlm_error = vlm_err
             vlm_mode = "fallback"
+            vlm_model_used = None
             vlm_result = generate_deterministic_clinical_audit(
                 exercise_type=exercise_type,
                 body_region=body_region,
@@ -2827,6 +2908,7 @@ def process_kinematics(
         vlm_used = False
         vlm_error = str(e_vlm)
         vlm_mode = "fallback"
+        vlm_model_used = None
         vlm_result = generate_deterministic_clinical_audit(
             exercise_type=exercise_type,
             body_region=body_region,
@@ -2839,6 +2921,7 @@ def process_kinematics(
     # Actualizar debug_pose_audit con datos del VLM para auditoría y visualización
     debug_pose_audit["vlm_error"] = str(vlm_error) if vlm_error else None
     debug_pose_audit["vlm_mode"] = vlm_mode
+    debug_pose_audit["vlm_model_used"] = vlm_model_used
     print(f"[MIA Audit Backend] {debug_pose_audit}")
     # 9. Per-Frame Output Projection
     frames_output = []
@@ -3494,6 +3577,7 @@ def process_kinematics(
         "vlm_used": bool(vlm_used),
         "vlm_error": str(vlm_error) if vlm_error else None,
         "vlm_mode": vlm_mode,
+        "vlm_model_used": vlm_model_used,
         "frames": frames_output
     })
 

@@ -289,6 +289,9 @@ export interface BiomechanicsAnalysisResponse {
     locked_side: string;
     proximal_source: string;
     proximal_vitpose_error: number;
+    vlm_error?: string | null;
+    vlm_mode?: string;
+    [key: string]: any;
   };
   detected_exercise_type?: string;
   target_muscle?: string;
@@ -310,6 +313,8 @@ export interface BiomechanicsAnalysisResponse {
   vlm_analysis?: VlmAnalysis;
   vlm_used?: boolean;
   vlm_error?: string | null;
+  vlm_mode?: 'video_mp4' | 'keyframes_jpeg' | 'fallback';
+  vlm_model_used?: string | null;
   frames: BiomechanicsFrame[];
 }
 
