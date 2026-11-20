@@ -41,8 +41,8 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
   const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
   const assignedMachine = resolveCatalogMachine(exercise);
   const isBrandMachine = Boolean(
-    (assignedMachine && assignedMachine.brand && assignedMachine.brand !== 'Genérica') ||
-    (exercise.brand && exercise.brand !== 'General')
+    (assignedMachine && assignedMachine.brand && assignedMachine.brand !== 'Genérica' && assignedMachine.brand !== 'Estándar') ||
+    (exercise.brand && exercise.brand !== 'General' && (exercise.brand as string) !== 'Estándar')
   );
   const [machinePin, setMachinePin] = useState(() => {
     try {

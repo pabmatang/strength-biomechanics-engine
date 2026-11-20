@@ -44,6 +44,7 @@ export type GymBrand =
   | 'Eleiko'
   | 'Booty Builder'
   | 'Concept2'
+  | 'Estándar'
   | 'General';
 
 export type SetType = 'normal' | 'warmup' | 'dropset' | 'failure';

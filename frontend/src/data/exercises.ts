@@ -1,10 +1,12 @@
 import { ExerciseTemplate, Routine } from '../types/workout';
 import { SPANISH_GYM_MACHINES } from './spanishGymMachines';
+import { STANDARD_GYM_MACHINES } from './standardGymMachines';
 import { FREE_EXERCISES_DATABASE } from './freeExercisesDb';
 import { EXERCISE_DB_NEW_EXERCISES } from '../utils/exerciseDbAnimations';
 
 export const EXERCISE_DATABASE: ExerciseTemplate[] = [
   ...SPANISH_GYM_MACHINES,
+  ...STANDARD_GYM_MACHINES,
   ...EXERCISE_DB_NEW_EXERCISES,
   ...FREE_EXERCISES_DATABASE,
   // Free weight staples with authentic equipment images

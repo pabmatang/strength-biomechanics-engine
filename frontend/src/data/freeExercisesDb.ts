@@ -691,4 +691,628 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
     image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/abs/hanging-leg-raise.gif',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/abs/hanging-leg-raise.gif'
   }
+,
+  // ==========================================
+  // COMPREHENSIVE FREE WEIGHT & CABLE STAPLES (100% COVERAGE)
+  // ==========================================
+  // DORSAL / LATS
+  {
+    id: 'cable_lat_pulldown_wide',
+    title: 'Jalón al Pecho en Polea Alta (Agarre Abierto)',
+    brand: 'Eleiko',
+    muscle_group: 'lats',
+    other_muscles: ['upper_back', 'biceps'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Tracción vertical fundamental en polea alta para anchura dorsal.',
+    setup_tips: ['Fija los muslos bajo los rodillos', 'Tira llevando los codos hacia las costillas'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif'
+  },
+  {
+    id: 'cable_lat_prayer',
+    title: 'Pullover en Polea Alta con Cuerda (Lat Prayer)',
+    brand: 'Eleiko',
+    muscle_group: 'lats',
+    other_muscles: ['chest', 'triceps'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Aislamiento dorsal puro mediante extensión de hombro sin fatiga del bíceps.',
+    setup_tips: ['Torso inclinado 45°', 'Arco amplio alejando las manos y contrayendo hacia la cadera'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif'
+  },
+  {
+    id: 'cable_seated_low_row',
+    title: 'Remo en Polea Baja (Agarre Estrecho)',
+    brand: 'Eleiko',
+    muscle_group: 'lats',
+    other_muscles: ['upper_back', 'biceps'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Tracción horizontal en polea baja con agarre neutro para espesor de la espalda.',
+    setup_tips: ['Mantén el torso casi vertical sin balanceos excesivos'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif'
+  },
+  {
+    id: 'dumbbell_pullover',
+    title: 'Pullover con Mancuerna en Banco Plano',
+    brand: 'Eleiko',
+    muscle_group: 'lats',
+    other_muscles: ['chest'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Extensión de hombros sobre banco para estiramiento profundo del dorsal mayor.',
+    setup_tips: ['Codos ligeramente flexionados fijos durante la bajada'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif'
+  },
+  {
+    id: 'barbell_pendlay_row',
+    title: 'Remo Pendlay con Barra Olímpica',
+    brand: 'Eleiko',
+    muscle_group: 'lats',
+    other_muscles: ['upper_back', 'biceps'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Remo estricto desde el suelo con torso completamente paralelo.',
+    setup_tips: ['Cada repetición inicia muerta sobre los discos en el suelo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif'
+  },
+
+  // ESPALDA ALTA & TRAPECIO
+  {
+    id: 'cable_wide_grip_seated_row',
+    title: 'Remo en Polea Agarre Abierto (Espalda Alta)',
+    brand: 'Eleiko',
+    muscle_group: 'upper_back',
+    other_muscles: ['traps', 'shoulders'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Tracción con codos a 60-70° del torso para romboides y trapecio medio.',
+    setup_tips: ['Retrae escápulas y aprieta 1s atrás'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/lats/assisted-pull-up.gif'
+  },
+  {
+    id: 'cable_rear_delt_flyes',
+    title: 'Pájaros en Doble Polea Cruzada (Deltoides Posterior)',
+    brand: 'Eleiko',
+    muscle_group: 'upper_back',
+    other_muscles: ['shoulders'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Abducción horizontal cruzada para aislar la cabeza posterior del deltoides.',
+    setup_tips: ['Ajusta las poleas a la altura de los ojos y cruza los cables sin agarres'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+  {
+    id: 'cable_shrug',
+    title: 'Encogimiento de Trapecio en Polea Baja con Barra',
+    brand: 'Eleiko',
+    muscle_group: 'traps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Elevación escapular constante en polea baja para trapecio superior.',
+    setup_tips: ['Sube en diagonal hacia las orejas sin rotar los hombros'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+  {
+    id: 'dumbbell_rear_delt_fly',
+    title: 'Pájaros con Mancuernas en Banco Inclinado',
+    brand: 'Eleiko',
+    muscle_group: 'upper_back',
+    other_muscles: ['shoulders'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Pecho apoyado en banco a 30-45° para eliminar trampeo en deltoides posterior.',
+    setup_tips: ['Abre en semicírculo hacia los lados'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+  {
+    id: 'dumbbell_shrug',
+    title: 'Encogimientos con Mancuernas de Pie',
+    brand: 'Eleiko',
+    muscle_group: 'traps',
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Encogimiento neutro con mancuernas pegadas a los muslos.',
+    setup_tips: ['Pausa de 2 segundos en contracción máxima arriba'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+
+  // DELTOIDES / SHOULDERS
+  {
+    id: 'dumbbell_shoulder_press_seated',
+    title: 'Press de Hombro Sentado con Mancuernas',
+    brand: 'Eleiko',
+    muscle_group: 'shoulders',
+    other_muscles: ['triceps'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Empuje vertical en banco a 75° con mancuernas para deltoides anterior.',
+    setup_tips: ['Baja hasta que las mancuernas rocen la altura de las orejas'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+  {
+    id: 'cable_y_raise',
+    title: 'Elevaciones en Y en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'shoulders',
+    other_muscles: ['traps'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Elevación a 30° en el plano escapular para alinear fibras laterales.',
+    setup_tips: ['Poleas cruzadas en el suelo, sube formando una letra Y'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+  {
+    id: 'cable_front_raise',
+    title: 'Elevaciones Frontales en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'shoulders',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Flexión anterior de hombro con tensión continua para deltoides anterior.',
+    setup_tips: ['Sube hasta la altura de los ojos con los codos fijos'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+
+  // BÍCEPS & TRÍCEPS
+  {
+    id: 'cable_bayesian_curl',
+    title: 'Curl Bayesiano en Polea Baja (Húmero Extendido)',
+    brand: 'Eleiko',
+    muscle_group: 'biceps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'De espaldas a la polea con el brazo por detrás del torso para máximo estiramiento de cabeza larga.',
+    setup_tips: ['Da un paso adelante de la polea y mantén el codo retrasado'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/dumbbell-incline-biceps-curl.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/dumbbell-incline-biceps-curl.gif'
+  },
+  {
+    id: 'cable_rope_hammer_curl',
+    title: 'Curl Martillo en Polea Baja con Cuerda',
+    brand: 'Eleiko',
+    muscle_group: 'biceps',
+    other_muscles: ['forearms'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Flexión con agarre neutro para braquial anterior y braquiorradial.',
+    setup_tips: ['Abre ligeramente las puntas de la cuerda arriba'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/dumbbell-incline-biceps-curl.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/dumbbell-incline-biceps-curl.gif'
+  },
+  {
+    id: 'cable_overhead_triceps_extension',
+    title: 'Extensión de Tríceps Katatrópica en Polea (Overhead)',
+    brand: 'Eleiko',
+    muscle_group: 'triceps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Extensión por encima de la cabeza para estiramiento profundo de la cabeza larga.',
+    setup_tips: ['Codos fijos apuntando hacia adelante'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif'
+  },
+  {
+    id: 'cable_straight_bar_pushdown',
+    title: 'Empuje de Tríceps en Polea con Barra Recta',
+    brand: 'Eleiko',
+    muscle_group: 'triceps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Extensión pesada hacia abajo para cabeza lateral y medial del tríceps.',
+    setup_tips: ['Codos pegados a los costados'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif'
+  },
+
+  // CUÁDRICEPS / LEGS
+  {
+    id: 'dumbbell_bulgarian_split_squat',
+    title: 'Sentadilla Búlgara con Mancuernas',
+    brand: 'Eleiko',
+    muscle_group: 'quadriceps',
+    other_muscles: ['glutes', 'hamstrings'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Ejercicio unilateral de altísima demanda y activación en cuádriceps y glúteo.',
+    setup_tips: ['Pie trasero elevado sobre banco a la altura de la rodilla'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'dumbbell_goblet_squat',
+    title: 'Sentadilla Goblet con Mancuerna Pesada',
+    brand: 'Eleiko',
+    muscle_group: 'quadriceps',
+    other_muscles: ['glutes'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Sentadilla profunda sosteniendo una mancuerna vertical pegada al pecho.',
+    setup_tips: ['Mantén el torso erguido y baja entre las caderas'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_sissy_squat',
+    title: 'Sentadilla Sissy Asistida en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'quadriceps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Flexión profunda de rodillas hacia adelante con agarre a la polea para aislar el recto femoral.',
+    setup_tips: ['Rodillas viajan hacia adelante y cadera se mantiene extendida'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_leg_extension',
+    title: 'Extensión de Cuádriceps con Tobillera en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'quadriceps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Aislamiento unilateral de cuádriceps mediante cable y tobillera.',
+    setup_tips: ['Extiende la rodilla completamente contra la resistencia del cable'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+
+  // ISQUIOSURALES / HAMSTRINGS
+  {
+    id: 'barbell_stiff_leg_deadlift',
+    title: 'Peso Muerto Piernas Rígidas con Barra',
+    brand: 'Eleiko',
+    muscle_group: 'hamstrings',
+    other_muscles: ['glutes', 'lower_back'],
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Bisagra pura de cadera con rodillas casi fijas para estiramiento máximo de isquios.',
+    setup_tips: ['Empuja el culo hacia la pared trasera sin doblar la zona lumbar'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'nordic_hamstring_curl',
+    title: 'Curl Nórdico de Isquiosurales (Autocarga)',
+    brand: 'Eleiko',
+    muscle_group: 'hamstrings',
+    equipment_category: 'none',
+    exercise_type: 'bodyweight_reps',
+    description: 'Contracción excéntrica pura para prevención de lesiones y fuerza en isquios.',
+    setup_tips: ['Tobillos fijados, desciende con el torso recto lo más lento posible'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_standing_leg_curl',
+    title: 'Curl Femoral de Pie en Polea Baja con Tobillera',
+    brand: 'Eleiko',
+    muscle_group: 'hamstrings',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Flexión de rodilla de pie con resistencia continua durante todo el rango.',
+    setup_tips: ['Muslo fijo alineado con el torso, flexiona talón hacia el glúteo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_pull_through',
+    title: 'Cable Pull-Through en Polea Baja con Cuerda',
+    brand: 'Eleiko',
+    muscle_group: 'hamstrings',
+    other_muscles: ['glutes'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Bisagra de cadera con cable entre las piernas para cadena posterior.',
+    setup_tips: ['Aprieta glúteos e isquios al colocarte de pie en extensión completa'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+
+  // GLÚTEOS / GLUTES
+  {
+    id: 'dumbbell_b_stance_rdl',
+    title: 'Peso Muerto Rumano B-Stance con Mancuernas (Foco Glúteo)',
+    brand: 'Eleiko',
+    muscle_group: 'glutes',
+    other_muscles: ['hamstrings'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Postura asimétrica para cargar el glúteo mayor de la pierna adelantada.',
+    setup_tips: ['El 90% del peso recae en el pie delantero'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'dumbbell_step_up',
+    title: 'Step Up en Cajón con Mancuernas',
+    brand: 'Eleiko',
+    muscle_group: 'glutes',
+    other_muscles: ['quadriceps'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Extensión unilateral de cadera y rodilla en cajón a 90° para glúteo mayor.',
+    setup_tips: ['Evita impulsarte con el pie del suelo; sube tirando con la pierna del cajón'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_glute_kickback',
+    title: 'Patada de Glúteo en Polea Baja con Tobillera',
+    brand: 'Eleiko',
+    muscle_group: 'glutes',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Extensión pura de cadera en diagonal hacia atrás para hipertrofia de glúteo mayor.',
+    setup_tips: ['Aprieta 1 segundo en máxima contracción sin arquear la zona lumbar'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_hip_abduction',
+    title: 'Abducción de Cadera en Polea Baja de Pie',
+    brand: 'Eleiko',
+    muscle_group: 'glutes',
+    other_muscles: ['abductors'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Separación lateral de pierna con tobillera para glúteo medio.',
+    setup_tips: ['Pierna ligeramente por detrás del eje del cuerpo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+
+  // GEMELOS / CALVES
+  {
+    id: 'dumbbell_standing_calf_raise',
+    title: 'Elevación de Talones de Pie con Mancuernas',
+    brand: 'Eleiko',
+    muscle_group: 'calves',
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Flexión plantar con mancuernas sobre un escalón o disco.',
+    setup_tips: ['Pausa de 2s abajo en máximo estiramiento y sube con fuerza'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'barbell_standing_calf_raise',
+    title: 'Elevación de Talones con Barra en Step / Jaula',
+    brand: 'Eleiko',
+    muscle_group: 'calves',
+    equipment_category: 'barbell',
+    exercise_type: 'weight_reps',
+    description: 'Sobrecarga pesada con barra en la espalda sobre step para gemelos.',
+    setup_tips: ['Rodillas bloqueadas sin hiperextensión'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'dumbbell_seated_calf_raise',
+    title: 'Elevación de Talones Sentado con Mancuernas',
+    brand: 'Eleiko',
+    muscle_group: 'calves',
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Sentado en banco con mancuernas sobre las rodillas para aislar el sóleo.',
+    setup_tips: ['Coloca un taco bajo las puntas de los pies para rango completo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_standing_calf_raise',
+    title: 'Elevación de Talones en Polea Baja sobre Step',
+    brand: 'Eleiko',
+    muscle_group: 'calves',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Cinturón o barra conectado a polea baja para tensión vertical constante.',
+    setup_tips: ['Rango completo sin balanceo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_single_leg_calf_raise',
+    title: 'Elevación de Talón Unilateral en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'calves',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Aislamiento unilateral en polea baja para corregir asimetrías de pantorrilla.',
+    setup_tips: ['Control excéntrico de 3 segundos por repetición'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+
+  // ADUCTORES & ABDUCTORES
+  {
+    id: 'dumbbell_sumo_squat',
+    title: 'Sentadilla Sumo con Mancuerna (Foco Aductores)',
+    brand: 'Eleiko',
+    muscle_group: 'adductors',
+    other_muscles: ['quadriceps', 'glutes'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Pies muy separados con puntas a 45° para elongar y activar aductores.',
+    setup_tips: ['Sostén la mancuerna colgada entre las piernas y baja profundo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'dumbbell_cossack_squat',
+    title: 'Sentadilla Cosaca con Mancuerna',
+    brand: 'Eleiko',
+    muscle_group: 'adductors',
+    other_muscles: ['quadriceps', 'glutes'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Desplazamiento frontal alterno hacia un lado con máxima apertura de cadera.',
+    setup_tips: ['Pierna extendida con talón apoyado y dedos hacia arriba'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_hip_adduction',
+    title: 'Aducción de Cadera en Polea Baja con Tobillera',
+    brand: 'Eleiko',
+    muscle_group: 'adductors',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Aproximación de pierna cruzando por delante de la pierna de apoyo.',
+    setup_tips: ['Movimiento lento y contracción máxima al cruzar'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_hip_abduction_standing',
+    title: 'Abducción de Cadera en Polea Baja con Tobillera',
+    brand: 'Eleiko',
+    muscle_group: 'abductors',
+    other_muscles: ['glutes'],
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Separación lateral en polea baja para glúteo medio y tensor de la fascia lata.',
+    setup_tips: ['Mantén el torso erguido sin inclinarte hacia el lado contrario'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+
+  // ABDOMEN & CORE
+  {
+    id: 'plate_weighted_crunch',
+    title: 'Crunch en Suelo con Disco en el Pecho',
+    brand: 'Eleiko',
+    muscle_group: 'abdominals',
+    equipment_category: 'plate',
+    exercise_type: 'weight_reps',
+    description: 'Flexión espinal con sobrecarga progresiva mediante disco olímpico.',
+    setup_tips: ['Pega la zona lumbar al suelo y enrolla la caja torácica hacia la pelvis'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif'
+  },
+  {
+    id: 'ab_wheel_rollout',
+    title: 'Rueda Abdominal (Ab Wheel Rollout)',
+    brand: 'Eleiko',
+    muscle_group: 'abdominals',
+    equipment_category: 'none',
+    exercise_type: 'bodyweight_reps',
+    description: 'Anti-extensión de columna con tremenda activación del recto abdominal.',
+    setup_tips: ['Inicia desde rodillas manteniendo retroversión pélvica'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif'
+  },
+  {
+    id: 'cable_kneeling_crunch',
+    title: 'Crunch Abdominal de Rodillas en Polea Alta',
+    brand: 'Eleiko',
+    muscle_group: 'abdominals',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Flexión de tronco en polea alta con cuerda sobre la nuca.',
+    setup_tips: ['Fija la cadera en el sitio; no te sientes sobre los talones'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/dumbbell-bench-press.gif'
+  },
+  {
+    id: 'cable_woodchopper',
+    title: 'Leñador en Polea Alta a Baja (Woodchopper)',
+    brand: 'Eleiko',
+    muscle_group: 'abdominals',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Rotación y flexión diagonal para oblicuos internos y externos.',
+    setup_tips: ['Pivota sobre el pie trasero y contrae el abdomen al rotar'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  },
+  {
+    id: 'cable_pallof_press',
+    title: 'Pallof Press Antirrotacional en Polea Media',
+    brand: 'Eleiko',
+    muscle_group: 'abdominals',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Resistencia isométrica contra rotación para estabilidad central del core.',
+    setup_tips: ['Extiende los brazos al frente y resiste 2 segundos sin girar el tronco'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  }
+,
+  // ABDUCTORES & ADUCTORES COMPLEMENTARIOS
+  {
+    id: 'bodyweight_side_lying_leg_raise',
+    title: 'Elevación Lateral de Pierna en Suelo (Abductores)',
+    brand: 'Eleiko',
+    muscle_group: 'abductors',
+    other_muscles: ['glutes'],
+    equipment_category: 'none',
+    exercise_type: 'bodyweight_reps',
+    description: 'Aislamiento de glúteo medio en posición decúbito lateral sin sobrecarga axial.',
+    setup_tips: ['Mantén la punta del pie apuntando hacia adelante o ligeramente hacia abajo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'dumbbell_side_lying_abduction',
+    title: 'Elevación Lateral de Pierna con Mancuerna sobre Muslo',
+    brand: 'Eleiko',
+    muscle_group: 'abductors',
+    other_muscles: ['glutes'],
+    equipment_category: 'dumbbell',
+    exercise_type: 'weight_reps',
+    description: 'Elevación lateral tumbado con mancuerna apoyada en la cara externa del muslo.',
+    setup_tips: ['Movimiento controlado de 2 segundos arriba y 3 segundos bajando'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_cross_body_adduction',
+    title: 'Aducción de Pierna Cruzada en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'adductors',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Aducción profunda cruzando el cable por detrás de la pierna de apoyo.',
+    setup_tips: ['Tensión continua sin tocar el suelo'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_seated_hamstring_curl',
+    title: 'Curl Femoral Sentado en Banco con Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'hamstrings',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Sentado en banco plano de espaldas a la polea con tobillera.',
+    setup_tips: ['Cadera a 90° para sobrecargar en estiramiento'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/barbell-deadlift.gif'
+  },
+  {
+    id: 'cable_behind_back_shrug',
+    title: 'Encogimiento de Trapecio Tras Nuca en Polea Baja',
+    brand: 'Eleiko',
+    muscle_group: 'traps',
+    equipment_category: 'cable',
+    exercise_type: 'weight_reps',
+    description: 'Tensión angular continua por detrás del cuerpo para trapecio superior.',
+    setup_tips: ['Sube en diagonal hacia arriba y hacia atrás'],
+    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif',
+    gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/dumbbell-lateral-raise.gif'
+  }
 ];

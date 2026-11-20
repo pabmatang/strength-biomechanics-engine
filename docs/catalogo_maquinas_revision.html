@@ -1,0 +1,3959 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIA · Catálogo Visual de Máquinas Biomecánicas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              technogym: '#f59e0b',
+              hammer: '#ef4444',
+              panatta: '#06b6d4',
+              nautilus: '#3b82f6',
+              cybex: '#8b5cf6',
+              matrix: '#10b981',
+              gym80: '#ec4899',
+              estandar: '#14b8a6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #0b0d17; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+    .card-glow:hover { box-shadow: 0 10px 25px -5px rgba(6, 182, 212, 0.15), 0 8px 10px -6px rgba(6, 182, 212, 0.1); }
+  </style>
+</head>
+<body class="p-4 sm:p-8 max-w-7xl mx-auto min-h-screen">
+
+  <!-- Header -->
+  <header class="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div>
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-cyan-500/20">
+          M
+        </div>
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2">
+            Catálogo Oficial de Máquinas
+            <span class="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              v2.0 Biomecánica
+            </span>
+          </h1>
+          <p class="text-xs sm:text-sm text-slate-400">
+            Revisión visual interactiva de curvas de resistencia y asignación de imágenes
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats Ribbon -->
+    <div class="flex items-center gap-3 text-xs bg-slate-900 border border-slate-800 p-2.5 rounded-2xl">
+      <div class="px-2">
+        <div class="text-[10px] uppercase font-bold text-slate-400">Total Máquinas</div>
+        <div class="text-lg font-black font-mono text-cyan-400" id="stat-total">47</div>
+      </div>
+      <div class="w-px h-8 bg-slate-800"></div>
+      <div class="px-2">
+        <div class="text-[10px] uppercase font-bold text-slate-400">Con Imagen</div>
+        <div class="text-lg font-black font-mono text-emerald-400">47</div>
+      </div>
+      <div class="w-px h-8 bg-slate-800"></div>
+      <div class="px-2">
+        <div class="text-[10px] uppercase font-bold text-slate-400">Sin Imagen</div>
+        <div class="text-lg font-black font-mono text-slate-500">0</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Filters Ribbon -->
+  <section class="space-y-3 mb-8 bg-slate-900/60 border border-slate-800/80 p-4 rounded-3xl backdrop-blur-sm">
+    <div class="flex flex-col sm:flex-row gap-3 items-center justify-between">
+      <!-- Search Input -->
+      <div class="relative w-full sm:w-80">
+        <input
+          type="text"
+          id="search-input"
+          placeholder="Buscar por modelo, ID o ejercicio..."
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+        />
+      </div>
+
+      <!-- Quick Reset -->
+      <button
+        onclick="resetFilters()"
+        class="text-xs text-slate-400 hover:text-cyan-400 underline transition whitespace-nowrap self-end sm:self-center"
+      >
+        Restablecer filtros
+      </button>
+    </div>
+
+    <!-- Brand Filter Pills -->
+    <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/60" id="brand-filters">
+      <button onclick="setBrandFilter('all')" class="brand-btn active px-3 py-1 rounded-xl text-xs font-bold bg-cyan-600 text-white transition" data-brand="all">
+        Todas (47)
+      </button>
+      
+      <button onclick="setBrandFilter('Cybex')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Cybex">
+        Cybex (1)
+      </button>
+      <button onclick="setBrandFilter('Estándar')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Estándar">
+        Estándar (17)
+      </button>
+      <button onclick="setBrandFilter('Gym80')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Gym80">
+        Gym80 (1)
+      </button>
+      <button onclick="setBrandFilter('Hammer Strength')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Hammer Strength">
+        Hammer Strength (7)
+      </button>
+      <button onclick="setBrandFilter('Matrix')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Matrix">
+        Matrix (2)
+      </button>
+      <button onclick="setBrandFilter('Nautilus')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Nautilus">
+        Nautilus (2)
+      </button>
+      <button onclick="setBrandFilter('Panatta')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Panatta">
+        Panatta (4)
+      </button>
+      <button onclick="setBrandFilter('Technogym')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Technogym">
+        Technogym (13)
+      </button>
+    </div>
+
+    <!-- Muscle Filter Pills -->
+    <div class="flex flex-wrap items-center gap-1.5 pt-1" id="muscle-filters">
+      <button onclick="setMuscleFilter('all')" class="muscle-btn active px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-700 text-white transition" data-muscle="all">
+        Todos los músculos
+      </button>
+      
+      <button onclick="setMuscleFilter('Aductores')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Aductores">
+        Aductores
+      </button>
+      <button onclick="setMuscleFilter('Bíceps')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Bíceps">
+        Bíceps
+      </button>
+      <button onclick="setMuscleFilter('Cuádriceps')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Cuádriceps">
+        Cuádriceps
+      </button>
+      <button onclick="setMuscleFilter('Deltoides')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Deltoides">
+        Deltoides
+      </button>
+      <button onclick="setMuscleFilter('Espalda')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Espalda">
+        Espalda
+      </button>
+      <button onclick="setMuscleFilter('Gemelos')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Gemelos">
+        Gemelos
+      </button>
+      <button onclick="setMuscleFilter('Glúteo')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Glúteo">
+        Glúteo
+      </button>
+      <button onclick="setMuscleFilter('Hombro')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Hombro">
+        Hombro
+      </button>
+      <button onclick="setMuscleFilter('Isquios')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Isquios">
+        Isquios
+      </button>
+      <button onclick="setMuscleFilter('Pectoral')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Pectoral">
+        Pectoral
+      </button>
+    </div>
+  </section>
+
+  <!-- Machines Cards Grid -->
+  <main class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" id="machines-grid">
+    
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Cybex"
+      data-muscle="Espalda"
+      data-search="eagle nx row cybex_eagle_row seated_row cybex"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/matrix_ultra_seated_row.jpg" alt="Eagle NX Row" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-purple-500/15 text-purple-300 border-purple-500/30">
+            Cybex
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Eagle NX</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Eagle NX Row
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_row</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Punto Medio / Acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">20% / 55% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-cybex_eagle_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,26.666666666666664 Q 50,10.333333333333332 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-cybex_eagle_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="26.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="10.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Leva excéntrica con arco divergente que desplaza el pico de esfuerzo hacia el acortamiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>divergent</span>
+          <span>cybex_eagle_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Aductores"
+      data-search="máquina de aductores (cerrar piernas) standard_adductor_machine adductor_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_adductor.jpg" alt="Máquina de Aductores (Cerrar Piernas)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Aductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Máquina de Aductores (Cerrar Piernas)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>adductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Contracción Aductores</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_adductor_machine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_adductor_machine)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aducción guiada de cadera con pico de contracción al juntar las rodillas.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_adductor_machine</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Cuádriceps"
+      data-search="extensión de cuádriceps en máquina standard_leg_extension leg_extension estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/matrix_leg_extension.jpg" alt="Extensión de Cuádriceps en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Extensión de Cuádriceps en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>leg_extension</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Bloqueo Cuádriceps</span>
+          <span class="text-slate-400 font-mono">20% / 35% / 45%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_leg_extension" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,26.666666666666664 Q 50,19.666666666666664 90,15"
+              fill="none"
+              stroke="url(#grad-standard_leg_extension)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="26.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="15" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aislamiento de cuádriceps en cadena abierta con leva orientada a pico en extensión terminal.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_leg_extension</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Cuádriceps"
+      data-search="prensa de piernas inclinada 45° standard_leg_press_45 leg_press estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_plate_loaded_leg_press_45.png" alt="Prensa de Piernas Inclinada 45°" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Prensa de Piernas Inclinada 45°
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>leg_press</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_leg_press_45" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-standard_leg_press_45)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Trineo lineal a 45°; máxima demanda de fuerza en flexión profunda de rodilla y cadera.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>linear_fixed</span>
+          <span>standard_leg_press_45</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Cuádriceps"
+      data-search="sentadilla hack (hack squat 45°) standard_hack_squat squat estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_linear_hack_squat.png" alt="Sentadilla Hack (Hack Squat 45°)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Sentadilla Hack (Hack Squat 45°)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>squat</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_hack_squat" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-standard_hack_squat)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Plataforma guiada con apoyo lumbar completo; máximo momento flexor de rodilla en el punto de inversión.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>linear_fixed</span>
+          <span>standard_hack_squat</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Deltoides"
+      data-search="elevaciones laterales en máquina standard_lateral_raise lateral_raise estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_lateral_raise.jpg" alt="Elevaciones Laterales en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Deltoides
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Elevaciones Laterales en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lateral_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Acortamiento Deltoides</span>
+          <span class="text-slate-400 font-mono">20% / 35% / 45%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_lateral_raise" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,26.666666666666664 Q 50,19.666666666666664 90,15"
+              fill="none"
+              stroke="url(#grad-standard_lateral_raise)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="26.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="15" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Brazo de palanca con leva diseñada para exigir máxima tensión en abducción a 90°.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_lateral_raise</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Deltoides"
+      data-search="press de hombro en máquina standard_shoulder_press shoulder_press_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_shoulder_press.jpg" alt="Press de Hombro en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Deltoides
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press de Hombro en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>shoulder_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Bloqueo</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_shoulder_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_shoulder_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Empuje vertical guiado con curva ligeramente ascendente hacia el bloqueo de codos.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>standard_shoulder_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Espalda"
+      data-search="jalón al pecho en máquina standard_lat_pulldown lat_pulldown estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/matrix_lat_pulldown.jpg" alt="Jalón al Pecho en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Jalón al Pecho en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lat_pulldown</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">40% / 35% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_lat_pulldown" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,17.333333333333332 Q 50,19.666666666666664 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_lat_pulldown)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="17.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Tracción vertical guiada por cable o palancas; mayor tensión con los brazos en máxima elevación.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>standard_lat_pulldown</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Espalda"
+      data-search="remo sentado en máquina (apoyo al pecho) standard_seated_row row_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_low_row.jpg" alt="Remo Sentado en Máquina (Apoyo al Pecho)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Remo Sentado en Máquina (Apoyo al Pecho)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>row_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Rango Medio</span>
+          <span class="text-slate-400 font-mono">25% / 40% / 35%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_seated_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,17.333333333333332 90,19.666666666666664"
+              fill="none"
+              stroke="url(#grad-standard_seated_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="17.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="19.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Tracción horizontal guiada con soporte esternal para aislar dorsal y retractores escapulares.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>standard_seated_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Gemelos"
+      data-search="gemelo de pie en máquina (placas / hombros) standard_standing_calf calf_raise estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_standing_calf.jpg" alt="Gemelo de Pie en Máquina (Placas / Hombros)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Gemelos
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Gemelo de Pie en Máquina (Placas / Hombros)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>calf_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Estiramiento Gastrocnemio</span>
+          <span class="text-slate-400 font-mono">40% / 35% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_standing_calf" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,17.333333333333332 Q 50,19.666666666666664 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_standing_calf)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="17.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Rodillas extendidas para enfatizar gastrocnemio medial y lateral con parada en estiramiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>standard_standing_calf</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Gemelos"
+      data-search="gemelo sentado en máquina (sóleo a discos) standard_seated_calf calf_raise estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_seated_calf_raise.jpg" alt="Gemelo Sentado en Máquina (Sóleo a Discos)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Gemelos
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Gemelo Sentado en Máquina (Sóleo a Discos)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>calf_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Sóleo Estirado</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_seated_calf" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-standard_seated_calf)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Rodillas flexionadas a 90° para desactivar gastrocnemio y sobrecargar sóleo en máxima dorsiflexión.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>circular_arc</span>
+          <span>standard_seated_calf</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Glúteo"
+      data-search="hip thrust en máquina (cinturón / almohadilla) standard_hip_thrust_machine hip_thrust estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_hip_thrust.png" alt="Hip Thrust en Máquina (Cinturón / Almohadilla)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Glúteo
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Hip Thrust en Máquina (Cinturón / Almohadilla)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>hip_thrust</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente Pico · Bloqueo Glúteo</span>
+          <span class="text-slate-400 font-mono">15% / 30% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_hip_thrust_machine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,29 Q 50,22 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_hip_thrust_machine)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="22" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Palanca de extensión de cadera que sitúa el pico absoluto de tensión en el bloqueo pélvico superior.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_hip_thrust_machine</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Glúteo"
+      data-search="máquina de abductores (abrir piernas) standard_abductor_machine abductor_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_abductor.jpg" alt="Máquina de Abductores (Abrir Piernas)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Glúteo
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Máquina de Abductores (Abrir Piernas)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Acortamiento Glúteo Medio</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_abductor_machine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_abductor_machine)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aislamiento de glúteo medio y tensor de la fascia lata con mayor resistencia en abducción total.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_abductor_machine</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Isquios"
+      data-search="curl femoral sentado en máquina standard_seated_leg_curl seated_leg_curl estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_leg_curl.jpg" alt="Curl Femoral Sentado en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Isquios
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Curl Femoral Sentado en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_leg_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_seated_leg_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-standard_seated_leg_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Cadera flexionada a 90° que elonga los isquiosurales; máxima sobrecarga en posición estirada.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_seated_leg_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Isquios"
+      data-search="curl femoral tumbado en máquina standard_lying_leg_curl seated_leg_curl estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_prone_leg_curl.jpg" alt="Curl Femoral Tumbado en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Isquios
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Curl Femoral Tumbado en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_leg_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Rango Medio 90°</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_lying_leg_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_lying_leg_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Posición prona con leva circular; momento máximo a 90° de flexión de rodilla.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_lying_leg_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Pectoral"
+      data-search="peck deck / aperturas en máquina standard_pec_deck pec_deck estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_pec_deck.jpg" alt="Peck Deck / Aperturas en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Peck Deck / Aperturas en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>pec_deck</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Pico a 90°</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_pec_deck" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_pec_deck)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aperturas guiadas con leva circular; momento máximo cuando los brazos quedan perpendiculares al torso.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_pec_deck</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Pectoral"
+      data-search="press inclinado en máquina standard_incline_press chest_press_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/panatta_incline_chest.jpg" alt="Press Inclinado en Máquina" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press Inclinado en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_incline_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_incline_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Palanca convergente de 30° con mayor momento resistente cerca del bloqueo superior.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>standard_incline_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Pectoral"
+      data-search="press pecho en máquina (placas / discos) standard_chest_press chest_press_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_chest_press.png" alt="Press Pecho en Máquina (Placas / Discos)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press Pecho en Máquina (Placas / Discos)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              fill="none"
+              stroke="url(#grad-standard_chest_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Máquina de placas estándar guiada con tensión equilibrada en todo el recorrido articular.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>standard_chest_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Gym80"
+      data-muscle="Pectoral"
+      data-search="chest press dual gym80_sygnum_chest_press chest_press_machine gym80"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/matrix_chest_press.jpg" alt="Chest Press Dual" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-pink-500/15 text-pink-300 border-pink-500/30">
+            Gym80
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Sygnum Dual</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Chest Press Dual
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-gym80_sygnum_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-gym80_sygnum_chest_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>gym80_sygnum_chest_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Espalda"
+      data-search="iso-lateral d.y. row hammer_iso_dy_row seated_row hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_iso_dy_row.png" alt="Iso-Lateral D.Y. Row" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral D.Y. Row
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_row</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_dy_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-hammer_iso_dy_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>hammer_iso_dy_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Espalda"
+      data-search="iso-lateral front pulldown hammer_iso_pulldown lat_pulldown hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_iso_front_lat_pulldown.png" alt="Iso-Lateral Front Pulldown" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral Front Pulldown
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lat_pulldown</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_pulldown" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-hammer_iso_pulldown)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>hammer_iso_pulldown</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Espalda"
+      data-search="iso-lateral high row hammer_iso_high_row lat_pulldown hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_front_pulldown.png" alt="Iso-Lateral High Row" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral High Row
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lat_pulldown</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_high_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-hammer_iso_high_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>hammer_iso_high_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Hombro"
+      data-search="iso-lateral shoulder press hammer_iso_shoulder_press shoulder_press_machine hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_incline_press.png" alt="Iso-Lateral Shoulder Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Hombro
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral Shoulder Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>shoulder_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente acentuado (Convergente)</span>
+          <span class="text-slate-400 font-mono">62% / 29% / 10%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_shoulder_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,7.11333333333333 Q 50,22.653333333333336 90,31.566666666666666"
+              fill="none"
+              stroke="url(#grad-hammer_iso_shoulder_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="7.11333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="22.653333333333336" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="31.566666666666666" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          El brazo de palanca se aproxima a la vertical decreciendo en la concéntrica y la trayectoria convergente concentra el pico de tensión en estiramiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>hammer_iso_shoulder_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Pectoral"
+      data-search="iso-lateral decline press hammer_iso_decline_press chest_press_machine hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_iso_decline_press.png" alt="Iso-Lateral Decline Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral Decline Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_decline_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-hammer_iso_decline_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>hammer_iso_decline_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Pectoral"
+      data-search="iso-lateral horizontal bench press hammer_iso_chest_press chest_press_machine hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_iso_wide_chest.png" alt="Iso-Lateral Horizontal Bench Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral Horizontal Bench Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente acentuado (Convergente)</span>
+          <span class="text-slate-400 font-mono">62% / 29% / 10%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,7.11333333333333 Q 50,22.653333333333336 90,31.566666666666666"
+              fill="none"
+              stroke="url(#grad-hammer_iso_chest_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="7.11333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="22.653333333333336" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="31.566666666666666" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          El brazo de palanca se aproxima a la vertical decreciendo en la concéntrica y la trayectoria convergente concentra el pico de tensión en estiramiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>hammer_iso_chest_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Hammer Strength"
+      data-muscle="Pectoral"
+      data-search="iso-lateral incline press hammer_iso_incline_press incline_press hammer strength"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/hammer_iso_incline_press.png" alt="Iso-Lateral Incline Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
+            Hammer Strength
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Iso-Lateral</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Iso-Lateral Incline Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>incline_press</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente acentuado (Convergente)</span>
+          <span class="text-slate-400 font-mono">62% / 29% / 10%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-hammer_iso_incline_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,7.11333333333333 Q 50,22.653333333333336 90,31.566666666666666"
+              fill="none"
+              stroke="url(#grad-hammer_iso_incline_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="7.11333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="22.653333333333336" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="31.566666666666666" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          El brazo de palanca se aproxima a la vertical decreciendo en la concéntrica y la trayectoria convergente concentra el pico de tensión en estiramiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>hammer_iso_incline_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Matrix"
+      data-muscle="Hombro"
+      data-search="lateral raise matrix_lateral_raise lateral_raise matrix"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/matrix_ultra_lateral_raise.jpg" alt="Lateral Raise" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Hombro
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+            Matrix
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Ultra Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Lateral Raise
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lateral_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Punto Medio · Campana</span>
+          <span class="text-slate-400 font-mono">25% / 55% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-matrix_lateral_raise" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,10.333333333333332 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-matrix_lateral_raise)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="10.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>matrix_lateral_raise</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Matrix"
+      data-muscle="Pectoral"
+      data-search="converging chest press matrix_converging_chest_press chest_press_machine matrix"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/matrix_ultra_converging_chest.jpg" alt="Converging Chest Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+            Matrix
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Ultra Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Converging Chest Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-matrix_converging_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-matrix_converging_chest_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>matrix_converging_chest_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
+      data-muscle="Cuádriceps"
+      data-search="leg extension (leva excéntrica) nautilus_leg_extension leg_extension nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_leg_extension.jpg" alt="Leg Extension (Leva Excéntrica)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Inspiration</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Leg Extension (Leva Excéntrica)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>leg_extension</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Punto Medio · Campana</span>
+          <span class="text-slate-400 font-mono">25% / 55% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_leg_extension" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,10.333333333333332 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-nautilus_leg_extension)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="10.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>nautilus_leg_extension</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
+      data-muscle="Pectoral"
+      data-search="nitro chest press nautilus_nitro_chest_press chest_press_machine nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_chest_press.png" alt="Nitro Chest Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nitro Chest Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Punto Medio / Estiramiento (Convergente)</span>
+          <span class="text-slate-400 font-mono">35% / 55% / 10%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,19.666666666666664 Q 50,10.333333333333332 90,31.333333333333332"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_chest_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="19.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="10.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="31.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Leva con perfil en campana modulada por trayectoria convergente que refuerza la elongación inicial.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>convergent</span>
+          <span>nautilus_nitro_chest_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Panatta"
+      data-muscle="Espalda"
+      data-search="super high row panatta_super_high_row lat_pulldown panatta"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/panatta_super_high_row.jpg" alt="Super High Row" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
+            Panatta
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Free Weight Special</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Super High Row
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lat_pulldown</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-panatta_super_high_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-panatta_super_high_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>panatta_super_high_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Panatta"
+      data-muscle="Hombro"
+      data-search="standing multi flight panatta_standing_multi_flight lateral_raise panatta"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_lateral_raise.jpg" alt="Standing Multi Flight" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Hombro
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
+            Panatta
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Free Weight Special</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Standing Multi Flight
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lateral_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Punto Medio · Campana</span>
+          <span class="text-slate-400 font-mono">25% / 55% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-panatta_standing_multi_flight" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,10.333333333333332 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-panatta_standing_multi_flight)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="10.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>panatta_standing_multi_flight</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Panatta"
+      data-muscle="Pectoral"
+      data-search="super horizontal bench press panatta_super_horizontal_bench chest_press_machine panatta"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/panatta_incline_chest.png" alt="Super Horizontal Bench Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
+            Panatta
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Free Weight Special</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Super Horizontal Bench Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-panatta_super_horizontal_bench" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-panatta_super_horizontal_bench)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>panatta_super_horizontal_bench</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Panatta"
+      data-muscle="Pectoral"
+      data-search="super incline chest press panatta_super_incline_press incline_press panatta"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/panatta_incline_chest.jpg" alt="Super Incline Chest Press" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
+            Panatta
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Free Weight Special</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Super Incline Chest Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>incline_press</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-panatta_super_incline_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-panatta_super_incline_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>panatta_super_incline_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Bíceps"
+      data-search="biceps curl technogym_pure_biceps_curl biceps_curl technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_biceps_curl.jpg" alt="Biceps Curl" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Bíceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Biceps Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>biceps_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_biceps_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_biceps_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>technogym_pure_biceps_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Cuádriceps"
+      data-search="leg extension technogym_selection_leg_extension leg_extension technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_leg_extension.jpg" alt="Leg Extension" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Selection 900</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Leg Extension
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>leg_extension</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Acortamiento · Ascendente</span>
+          <span class="text-slate-400 font-mono">15% / 35% / 50%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_selection_leg_extension" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,29 Q 50,19.666666666666664 90,12.666666666666664"
+              fill="none"
+              stroke="url(#grad-technogym_selection_leg_extension)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="12.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>technogym_selection_leg_extension</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Cuádriceps"
+      data-search="linear leg press 45° technogym_pure_leg_press leg_press technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_leg_press.jpg" alt="Linear Leg Press 45°" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Linear Leg Press 45°
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>leg_press</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_leg_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              fill="none"
+              stroke="url(#grad-technogym_pure_leg_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>linear_fixed</span>
+          <span>technogym_pure_leg_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Espalda"
+      data-search="jalón de discos technogym_pure_pulldown lat_pulldown technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_pulldown.jpg" alt="Jalón de Discos" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Jalón de Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lat_pulldown</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_pulldown" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_pulldown)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>technogym_pure_pulldown</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Espalda"
+      data-search="lat machine technogym_selection_lat_machine lat_pulldown technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_lat_machine.jpg" alt="Lat Machine" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Selection 900</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Lat Machine
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lat_pulldown</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_selection_lat_machine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              fill="none"
+              stroke="url(#grad-technogym_selection_lat_machine)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Transmisión por cable con polea circular de radio constante: tensión mecánica homogénea en todo el rango.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>technogym_selection_lat_machine</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Espalda"
+      data-search="remo bajo de discos technogym_pure_low_row seated_row technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_low_row.jpg" alt="Remo Bajo de Discos" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Remo Bajo de Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_row</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_low_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_low_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>technogym_pure_low_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Espalda"
+      data-search="row (remo dorian) technogym_pure_row_dorian seated_row technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_row_dorian.jpg" alt="Row (Remo Dorian)" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Row (Remo Dorian)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_row</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente reforzado en acortamiento (Divergente)</span>
+          <span class="text-slate-400 font-mono">10% / 35% / 55%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_row_dorian" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,31.333333333333332 Q 50,19.666666666666664 90,10.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_row_dorian)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="31.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="10.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca y la apertura divergente maximizan la carga en la contracción final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>divergent</span>
+          <span>technogym_pure_row_dorian</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Espalda"
+      data-search="t-bar row de discos technogym_pure_t_bar_row t_bar_row technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_t_bar_row.png" alt="T-Bar Row de Discos" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Espalda
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          T-Bar Row de Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>t_bar_row</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente acentuado (Convergente)</span>
+          <span class="text-slate-400 font-mono">62% / 29% / 10%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_t_bar_row" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,7.11333333333333 Q 50,22.653333333333336 90,31.566666666666666"
+              fill="none"
+              stroke="url(#grad-technogym_pure_t_bar_row)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="7.11333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="22.653333333333336" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="31.566666666666666" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          El brazo de palanca se aproxima a la vertical decreciendo en la concéntrica y la trayectoria convergente concentra el pico de tensión en estiramiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>technogym_pure_t_bar_row</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Glúteo"
+      data-search="pure hip thrust technogym_pure_hip_thrust hip_thrust technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_hip_thrust.jpg" alt="Pure Hip Thrust" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Glúteo
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Pure Hip Thrust
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>hip_thrust</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Acortamiento · Ascendente</span>
+          <span class="text-slate-400 font-mono">15% / 35% / 50%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_hip_thrust" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,29 Q 50,19.666666666666664 90,12.666666666666664"
+              fill="none"
+              stroke="url(#grad-technogym_pure_hip_thrust)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="12.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>circular_arc</span>
+          <span>technogym_pure_hip_thrust</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Hombro"
+      data-search="press de hombro de discos technogym_pure_shoulder_press shoulder_press_machine technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_shoulder_press.jpg" alt="Press de Hombro de Discos" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Hombro
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press de Hombro de Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>shoulder_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_shoulder_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_shoulder_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>technogym_pure_shoulder_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Isquios"
+      data-search="seated leg curl technogym_selection_leg_curl seated_leg_curl technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_selection_leg_curl.jpg" alt="Seated Leg Curl" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Isquios
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Selection 900</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Seated Leg Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_leg_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Estiramiento · Descendente</span>
+          <span class="text-slate-400 font-mono">55% / 30% / 15%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_selection_leg_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,10.333333333333332 Q 50,22 90,29"
+              fill="none"
+              stroke="url(#grad-technogym_selection_leg_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="10.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="22" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="29" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          El brazo de palanca se aproxima a la vertical conforme avanza la concéntrica, reduciendo el brazo de momento en acortamiento.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>technogym_selection_leg_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Pectoral"
+      data-search="press inclinado de discos technogym_pure_incline_press incline_press technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_incline_chest.jpg" alt="Press Inclinado de Discos" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press Inclinado de Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>incline_press</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_incline_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_incline_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>technogym_pure_incline_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Pectoral"
+      data-search="press plano de discos technogym_pure_chest_press chest_press_machine technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img src="/machines/technogym_pure_chest_press.jpg" alt="Press Plano de Discos" class="w-full h-full object-contain p-2" loading="lazy" />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press Plano de Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>chest_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-technogym_pure_chest_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>convergent</span>
+          <span>technogym_pure_chest_press</span>
+        </div>
+      </div>
+    </article>
+  </main>
+
+  <footer class="mt-12 text-center text-xs text-slate-500 border-t border-slate-800 pt-6">
+    MIA Biomechanical Engine · Auditoría de Maquinaria y Perfiles Fisiológicos
+  </footer>
+
+  <script>
+    let activeBrand = 'all';
+    let activeMuscle = 'all';
+    let searchQuery = '';
+
+    const cards = document.querySelectorAll('.machine-card');
+    const searchInput = document.getElementById('search-input');
+
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value.toLowerCase().trim();
+      filterCards();
+    });
+
+    function setBrandFilter(brand) {
+      activeBrand = brand;
+      document.querySelectorAll('.brand-btn').forEach(btn => {
+        if (btn.getAttribute('data-brand') === brand) {
+          btn.className = 'brand-btn active px-3 py-1 rounded-xl text-xs font-bold bg-cyan-600 text-white transition';
+        } else {
+          btn.className = 'brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+        }
+      });
+      filterCards();
+    }
+
+    function setMuscleFilter(muscle) {
+      activeMuscle = muscle;
+      document.querySelectorAll('.muscle-btn').forEach(btn => {
+        if (btn.getAttribute('data-muscle') === muscle) {
+          btn.className = 'muscle-btn active px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-700 text-white transition';
+        } else {
+          btn.className = 'muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800';
+        }
+      });
+      filterCards();
+    }
+
+    function resetFilters() {
+      activeBrand = 'all';
+      activeMuscle = 'all';
+      searchQuery = '';
+      searchInput.value = '';
+      setBrandFilter('all');
+      setMuscleFilter('all');
+    }
+
+    function filterCards() {
+      let visibleCount = 0;
+      cards.forEach(card => {
+        const brand = card.getAttribute('data-brand');
+        const muscle = card.getAttribute('data-muscle');
+        const search = card.getAttribute('data-search');
+
+        const matchBrand = activeBrand === 'all' || brand === activeBrand;
+        const matchMuscle = activeMuscle === 'all' || muscle === activeMuscle;
+        const matchSearch = !searchQuery || search.includes(searchQuery);
+
+        if (matchBrand && matchMuscle && matchSearch) {
+          card.style.display = 'flex';
+          visibleCount++;
+        } else {
+          card.style.display = 'none';
+        }
+      });
+      document.getElementById('stat-total').innerText = visibleCount;
+    }
+  </script>
+</body>
+</html>

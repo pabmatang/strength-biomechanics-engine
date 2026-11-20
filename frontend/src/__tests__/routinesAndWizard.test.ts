@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EXERCISE_DATABASE } from '../data/exercises';
 import { Routine, WorkoutExercise } from '../types/workout';
+import { generateWizardRoutines as generateEngineRoutines } from '../utils/routineGenerator';
 
 const BROAD_GROUP_MAP: Record<string, string> = {
   lats: 'back',
@@ -1049,5 +1050,115 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
     // Abdomen must NOT be overloaded (maximum 4 sets weekly recordatorio)
     const abdomenSets = volume['abdominals'] || 0;
     expect(abdomenSets).toBeLessThanOrEqual(4);
+  });
+
+  describe('Multi-Equipment, Brand Selection & Strict Volume Allocation', () => {
+    it('strictly generates ZERO machine exercises when only free_weight and cable are selected', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 60,
+        baseEquipment: ['free_weight', 'cable'],
+        machineBrands: [],
+        targetWeeklyVolume: {
+          chest: 10,
+          lats: 10,
+          upper_back: 8,
+          shoulders: 8,
+          biceps: 8,
+          triceps: 8,
+          quadriceps: 10,
+          hamstrings: 8,
+          glutes: 8,
+          calves: 6,
+          adductors: 4,
+          abdominals: 4
+        }
+      });
+
+      expect(routines.length).toBe(4);
+
+      const allExercises = routines.flatMap(r => r.exercises);
+      expect(allExercises.length).toBeGreaterThan(0);
+
+      const machineExercises = allExercises.filter(ex => ex.equipment_category === 'machine');
+      expect(machineExercises.length).toBe(0);
+
+      allExercises.forEach(ex => {
+        expect(['cable', 'dumbbell', 'barbell', 'plate', 'kettlebell', 'none']).toContain(ex.equipment_category);
+      });
+    });
+
+    it('strictly combines only specified brands plus cables and free weights without foreign brands', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'avanzado',
+        daysPerWeek: 5,
+        durationMinutes: 75,
+        baseEquipment: ['free_weight', 'cable'],
+        machineBrands: ['Technogym', 'Hammer Strength'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 12,
+          upper_back: 10,
+          shoulders: 10,
+          biceps: 10,
+          triceps: 10,
+          quadriceps: 12,
+          hamstrings: 10,
+          glutes: 10,
+          calves: 6,
+          adductors: 4,
+          abdominals: 4
+        }
+      });
+
+      expect(routines.length).toBe(5);
+      const allExercises = routines.flatMap(r => r.exercises);
+
+      allExercises.forEach(ex => {
+        if (ex.equipment_category === 'machine') {
+          const brand = ex.brand || '';
+          const isAllowedBrand = brand.includes('Technogym') || brand.includes('Hammer');
+          expect(isAllowedBrand).toBe(true);
+          expect(brand).not.toContain('Panatta');
+          expect(brand).not.toContain('Matrix');
+          expect(brand).not.toContain('Gym80');
+        } else {
+          expect(['cable', 'dumbbell', 'barbell', 'plate', 'kettlebell', 'none']).toContain(ex.equipment_category);
+        }
+      });
+    });
+
+    it('completely excludes calves and abdominals when their target volume is set to 0', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 60,
+        baseEquipment: ['free_weight', 'cable', 'generic_machine'],
+        machineBrands: ['Technogym'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 12,
+          upper_back: 10,
+          shoulders: 8,
+          biceps: 8,
+          triceps: 8,
+          quadriceps: 12,
+          hamstrings: 10,
+          glutes: 8,
+          calves: 0, // EXCLUDED
+          abdominals: 0, // EXCLUDED
+          adductors: 4
+        }
+      });
+
+      const allExercises = routines.flatMap(r => r.exercises);
+
+      const calfExercises = allExercises.filter(ex => ex.muscle_group === 'calves');
+      expect(calfExercises.length).toBe(0);
+
+      const absExercises = allExercises.filter(ex => ex.muscle_group === 'abdominals');
+      expect(absExercises.length).toBe(0);
+    });
   });
 });

@@ -29,6 +29,7 @@ interface MachineCatalogPickerModalProps {
 
 const BRAND_FILTERS: (string | 'Todas')[] = [
   'Todas',
+  'Estándar',
   'Technogym',
   'Hammer Strength',
   'Panatta',
