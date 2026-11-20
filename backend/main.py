@@ -574,15 +574,28 @@ def generate_deterministic_clinical_audit(
                 })
         
         r_last = repetitions_summary[-1]
-        cues.append({
-            "rep_index": total_reps,
-            "timestamp_sec": round(float(r_last.get("inflection_time", r_last.get("end_time", 5.0))), 2),
-            "type": "warning" if total_reps >= 4 else "positive",
-            "badge": "Pérdida de ROM" if (rep_comparison and rep_comparison.get("rom_loss_pct", 0) > 12.0) else "Esfuerzo Terminal",
-            "message": f"Repetición terminal {total_reps}. Mayor tiempo bajo tensión bajo fatiga metabólica.",
-            "technical_fix": "No sacrifiques la posición escapular ni la neutralidad lumbar al fatigarte.",
-            "affected_joint": "elbow" if is_upper else "lumbar"
-        })
+        v_loss_tmp = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
+        rir_tmp, _, _, _, _, _ = calculate_vbt_rir_rpe(v_loss_tmp)
+        if total_reps >= 4 and rir_tmp < 3.0:
+            cues.append({
+                "rep_index": total_reps,
+                "timestamp_sec": round(float(r_last.get("inflection_time", r_last.get("end_time", 5.0))), 2),
+                "type": "warning",
+                "badge": "Pérdida de ROM" if (rep_comparison and rep_comparison.get("rom_loss_pct", 0) > 12.0) else "Esfuerzo Terminal",
+                "message": f"Repetición terminal {total_reps}. Mayor tiempo bajo tensión bajo fatiga metabólica.",
+                "technical_fix": "No sacrifiques la posición escapular ni la neutralidad lumbar al fatigarte.",
+                "affected_joint": "elbow" if is_upper else "lumbar"
+            })
+        else:
+            cues.append({
+                "rep_index": total_reps,
+                "timestamp_sec": round(float(r_last.get("end_time", 5.0)), 2),
+                "type": "positive",
+                "badge": "Serie Completada",
+                "message": f"Serie de {total_reps} reps completada con cadencia controlada y estabilidad articular.",
+                "technical_fix": "Conserva la aceleración concéntrica continua en las próximas series.",
+                "affected_joint": "elbow" if is_upper else "knee"
+            })
     else:
         cues.append({
             "rep_index": 1,
@@ -757,6 +770,28 @@ def generate_deterministic_clinical_audit(
             "Asegura rango completo de movimiento sin compensaciones articulares."
         ]
         
+    v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
+    rir_val, rpe_val, rir_str, status_txt, proximity, verdict_str = calculate_vbt_rir_rpe(v_loss)
+
+    rep_factor = min(1.0, max(0.0, float(total_reps) / 7.0))
+    if rir_val >= 5.0:
+        rir_factor = 0.0
+        mult_label = "Serie de aproximación / técnica"
+    elif rir_val >= 4.0:
+        rir_factor = 0.45
+        mult_label = "Estímulo ligero / aproximación"
+    elif rir_val >= 3.0:
+        rir_factor = 0.75
+        mult_label = "Estímulo moderado"
+    elif rir_val >= 2.0:
+        rir_factor = 0.90
+        mult_label = "Zona óptima de hipertrofia"
+    else:
+        rir_factor = 1.0
+        mult_label = "Máximo estímulo / cercanía al fallo"
+
+    vol_mult = round(float(rir_factor * rep_factor), 2)
+
     stimulus = {
         "tension_profile": t_profile,
         "limiting_factor": limiting,
@@ -764,12 +799,10 @@ def generate_deterministic_clinical_audit(
         "actionable_adjustments": tips,
         "target_muscle": limiting["muscle_name"],
         "secondary_muscles": [s["muscle_name"] for s in synergists],
-        "suggested_volume_multiplier": 1.0
+        "suggested_volume_multiplier": vol_mult,
+        "volume_multiplier_label": mult_label
     }
-    
-    v_loss = float(intensity_metrics.get("velocity_loss_pct", intensity_metrics.get("delta_v_rep", 0.0)))
-    rir_val, rpe_val, rir_str, status_txt, proximity, verdict_str = calculate_vbt_rir_rpe(v_loss)
-    
+
     intensity = {
         "reps_completed": int(total_reps),
         "rir_estimated": round(rir_val, 1),
@@ -921,10 +954,31 @@ def sanitize_and_validate_vlm_output(
             "Conserva la alineación neutra de la columna y de las articulaciones de apoyo."
         ]
 
-    # Backwards-compatibility
+    # Backwards-compatibility & 7-stimulating-reps window
+    v_loss_val = float(parsed.get("intensity_audit", {}).get("velocity_loss_pct", 0.0))
+    rir_val_vlm, _, _, _, _, _ = calculate_vbt_rir_rpe(v_loss_val)
+    n_reps_vlm = len(repetitions_summary) if repetitions_summary else 1
+    rep_fact_vlm = min(1.0, max(0.0, float(n_reps_vlm) / 7.0))
+    if rir_val_vlm >= 5.0:
+        rir_f_vlm = 0.0
+        lbl_vlm = "Serie de aproximación / técnica"
+    elif rir_val_vlm >= 4.0:
+        rir_f_vlm = 0.45
+        lbl_vlm = "Estímulo ligero / aproximación"
+    elif rir_val_vlm >= 3.0:
+        rir_f_vlm = 0.75
+        lbl_vlm = "Estímulo moderado"
+    elif rir_val_vlm >= 2.0:
+        rir_f_vlm = 0.90
+        lbl_vlm = "Zona óptima de hipertrofia"
+    else:
+        rir_f_vlm = 1.0
+        lbl_vlm = "Máximo estímulo / cercanía al fallo"
+
     stim["target_muscle"] = stim["limiting_factor"]["muscle_name"]
     stim["secondary_muscles"] = [s["muscle_name"] for s in stim["synergists"]]
-    stim["suggested_volume_multiplier"] = 1.0
+    stim["suggested_volume_multiplier"] = round(float(rir_f_vlm * rep_fact_vlm), 2)
+    stim["volume_multiplier_label"] = lbl_vlm
 
     return parsed
 

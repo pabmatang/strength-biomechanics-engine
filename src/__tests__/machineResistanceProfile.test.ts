@@ -3,6 +3,10 @@ import {
   classifyMachineResistanceProfile,
   computeResistanceSimilarity
 } from '../utils/machinePhysicsEngine';
+import {
+  calculateStimulatingSetFactor,
+  formatMuscleTarget
+} from '../components/VideoPoseAnalysisModal';
 
 describe('Machine Physics Engine - Resistance Profile & Similarity', () => {
   it('classifies approaches_vertical_loss as stretched peak profile with normalized weights', () => {
@@ -90,5 +94,43 @@ describe('Machine Physics Engine - Resistance Profile & Similarity', () => {
 
     const lowSim = computeResistanceSimilarity(pressHammer, lateralRaiseCam);
     expect(lowSim).toBeLessThan(50);
+  });
+
+  describe('7-Stimulating-Reps Window Model', () => {
+    it('returns factor 1.0 for >= 7 reps with RIR 0-1', () => {
+      const res = calculateStimulatingSetFactor(8, 1);
+      expect(res.factor).toBe(1.0);
+      expect(res.repFactor).toBe(1.0);
+      expect(res.label).toContain('Máximo estímulo');
+    });
+
+    it('scales proportionally when reps < 7', () => {
+      // 5 reps, RIR 2: repFactor = 5/7 = ~0.71428, rirFactor = 0.90 -> factor = 0.6429
+      const res = calculateStimulatingSetFactor(5, 2);
+      expect(res.repFactor).toBeCloseTo(5 / 7, 3);
+      expect(res.rirFactor).toBe(0.90);
+      expect(res.factor).toBeCloseTo(0.6429, 3);
+    });
+
+    it('returns 0.0 for RIR >= 5 and labels as warmup/technique', () => {
+      const res = calculateStimulatingSetFactor(10, 5);
+      expect(res.factor).toBe(0.0);
+      expect(res.label).toBe('Serie de aproximación / técnica');
+    });
+
+    it('handles RIR 4 as light stimulus (0.45 * rep_factor)', () => {
+      const res = calculateStimulatingSetFactor(7, 'RIR 4');
+      expect(res.factor).toBe(0.45);
+      expect(res.label).toBe('Estímulo ligero / aproximación');
+    });
+
+    it('translates muscle group IDs cleanly to Spanish', () => {
+      expect(formatMuscleTarget('pectorals')).toBe('Pectoral');
+      expect(formatMuscleTarget('glutes')).toBe('Glúteo');
+      expect(formatMuscleTarget('quads')).toBe('Cuádriceps');
+      expect(formatMuscleTarget('hamstrings')).toBe('Isquiosurales');
+      expect(formatMuscleTarget('back')).toBe('Espalda');
+      expect(formatMuscleTarget('lats')).toBe('Dorsal');
+    });
   });
 });

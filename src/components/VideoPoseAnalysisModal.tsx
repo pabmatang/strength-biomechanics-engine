@@ -35,10 +35,13 @@ import {
   Scissors,
   Edit3,
   Target,
-  Sparkles
+  Sparkles,
+  Compass
 } from 'lucide-react';
 import { AnthropometricProfileModal } from './AnthropometricProfileModal';
 import { EffectiveVolumeAudit } from './EffectiveVolumeAudit';
+import { MachineResistanceClassifierModal } from './MachineResistanceClassifierModal';
+import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
   analyzeVideoWithModal,
@@ -68,6 +71,88 @@ import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } 
 import { ErrorBoundary } from './ErrorBoundary';
 
 export const MAX_ANALYSIS_CLIP_SECONDS = 30.0;
+
+/**
+ * 7-stimulating-reps window model for effective hypertrophy volume.
+ * rep_factor = min(1.0, total_reps / 7.0)
+ * RIR >= 5 -> 0.0 (Serie de aproximación / técnica)
+ * RIR 4    -> 0.45 * rep_factor (Estímulo ligero / aproximación)
+ * RIR 3    -> 0.75 * rep_factor
+ * RIR 2    -> 0.90 * rep_factor
+ * RIR 0-1  -> 1.0 * rep_factor
+ */
+export function calculateStimulatingSetFactor(totalReps: number, rawRir: any) {
+  const reps = Math.max(0, Number(totalReps) || 0);
+  const repFactor = Math.min(1.0, reps / 7.0);
+
+  let rir = 2.0;
+  if (typeof rawRir === 'string') {
+    const clean = rawRir.replace(/[^0-9.]/g, '');
+    const p = parseFloat(clean);
+    rir = isNaN(p) ? 2.0 : p;
+  } else if (typeof rawRir === 'number' && !isNaN(rawRir)) {
+    rir = rawRir;
+  }
+
+  let rirFactor = 0.90;
+  let label = 'Zona óptima de hipertrofia';
+
+  if (rir >= 5.0) {
+    rirFactor = 0.0;
+    label = 'Serie de aproximación / técnica';
+  } else if (rir >= 4.0) {
+    rirFactor = 0.45;
+    label = 'Estímulo ligero / aproximación';
+  } else if (rir >= 3.0) {
+    rirFactor = 0.75;
+    label = 'Estímulo moderado';
+  } else if (rir >= 2.0) {
+    rirFactor = 0.90;
+    label = 'Zona óptima de hipertrofia';
+  } else {
+    rirFactor = 1.0;
+    label = 'Máximo estímulo / cercanía al fallo';
+  }
+
+  const factor = Number((rirFactor * repFactor).toFixed(4));
+  return {
+    rir,
+    repFactor,
+    rirFactor,
+    factor,
+    label
+  };
+}
+
+export function formatMuscleTarget(m?: string): string {
+  if (!m) return '';
+  const key = m.toLowerCase().trim();
+  const map: Record<string, string> = {
+    pectorals: 'Pectoral',
+    pectoral: 'Pectoral',
+    chest: 'Pectoral',
+    glutes: 'Glúteo',
+    glute: 'Glúteo',
+    quads: 'Cuádriceps',
+    quadriceps: 'Cuádriceps',
+    hamstrings: 'Isquiosurales',
+    hamstring: 'Isquiosurales',
+    back: 'Espalda',
+    lats: 'Dorsal',
+    upper_back: 'Espalda Alta',
+    shoulders: 'Hombro',
+    shoulder: 'Hombro',
+    deltoids: 'Deltoides',
+    triceps: 'Tríceps',
+    biceps: 'Bíceps',
+    calves: 'Gemelos',
+    adductors: 'Aductores',
+    core: 'Core',
+    abs: 'Abdomen',
+    lower_back: 'Erectores Espinales'
+  };
+  return map[key] || (key.charAt(0).toUpperCase() + key.slice(1));
+}
 
 export interface ExerciseItem {
   id: string;
@@ -655,7 +740,7 @@ const SingleSnapshotCanvas: React.FC<{
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-cyan-400" />
           <span className="text-slate-300 font-medium">
-            {leverInfo?.mode === 'cable' ? 'Brazo Palanca (Cable):' : 'Brazo Momento (Gravedad):'}
+            {leverInfo?.mode === 'cable' ? 'Brazo Palanca (Cable): ' : 'Brazo Momento (Gravedad): '}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
@@ -854,6 +939,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [proPulleyOrigin, setProPulleyOrigin] = useState<{ x: number; y: number } | null>(null);
   const [volumeMultiplierApplied, setVolumeMultiplierApplied] = useState<boolean>(false);
   const [showExerciseConfigEdit, setShowExerciseConfigEdit] = useState<boolean>(false);
+  const [showMachineClassifierModal, setShowMachineClassifierModal] = useState<boolean>(false);
+  const [customTensionProfile, setCustomTensionProfile] = useState<string | null>(null);
 
   const handleCueClick = (cue: TimelineCue) => {
     setActiveTimelineCue(cue);
@@ -1671,16 +1758,29 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         const elAngle = Math.round(frame.angles?.elbow ?? 90);
         const shAngle = Math.round(frame.angles?.shoulder ?? 45);
 
+        let elTagY = pEl.y - 18;
+        let shTagY = pSh.y - 18;
+        // Anti-collision: if vertical distance between Codo and Hombro is < 34px, push them apart
+        if (Math.abs(elTagY - shTagY) < 34) {
+          if (elTagY < shTagY) {
+            elTagY -= 18;
+            shTagY += 18;
+          } else {
+            elTagY += 18;
+            shTagY -= 18;
+          }
+        }
+
         if (elStatus === 'warning' || elStatus === 'critical') {
-          drawPillTag(pEl.x - 45, pEl.y - 18, `⚠️ Codo: ${elAngle}°`, elStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+          drawPillTag(pEl.x - 45, elTagY, `⚠️ Codo: ${elAngle}°`, elStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
         } else {
-          drawPillTag(pEl.x - 36, pEl.y - 18, `Codo: ${elAngle}°`, '#38BDF8', '#38BDF8');
+          drawPillTag(pEl.x - 36, elTagY, `Codo: ${elAngle}°`, '#38BDF8', '#38BDF8');
         }
 
         if (shStatus === 'warning' || shStatus === 'critical') {
-          drawPillTag(pSh.x - 48, pSh.y - 18, `⚠️ Hombro: ${shAngle}°`, shStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
+          drawPillTag(pSh.x - 48, shTagY, `⚠️ Hombro: ${shAngle}°`, shStatus === 'critical' ? '#EF4444' : '#F59E0B', '#FFFFFF');
         } else {
-          drawPillTag(pSh.x - 40, pSh.y - 18, `Hombro: ${shAngle}°`, '#10B981', '#10B981');
+          drawPillTag(pSh.x - 40, shTagY, `Hombro: ${shAngle}°`, '#10B981', '#10B981');
         }
       } else {
         if (pEar.valid) {
@@ -2442,8 +2542,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
     const rirVal = analysisData.intensity_audit?.rir_estimated ?? analysisData.intensity_metrics?.exact_rir ?? '2';
     const stim = analysisData.stimulus_and_specificity;
-    const limitingMuscle = stim?.limiting_factor?.muscle_name || stim?.target_muscle || activeExercise.targetMuscle || 'Objetivo';
-    const credit = stim?.limiting_factor?.effective_set_credit ?? 1.0;
+    const limitingMuscle = stim?.limiting_factor?.muscle_name || stim?.target_muscle || formatMuscleTarget(activeExercise.targetMuscle) || 'Objetivo';
+    const { factor } = calculateStimulatingSetFactor(analysisData.total_reps, rirVal);
+    const effectiveCredit = 1.0 * factor;
 
     return (
       <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-900/95 border border-slate-800 text-[11px] font-mono shadow-sm overflow-x-auto whitespace-nowrap gap-2">
@@ -2456,7 +2557,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           <span className="text-slate-600">·</span>
           <span className="text-amber-400 font-bold">RIR {rirVal}</span>
           <span className="text-slate-600">·</span>
-          <span className="text-purple-300 font-bold">+{credit.toFixed(2)} {limitingMuscle}</span>
+          <span className="text-purple-300 font-bold">+{effectiveCredit.toFixed(2)} {limitingMuscle}</span>
         </div>
       </div>
     );
@@ -2857,14 +2958,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   {activeView === 'velocity' ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
                       {(() => {
-                        const curRepNum = currentFrame?.rep_number ?? 0;
-                        const reps = analysisData?.repetitions_summary || [];
-                        const completed = reps.filter(r => (r.rep_number || (r as any).rep_index || 0) <= curRepNum && (r.mean_concentric_vel || r.concentric_velocity_deg_s));
-                        const targetRep = completed.length > 0 ? completed[completed.length - 1] : reps[0];
-                        const maxV = analysisData?.intensity_metrics?.max_rep_vel || 1;
-                        const lastV = targetRep?.mean_concentric_vel || analysisData?.intensity_metrics?.last_rep_vel || 0;
-                        const staticPct = maxV > 0 && lastV > 0 ? Math.min(100, Math.round((lastV / maxV) * 100)) : 100;
-                        return `Última rep: ${staticPct}% vel`;
+                        const loss = Math.round(
+                          analysisData?.intensity_audit?.velocity_loss_pct ??
+                          analysisData?.intensity_metrics?.velocity_loss_pct ??
+                          0
+                        );
+                        const relVelPct = Math.max(0, Math.min(100, 100 - Math.max(0, loss)));
+                        return `Última rep: ${relVelPct}% vel`;
                       })()}
                     </span>
                   ) : activeView === 'coach' ? (
@@ -2901,25 +3001,30 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 {/* Timeline Cue Markers */}
                 {analysisData?.timeline_cues && effectiveTotalDuration > 0 && (
                   <div className="absolute inset-x-0 top-0 bottom-0 pointer-events-none flex items-center">
-                    {analysisData.timeline_cues.map((cue, idx) => {
-                      const pct = Math.max(0, Math.min(100, (cue.timestamp_sec / effectiveTotalDuration) * 100));
-                      const isCritical = cue.type === 'critical' || cue.type === 'error';
-                      const isWarning = cue.type === 'warning';
-                      const markerBg = isCritical ? 'bg-rose-500 ring-rose-400/50' : isWarning ? 'bg-amber-400 ring-amber-300/50' : 'bg-emerald-400 ring-emerald-300/50';
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCueClick(cue);
-                          }}
-                          className={`absolute -translate-x-1/2 w-3 h-3 rounded-full pointer-events-auto ring-2 transition-transform hover:scale-150 z-20 shadow-md ${markerBg}`}
-                          style={{ left: `${pct}%` }}
-                          title={`[${cue.timestamp_sec.toFixed(1)}s] ${cue.badge}: ${cue.message}`}
-                        />
-                      );
-                    })}
+                    {(() => {
+                      const rirCurrent = Number(analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2);
+                      const totalRepsCurrent = analysisData?.total_reps ?? 0;
+                      const validMarkers = analysisData.timeline_cues.filter(c => !(c.badge === 'Esfuerzo Terminal' && (rirCurrent >= 3.0 || totalRepsCurrent < 4)));
+                      return validMarkers.map((cue, idx) => {
+                        const pct = Math.max(0, Math.min(100, (cue.timestamp_sec / effectiveTotalDuration) * 100));
+                        const isCritical = cue.type === 'critical' || cue.type === 'error';
+                        const isWarning = cue.type === 'warning';
+                        const markerBg = isCritical ? 'bg-rose-500 ring-rose-400/50' : isWarning ? 'bg-amber-400 ring-amber-300/50' : 'bg-emerald-400 ring-emerald-300/50';
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCueClick(cue);
+                            }}
+                            className={`absolute -translate-x-1/2 w-3 h-3 rounded-full pointer-events-auto ring-2 transition-transform hover:scale-150 z-20 shadow-md ${markerBg}`}
+                            style={{ left: `${pct}%` }}
+                            title={`[${cue.timestamp_sec.toFixed(1)}s] ${cue.badge}: ${cue.message}`}
+                          />
+                        );
+                      });
+                    })()}
                   </div>
                 )}
               </div>
@@ -3091,7 +3196,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                     {activeExercise?.targetMuscle && (
                       <span className="text-slate-400 text-[11px] truncate">
-                        · {activeExercise.targetMuscle}
+                        · {formatMuscleTarget(activeExercise.targetMuscle)}
                       </span>
                     )}
                   </div>
@@ -3343,7 +3448,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       Progresión de Velocidad Concéntrica
                     </span>
                     <span className="text-cyan-400 font-mono text-[11px]">
-                      Pérdida Fatiga: -{Math.round(analysisData?.intensity_audit?.velocity_loss_pct ?? intensity.velocity_loss_pct ?? 0)}%
+                      {(() => {
+                        const lossVal = Math.round(analysisData?.intensity_audit?.velocity_loss_pct ?? intensity.velocity_loss_pct ?? 0);
+                        return `Pérdida Fatiga: ${lossVal > 0 ? `-${lossVal}%` : '0%'}`;
+                      })()}
                     </span>
                   </div>
 
@@ -3459,28 +3567,35 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 )}
 
                 {/* Timeline Cues List (if cues exist) */}
-                {analysisData?.timeline_cues && analysisData.timeline_cues.length > 0 && (
-                  <>
-                    <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                          <MessageSquare className="w-4 h-4 text-emerald-400" />
-                          Intervenciones del Coach IA ({analysisData.timeline_cues.length})
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          Pines interactivos 0.5x
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">
-                        Pulsa en cualquier tarjeta para saltar al segundo exacto en cámara lenta y ver la corrección técnica.
-                      </p>
-                    </div>
+                {(() => {
+                  const rirCurrent = Number(analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2);
+                  const totalRepsCurrent = analysisData?.total_reps ?? 0;
+                  const validCues = (analysisData?.timeline_cues || []).filter(c => !(c.badge === 'Esfuerzo Terminal' && (rirCurrent >= 3.0 || totalRepsCurrent < 4)));
 
-                    <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                      {analysisData.timeline_cues.map((cue, idx) => {
-                        const isCritical = cue.type === 'critical' || cue.type === 'error';
-                        const isWarning = cue.type === 'warning';
-                        const isSelected = activeTimelineCue === cue;
+                  if (validCues.length === 0) return null;
+
+                  return (
+                    <>
+                      <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <MessageSquare className="w-4 h-4 text-emerald-400" />
+                            Intervenciones del Coach IA ({validCues.length})
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            Pines interactivos 0.5x
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Pulsa en cualquier tarjeta para saltar al segundo exacto en cámara lenta y ver la corrección técnica.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                        {validCues.map((cue, idx) => {
+                          const isCritical = cue.type === 'critical' || cue.type === 'error';
+                          const isWarning = cue.type === 'warning';
+                          const isSelected = activeTimelineCue === cue;
                         return (
                           <div
                             key={idx}
@@ -3517,7 +3632,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       })}
                     </div>
                   </>
-                )}
+                );
+              })()}
               </div>
             )}
 
@@ -3609,7 +3725,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   const stim = analysisData?.stimulus_and_specificity;
                   const limiting = stim?.limiting_factor || {
                     muscle_id: 'target',
-                    muscle_name: stim?.target_muscle || activeExercise.targetMuscle,
+                    muscle_name: stim?.target_muscle || formatMuscleTarget(activeExercise.targetMuscle),
                     effective_set_credit: 1.0,
                     reason: 'Factor limitante principal de la serie.'
                   };
@@ -3619,10 +3735,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     effective_set_credit: idx === 0 ? 0.5 : 0.3,
                     reason: 'Sinergista agonista / estabilizador.'
                   }));
-                  const tensionProfile = stim?.tension_profile || 'Uniforme';
+                  const tensionProfile = customTensionProfile || stim?.tension_profile || 'Uniforme';
 
-                  const rir = analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2.0;
-                  const intensityMult = rir <= 2.0 ? 1.0 : (rir <= 3.0 ? 0.8 : 0.5);
+                  const rirVal = analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2.0;
+                  const totalRepsCurrent = analysisData?.total_reps ?? 0;
+                  const { rir, factor } = calculateStimulatingSetFactor(totalRepsCurrent, rirVal);
+                  const effectiveCredit = Number((1.0 * factor).toFixed(2));
 
                   return (
                     <>
@@ -3632,9 +3750,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                             <Scale className="w-4 h-4 text-purple-400" />
                             Modelo de Estímulo e Hipertrofia
                           </span>
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                            {tensionProfile}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowMachineClassifierModal(true)}
+                            className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 hover:border-purple-400 transition flex items-center gap-1.5 active:scale-95"
+                            title="Abrir Clasificador Biomecánico de Máquina"
+                          >
+                            <Compass className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Perfil: {tensionProfile} · Clasificar</span>
+                          </button>
                         </div>
 
                         {/* Factor Limitante Principal Card */}
@@ -3644,7 +3768,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                               Factor Limitante Principal
                             </span>
                             <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-600 text-white shadow-sm shadow-purple-500/30">
-                              1.0 Serie Efectiva
+                              +{effectiveCredit.toFixed(2)} Serie Efectiva
                             </span>
                           </div>
                           <p className="text-sm font-black text-white">{limiting.muscle_name}</p>
@@ -3660,16 +3784,20 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                               Sinergistas Agonistas y Estabilizadores
                             </span>
                             <div className="flex flex-wrap gap-1.5">
-                              {synergists.map((syn, idx) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-semibold text-slate-200"
-                                  title={syn.reason}
-                                >
-                                  <span className="text-cyan-400 font-mono font-bold">+{syn.effective_set_credit.toFixed(1)}</span>
-                                  <span>{syn.muscle_name}</span>
-                                </span>
-                              ))}
+                              {synergists.map((syn, idx) => {
+                                const baseCredit = syn.effective_set_credit ?? (idx === 0 ? 0.5 : 0.3);
+                                const synCredit = Number((baseCredit * factor).toFixed(2));
+                                return (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-semibold text-slate-200"
+                                    title={syn.reason}
+                                  >
+                                    <span className="text-cyan-400 font-mono font-bold">+{synCredit.toFixed(2)}</span>
+                                    <span>{syn.muscle_name}</span>
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -3700,7 +3828,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           setVolumeMultiplierApplied(true);
                           if (onApplyVolumeMultiplier) {
                             onApplyVolumeMultiplier(
-                              Math.round(1.0 * intensityMult * 100) / 100,
+                              effectiveCredit,
                               limiting.muscle_name
                             );
                           }
@@ -3708,19 +3836,23 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         className={`w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 border shadow-lg transition active:scale-95 ${
                           volumeMultiplierApplied
                             ? 'bg-emerald-600/30 text-emerald-200 border-emerald-500/50'
+                            : effectiveCredit === 0
+                            ? 'bg-slate-800 text-slate-400 border-slate-700'
                             : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-500/40 hover:from-purple-500 hover:to-indigo-500 shadow-purple-500/20'
                         }`}
                       >
                         {volumeMultiplierApplied ? (
                           <>
                             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                            <span>¡Volumen Añadido! (+{(1.0 * intensityMult).toFixed(2)} serie en {limiting.muscle_name})</span>
+                            <span>¡Volumen Añadido! (+{effectiveCredit.toFixed(2)} serie en {limiting.muscle_name})</span>
                           </>
                         ) : (
                           <>
-                            <Flame className="w-4 h-4 text-amber-300" />
+                            <Flame className={`w-4 h-4 ${effectiveCredit === 0 ? 'text-slate-500' : 'text-amber-300'}`} />
                             <span>
-                              Añadir al Volumen Semanal (RIR {rir.toFixed(1)} · ×{intensityMult.toFixed(1)}): +{(1.0 * intensityMult).toFixed(2)} {limiting.muscle_name}
+                              {effectiveCredit === 0
+                                ? `Serie de aproximación / técnica (RIR ${rir.toFixed(1)} · +0.00 volumen): Registrar`
+                                : `Añadir al Volumen Semanal (RIR ${rir.toFixed(1)} · ×${factor.toFixed(2)}): +${effectiveCredit.toFixed(2)} ${limiting.muscle_name}`}
                             </span>
                           </>
                         )}
@@ -3916,6 +4048,25 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           exerciseId={selectedExerciseId || activeExercise?.id || ''}
           weightKg={weightKg}
           targetReps={targetReps}
+        />
+        <MachineResistanceClassifierModal
+          isOpen={showMachineClassifierModal}
+          onClose={() => setShowMachineClassifierModal(false)}
+          exerciseTitle={activeExercise.name || selectedExerciseId}
+          onSaveProfile={(profile: MachineResistanceProfile) => {
+            const label =
+              profile.peakZone === 'stretched'
+                ? 'Pico en Estiramiento'
+                : profile.peakZone === 'shortened'
+                ? 'Pico en Acortamiento'
+                : profile.peakZone === 'mid'
+                ? 'Pico en Punto Medio'
+                : 'Uniforme';
+            setCustomTensionProfile(label);
+            if (analysisData?.stimulus_and_specificity) {
+              analysisData.stimulus_and_specificity.tension_profile = label;
+            }
+          }}
         />
       </div>
     </div>
