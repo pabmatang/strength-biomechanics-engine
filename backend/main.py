@@ -164,6 +164,22 @@ def apply_zero_phase_butterworth_segmented(series: np.ndarray, cuts: List[int], 
             out[s_start:s_end] = series_f64[s_start:s_end]
     return out
 
+def apply_median_filter_1d(series: np.ndarray, size: int = 3) -> np.ndarray:
+    """1D moving median filter for outlier rejection (e.g. window 3 before Butterworth)."""
+    arr = np.asarray(series, dtype=np.float64)
+    if len(arr) < size:
+        return arr
+    try:
+        from scipy.ndimage import median_filter
+        return median_filter(arr, size=size, mode='nearest')
+    except Exception:
+        out = arr.copy()
+        pad = size // 2
+        padded = np.pad(arr, (pad, pad), mode='edge')
+        for i in range(len(arr)):
+            out[i] = np.median(padded[i : i + size])
+        return out
+
 def interpolate_isolated_frames(vals: np.ndarray, scores: np.ndarray, thresh: float = 0.25) -> np.ndarray:
     """Linearly interpolate isolated frames where keypoint score < thresh using valid frames."""
     valid = scores >= thresh
@@ -1541,14 +1557,19 @@ def track_load_point_optical_flow(
     raw_scores = np.array(primary_joints[load_joint].get("score", np.ones(n_frames)), dtype=np.float64, copy=True)
 
     if frames_rgb is None or len(frames_rgb) != n_frames or n_frames == 0:
-        smooth_lx = apply_zero_phase_butterworth_continuous(raw_x, fs=15.0, cutoff=2.0)
-        smooth_ly = apply_zero_phase_butterworth_continuous(raw_y, fs=15.0, cutoff=2.0)
+        med_x = apply_median_filter_1d(raw_x, size=3)
+        med_y = apply_median_filter_1d(raw_y, size=3)
+        smooth_lx = apply_zero_phase_butterworth_continuous(med_x, fs=15.0, cutoff=2.0)
+        smooth_ly = apply_zero_phase_butterworth_continuous(med_y, fs=15.0, cutoff=2.0)
         if n_frames > 1:
             dt = np.gradient(timestamps)
             dt = np.where(dt <= 0, 1.0 / 15.0, dt)
             dx = np.gradient(smooth_lx * img_w) / dt
             dy = np.gradient(smooth_ly * img_h) / dt
             vel = apply_zero_phase_butterworth_continuous(np.hypot(dx, dy), fs=15.0, cutoff=2.0)
+            init_f = min(int(round(15.0 * 0.4)), n_frames - 1)
+            if init_f > 0:
+                vel[:init_f] = vel[init_f]
         else:
             vel = np.zeros(n_frames)
         return smooth_lx, smooth_ly, vel
@@ -1588,8 +1609,11 @@ def track_load_point_optical_flow(
                 prev_pt = np.array([[vx, vy]], dtype=np.float32)
         prev_gray = curr_gray
 
-    smooth_lx = apply_zero_phase_butterworth_continuous(load_x, fs=15.0, cutoff=2.0)
-    smooth_ly = apply_zero_phase_butterworth_continuous(load_y, fs=15.0, cutoff=2.0)
+    # Recorte de outliers (mediana móvil ventana 3 antes del Butterworth) sobre trayectoria de carga
+    med_load_x = apply_median_filter_1d(load_x, size=3)
+    med_load_y = apply_median_filter_1d(load_y, size=3)
+    smooth_lx = apply_zero_phase_butterworth_continuous(med_load_x, fs=15.0, cutoff=2.0)
+    smooth_ly = apply_zero_phase_butterworth_continuous(med_load_y, fs=15.0, cutoff=2.0)
 
     if n_frames > 1:
         dt = np.gradient(timestamps)
@@ -1598,6 +1622,10 @@ def track_load_point_optical_flow(
         dy = np.gradient(smooth_ly * img_h) / dt
         vel_raw = np.hypot(dx, dy)
         smooth_vel = apply_zero_phase_butterworth_continuous(vel_raw, fs=15.0, cutoff=2.0)
+        # Estabilización inicial (0.4s): amortigua micro-baile inicial del esqueleto al arrancar
+        init_frames = min(int(round(15.0 * 0.4)), n_frames - 1)
+        if init_frames > 0:
+            smooth_vel[:init_frames] = smooth_vel[init_frames]
     else:
         smooth_vel = np.zeros(n_frames)
 
@@ -1692,6 +1720,11 @@ def process_kinematics(
             x_clean = interpolate_isolated_frames(x_arr, s_arr, thresh=0.25)
             y_clean = interpolate_isolated_frames(y_arr, s_arr, thresh=0.25)
             
+            # Estabilización: mediana móvil de ventana 3 antes del Butterworth para eliminar micro-baile inicial del esqueleto
+            if c_name in ["wrist", "elbow", "shoulder", "hip"]:
+                x_clean = apply_median_filter_1d(x_clean, size=3)
+                y_clean = apply_median_filter_1d(y_clean, size=3)
+
             all_smoothed[k_name] = {
                 "x": apply_zero_phase_butterworth_segmented(x_clean, scene_cut_indices, fs=15.0, cutoff=2.0),
                 "y": apply_zero_phase_butterworth_segmented(y_clean, scene_cut_indices, fs=15.0, cutoff=2.0),
@@ -2174,9 +2207,9 @@ def process_kinematics(
             raw_neck = 0.0
         neck_2d[f] = raw_neck
 
-    clean_el = apply_zero_phase_butterworth_continuous(el_2d, fs=15.0, cutoff=1.8)
-    clean_hp = apply_zero_phase_butterworth_continuous(hp_2d, fs=15.0, cutoff=1.8)
-    clean_kn = apply_zero_phase_butterworth_continuous(kn_2d, fs=15.0, cutoff=1.8)
+    clean_el = apply_zero_phase_butterworth_continuous(apply_median_filter_1d(el_2d, size=3), fs=15.0, cutoff=1.8)
+    clean_hp = apply_zero_phase_butterworth_continuous(apply_median_filter_1d(hp_2d, size=3), fs=15.0, cutoff=1.8)
+    clean_kn = apply_zero_phase_butterworth_continuous(apply_median_filter_1d(kn_2d, size=3), fs=15.0, cutoff=1.8)
     clean_hu = apply_zero_phase_butterworth_continuous(hu_2d, fs=15.0, cutoff=1.8)
     clean_torso = apply_zero_phase_butterworth_continuous(torso_2d, fs=15.0, cutoff=1.8)
     clean_neck = apply_zero_phase_butterworth_continuous(neck_2d, fs=15.0, cutoff=1.8)
@@ -2742,9 +2775,21 @@ def process_kinematics(
             smooth_ly[con_end] * img_h - smooth_ly[con_start] * img_h
         )), 1)
 
-        con_vel_slice = smooth_vel[idx_low : idx_high + 1]
-        mean_con_vel = round(float(np.mean(con_vel_slice)), 1) if len(con_vel_slice) > 0 else 0.0
-        peak_con_vel = float(np.max(con_vel_slice)) if len(con_vel_slice) > 0 else 0.0
+        con_disp_px = float(math.hypot(
+            smooth_lx[con_end] * img_w - smooth_lx[con_start] * img_w,
+            smooth_ly[con_end] * img_h - smooth_ly[con_start] * img_h
+        ))
+        mean_con_vel = round(float(con_disp_px / max(concentric_time_s, 0.20)), 1)
+
+        # Filtrar picos de velocidad ignorando los primeros 0.4s del vídeo para evitar saltos iniciales
+        valid_peak_frames = [f for f in range(idx_low, idx_high + 1) if (timestamps[f] - timestamps[0]) >= 0.4]
+        if valid_peak_frames:
+            peak_con_vel = float(np.max(smooth_vel[valid_peak_frames]))
+        elif idx_high >= idx_low:
+            con_vel_slice = smooth_vel[idx_low : idx_high + 1]
+            peak_con_vel = float(np.max(con_vel_slice)) if len(con_vel_slice) > 0 else 0.0
+        else:
+            peak_con_vel = 0.0
 
         st_sec = None
         # Regla biomecánica obligatoria:
@@ -2755,7 +2800,7 @@ def process_kinematics(
         if con_len >= 5 and peak_con_vel > 1e-3:
             trim_start = int(round(con_len * 0.20))
             trim_end = max(trim_start + 1, int(round(con_len * 0.80)))
-            trimmed_slice = con_vel_slice[trim_start : trim_end]
+            trimmed_slice = smooth_vel[idx_low + trim_start : idx_low + trim_end]
             if len(trimmed_slice) > 0:
                 min_local_v = float(np.min(trimmed_slice))
                 min_offset = int(np.argmin(trimmed_slice))
@@ -2765,8 +2810,13 @@ def process_kinematics(
                 if min_local_v < (0.65 * peak_con_vel):
                     st_sec = round(float(timestamps[st_frame]), 3) if st_frame < len(timestamps) else None
 
-        rep_v_slice = smooth_vel[start_frame : end_frame + 1]
-        max_v = float(np.max(rep_v_slice)) if len(rep_v_slice) > 0 and np.max(rep_v_slice) > 0 else 1.0
+        rep_v_filtered = [smooth_vel[f] for f in range(start_frame, end_frame + 1) if (timestamps[f] - timestamps[0]) >= 0.4]
+        max_v = float(np.max(rep_v_filtered)) if len(rep_v_filtered) > 0 and np.max(rep_v_filtered) > 0 else (
+            float(np.max(smooth_vel[start_frame : end_frame + 1])) if len(smooth_vel[start_frame : end_frame + 1]) > 0 else 1.0
+        )
+        if max_v <= 0:
+            max_v = 1.0
+
         rep_path_points = [
             [
                 round(float(smooth_lx[f]), 4),
@@ -2841,120 +2891,50 @@ def process_kinematics(
                     else:
                         frame_phase_map[f] = "CONCENTRIC"
 
-    # Terminal Repetition Detection at Muscle Failure (Agonizing grind / sticking point / partial rep at set completion)
+    # 7.5 Validación estricta de repeticiones completadas y eliminación de tramo final de rack / reposo
     if len(repetitions_summary) >= 1:
-        last_rep_end = end_frame
-        med_rom = float(np.median([r["rom_deg"] for r in repetitions_summary]))
-        med_conc = float(np.median([r["concentric_sec"] for r in repetitions_summary]))
-        best_rom = float(np.max([r["rom_deg"] for r in repetitions_summary]))
-
-        # Check for uncompleted agonizing attempt in remaining frames
-        if (n_frames - 1) - last_rep_end >= 12:
-            tail_curve = clean_curve[last_rep_end : n_frames]
-            tail_peak_rel = int(np.argmax(tail_curve))
-            tail_peak_frame = last_rep_end + tail_peak_rel
-            
-            tail_start_rel = int(np.argmin(clean_curve[last_rep_end : tail_peak_frame + 1])) if tail_peak_frame > last_rep_end else 0
-            tail_start_frame = last_rep_end + tail_start_rel
-
-            tail_min_a = float(np.min(clean_primary[tail_start_frame : min(n_frames, tail_peak_frame + 6)]))
-            tail_max_a = float(np.max(clean_primary[tail_start_frame : min(n_frames, tail_peak_frame + 6)]))
-            tail_rom = max(0.0, tail_max_a - tail_min_a)
-
-            tail_t_conc = max(0.25, timestamps[tail_peak_frame] - timestamps[tail_start_frame])
-            is_terminal_failure_rep = (
-                tail_rom >= 0.55 * med_rom and (
-                    tail_t_conc >= 1.6 * med_conc or
-                    tail_rom < 0.70 * med_rom
-                )
-            )
-
-            if is_terminal_failure_rep:
-                tail_rep_idx = len(repetitions_summary) + 1
-                raw_tail_vel = float(np.clip(tail_rom / tail_t_conc, 25.0, 140.0))
-                # Bug 5 Fix: Only apply quadratic penalty if ROM drops below 70%
-                rom_penalty = (tail_rom / max(best_rom, 1.0)) ** 2 if tail_rom < 0.70 * med_rom else 1.0
-                penalized_tail_vel = round(float(np.clip(raw_tail_vel * rom_penalty, 25.0, 140.0)), 1)
-
-                t_t_start = timestamps[tail_start_frame]
-                t_t_peak = timestamps[tail_peak_frame]
-                t_t_end = timestamps[min(n_frames - 1, tail_peak_frame + 8)]
-
-                tail_rep_data = {
-                    "rep_number": tail_rep_idx,
-                    "start_time": round(t_t_start, 2),
-                    "inflection_time": round(t_t_peak, 2),
-                    "end_time": round(t_t_end, 2),
-                    "duration_sec": round(float(t_t_end - t_t_start), 2),
-                    "eccentric_sec": round(max(0.2, t_t_end - t_t_peak), 2) if is_pattern_a or is_hip_thrust else round(max(0.2, t_t_peak - t_t_start), 2),
-                    "pause_sec": 0.0,
-                    "concentric_sec": round(tail_t_conc, 2),
-                    "pause_time_s": 0.0,
-                    "concentric_time_s": round(tail_t_conc, 2),
-                    "concentric_velocity_deg_s": penalized_tail_vel,
-                    "min_primary_angle": round(tail_min_a, 1),
-                    "max_primary_angle": round(tail_max_a, 1),
-                    "rom_deg": round(tail_rom, 1),
-                    "valley_idx": tail_start_frame if is_pattern_b else tail_peak_frame,
-                    "peak_idx": tail_peak_frame if is_pattern_b else tail_start_frame,
-                    "verdict": {
-                        "status": "IMPROVEMENT_OPPORTUNITY",
-                        "dominant_joint": repetitions_summary[-1]["verdict"].get("dominant_joint", "CADERA"),
-                        "target_alignment": False,
-                        "primary_torque_bias": repetitions_summary[-1]["verdict"].get("primary_torque_bias", "FALLO MUSCULAR"),
-                        "inflection_knee_deg": repetitions_summary[-1]["verdict"].get("inflection_knee_deg", 90.0),
-                        "inflection_hip_deg": repetitions_summary[-1]["verdict"].get("inflection_hip_deg", 170.0),
-                        "inflection_elbow_deg": repetitions_summary[-1]["verdict"].get("inflection_elbow_deg", 90.0),
-                        "recommendation": "Fallo concéntrico real (RIR 0 / RPE 10) alcanzado. Repetición terminal al límite."
-                    }
-                }
-                repetitions_summary.append(tail_rep_data)
-
-                for f in range(tail_start_frame, min(n_frames, tail_peak_frame + 8)):
-                    frame_rep_map[f] = tail_rep_idx
-                    if f < tail_peak_frame:
-                        frame_phase_map[f] = "CONCENTRIC" if (is_pattern_a or is_hip_thrust) else "ECCENTRIC"
-                    elif f == tail_peak_frame:
-                        frame_phase_map[f] = "INFLECTION"
-                    else:
-                        frame_phase_map[f] = "ECCENTRIC" if (is_pattern_a or is_hip_thrust) else "CONCENTRIC"
-        else:
-            # Bug 5 Fix: Only penalize if ROM drops below 70% of median (true failure midway)
-            last_r = repetitions_summary[-1]
-            if last_r["rom_deg"] < 0.70 * med_rom:
-                rom_pen = (last_r["rom_deg"] / max(best_rom, 1.0)) ** 2
-                last_r["concentric_velocity_deg_s"] = round(float(np.clip(last_r["concentric_velocity_deg_s"] * rom_pen, 25.0, 140.0)), 1)
-
-    # 7.5 Filtro de Repeticiones Fantasma de Montaje / Desmontaje
-    if len(repetitions_summary) >= 2:
         med_rom_val = float(np.median([r["rom_deg"] for r in repetitions_summary]))
-        med_conc_val = float(np.median([r["concentric_sec"] for r in repetitions_summary]))
         valid_reps = []
         n_reps_total = len(repetitions_summary)
         for idx, rep in enumerate(repetitions_summary):
-            is_first = (idx == 0)
-            is_last = (idx == n_reps_total - 1)
-            is_ghost = False
-            
-            # Check last rep (dismounting / unfinished)
-            if is_last:
-                if rep["rom_deg"] < 0.55 * med_rom_val or rep["concentric_sec"] < 0.45:
-                    is_ghost = True
-            
-            # Check first rep (mounting / setup)
-            if is_first:
-                if rep["rom_deg"] < 0.55 * med_rom_val or rep["concentric_sec"] < 0.45:
-                    is_ghost = True
-                elif rep.get("start_sec", 0.0) < 0.3 and rep["rom_deg"] < 0.70 * med_rom_val:
-                    is_ghost = True
-            
-            if not is_ghost:
-                valid_reps.append(rep)
-                
+            # Solo válida si completa el valle y la concéntrica alcanzando >= 75% del ROM mediano
+            # En series muy cortas (1-2), permitir >= 70% si la concéntrica duró >= 0.38s
+            min_rom_ratio = 0.75 if n_reps_total >= 3 else 0.70
+            if rep["rom_deg"] < min_rom_ratio * med_rom_val or rep["concentric_sec"] < 0.38:
+                continue
+            valid_reps.append(rep)
+
         if len(valid_reps) > 0:
             for new_i, r in enumerate(valid_reps):
+                r["rep_number"] = new_i + 1
+                r["rep_index"] = new_i + 1
                 r["rep_num"] = new_i + 1
             repetitions_summary = valid_reps
+
+        # Reconstruir frame_rep_map y frame_phase_map estrictamente con repeticiones validadas
+        frame_rep_map = [0] * n_frames
+        frame_phase_map = ["IDLE"] * n_frames
+        for r in repetitions_summary:
+            sf = r["start_frame"]
+            ef = r["end_frame"]
+            bf = r["bottom_frame"]
+            r_idx = r["rep_number"]
+            for f in range(sf, min(n_frames, ef + 1)):
+                frame_rep_map[f] = r_idx
+                if is_pattern_a or is_hip_thrust:
+                    if f < bf:
+                        frame_phase_map[f] = "CONCENTRIC"
+                    elif f == bf:
+                        frame_phase_map[f] = "INFLECTION"
+                    else:
+                        frame_phase_map[f] = "ECCENTRIC"
+                else:
+                    if f < bf:
+                        frame_phase_map[f] = "ECCENTRIC"
+                    elif f == bf:
+                        frame_phase_map[f] = "INFLECTION"
+                    else:
+                        frame_phase_map[f] = "CONCENTRIC"
 
     total_reps = len(repetitions_summary)
 
@@ -3016,18 +2996,35 @@ def process_kinematics(
         v_fail = 42.0
 
     if len(repetitions_summary) >= 2:
-        rep_vels = [float(r.get("mean_concentric_vel", r.get("concentric_velocity_deg_s", 0.0))) for r in repetitions_summary]
+        rep_vels = [float(r.get("mean_concentric_vel", 0.0)) for r in repetitions_summary]
         N = len(rep_vels)
         v_initial_best = float(max(rep_vels[0], rep_vels[1])) if N >= 2 else float(rep_vels[0])
         v_last = float(rep_vels[-1])
         first_rep_vel = float(rep_vels[0])
         max_rep_vel = float(max(rep_vels))
 
+        r1 = repetitions_summary[0]
+        r_last_rep = repetitions_summary[-1]
+        r1_conc = float(r1.get("concentric_sec", 1.0))
+        last_conc = float(r_last_rep.get("concentric_sec", 1.0))
+
         # Relative velocity loss % between best initial rep (max(rep1, rep2)) and last rep
         if v_initial_best > 1e-4:
-            vel_loss = round(float(max(0.0, ((v_initial_best - v_last) / v_initial_best) * 100.0)), 1)
+            raw_vel_loss = float(max(0.0, ((v_initial_best - v_last) / v_initial_best) * 100.0))
         else:
-            vel_loss = 0.0
+            raw_vel_loss = 0.0
+
+        # Guardia 1: Coherencia temporal concéntrica (si subió más rápido o casi igual, no hay fatiga extrema)
+        if last_conc <= r1_conc * 1.05:
+            vel_loss = round(min(raw_vel_loss, 8.0), 1)
+        else:
+            vel_loss = round(raw_vel_loss, 1)
+
+        # Guardia 2: En series cortas (<= 2 reps), solo RIR 0-1 si last_conc >= r1_conc * 1.45 o last_conc >= 2.2s
+        if N <= 2:
+            is_real_grind = (last_conc >= r1_conc * 1.45) or (last_conc >= 2.2)
+            if not is_real_grind and vel_loss > 28.0:
+                vel_loss = min(vel_loss, 20.0)
 
         exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(vel_loss)
 
@@ -4133,6 +4130,135 @@ def coach_review(
             except OSError:
                 pass
 
+def classify_machine_photo(
+    image_b64: Optional[str] = None,
+    image: Optional[str] = None,
+    exercise_hint: Optional[str] = None,
+    gemini_api_key: Optional[str] = None,
+    **kwargs
+) -> dict:
+    """
+    Classifies a gym machine's resistance profile from a photograph using lever physics and Gemini Flash VLM.
+    Identifies load type, pivot behavior, movement path, peak resistance zone, and curve weights.
+    """
+    raw_img = image_b64 or image or kwargs.get("image_base64")
+    if not raw_img and kwargs.get("photo_base64"):
+        raw_img = kwargs.get("photo_base64")
+
+    api_key = (gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
+
+    # Clean data URL prefix if present
+    if raw_img and "base64," in raw_img:
+        raw_img = raw_img.split("base64,")[1]
+
+    # Default heuristic profile if API key or image missing
+    hint = (exercise_hint or "").lower()
+    default_profile = {
+        "loadType": "plate_loaded" if ("hammer" in hint or "pure" in hint or "disco" in hint) else "selectorized_stack",
+        "pivotBehavior": "approaches_vertical_loss" if ("press" in hint or "sentadilla" in hint) else "opens_to_horizontal_gain",
+        "pathType": "converging_arc" if "press" in hint else "linear_fixed",
+        "peakZone": "stretched" if ("press" in hint or "sentadilla" in hint) else "shortened",
+        "resistanceCurveDescription": "Palanca con brazo de momento decreciente hacia el bloqueo articular.",
+        "curveWeights": { "stretch": 0.50, "mid": 0.35, "shortened": 0.15 },
+        "machineBrandGuess": "Hammer Strength" if "hammer" in hint else None,
+        "machineModelGuess": None
+    }
+
+    if not raw_img or not api_key:
+        return sanitize_for_json(default_profile)
+
+    candidate_models = get_available_flash_models(api_key)
+
+    prompt = (
+        "Actúa como Ingeniero Biomecánico Senior especializado en diseño de maquinaria de fuerza y física de palancas.\n"
+        "Analiza detalladamente esta fotografía de máquina de gimnasio para clasificar su perfil de resistencia cinemático.\n"
+        f"Pista de ejercicio / contexto: '{exercise_hint or 'Máquina de musculación'}'.\n\n"
+        "Aplica rigurosamente estos principios de física de momentos de fuerza (τ = F · L · sin(θ)):\n"
+        "1. Si la palanca se aproxima a la vertical conforme avanza la fase concéntrica, el brazo de momento de la carga respecto al pivote decrece -> Pico en Estiramiento ('stretched').\n"
+        "2. Si la palanca se abre hacia la horizontal perpendicular a la gravedad conforme empuja/tracciona, el brazo de momento de la carga aumenta -> Pico en Acortamiento ('shortened').\n"
+        "3. Si es guiado por cable directo o leva circular de radio constante -> Perfil Uniforme ('uniform').\n"
+        "4. Si es leva excéntrica de radio variable o doble pivote (nido de palancas) con reducción en extremos -> Pico en Punto Medio ('mid').\n\n"
+        "Responde ÚNICAMENTE con un objeto JSON válido con esta estructura exacta (sin markdown adicional):\n"
+        "{\n"
+        '  "loadType": "plate_loaded | selectorized_stack | cable_pulley | lever_arm | smith_guided | free_weight",\n'
+        '  "pivotBehavior": "approaches_vertical_loss | opens_to_horizontal_gain | circular_cam_constant | eccentric_cam_drop | linear_neutral",\n'
+        '  "pathType": "converging_arc | diverging_arc | circular_arc | linear_fixed | free_cable",\n'
+        '  "peakZone": "stretched | mid | shortened | uniform",\n'
+        '  "resistanceCurveDescription": "Explicación concisa de 1-2 frases del comportamiento de la palanca y el momento de fuerza.",\n'
+        '  "curveWeights": { "stretch": 0.50, "mid": 0.35, "shortened": 0.15 },\n'
+        '  "machineBrandGuess": "Hammer Strength / Technogym / Prime / etc. o null",\n'
+        '  "machineModelGuess": "Nombre o modelo visual de la máquina o null"\n'
+        "}\n"
+        "IMPORTANTE: 'curveWeights' debe contener 'stretch', 'mid' y 'shortened' como números decimales cuya suma sea exactamente 1.0."
+    )
+
+    for model_name in candidate_models:
+        clean_model = model_name.replace("models/", "")
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+
+        body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": raw_img
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "response_mime_type": "application/json"
+            }
+        }
+
+        try:
+            req = urllib.request.Request(
+                endpoint,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
+                candidates = resp_data.get("candidates", [])
+                if not candidates:
+                    continue
+                content_parts = candidates[0].get("content", {}).get("parts", [])
+                if not content_parts:
+                    continue
+                raw_text = content_parts[0].get("text", "").strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", raw_text)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
+                parsed = json.loads(raw_text)
+
+                # Validate and normalize curveWeights
+                cw = parsed.get("curveWeights", {})
+                s = float(cw.get("stretch", 0.33))
+                m = float(cw.get("mid", 0.34))
+                sh = float(cw.get("shortened", 0.33))
+                total = s + m + sh
+                if total > 0:
+                    parsed["curveWeights"] = {
+                        "stretch": round(s / total, 3),
+                        "mid": round(m / total, 3),
+                        "shortened": round(sh / total, 3)
+                    }
+                else:
+                    parsed["curveWeights"] = { "stretch": 0.333, "mid": 0.334, "shortened": 0.333 }
+
+                return sanitize_for_json(parsed)
+        except Exception as e:
+            print(f"[Classify Machine Photo] Model {clean_model} error: {e}")
+            continue
+
+    return sanitize_for_json(default_profile)
+
 def analyze(
     video_base64=None,
     video_url=None,
@@ -4163,6 +4289,14 @@ def analyze(
             return analyze_anthropometry(
                 front_image_base64=payload.get("front_image_base64"),
                 side_image_base64=payload.get("side_image_base64")
+            )
+        # Route to classify_machine_photo if requested
+        if payload.get("action") == "classify_machine_photo":
+            return classify_machine_photo(
+                image_b64=payload.get("image_b64") or payload.get("image") or payload.get("photo_base64"),
+                exercise_hint=payload.get("exercise_hint") or payload.get("exercise_name"),
+                gemini_api_key=payload.get("gemini_api_key") or kwargs.get("gemini_api_key") or gemini_api_key or os.environ.get("GEMINI_API_KEY", "").strip(),
+                **kwargs
             )
         # Route to coach_review if requested
         if payload.get("action") == "coach_review":

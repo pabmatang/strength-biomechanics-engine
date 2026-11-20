@@ -8,6 +8,7 @@
  */
 
 import { blobToBase64 } from '../utils/videoCompressor';
+import type { MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 
 export interface ExerciseConfig {
   exerciseType: string;
@@ -648,5 +649,56 @@ export async function requestCoachReviewWithModal(
 
   const rawJson = await resp.json();
   const data = (rawJson.result || rawJson.data || rawJson) as CoachReviewResponse;
+  return data;
+}
+
+/**
+ * Classifies a machine's mechanical resistance profile from an uploaded photograph
+ * using the Cerebrium backend and Gemini Flash lever physics.
+ */
+export async function classifyMachinePhoto(
+  imageBlob: Blob,
+  exerciseHint: string = '',
+  apiKeyOverride?: string
+): Promise<MachineResistanceProfile> {
+  const endpointUrl =
+    (import.meta.env.VITE_CEREBRIUM_API_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_MODAL_API_URL as string | undefined)?.trim() ||
+    'https://api.cortex.cerebrium.ai/v4/p-4d762e83/biomechanics-engine/analyze';
+
+  const apiKey =
+    apiKeyOverride ||
+    (import.meta.env.VITE_CEREBRIUM_API_KEY as string | undefined)?.trim() ||
+    (import.meta.env.VITE_CEREBRIUM_TOKEN as string | undefined)?.trim() ||
+    '';
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const base64Data = await blobToBase64(imageBlob);
+  const geminiApiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+
+  const resp = await fetch(endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'classify_machine_photo',
+      image_b64: base64Data,
+      exercise_hint: exerciseHint,
+      gemini_api_key: geminiApiKey,
+    }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 100)}`);
+  }
+
+  const rawJson = await resp.json();
+  const data = (rawJson.result || rawJson.data || rawJson) as MachineResistanceProfile;
   return data;
 }

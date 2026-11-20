@@ -469,3 +469,154 @@ export const MACHINE_MECHANICAL_SPECS: Record<string, MachineMechanicalSpec> = {
     stability: 'high'
   }
 };
+
+// ==========================================
+// RESISTANCE PROFILE CLASSIFICATION & COMPATIBILITY
+// ==========================================
+
+export type MachineLoadType =
+  | 'plate_loaded'
+  | 'selectorized_stack'
+  | 'cable_pulley'
+  | 'lever_arm'
+  | 'smith_guided'
+  | 'free_weight';
+
+export type LeverPivotBehavior =
+  | 'approaches_vertical_loss'
+  | 'opens_to_horizontal_gain'
+  | 'circular_cam_constant'
+  | 'eccentric_cam_drop'
+  | 'linear_neutral';
+
+export type MachinePathType =
+  | 'converging_arc'
+  | 'diverging_arc'
+  | 'circular_arc'
+  | 'linear_fixed'
+  | 'free_cable';
+
+export type PeakResistanceZone = 'stretched' | 'mid' | 'shortened' | 'uniform';
+
+export interface MachineResistanceProfile {
+  loadType: MachineLoadType;
+  pivotBehavior: LeverPivotBehavior;
+  pathType: MachinePathType;
+  peakZone: PeakResistanceZone;
+  resistanceCurveDescription: string;
+  curveWeights: {
+    stretch: number; // 0.0 a 1.0 (deben sumar 1.0)
+    mid: number;
+    shortened: number;
+  };
+  machineBrandGuess?: string;
+  machineModelGuess?: string;
+}
+
+/**
+ * Pure function classifying resistance profile from fundamental lever physics.
+ */
+export function classifyMachineResistanceProfile(input: {
+  loadType: MachineLoadType;
+  pivotBehavior: LeverPivotBehavior;
+  pathType?: MachinePathType;
+  machineBrandGuess?: string;
+  machineModelGuess?: string;
+}): MachineResistanceProfile {
+  const { loadType, pivotBehavior, pathType = 'converging_arc', machineBrandGuess, machineModelGuess } = input;
+
+  let peakZone: PeakResistanceZone = 'uniform';
+  let description = '';
+  let weights = { stretch: 0.334, mid: 0.333, shortened: 0.333 };
+
+  switch (pivotBehavior) {
+    case 'approaches_vertical_loss':
+      peakZone = 'stretched';
+      weights = { stretch: 0.55, mid: 0.30, shortened: 0.15 };
+      description =
+        'El brazo de palanca se aproxima a la vertical conforme avanza la concéntrica, reduciendo el brazo de momento en acortamiento.';
+      break;
+    case 'opens_to_horizontal_gain':
+      peakZone = 'shortened';
+      weights = { stretch: 0.15, mid: 0.35, shortened: 0.50 };
+      description =
+        'La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.';
+      break;
+    case 'eccentric_cam_drop':
+      peakZone = 'mid';
+      weights = { stretch: 0.25, mid: 0.55, shortened: 0.20 };
+      description =
+        'Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.';
+      break;
+    case 'circular_cam_constant':
+      peakZone = 'uniform';
+      weights = { stretch: 0.334, mid: 0.333, shortened: 0.333 };
+      description =
+        'Transmisión por cable con polea circular de radio constante: tensión mecánica homogénea en todo el rango.';
+      break;
+    case 'linear_neutral':
+    default:
+      peakZone = 'uniform';
+      weights = { stretch: 0.334, mid: 0.333, shortened: 0.333 };
+      description =
+        'Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.';
+      break;
+  }
+
+  const sum = weights.stretch + weights.mid + weights.shortened;
+  const s = Math.round((weights.stretch / sum) * 1000) / 1000;
+  const m = Math.round((weights.mid / sum) * 1000) / 1000;
+  const sh = Math.round((1 - s - m) * 1000) / 1000;
+
+  return {
+    loadType,
+    pivotBehavior,
+    pathType,
+    peakZone,
+    resistanceCurveDescription: description,
+    curveWeights: {
+      stretch: s,
+      mid: m,
+      shortened: sh,
+    },
+    machineBrandGuess,
+    machineModelGuess,
+  };
+}
+
+/**
+ * Computes percentage compatibility (0% to 100%) between two resistance profiles
+ * based on Euclidean distance of curveWeights and peakZone alignment.
+ */
+export function computeResistanceSimilarity(
+  profileA: MachineResistanceProfile,
+  profileB: MachineResistanceProfile
+): number {
+  if (!profileA || !profileB) return 50;
+
+  const wA = profileA.curveWeights || { stretch: 0.334, mid: 0.333, shortened: 0.333 };
+  const wB = profileB.curveWeights || { stretch: 0.334, mid: 0.333, shortened: 0.333 };
+
+  const ds = wA.stretch - wB.stretch;
+  const dm = wA.mid - wB.mid;
+  const dsh = wA.shortened - wB.shortened;
+  const dist = Math.sqrt(ds * ds + dm * dm + dsh * dsh);
+
+  const baseScore = Math.max(0, Math.min(100, Math.round((1.0 - dist / 0.75) * 100)));
+
+  let finalScore = baseScore;
+  if (profileA.peakZone === profileB.peakZone) {
+    finalScore = Math.min(100, finalScore + 10);
+  } else if (
+    (profileA.peakZone === 'stretched' && profileB.peakZone === 'shortened') ||
+    (profileA.peakZone === 'shortened' && profileB.peakZone === 'stretched')
+  ) {
+    finalScore = Math.max(20, finalScore - 15);
+  }
+
+  if (profileA.loadType === profileB.loadType) {
+    finalScore = Math.min(100, finalScore + 5);
+  }
+
+  return Math.max(10, Math.min(99, finalScore));
+}
