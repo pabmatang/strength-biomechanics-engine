@@ -13,12 +13,21 @@ if (!fs.existsSync(docsDir)) {
   fs.mkdirSync(docsDir, { recursive: true });
 }
 
-// Check if image actually exists on disk
+// Check if image actually exists on disk or is a valid remote URL
 function checkImageExists(imageUrl?: string): boolean {
   if (!imageUrl) return false;
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return true;
   const rel = imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl;
   const full = path.join(publicDir, rel);
-  return fs.existsSync(full);
+  if (fs.existsSync(full)) return true;
+  if (full.endsWith('.jpg')) {
+    const alt = full.slice(0, -4) + '.png';
+    if (fs.existsSync(alt)) return true;
+  } else if (full.endsWith('.png')) {
+    const alt = full.slice(0, -4) + '.jpg';
+    if (fs.existsSync(alt)) return true;
+  }
+  return false;
 }
 
 // Sort: Brand -> Muscle Group -> Model Name
@@ -110,6 +119,9 @@ const html = `<!DOCTYPE html>
               cybex: '#8b5cf6',
               matrix: '#10b981',
               gym80: '#ec4899',
+              lifefitness: '#0284c7',
+              bootybuilder: '#d946ef',
+              eleiko: '#eab308',
               estandar: '#14b8a6'
             }
           }
@@ -244,7 +256,15 @@ const html = `<!DOCTYPE html>
           brandLower.includes('cybex') ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
           brandLower.includes('matrix') ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
           brandLower.includes('gym80') ? 'bg-pink-500/15 text-pink-300 border-pink-500/30' :
+          brandLower.includes('life') ? 'bg-sky-500/15 text-sky-300 border-sky-500/30' :
+          brandLower.includes('booty') ? 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30' :
+          brandLower.includes('eleiko') ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
           'bg-teal-500/15 text-teal-300 border-teal-500/30';
+
+        const rawImg = m.imageUrl || '';
+        const isRemote = rawImg.startsWith('http://') || rawImg.startsWith('https://');
+        const localRelativeSrc = `../public${rawImg}`;
+        const primarySrc = isRemote ? rawImg : localRelativeSrc;
 
         return `
     <article
@@ -258,7 +278,13 @@ const html = `<!DOCTYPE html>
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
           ${
             hasImg
-              ? `<img src="${m.imageUrl}" alt="${m.modelName}" class="w-full h-full object-contain p-2" loading="lazy" />`
+              ? `<img 
+                   src="${primarySrc}" 
+                   alt="${m.modelName}" 
+                   class="w-full h-full object-contain p-2" 
+                   loading="lazy" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='${rawImg}';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                 />`
               : `<div class="text-center p-4">
                   <div class="w-10 h-10 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-500 mb-1.5 font-bold">📷</div>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">Sin imagen asignada</span>

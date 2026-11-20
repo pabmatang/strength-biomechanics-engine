@@ -36,7 +36,10 @@ const BRAND_FILTERS: (string | 'Todas')[] = [
   'Nautilus',
   'Cybex',
   'Matrix',
-  'Gym80'
+  'Gym80',
+  'Life Fitness',
+  'Booty Builder',
+  'Eleiko'
 ];
 
 export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps> = ({
