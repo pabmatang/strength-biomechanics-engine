@@ -4226,7 +4226,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               modelName: profile.machineModelGuess || activeExercise.name || 'Máquina Personalizada',
               line: 'Personalizada',
               canonicalExerciseType: selectedExerciseId || 'chest_press_machine',
-              muscleGroupLabel: activeMuscleGroup.name,
+              muscleGroupLabel: (activeMuscleGroup.name as any) || 'Pectoral',
               profile
             };
             setCatalogMachine(customEntry);

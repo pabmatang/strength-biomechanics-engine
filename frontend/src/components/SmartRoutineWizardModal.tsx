@@ -40,6 +40,7 @@ interface SmartRoutineWizardModalProps {
 const AVAILABLE_BRANDS: { brand: MachineBrandFilter; title: string; desc: string }[] = [
   { brand: 'Technogym', title: 'Technogym Pure Strength', desc: 'Palancas de discos independientes y convergentes' },
   { brand: 'Hammer Strength', title: 'Hammer Strength Iso-Lateral', desc: 'Máquinas olímpicas divergentes de alta carga' },
+  { brand: 'Titanium Strength', title: 'Titanium Strength', desc: 'Maquinaria pesada comercial de palancas convergentes' },
   { brand: 'Panatta', title: 'Panatta FreeWeight / Monolith', desc: 'Biomecánica italiana con brazos de palanca circulares' },
   { brand: 'Nautilus', title: 'Nautilus Nitro', desc: 'Leva excéntrica para máxima curva de fuerza' },
   { brand: 'Cybex', title: 'Cybex Eagle', desc: 'Doble eje articulado para articulaciones protegidas' },

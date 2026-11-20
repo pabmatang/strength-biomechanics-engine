@@ -5,6 +5,7 @@ export type BaseEquipmentType = 'free_weight' | 'cable' | 'generic_machine';
 export type MachineBrandFilter =
   | 'Technogym'
   | 'Hammer Strength'
+  | 'Titanium Strength'
   | 'Panatta'
   | 'Nautilus'
   | 'Cybex'

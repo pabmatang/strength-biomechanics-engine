@@ -480,11 +480,15 @@ export const MachineResistanceClassifierModal: React.FC<MachineResistanceClassif
                 <datalist id="brand-suggestions">
                   <option value="Technogym" />
                   <option value="Hammer Strength" />
+                  <option value="Titanium Strength" />
                   <option value="Panatta" />
                   <option value="Nautilus" />
                   <option value="Cybex" />
                   <option value="Matrix" />
                   <option value="Gym80" />
+                  <option value="Life Fitness" />
+                  <option value="Booty Builder" />
+                  <option value="Eleiko" />
                   <option value="Otra" />
                 </datalist>
                 <div className="flex flex-wrap gap-1 mt-1.5">

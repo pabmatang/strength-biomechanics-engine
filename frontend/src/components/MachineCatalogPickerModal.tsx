@@ -12,6 +12,7 @@ import {
 import {
   CatalogMachineEntry,
   MachineCatalogBrand,
+  NormalizedMuscleGroup,
   getAllCatalogMachines,
   searchCatalogMachines
 } from '../data/machineCatalog';
@@ -32,6 +33,7 @@ const BRAND_FILTERS: (string | 'Todas')[] = [
   'Estándar',
   'Technogym',
   'Hammer Strength',
+  'Titanium Strength',
   'Panatta',
   'Nautilus',
   'Cybex',
@@ -72,7 +74,7 @@ export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps>
       modelName: profile.machineModelGuess || 'Máquina Personalizada',
       line: 'Personalizada',
       canonicalExerciseType: 'chest_press_machine',
-      muscleGroupLabel: 'Musculación',
+      muscleGroupLabel: (defaultFilterMuscle as NormalizedMuscleGroup) || 'Pectoral',
       profile
     };
     onSelectMachine(newEntry);

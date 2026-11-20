@@ -1,0 +1,710 @@
+// ==========================================
+// CHΔNCE MACHINE CATALOG - TECHNOGYM
+// ==========================================
+
+import { type CatalogMachineEntry } from '../machineCatalog';
+import { classifyMachineResistanceProfile } from '../../utils/machinePhysicsEngine';
+
+export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
+  // 1. Technogym — Technogym Pure Strength - Pulldown
+  {
+    id: 'technogym_pure_pulldown',
+    brand: 'Technogym',
+    line: 'Pure Strength (Palancas convergentes)',
+    modelName: 'Technogym Pure Strength - Pulldown',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Pulldown'
+    }),
+    imageUrl: '/machines/technogym_pure_pulldown.png'
+  },
+
+  // 2. Technogym — Technogym Pure Strength - Low Row
+  {
+    id: 'technogym_pure_low_row',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Low Row',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Low Row'
+    }),
+    imageUrl: '/machines/technogym_pure_low_row.png'
+  },
+
+  // 3. Technogym — Technogym Pure Strength - Row (Remo Dorian / Remo Horizontal a Discos)
+  {
+    id: 'technogym_pure_row_dorian',
+    brand: 'Technogym',
+    line: 'Pure Strength (Palancas convergentes)',
+    modelName: 'Technogym Pure Strength - Row (Remo Dorian / Remo Horizontal a Discos)',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Row (Remo Dorian / Remo Horizontal a Discos)'
+    }),
+    imageUrl: '/machines/technogym_pure_row_dorian.png'
+  },
+
+  // 4. Technogym — Technogym Pure Strength - T-Bar Row (Remo en T a Discos)
+  {
+    id: 'technogym_pure_t_bar_row',
+    brand: 'Technogym',
+    line: 'Pure Strength (Discos Olímpicos)',
+    modelName: 'Technogym Pure Strength - T-Bar Row (Remo en T a Discos)',
+    canonicalExerciseType: 't_bar_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - T-Bar Row (Remo en T a Discos)'
+    }),
+    imageUrl: '/machines/technogym_pure_t_bar_row.png'
+  },
+
+  // 5. Technogym — Technogym Pure Strength - Deadlift (Peso Muerto a Discos)
+  {
+    id: 'technogym_pure_deadlift',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Deadlift (Peso Muerto a Discos)',
+    canonicalExerciseType: 'deadlift',
+    muscleGroupLabel: 'Lumbares',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Deadlift (Peso Muerto a Discos)'
+    }),
+    imageUrl: '/machines/technogym_pure_deadlift.png'
+  },
+
+  // 6. Technogym — Technogym Selection - Lat Machine
+  {
+    id: 'technogym_selection_lat_machine',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection - Lat Machine',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Lat Machine'
+    }),
+    imageUrl: '/machines/technogym_selection_lat_machine.png'
+  },
+
+  // 7. Technogym — Technogym Selection 900 - Seated Wide Row (Remo Sentado Abierto de Placas)
+  {
+    id: 'technogym_selection_wide_row',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection 900 - Seated Wide Row (Remo Sentado Abierto de Placas)',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Seated Wide Row (Remo Sentado Abierto de Placas)'
+    }),
+    imageUrl: '/machines/technogym_selection_wide_row.png'
+  },
+
+  // 8. Technogym — Technogym Pure Strength - Chest Press
+  {
+    id: 'technogym_pure_chest_press',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Chest Press',
+    canonicalExerciseType: 'chest_press_machine',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Chest Press'
+    }),
+    imageUrl: '/machines/technogym_pure_chest_press.png'
+  },
+
+  // 9. Technogym — Technogym Selection 900 - Chest Press (Press de Pecho de Placas)
+  {
+    id: 'technogym_selection_chest_press',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection 900 - Chest Press (Press de Pecho de Placas)',
+    canonicalExerciseType: 'chest_press_machine',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Chest Press (Press de Pecho de Placas)'
+    }),
+    imageUrl: '/machines/technogym_selection_chest_press.png'
+  },
+
+  // 10. Technogym — Technogym Pure Strength - Incline Chest Press
+  {
+    id: 'technogym_pure_incline_chest',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Incline Chest Press',
+    canonicalExerciseType: 'incline_press',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Incline Chest Press'
+    }),
+    imageUrl: '/machines/technogym_pure_incline_chest.png'
+  },
+
+  // 11. Technogym — Technogym Pure Strength - Wide Chest Press
+  {
+    id: 'technogym_pure_wide_chest',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Wide Chest Press',
+    canonicalExerciseType: 'chest_press_machine',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Wide Chest Press'
+    }),
+    imageUrl: '/machines/technogym_pure_wide_chest.png'
+  },
+
+  // 12. Technogym — Technogym Selection - Pectoral & Reverse Fly (Pec Deck & Pájaros)
+  {
+    id: 'technogym_selection_pec_deck_reverse_fly',
+    brand: 'Technogym',
+    line: 'Selection 700 / 900 Dual',
+    modelName: 'Technogym Selection - Pectoral & Reverse Fly (Pec Deck & Pájaros)',
+    canonicalExerciseType: 'pec_deck',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Pectoral & Reverse Fly (Pec Deck & Pájaros)'
+    }),
+    imageUrl: '/machines/technogym_selection_pec_deck_reverse_fly.png'
+  },
+
+  // 13. Technogym — Technogym Pure Strength - Hip Thrust
+  {
+    id: 'technogym_pure_hip_thrust',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Hip Thrust',
+    canonicalExerciseType: 'hip_thrust',
+    muscleGroupLabel: 'Glúteo',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Hip Thrust'
+    }),
+    imageUrl: '/machines/technogym_pure_hip_thrust.png'
+  },
+
+  // 14. Technogym — Technogym Selection 900 / Biostrength - Hip Thrust (Empuje de Cadera / Glúteo de Placas)
+  {
+    id: 'technogym_selection_hip_thrust',
+    brand: 'Technogym',
+    line: 'Selection 900 / Biostrength',
+    modelName: 'Technogym Selection 900 / Biostrength - Hip Thrust (Empuje de Cadera / Glúteo de Placas)',
+    canonicalExerciseType: 'hip_thrust',
+    muscleGroupLabel: 'Glúteo',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 / Biostrength - Hip Thrust (Empuje de Cadera / Glúteo de Placas)'
+    }),
+    imageUrl: '/machines/technogym_selection_hip_thrust.png'
+  },
+
+  // 15. Technogym — Technogym Selection - Adductor (Aductores / Cerrar Piernas)
+  {
+    id: 'technogym_selection_adductor',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection - Adductor (Aductores / Cerrar Piernas)',
+    canonicalExerciseType: 'adductor_machine',
+    muscleGroupLabel: 'Aductores',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Adductor (Aductores / Cerrar Piernas)'
+    }),
+    imageUrl: '/machines/technogym_selection_adductor.png'
+  },
+
+  // 16. Technogym — Technogym Selection - Abductor (Abductores / Abrir Piernas / Glúteo Medio)
+  {
+    id: 'technogym_selection_abductor',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection - Abductor (Abductores / Abrir Piernas / Glúteo Medio)',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Abductores',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Abductor (Abductores / Abrir Piernas / Glúteo Medio)'
+    }),
+    imageUrl: '/machines/technogym_selection_abductor.png'
+  },
+
+  // 17. Technogym — Technogym Pure Strength - Standing Abductor (Abductor de Pie a Discos)
+  {
+    id: 'technogym_pure_standing_abductor',
+    brand: 'Technogym',
+    line: 'Pure Strength (Discos)',
+    modelName: 'Technogym Pure Strength - Standing Abductor (Abductor de Pie a Discos)',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Abductores',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Standing Abductor (Abductor de Pie a Discos)'
+    }),
+    imageUrl: '/machines/technogym_pure_standing_abductor.png'
+  },
+
+  // 18. Technogym — Technogym Pure Strength - Hack Squat
+  {
+    id: 'technogym_pure_hack_squat',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Hack Squat',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Hack Squat'
+    }),
+    imageUrl: '/machines/technogym_pure_hack_squat.png'
+  },
+
+  // 19. Technogym — Technogym Pure Strength - Belt Squat (Sentadilla con Cinturón a Discos)
+  {
+    id: 'technogym_pure_belt_squat',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Belt Squat (Sentadilla con Cinturón a Discos)',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Belt Squat (Sentadilla con Cinturón a Discos)'
+    }),
+    imageUrl: '/machines/technogym_pure_belt_squat.png'
+  },
+
+  // 20. Technogym — Technogym Selection 900 - Multi Hip (Glúteo, Aductores y Abductores de Placas)
+  {
+    id: 'technogym_selection_multi_hip',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection 900 - Multi Hip (Glúteo, Aductores y Abductores de Placas)',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Glúteo',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Multi Hip (Glúteo, Aductores y Abductores de Placas)'
+    }),
+    imageUrl: '/machines/technogym_selection_multi_hip.png'
+  },
+
+  // 21. Technogym — Technogym Pure Strength - Prensa de Piernas a Discos 45° (Pure Leg Press)
+  {
+    id: 'technogym_pure_leg_press',
+    brand: 'Technogym',
+    line: 'Pure Strength (Discos)',
+    modelName: 'Technogym Pure Strength - Prensa de Piernas a Discos 45° (Pure Leg Press)',
+    canonicalExerciseType: 'leg_press',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Prensa de Piernas a Discos 45° (Pure Leg Press)'
+    }),
+    imageUrl: '/machines/technogym_pure_leg_press.png'
+  },
+
+  // 22. Technogym — Technogym Selection 900 - Leg Press (Prensa Horizontal de Placas)
+  {
+    id: 'technogym_selection_leg_press',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection 900 - Leg Press (Prensa Horizontal de Placas)',
+    canonicalExerciseType: 'leg_press',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Leg Press (Prensa Horizontal de Placas)'
+    }),
+    imageUrl: '/machines/technogym_selection_leg_press.png'
+  },
+
+  // 23. Technogym — Technogym Selection - Leg Extension
+  {
+    id: 'technogym_selection_leg_extension',
+    brand: 'Technogym',
+    line: 'Selection 900 / Biostrength',
+    modelName: 'Technogym Selection - Leg Extension',
+    canonicalExerciseType: 'leg_extension',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Leg Extension'
+    }),
+    imageUrl: '/machines/technogym_selection_leg_extension.png'
+  },
+
+  // 24. Technogym — Technogym Selection - Seated Leg Curl
+  {
+    id: 'technogym_selection_leg_curl',
+    brand: 'Technogym',
+    line: 'Selection 900 / Biostrength',
+    modelName: 'Technogym Selection - Seated Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Seated Leg Curl'
+    }),
+    imageUrl: '/machines/technogym_selection_leg_curl.png'
+  },
+
+  // 25. Technogym — Technogym Selection - Total Abdominal Crunch
+  {
+    id: 'technogym_selection_abdominal_crunch',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection - Total Abdominal Crunch',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Total Abdominal Crunch'
+    }),
+    imageUrl: '/machines/technogym_selection_abdominal_crunch.png'
+  },
+
+  // 26. Technogym — Technogym Selection 900 - Arm Curl (Predicador Bíceps)
+  {
+    id: 'technogym_selection_arm_curl',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Arm Curl (Predicador Bíceps)',
+    canonicalExerciseType: 'biceps_curl',
+    muscleGroupLabel: 'Bíceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Arm Curl (Predicador Bíceps)'
+    }),
+    imageUrl: '/machines/technogym_selection_arm_curl.png'
+  },
+
+  // 27. Technogym — Technogym Pure Strength - Shoulder Press
+  {
+    id: 'technogym_pure_shoulder_press',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Shoulder Press',
+    canonicalExerciseType: 'shoulder_press_machine',
+    muscleGroupLabel: 'Hombros',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Shoulder Press'
+    }),
+    imageUrl: '/machines/technogym_pure_shoulder_press.png'
+  },
+
+  // 28. Technogym — Technogym Selection - Prone Leg Curl (Femoral Tumbado)
+  {
+    id: 'technogym_selection_prone_leg_curl',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection - Prone Leg Curl (Femoral Tumbado)',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Prone Leg Curl (Femoral Tumbado)'
+    }),
+    imageUrl: '/machines/technogym_selection_prone_leg_curl.png'
+  },
+
+  // 29. Technogym — Technogym Pure Strength - Standing Leg Curl (Femoral de Pie a Discos)
+  {
+    id: 'technogym_pure_standing_leg_curl',
+    brand: 'Technogym',
+    line: 'Pure Strength (Discos)',
+    modelName: 'Technogym Pure Strength - Standing Leg Curl (Femoral de Pie a Discos)',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Standing Leg Curl (Femoral de Pie a Discos)'
+    }),
+    imageUrl: '/machines/technogym_pure_standing_leg_curl.png'
+  },
+
+  // 30. Technogym — Technogym Selection - Standing Calf (Gemelos en Torre)
+  {
+    id: 'technogym_selection_standing_calf',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection - Standing Calf (Gemelos en Torre)',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Standing Calf (Gemelos en Torre)'
+    }),
+    imageUrl: '/machines/technogym_selection_standing_calf.png'
+  },
+
+  // 31. Technogym — Technogym Selection 900 - Seated Triceps Press (Tríceps Sentado de Placas / Seated Dip)
+  {
+    id: 'technogym_selection_seated_dip',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Seated Triceps Press (Tríceps Sentado de Placas / Seated Dip)',
+    canonicalExerciseType: 'triceps_extension',
+    muscleGroupLabel: 'Tríceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Seated Triceps Press (Tríceps Sentado de Placas / Seated Dip)'
+    }),
+    imageUrl: '/machines/technogym_selection_seated_dip.png'
+  },
+
+  // 32. Technogym — Technogym Pure Strength - Standing Glute Kickback
+  {
+    id: 'technogym_pure_standing_glute',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Standing Glute Kickback',
+    canonicalExerciseType: 'glute_kickback',
+    muscleGroupLabel: 'Glúteo',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Standing Glute Kickback'
+    }),
+    imageUrl: '/machines/technogym_pure_standing_glute.png'
+  },
+
+  // 33. Technogym — Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)
+  {
+    id: 'technogym_pure_lateral_raise',
+    brand: 'Technogym',
+    line: 'Pure Strength (Palancas convergentes)',
+    modelName: 'Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)',
+    canonicalExerciseType: 'lateral_raise',
+    muscleGroupLabel: 'Hombros',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)'
+    }),
+    imageUrl: '/machines/technogym_pure_lateral_raise.png'
+  },
+
+  // 34. Technogym — Technogym Selection - Lower Back (Extensión Lumbar en Torre)
+  {
+    id: 'technogym_selection_lower_back',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection - Lower Back (Extensión Lumbar en Torre)',
+    canonicalExerciseType: 'back_extension',
+    muscleGroupLabel: 'Lumbares',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Lower Back (Extensión Lumbar en Torre)'
+    }),
+    imageUrl: '/machines/technogym_selection_lower_back.png'
+  },
+
+  // 35. Technogym — Technogym Selection 900 - Low Row (Remo Bajo en Torre de Placas)
+  {
+    id: 'technogym_selection_low_row',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection 900 - Low Row (Remo Bajo en Torre de Placas)',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Low Row (Remo Bajo en Torre de Placas)'
+    }),
+    imageUrl: '/machines/technogym_selection_low_row.png'
+  },
+
+  // 36. Technogym — Technogym Selection 900 - Seated Cable Row (Polea Baja de Remo)
+  {
+    id: 'technogym_selection_pulley',
+    brand: 'Technogym',
+    line: 'Selection 900 (Torre de placas)',
+    modelName: 'Technogym Selection 900 - Seated Cable Row (Polea Baja de Remo)',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection 900 - Seated Cable Row (Polea Baja de Remo)'
+    }),
+    imageUrl: '/machines/technogym_selection_pulley.png'
+  },
+
+  // 37. Technogym — Technogym Selection - Shoulder Press (Press Militar en Torre)
+  {
+    id: 'technogym_selection_shoulder_press',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection - Shoulder Press (Press Militar en Torre)',
+    canonicalExerciseType: 'shoulder_press_machine',
+    muscleGroupLabel: 'Hombros',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Selection - Shoulder Press (Press Militar en Torre)'
+    }),
+    imageUrl: '/machines/technogym_selection_shoulder_press.png'
+  },
+
+  // 38. Technogym — Technogym Pure Strength - Biceps Curl a Discos
+  {
+    id: 'technogym_pure_biceps_curl',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Biceps Curl a Discos',
+    canonicalExerciseType: 'biceps_curl',
+    muscleGroupLabel: 'Bíceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym Pure Strength - Biceps Curl a Discos'
+    }),
+    imageUrl: '/machines/technogym_pure_biceps_curl.png'
+  },
+
+  // 39. Technogym — Technogym - Dual Adjustable Pulley (DAP / Polea Doble)
+  {
+    id: 'technogym_cable_crossover_dap',
+    brand: 'Technogym',
+    line: 'Selection Cable DAP',
+    modelName: 'Technogym - Dual Adjustable Pulley (DAP / Polea Doble)',
+    canonicalExerciseType: 'cable_crossover',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'cable_pulley',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Technogym',
+      machineModelGuess: 'Technogym - Dual Adjustable Pulley (DAP / Polea Doble)'
+    }),
+    imageUrl: '/machines/technogym_cable_crossover_dap.png'
+  }
+];

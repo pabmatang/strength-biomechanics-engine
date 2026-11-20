@@ -22,6 +22,7 @@
               lifefitness: '#0284c7',
               bootybuilder: '#d946ef',
               eleiko: '#eab308',
+              titanium: '#f97316',
               estandar: '#14b8a6'
             }
           }
@@ -61,17 +62,17 @@
     <div class="flex items-center gap-3 text-xs bg-slate-900 border border-slate-800 p-2.5 rounded-2xl">
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Total Máquinas</div>
-        <div class="text-lg font-black font-mono text-cyan-400" id="stat-total">120</div>
+        <div class="text-lg font-black font-mono text-cyan-400" id="stat-total">117</div>
       </div>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Con Imagen</div>
-        <div class="text-lg font-black font-mono text-emerald-400">120</div>
+        <div class="text-lg font-black font-mono text-emerald-400">94</div>
       </div>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Sin Imagen</div>
-        <div class="text-lg font-black font-mono text-slate-500">0</div>
+        <div class="text-lg font-black font-mono text-amber-400">23</div>
       </div>
     </div>
   </header>
@@ -89,19 +90,28 @@
         />
       </div>
 
-      <!-- Quick Reset -->
-      <button
-        onclick="resetFilters()"
-        class="text-xs text-slate-400 hover:text-cyan-400 underline transition whitespace-nowrap self-end sm:self-center"
-      >
-        Restablecer filtros
-      </button>
+      <!-- Controls -->
+      <div class="flex items-center gap-2 self-end sm:self-center">
+        <button
+          id="filter-missing-only-btn"
+          onclick="toggleMissingOnly()"
+          class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-rose-300 border border-rose-500/30 hover:bg-rose-950/40 transition whitespace-nowrap"
+        >
+          ⚠️ Solo sin imagen
+        </button>
+        <button
+          onclick="resetFilters()"
+          class="text-xs text-slate-400 hover:text-cyan-400 underline transition whitespace-nowrap"
+        >
+          Restablecer filtros
+        </button>
+      </div>
     </div>
 
     <!-- Brand Filter Pills -->
     <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/60" id="brand-filters">
       <button onclick="setBrandFilter('all')" class="brand-btn active px-3 py-1 rounded-xl text-xs font-bold bg-cyan-600 text-white transition" data-brand="all">
-        Todas (120)
+        Todas (117)
       </button>
       
       <button onclick="setBrandFilter('Booty Builder')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Booty Builder">
@@ -120,7 +130,7 @@
         Gym80 (2)
       </button>
       <button onclick="setBrandFilter('Hammer Strength')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Hammer Strength">
-        Hammer Strength (24)
+        Hammer Strength (21)
       </button>
       <button onclick="setBrandFilter('Life Fitness')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Life Fitness">
         Life Fitness (4)
@@ -163,20 +173,11 @@
       <button onclick="setMuscleFilter('Cuádriceps')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Cuádriceps">
         Cuádriceps
       </button>
-      <button onclick="setMuscleFilter('Deltoides')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Deltoides">
-        Deltoides
-      </button>
       <button onclick="setMuscleFilter('Dorsales')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Dorsales">
         Dorsales
       </button>
-      <button onclick="setMuscleFilter('Espalda')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Espalda">
-        Espalda
-      </button>
-      <button onclick="setMuscleFilter('Espalda Alta / Media')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Espalda Alta / Media">
-        Espalda Alta / Media
-      </button>
-      <button onclick="setMuscleFilter('Espalda Baja / Lumbares')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Espalda Baja / Lumbares">
-        Espalda Baja / Lumbares
+      <button onclick="setMuscleFilter('Espalda Alta')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Espalda Alta">
+        Espalda Alta
       </button>
       <button onclick="setMuscleFilter('Gemelos')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Gemelos">
         Gemelos
@@ -187,11 +188,11 @@
       <button onclick="setMuscleFilter('Hombros')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Hombros">
         Hombros
       </button>
-      <button onclick="setMuscleFilter('Isquios')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Isquios">
-        Isquios
+      <button onclick="setMuscleFilter('Isquiosurales')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Isquiosurales">
+        Isquiosurales
       </button>
-      <button onclick="setMuscleFilter('Isquios / Femoral')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Isquios / Femoral">
-        Isquios / Femoral
+      <button onclick="setMuscleFilter('Lumbares')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Lumbares">
+        Lumbares
       </button>
       <button onclick="setMuscleFilter('Pectoral')" class="muscle-btn px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-950 text-slate-400 hover:text-white transition border border-slate-800" data-muscle="Pectoral">
         Pectoral
@@ -212,18 +213,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Booty Builder"
       data-muscle="Abductores"
+      data-has-image="false"
       data-search="booty builder - standing abductor (abductor de pie 45°) booty_builder_standing_abductor abductor_machine booty builder"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80" 
-                   alt="Booty Builder - Standing Abductor (Abductor de Pie 45°)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/booty_builder_standing_abductor.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -297,18 +298,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Booty Builder"
       data-muscle="Glúteo"
+      data-has-image="false"
       data-search="booty builder - platinum hip thrust (empuje de cadera guiado) booty_builder_platinum hip_thrust booty builder"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80" 
-                   alt="Booty Builder - Platinum Hip Thrust (Empuje de Cadera Guiado)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/booty_builder_platinum.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -381,23 +382,23 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Cybex"
-      data-muscle="Espalda"
+      data-muscle="Espalda Alta"
+      data-has-image="false"
       data-search="eagle nx row cybex_eagle_row seated_row cybex"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/matrix_ultra_seated_row.jpg" 
-                   alt="Eagle NX Row" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/matrix_ultra_seated_row.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/cybex_eagle_row.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda
+            Espalda Alta
           </span>
         </div>
 
@@ -467,6 +468,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Eleiko"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="eleiko - prestera half rack con banco regulable eleiko_prestera_half_rack squat eleiko"
     >
       <div>
@@ -542,7 +544,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>free_weight</span>
           <span>linear_fixed</span>
           <span>eleiko_prestera_half_rack</span>
         </div>
@@ -552,6 +554,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Eleiko"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="eleiko - prestera power rack eleiko_power_rack squat eleiko"
     >
       <div>
@@ -627,7 +630,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>free_weight</span>
           <span>linear_fixed</span>
           <span>eleiko_power_rack</span>
         </div>
@@ -637,7 +640,8 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Eleiko"
       data-muscle="Pectoral"
-      data-search="eleiko - olympic flat bench press eleiko_olympic_bench machine_exercise eleiko"
+      data-has-image="true"
+      data-search="eleiko - olympic flat bench press eleiko_olympic_bench bench_press eleiko"
     >
       <div>
         <!-- Top Media Container -->
@@ -672,15 +676,15 @@
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>machine_exercise</code>
+          <code>bench_press</code>
         </div>
       </div>
 
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Pico en Acortamiento · Ascendente</span>
-          <span class="text-slate-400 font-mono">15% / 35% / 50%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -694,25 +698,25 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,29 Q 50,19.666666666666664 90,12.666666666666664"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-eleiko_olympic_bench)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
             <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="12.666666666666664" r="3" fill="#8b5cf6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.
+          Press de banca con barra olímpica: máximo momento en estiramiento sobre el pecho.
         </p>
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>free_weight</span>
           <span>linear_fixed</span>
           <span>eleiko_olympic_bench</span>
         </div>
@@ -722,6 +726,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Aductores"
+      data-has-image="true"
       data-search="máquina de aductores (cerrar piernas) standard_adductor_machine adductor_machine estándar"
     >
       <div>
@@ -807,6 +812,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="extensión de cuádriceps en máquina standard_leg_extension leg_extension estándar"
     >
       <div>
@@ -892,6 +898,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="prensa de piernas inclinada 45° standard_leg_press_45 leg_press estándar"
     >
       <div>
@@ -977,6 +984,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="sentadilla hack (hack squat 45°) standard_hack_squat squat estándar"
     >
       <div>
@@ -1061,177 +1069,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
-      data-muscle="Deltoides"
-      data-search="elevaciones laterales en máquina standard_lateral_raise lateral_raise estándar"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/technogym_selection_lateral_raise.jpg" 
-                   alt="Elevaciones Laterales en Máquina" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_selection_lateral_raise.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Deltoides
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
-            Estándar
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Elevaciones Laterales en Máquina
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>lateral_raise</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente · Acortamiento Deltoides</span>
-          <span class="text-slate-400 font-mono">20% / 35% / 45%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-standard_lateral_raise" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,26.666666666666664 Q 50,19.666666666666664 90,15"
-              fill="none"
-              stroke="url(#grad-standard_lateral_raise)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="26.666666666666664" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="15" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Brazo de palanca con leva diseñada para exigir máxima tensión en abducción a 90°.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
-          <span>circular_arc</span>
-          <span>standard_lateral_raise</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Estándar"
-      data-muscle="Deltoides"
-      data-search="press de hombro en máquina standard_shoulder_press shoulder_press_machine estándar"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/technogym_selection_shoulder_press.jpg" 
-                   alt="Press de Hombro en Máquina" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_selection_shoulder_press.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Deltoides
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
-            Estándar
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Press de Hombro en Máquina
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>shoulder_press_machine</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente · Bloqueo</span>
-          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-standard_shoulder_press" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
-              fill="none"
-              stroke="url(#grad-standard_shoulder_press)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Empuje vertical guiado con curva ligeramente ascendente hacia el bloqueo de codos.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
-          <span>linear_fixed</span>
-          <span>standard_shoulder_press</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Estándar"
-      data-muscle="Espalda"
+      data-muscle="Dorsales"
+      data-has-image="true"
       data-search="jalón al pecho en máquina standard_lat_pulldown lat_pulldown estándar"
     >
       <div>
@@ -1247,7 +1086,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda
+            Dorsales
           </span>
         </div>
 
@@ -1316,7 +1155,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
-      data-muscle="Espalda"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="remo sentado en máquina (apoyo al pecho) standard_seated_row row_machine estándar"
     >
       <div>
@@ -1332,7 +1172,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda
+            Espalda Alta
           </span>
         </div>
 
@@ -1402,6 +1242,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Gemelos"
+      data-has-image="true"
       data-search="gemelo de pie en máquina (placas / hombros) standard_standing_calf calf_raise estándar"
     >
       <div>
@@ -1487,6 +1328,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Gemelos"
+      data-has-image="true"
       data-search="gemelo sentado en máquina (sóleo a discos) standard_seated_calf calf_raise estándar"
     >
       <div>
@@ -1572,6 +1414,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="hip thrust en máquina (cinturón / almohadilla) standard_hip_thrust_machine hip_thrust estándar"
     >
       <div>
@@ -1657,6 +1500,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="máquina de abductores (abrir piernas) standard_abductor_machine abductor_machine estándar"
     >
       <div>
@@ -1741,7 +1585,180 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
-      data-muscle="Isquios"
+      data-muscle="Hombros"
+      data-has-image="true"
+      data-search="elevaciones laterales en máquina standard_lateral_raise lateral_raise estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img 
+                   src="../public/machines/technogym_selection_lateral_raise.jpg" 
+                   alt="Elevaciones Laterales en Máquina" 
+                   class="w-full h-full object-contain p-2" 
+                   loading="lazy" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_selection_lateral_raise.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Hombros
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Elevaciones Laterales en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>lateral_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Acortamiento Deltoides</span>
+          <span class="text-slate-400 font-mono">20% / 35% / 45%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_lateral_raise" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,26.666666666666664 Q 50,19.666666666666664 90,15"
+              fill="none"
+              stroke="url(#grad-standard_lateral_raise)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="26.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="15" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Brazo de palanca con leva diseñada para exigir máxima tensión en abducción a 90°.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_lateral_raise</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Hombros"
+      data-has-image="true"
+      data-search="press de hombro en máquina standard_shoulder_press shoulder_press_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img 
+                   src="../public/machines/technogym_selection_shoulder_press.jpg" 
+                   alt="Press de Hombro en Máquina" 
+                   class="w-full h-full object-contain p-2" 
+                   loading="lazy" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_selection_shoulder_press.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Hombros
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Press de Hombro en Máquina
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>shoulder_press_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Bloqueo</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_shoulder_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_shoulder_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Empuje vertical guiado con curva ligeramente ascendente hacia el bloqueo de codos.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>standard_shoulder_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="curl femoral sentado en máquina standard_seated_leg_curl seated_leg_curl estándar"
     >
       <div>
@@ -1757,7 +1774,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios
+            Isquiosurales
           </span>
         </div>
 
@@ -1826,7 +1843,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
-      data-muscle="Isquios"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="curl femoral tumbado en máquina standard_lying_leg_curl seated_leg_curl estándar"
     >
       <div>
@@ -1842,7 +1860,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios
+            Isquiosurales
           </span>
         </div>
 
@@ -1912,6 +1930,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="peck deck / aperturas en máquina standard_pec_deck pec_deck estándar"
     >
       <div>
@@ -1997,6 +2016,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="press inclinado en máquina standard_incline_press chest_press_machine estándar"
     >
       <div>
@@ -2082,6 +2102,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Estándar"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="press pecho en máquina (placas / discos) standard_chest_press chest_press_machine estándar"
     >
       <div>
@@ -2167,18 +2188,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Gym80"
       data-muscle="Gemelos"
+      data-has-image="false"
       data-search="gym80 - pure kraft seated calf raise a discos gym80_pure_kraft_seated_calf calf_raise gym80"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" 
-                   alt="Gym80 - Pure Kraft Seated Calf Raise a Discos" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/gym80_pure_kraft_seated_calf.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -2252,18 +2273,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Gym80"
       data-muscle="Trapecio"
+      data-has-image="false"
       data-search="gym80 - pure kraft shrug machine a discos (encogimientos) gym80_pure_kraft_shrug_machine shrugs gym80"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=800&q=80" 
-                   alt="Gym80 - Pure Kraft Shrug Machine a Discos (Encogimientos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/gym80_pure_kraft_shrug_machine.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -2337,6 +2358,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Bíceps"
+      data-has-image="true"
       data-search="hammer strength - plate-loaded seated biceps (banco scott discos) hammer_seated_biceps_curl biceps_curl hammer strength"
     >
       <div>
@@ -2422,6 +2444,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="hammer strength - 45° linear plate-loaded leg press (prensa 45° a discos) hammer_plate_loaded_leg_press_45 leg_press hammer strength"
     >
       <div>
@@ -2507,6 +2530,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral leg extension (discos) hammer_iso_leg_extension leg_extension hammer strength"
     >
       <div>
@@ -2592,6 +2616,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="hammer strength - linear hack squat (sentadilla hack a discos) hammer_linear_hack_squat squat hammer strength"
     >
       <div>
@@ -2677,6 +2702,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="hammer strength - plate-loaded v-squat (sentadilla v) hammer_plate_loaded_v_squat squat hammer strength"
     >
       <div>
@@ -2762,6 +2788,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Dorsales"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral front lat pulldown hammer_iso_front_lat_pulldown lat_pulldown hammer strength"
     >
       <div>
@@ -2847,6 +2874,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Dorsales"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral seated row (remo sentado a discos) hammer_plate_loaded_seated_row seated_row hammer strength"
     >
       <div>
@@ -2931,7 +2959,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="hammer strength - chest supported t-bar row (remo en t con apoyo) hammer_chest_supported_t_bar_row t_bar_row hammer strength"
     >
       <div>
@@ -2947,7 +2976,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -3016,7 +3045,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral dy row hammer_iso_dy_row seated_row hammer strength"
     >
       <div>
@@ -3032,7 +3062,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -3101,7 +3131,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral low row hammer_iso_low_row seated_row hammer strength"
     >
       <div>
@@ -3117,7 +3148,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -3186,92 +3217,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
-      data-muscle="Espalda Baja / Lumbares"
-      data-search="hammer strength select - back extension (extensión lumbar en torre) hammer_back_extension back_extension hammer strength"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/hammer_back_extension.png" 
-                   alt="Hammer Strength Select - Back Extension (Extensión Lumbar en Torre)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_back_extension.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Baja / Lumbares
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
-            Hammer Strength
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Hammer Strength Select</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Hammer Strength Select - Back Extension (Extensión Lumbar en Torre)
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>back_extension</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-hammer_back_extension" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
-              fill="none"
-              stroke="url(#grad-hammer_back_extension)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>plate_loaded</span>
-          <span>linear_fixed</span>
-          <span>hammer_back_extension</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Hammer Strength"
       data-muscle="Gemelos"
+      data-has-image="true"
       data-search="hammer strength - plate-loaded seated calf (gemelos sentado a discos) hammer_seated_calf_raise calf_raise hammer strength"
     >
       <div>
@@ -3357,6 +3304,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Gemelos"
+      data-has-image="true"
       data-search="hammer strength - standing calf raise (gemelos de pie a discos) hammer_standing_calf_raise calf_raise hammer strength"
     >
       <div>
@@ -3442,6 +3390,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Gemelos"
+      data-has-image="true"
       data-search="hammer strength - super horizontal calf (pl-shc a discos) hammer_super_horizontal_calf calf_raise hammer strength"
     >
       <div>
@@ -3527,18 +3476,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Gemelos"
+      data-has-image="false"
       data-search="hammer strength - tibia dorsi flexion a discos hammer_tibia_dorsi_flexion calf_raise hammer strength"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" 
-                   alt="Hammer Strength - Tibia Dorsi Flexion a Discos" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/hammer_tibia_dorsi_flexion.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -3612,6 +3561,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="hammer strength - glute drive (hip thrust de discos) hammer_glute_drive hip_thrust hammer strength"
     >
       <div>
@@ -3696,7 +3646,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
-      data-muscle="Isquios / Femoral"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="hammer strength - kneeling leg curl (femoral tumbado / unilateral) hammer_kneeling_leg_curl seated_leg_curl hammer strength"
     >
       <div>
@@ -3712,7 +3663,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios / Femoral
+            Isquiosurales
           </span>
         </div>
 
@@ -3781,23 +3732,24 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
-      data-muscle="Pectoral"
-      data-search="hammer strength - iso-lateral bench press hammer_iso_wide_chest chest_press_machine hammer strength"
+      data-muscle="Lumbares"
+      data-has-image="true"
+      data-search="hammer strength select - back extension (extensión lumbar en torre) hammer_back_extension back_extension hammer strength"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
           <img 
-                   src="../public/machines/hammer_iso_wide_chest.png" 
-                   alt="Hammer Strength - Iso-Lateral Bench Press" 
+                   src="../public/machines/hammer_back_extension.png" 
+                   alt="Hammer Strength Select - Back Extension (Extensión Lumbar en Torre)" 
                    class="w-full h-full object-contain p-2" 
                    loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_iso_wide_chest.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_back_extension.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
                  />
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Pectoral
+            Lumbares
           </span>
         </div>
 
@@ -3806,60 +3758,60 @@
           <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
             Hammer Strength
           </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Plate Loaded Iso-Lateral</span>
+          <span class="text-[11px] text-slate-400 font-medium">· Hammer Strength Select</span>
         </div>
 
         <!-- Model Name -->
         <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Hammer Strength - Iso-Lateral Bench Press
+          Hammer Strength Select - Back Extension (Extensión Lumbar en Torre)
         </h3>
 
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>chest_press_machine</code>
+          <code>back_extension</code>
         </div>
       </div>
 
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
-          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
         </div>
 
         <!-- Mini SVG Curve -->
         <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
           <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
             <defs>
-              <linearGradient id="grad-hammer_iso_wide_chest" x1="0%" y1="0%" x2="100%" y2="0%">
+              <linearGradient id="grad-hammer_back_extension" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stop-color="#06b6d4" />
                 <stop offset="50%" stop-color="#3b82f6" />
                 <stop offset="100%" stop-color="#8b5cf6" />
               </linearGradient>
             </defs>
             <path
-              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
               fill="none"
-              stroke="url(#grad-hammer_iso_wide_chest)"
+              stroke="url(#grad-hammer_back_extension)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
         </p>
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>plate_loaded</span>
-          <span>convergent</span>
-          <span>hammer_iso_wide_chest</span>
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>hammer_back_extension</span>
         </div>
       </div>
     </article>
@@ -3867,6 +3819,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral decline press hammer_iso_decline_press chest_press_machine hammer strength"
     >
       <div>
@@ -3952,176 +3905,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Pectoral"
-      data-search="hammer strength - iso-lateral decline press a discos hammer_iso_decline_press_plate chest_press_machine hammer strength"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/hammer_iso_decline_press.png" 
-                   alt="Hammer Strength - Iso-Lateral Decline Press a Discos" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_iso_decline_press.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Pectoral
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
-            Hammer Strength
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Plate-Loaded Iso-Lateral</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Hammer Strength - Iso-Lateral Decline Press a Discos
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>chest_press_machine</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
-          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-hammer_iso_decline_press_plate" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
-              fill="none"
-              stroke="url(#grad-hammer_iso_decline_press_plate)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>plate_loaded</span>
-          <span>convergent</span>
-          <span>hammer_iso_decline_press_plate</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Hammer Strength"
-      data-muscle="Pectoral"
-      data-search="hammer strength - iso-lateral horizontal bench press a discos hammer_iso_bench_press_plate chest_press_machine hammer strength"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/hammer_iso_wide_chest.png" 
-                   alt="Hammer Strength - Iso-Lateral Horizontal Bench Press a Discos" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_iso_wide_chest.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Pectoral
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
-            Hammer Strength
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Plate-Loaded Iso-Lateral</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Hammer Strength - Iso-Lateral Horizontal Bench Press a Discos
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>chest_press_machine</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
-          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-hammer_iso_bench_press_plate" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
-              fill="none"
-              stroke="url(#grad-hammer_iso_bench_press_plate)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>plate_loaded</span>
-          <span>convergent</span>
-          <span>hammer_iso_bench_press_plate</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Hammer Strength"
-      data-muscle="Pectoral"
+      data-has-image="true"
       data-search="hammer strength - iso-lateral incline press hammer_iso_incline_press incline_press hammer strength"
     >
       <div>
@@ -4207,17 +3991,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Pectoral"
-      data-search="hammer strength - iso-lateral incline press (press inclinado palancas) hammer_iso_incline_chest_press chest_press_machine hammer strength"
+      data-has-image="true"
+      data-search="iso-lateral horizontal bench press hammer_iso_wide_chest chest_press_machine hammer strength"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
           <img 
-                   src="../public/machines/hammer_iso_incline_press.png" 
-                   alt="Hammer Strength - Iso-Lateral Incline Press (Press Inclinado Palancas)" 
+                   src="../public/machines/hammer_iso_wide_chest.png" 
+                   alt="Iso-Lateral Horizontal Bench Press" 
                    class="w-full h-full object-contain p-2" 
                    loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_iso_incline_press.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/hammer_iso_wide_chest.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
                  />
 
           <!-- Muscle Badge -->
@@ -4231,12 +4016,12 @@
           <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-red-500/15 text-red-300 border-red-500/30">
             Hammer Strength
           </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Plate-Loaded Iso-Lateral</span>
+          <span class="text-[11px] text-slate-400 font-medium">· Plate Loaded Iso-Lateral</span>
         </div>
 
         <!-- Model Name -->
         <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Hammer Strength - Iso-Lateral Incline Press (Press Inclinado Palancas)
+          Iso-Lateral Horizontal Bench Press
         </h3>
 
         <!-- Canonical Exercise ID -->
@@ -4257,7 +4042,7 @@
         <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
           <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
             <defs>
-              <linearGradient id="grad-hammer_iso_incline_chest_press" x1="0%" y1="0%" x2="100%" y2="0%">
+              <linearGradient id="grad-hammer_iso_wide_chest" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stop-color="#06b6d4" />
                 <stop offset="50%" stop-color="#3b82f6" />
                 <stop offset="100%" stop-color="#8b5cf6" />
@@ -4266,7 +4051,7 @@
             <path
               d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
               fill="none"
-              stroke="url(#grad-hammer_iso_incline_chest_press)"
+              stroke="url(#grad-hammer_iso_wide_chest)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
@@ -4284,7 +4069,7 @@
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
           <span>plate_loaded</span>
           <span>convergent</span>
-          <span>hammer_iso_incline_chest_press</span>
+          <span>hammer_iso_wide_chest</span>
         </div>
       </div>
     </article>
@@ -4292,6 +4077,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Tríceps"
+      data-has-image="true"
       data-search="hammer strength - seated dip (fondos tríceps en palanca) hammer_seated_dip_triceps triceps_extension hammer strength"
     >
       <div>
@@ -4377,6 +4163,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Life Fitness"
       data-muscle="Cardio"
+      data-has-image="true"
       data-search="bicicleta estática / spinning cardio_stationary_bike cardio life fitness"
     >
       <div>
@@ -4462,7 +4249,8 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Life Fitness"
       data-muscle="Cardio"
-      data-search="cinta inclinada (incline treadmill walk) cardio_incline_treadmill incline_press life fitness"
+      data-has-image="true"
+      data-search="cinta inclinada (incline treadmill walk) cardio_incline_treadmill cardio life fitness"
     >
       <div>
         <!-- Top Media Container -->
@@ -4497,15 +4285,15 @@
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>incline_press</code>
+          <code>cardio</code>
         </div>
       </div>
 
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
-          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+          <span class="font-bold text-cyan-300">Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -4519,26 +4307,26 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
               fill="none"
               stroke="url(#grad-cardio_incline_treadmill)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
+          Cinta de correr con inclinación: resistencia continua y uniforme.
         </p>
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
           <span>selectorized_stack</span>
-          <span>convergent</span>
+          <span>linear_fixed</span>
           <span>cardio_incline_treadmill</span>
         </div>
       </div>
@@ -4546,7 +4334,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Life Fitness"
-      data-muscle="Espalda Baja / Lumbares"
+      data-muscle="Lumbares"
+      data-has-image="true"
       data-search="life fitness signature - back extension (espalda baja / lumbares) lifefitness_back_extension back_extension life fitness"
     >
       <div>
@@ -4562,7 +4351,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Baja / Lumbares
+            Lumbares
           </span>
         </div>
 
@@ -4632,6 +4421,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Life Fitness"
       data-muscle="Tríceps"
+      data-has-image="true"
       data-search="life fitness insignia - seated triceps extension lifefitness_insignia_triceps_extension triceps_extension life fitness"
     >
       <div>
@@ -4717,18 +4507,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Abdomen"
+      data-has-image="false"
       data-search="matrix ultra - rotary torso (rotación de torso y oblicuos) matrix_ultra_rotary_torso abdominal_crunch matrix"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" 
-                   alt="Matrix Ultra - Rotary Torso (Rotación de Torso y Oblicuos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/matrix_ultra_rotary_torso.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -4802,18 +4592,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Bíceps"
+      data-has-image="false"
       data-search="matrix ultra - arm biceps curl (palanca guiada independiente) matrix_ultra_arm_curl biceps_curl matrix"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80" 
-                   alt="Matrix Ultra - Arm Biceps Curl (Palanca Guiada Independiente)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/matrix_ultra_arm_curl.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -4887,6 +4677,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="matrix ultra - leg extension matrix_ultra_leg_extension leg_extension matrix"
     >
       <div>
@@ -4972,6 +4763,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Dorsales"
+      data-has-image="true"
       data-search="matrix ultra - diverging lat pulldown matrix_ultra_diverging_lat_pulldown lat_pulldown matrix"
     >
       <div>
@@ -5056,7 +4848,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="matrix ultra - diverging seated row matrix_ultra_seated_row seated_row matrix"
     >
       <div>
@@ -5072,7 +4865,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -5142,7 +4935,8 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Gemelos"
-      data-search="matrix versa - calf extension (gemelos en prensa de placas) matrix_versa_calf_extension leg_press matrix"
+      data-has-image="true"
+      data-search="matrix versa - calf extension (gemelos en prensa de placas) matrix_versa_calf_extension calf_raise matrix"
     >
       <div>
         <!-- Top Media Container -->
@@ -5177,7 +4971,7 @@
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>leg_press</code>
+          <code>calf_raise</code>
         </div>
       </div>
 
@@ -5227,18 +5021,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Glúteo"
+      data-has-image="false"
       data-search="matrix ultra - standing glute & abductor matrix_ultra_standing_glute_kick glute_kickback matrix"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/technogym_pure_standing_glute.png" 
-                   alt="Matrix Ultra - Standing Glute & Abductor" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_pure_standing_glute.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/matrix_ultra_standing_glute_kick.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -5312,6 +5106,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Hombros"
+      data-has-image="true"
       data-search="matrix ultra - lateral raise (deltoides lateral guiado en torre) matrix_ultra_lateral_raise lateral_raise matrix"
     >
       <div>
@@ -5397,7 +5192,8 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Matrix"
       data-muscle="Pectoral"
-      data-search="matrix ultra - converging chest press matrix_ultra_converging_chest machine_exercise matrix"
+      data-has-image="true"
+      data-search="matrix ultra - converging chest press matrix_ultra_converging_chest chest_press_machine matrix"
     >
       <div>
         <!-- Top Media Container -->
@@ -5432,15 +5228,15 @@
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>machine_exercise</code>
+          <code>chest_press_machine</code>
         </div>
       </div>
 
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Pico en Acortamiento · Ascendente</span>
-          <span class="text-slate-400 font-mono">15% / 35% / 50%</span>
+          <span class="font-bold text-cyan-300">Ascendente suavizado · Convergente</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -5454,26 +5250,26 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,29 Q 50,19.666666666666664 90,12.666666666666664"
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
               fill="none"
               stroke="url(#grad-matrix_ultra_converging_chest)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
             <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="12.666666666666664" r="3" fill="#8b5cf6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.
+          La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.
         </p>
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
           <span>selectorized_stack</span>
-          <span>linear_fixed</span>
+          <span>convergent</span>
           <span>matrix_ultra_converging_chest</span>
         </div>
       </div>
@@ -5482,18 +5278,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Nautilus"
       data-muscle="Cuádriceps"
+      data-has-image="false"
       data-search="leg extension (leva excéntrica) nautilus_leg_extension leg_extension nautilus"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/matrix_leg_extension.jpg" 
-                   alt="Leg Extension (Leva Excéntrica)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/matrix_leg_extension.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/nautilus_leg_extension.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -5567,18 +5363,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Nautilus"
       data-muscle="Pectoral"
+      data-has-image="false"
       data-search="nitro chest press nautilus_nitro_chest_press chest_press_machine nautilus"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/matrix_chest_press.jpg" 
-                   alt="Nitro Chest Press" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/matrix_chest_press.jpg';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/nautilus_nitro_chest_press.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -5652,18 +5448,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Bíceps"
+      data-has-image="false"
       data-search="panatta super scott - preacher biceps curl (banco scott a discos) panatta_super_preacher_curl biceps_curl panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Super Scott - Preacher Biceps Curl (Banco Scott a Discos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_super_preacher_curl.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -5737,6 +5533,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="panatta - super hack squat 45° panatta_super_hack_squat squat panatta"
     >
       <div>
@@ -5812,7 +5609,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>linear_fixed</span>
           <span>panatta_super_hack_squat</span>
         </div>
@@ -5822,6 +5619,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="panatta - super leg press bridge 45° panatta_super_leg_press_bridge leg_press panatta"
     >
       <div>
@@ -5897,7 +5695,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>linear_fixed</span>
           <span>panatta_super_leg_press_bridge</span>
         </div>
@@ -5907,18 +5705,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Cuádriceps"
+      data-has-image="false"
       data-search="panatta freeweight - belt squat a discos (sentadilla con cinturón) panatta_super_belt_squat squat panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - Belt Squat a Discos (Sentadilla con Cinturón)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_super_belt_squat.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -5992,18 +5790,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Cuádriceps"
+      data-has-image="false"
       data-search="panatta super freeweight - pendulum squat (sentadilla péndulo) panatta_super_pendulum_squat squat panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Super Freeweight - Pendulum Squat (Sentadilla Péndulo)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_super_pendulum_squat.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -6067,7 +5865,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>linear_fixed</span>
           <span>panatta_super_pendulum_squat</span>
         </div>
@@ -6077,18 +5875,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Dorsales"
+      data-has-image="false"
       data-search="panatta freeweight - super pullover a discos panatta_super_pullover_machine lat_pulldown panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1540497077202-7c8a3999166f?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - Super Pullover a Discos" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1540497077202-7c8a3999166f?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_super_pullover_machine.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -6162,18 +5960,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Dorsales"
+      data-has-image="false"
       data-search="panatta freeweight - super rowing a discos (remo sentado convergente) panatta_super_rowing_plate seated_row panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - Super Rowing a Discos (Remo Sentado Convergente)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_super_rowing_plate.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -6246,7 +6044,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="panatta - super high row panatta_super_high_row seated_row panatta"
     >
       <div>
@@ -6262,7 +6061,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -6322,7 +6121,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>divergent</span>
           <span>panatta_super_high_row</span>
         </div>
@@ -6331,23 +6130,23 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="false"
       data-search="panatta freeweight - super t-bar row pectoral support panatta_super_t_bar_row t_bar_row panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - Super T-Bar Row Pectoral Support" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_super_t_bar_row.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -6407,7 +6206,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>linear_fixed</span>
           <span>panatta_super_t_bar_row</span>
         </div>
@@ -6416,104 +6215,19 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
-      data-muscle="Espalda Baja / Lumbares"
-      data-search="panatta freeweight - 45° hyperextension / roman chair (banco lumbar y glúteo) panatta_45_hyperextension_bench back_extension panatta"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - 45° Hyperextension / Roman Chair (Banco Lumbar y Glúteo)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Baja / Lumbares
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
-            Panatta
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Freeweight Pro</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Panatta Freeweight - 45° Hyperextension / Roman Chair (Banco Lumbar y Glúteo)
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>back_extension</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-panatta_45_hyperextension_bench" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
-              fill="none"
-              stroke="url(#grad-panatta_45_hyperextension_bench)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
-          <span>linear_fixed</span>
-          <span>panatta_45_hyperextension_bench</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Panatta"
       data-muscle="Glúteo"
+      data-has-image="false"
       data-search="panatta freeweight - circular glute kickback (patada de glúteo a discos) panatta_circular_glute_kickback glute_kickback panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - Circular Glute Kickback (Patada de Glúteo a Discos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_circular_glute_kickback.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -6587,18 +6301,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Glúteo"
+      data-has-image="false"
       data-search="panatta monolith - standing abductor (abducción de glúteo de pie) panatta_monolith_standing_abductor abductor_machine panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Monolith - Standing Abductor (Abducción de Glúteo de Pie)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_monolith_standing_abductor.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -6672,6 +6386,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Hombros"
+      data-has-image="true"
       data-search="panatta - viking press & standing calf (hombros & gemelos) panatta_viking_press_calf shoulder_press_machine panatta"
     >
       <div>
@@ -6747,7 +6462,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>convergent</span>
           <span>panatta_viking_press_calf</span>
         </div>
@@ -6756,23 +6471,23 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
-      data-muscle="Isquios / Femoral"
+      data-muscle="Isquiosurales"
+      data-has-image="false"
       data-search="panatta freeweight - lying leg curl (femoral tumbado a discos) panatta_freeweight_lying_leg_curl seated_leg_curl panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1594737625785-a6cbdabd333c?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Freeweight - Lying Leg Curl (Femoral Tumbado a Discos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1594737625785-a6cbdabd333c?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_freeweight_lying_leg_curl.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios / Femoral
+            Isquiosurales
           </span>
         </div>
 
@@ -6841,23 +6556,23 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
-      data-muscle="Isquios / Femoral"
+      data-muscle="Isquiosurales"
+      data-has-image="false"
       data-search="panatta monolith - standing leg curl unilateral panatta_standing_unilateral_leg_curl seated_leg_curl panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1594737625785-a6cbdabd333c?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Monolith - Standing Leg Curl Unilateral" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1594737625785-a6cbdabd333c?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_standing_unilateral_leg_curl.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios / Femoral
+            Isquiosurales
           </span>
         </div>
 
@@ -6926,7 +6641,93 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
+      data-muscle="Lumbares"
+      data-has-image="false"
+      data-search="panatta freeweight - 45° hyperextension / roman chair (banco lumbar y glúteo) panatta_45_hyperextension_bench back_extension panatta"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_45_hyperextension_bench.png
+                  </span>
+                </div>
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Lumbares
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
+            Panatta
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Freeweight Pro</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Panatta Freeweight - 45° Hyperextension / Roman Chair (Banco Lumbar y Glúteo)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>back_extension</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-panatta_45_hyperextension_bench" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              fill="none"
+              stroke="url(#grad-panatta_45_hyperextension_bench)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>panatta_45_hyperextension_bench</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Panatta"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="panatta - free weight incline chest press panatta_incline_chest incline_press panatta"
     >
       <div>
@@ -7002,7 +6803,7 @@
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>plate_loaded</span>
           <span>convergent</span>
           <span>panatta_incline_chest</span>
         </div>
@@ -7012,18 +6813,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
       data-muscle="Tríceps"
+      data-has-image="false"
       data-search="panatta monolith - seated triceps dip (fondos guiados convergentes) panatta_monolith_triceps_dip triceps_extension panatta"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" 
-                   alt="Panatta Monolith - Seated Triceps Dip (Fondos Guiados Convergentes)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_monolith_triceps_dip.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -7097,6 +6898,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Abdomen"
+      data-has-image="true"
       data-search="technogym selection - total abdominal crunch technogym_selection_abdominal_crunch abdominal_crunch technogym"
     >
       <div>
@@ -7182,6 +6984,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Abductores"
+      data-has-image="true"
       data-search="technogym pure strength - standing abductor (abductor de pie a discos) technogym_pure_standing_abductor abductor_machine technogym"
     >
       <div>
@@ -7267,6 +7070,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Abductores"
+      data-has-image="true"
       data-search="technogym selection - abductor (abductores / abrir piernas / glúteo medio) technogym_selection_abductor abductor_machine technogym"
     >
       <div>
@@ -7352,6 +7156,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Aductores"
+      data-has-image="true"
       data-search="technogym selection - adductor (aductores / cerrar piernas) technogym_selection_adductor adductor_machine technogym"
     >
       <div>
@@ -7437,6 +7242,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Bíceps"
+      data-has-image="true"
       data-search="technogym pure strength - biceps curl a discos technogym_pure_biceps_curl biceps_curl technogym"
     >
       <div>
@@ -7522,6 +7328,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Bíceps"
+      data-has-image="true"
       data-search="technogym selection 900 - arm curl (predicador bíceps) technogym_selection_arm_curl biceps_curl technogym"
     >
       <div>
@@ -7607,6 +7414,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="technogym pure strength - belt squat (sentadilla con cinturón a discos) technogym_pure_belt_squat squat technogym"
     >
       <div>
@@ -7692,6 +7500,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="technogym pure strength - hack squat technogym_pure_hack_squat squat technogym"
     >
       <div>
@@ -7777,6 +7586,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="technogym pure strength - prensa de piernas a discos 45° (pure leg press) technogym_pure_leg_press leg_press technogym"
     >
       <div>
@@ -7862,6 +7672,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="technogym selection - leg extension technogym_selection_leg_extension leg_extension technogym"
     >
       <div>
@@ -7947,6 +7758,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Cuádriceps"
+      data-has-image="true"
       data-search="technogym selection 900 - leg press (prensa horizontal de placas) technogym_selection_leg_press leg_press technogym"
     >
       <div>
@@ -8032,6 +7844,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Dorsales"
+      data-has-image="true"
       data-search="technogym pure strength - pulldown technogym_pure_pulldown lat_pulldown technogym"
     >
       <div>
@@ -8117,6 +7930,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Dorsales"
+      data-has-image="true"
       data-search="technogym selection - lat machine technogym_selection_lat_machine lat_pulldown technogym"
     >
       <div>
@@ -8202,6 +8016,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Dorsales"
+      data-has-image="true"
       data-search="technogym selection 900 - seated cable row (polea baja de remo) technogym_selection_pulley seated_row technogym"
     >
       <div>
@@ -8286,7 +8101,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="technogym pure strength - low row technogym_pure_low_row seated_row technogym"
     >
       <div>
@@ -8302,7 +8118,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -8371,7 +8187,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="technogym pure strength - row (remo dorian / remo horizontal a discos) technogym_pure_row_dorian seated_row technogym"
     >
       <div>
@@ -8387,7 +8204,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -8456,7 +8273,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="technogym pure strength - t-bar row (remo en t a discos) technogym_pure_t_bar_row t_bar_row technogym"
     >
       <div>
@@ -8472,7 +8290,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -8541,7 +8359,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="technogym selection 900 - low row (remo bajo en torre de placas) technogym_selection_low_row seated_row technogym"
     >
       <div>
@@ -8557,7 +8376,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -8626,7 +8445,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Espalda Alta / Media"
+      data-muscle="Espalda Alta"
+      data-has-image="true"
       data-search="technogym selection 900 - seated wide row (remo sentado abierto de placas) technogym_selection_wide_row seated_row technogym"
     >
       <div>
@@ -8642,7 +8462,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Alta / Media
+            Espalda Alta
           </span>
         </div>
 
@@ -8711,177 +8531,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Espalda Baja / Lumbares"
-      data-search="technogym pure strength - deadlift (peso muerto a discos) technogym_pure_deadlift deadlift technogym"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/technogym_pure_deadlift.png" 
-                   alt="Technogym Pure Strength - Deadlift (Peso Muerto a Discos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_pure_deadlift.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Baja / Lumbares
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
-            Technogym
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Technogym Pure Strength - Deadlift (Peso Muerto a Discos)
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>deadlift</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-technogym_pure_deadlift" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
-              fill="none"
-              stroke="url(#grad-technogym_pure_deadlift)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>plate_loaded</span>
-          <span>linear_fixed</span>
-          <span>technogym_pure_deadlift</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Technogym"
-      data-muscle="Espalda Baja / Lumbares"
-      data-search="technogym selection - lower back (extensión lumbar en torre) technogym_selection_lower_back back_extension technogym"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/technogym_selection_lower_back.png" 
-                   alt="Technogym Selection - Lower Back (Extensión Lumbar en Torre)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_selection_lower_back.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Espalda Baja / Lumbares
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
-            Technogym
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Selection 900</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Technogym Selection - Lower Back (Extensión Lumbar en Torre)
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>back_extension</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-technogym_selection_lower_back" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
-              fill="none"
-              stroke="url(#grad-technogym_selection_lower_back)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
-          <span>linear_fixed</span>
-          <span>technogym_selection_lower_back</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Technogym"
       data-muscle="Gemelos"
+      data-has-image="true"
       data-search="technogym selection - standing calf (gemelos en torre) technogym_selection_standing_calf calf_raise technogym"
     >
       <div>
@@ -8967,6 +8618,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="technogym pure strength - hip thrust technogym_pure_hip_thrust hip_thrust technogym"
     >
       <div>
@@ -9052,6 +8704,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="technogym pure strength - standing glute kickback technogym_pure_standing_glute glute_kickback technogym"
     >
       <div>
@@ -9137,6 +8790,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="technogym selection 900 - multi hip (glúteo, aductores y abductores de placas) technogym_selection_multi_hip abductor_machine technogym"
     >
       <div>
@@ -9222,6 +8876,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Glúteo"
+      data-has-image="true"
       data-search="technogym selection 900 / biostrength - hip thrust (empuje de cadera / glúteo de placas) technogym_selection_hip_thrust hip_thrust technogym"
     >
       <div>
@@ -9307,6 +8962,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Hombros"
+      data-has-image="true"
       data-search="technogym pure strength - lateral raise (elevaciones laterales en máquina) technogym_pure_lateral_raise lateral_raise technogym"
     >
       <div>
@@ -9392,6 +9048,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Hombros"
+      data-has-image="true"
       data-search="technogym pure strength - shoulder press technogym_pure_shoulder_press shoulder_press_machine technogym"
     >
       <div>
@@ -9477,6 +9134,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Hombros"
+      data-has-image="true"
       data-search="technogym selection - shoulder press (press militar en torre) technogym_selection_shoulder_press shoulder_press_machine technogym"
     >
       <div>
@@ -9561,7 +9219,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Isquios / Femoral"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="technogym pure strength - standing leg curl (femoral de pie a discos) technogym_pure_standing_leg_curl seated_leg_curl technogym"
     >
       <div>
@@ -9577,7 +9236,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios / Femoral
+            Isquiosurales
           </span>
         </div>
 
@@ -9646,7 +9305,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Isquios / Femoral"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="technogym selection - prone leg curl (femoral tumbado) technogym_selection_prone_leg_curl seated_leg_curl technogym"
     >
       <div>
@@ -9662,7 +9322,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios / Femoral
+            Isquiosurales
           </span>
         </div>
 
@@ -9731,7 +9391,8 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
-      data-muscle="Isquios / Femoral"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="technogym selection - seated leg curl technogym_selection_leg_curl seated_leg_curl technogym"
     >
       <div>
@@ -9747,7 +9408,7 @@
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Isquios / Femoral
+            Isquiosurales
           </span>
         </div>
 
@@ -9816,7 +9477,180 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
+      data-muscle="Lumbares"
+      data-has-image="true"
+      data-search="technogym pure strength - deadlift (peso muerto a discos) technogym_pure_deadlift deadlift technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img 
+                   src="../public/machines/technogym_pure_deadlift.png" 
+                   alt="Technogym Pure Strength - Deadlift (Peso Muerto a Discos)" 
+                   class="w-full h-full object-contain p-2" 
+                   loading="lazy" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_pure_deadlift.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Lumbares
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Pure Strength</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Technogym Pure Strength - Deadlift (Peso Muerto a Discos)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>deadlift</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_pure_deadlift" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              fill="none"
+              stroke="url(#grad-technogym_pure_deadlift)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>linear_fixed</span>
+          <span>technogym_pure_deadlift</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
+      data-muscle="Lumbares"
+      data-has-image="true"
+      data-search="technogym selection - lower back (extensión lumbar en torre) technogym_selection_lower_back back_extension technogym"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img 
+                   src="../public/machines/technogym_selection_lower_back.png" 
+                   alt="Technogym Selection - Lower Back (Extensión Lumbar en Torre)" 
+                   class="w-full h-full object-contain p-2" 
+                   loading="lazy" 
+                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='/machines/technogym_selection_lower_back.png';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Lumbares
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Technogym
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Selection 900</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Technogym Selection - Lower Back (Extensión Lumbar en Torre)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>back_extension</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-technogym_selection_lower_back" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              fill="none"
+              stroke="url(#grad-technogym_selection_lower_back)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>technogym_selection_lower_back</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Technogym"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="technogym - dual adjustable pulley (dap / polea doble) technogym_cable_crossover_dap cable_crossover technogym"
     >
       <div>
@@ -9902,6 +9736,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="technogym pure strength - chest press technogym_pure_chest_press chest_press_machine technogym"
     >
       <div>
@@ -9987,6 +9822,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="technogym pure strength - incline chest press technogym_pure_incline_chest incline_press technogym"
     >
       <div>
@@ -10072,6 +9908,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="technogym pure strength - wide chest press technogym_pure_wide_chest chest_press_machine technogym"
     >
       <div>
@@ -10157,6 +9994,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="technogym selection - pectoral & reverse fly (pec deck & pájaros) technogym_selection_pec_deck_reverse_fly pec_deck technogym"
     >
       <div>
@@ -10242,6 +10080,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Pectoral"
+      data-has-image="true"
       data-search="technogym selection 900 - chest press (press de pecho de placas) technogym_selection_chest_press chest_press_machine technogym"
     >
       <div>
@@ -10327,6 +10166,7 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Technogym"
       data-muscle="Tríceps"
+      data-has-image="true"
       data-search="technogym selection 900 - seated triceps press (tríceps sentado de placas / seated dip) technogym_selection_seated_dip triceps_extension technogym"
     >
       <div>
@@ -10418,6 +10258,18 @@
     let activeBrand = 'all';
     let activeMuscle = 'all';
     let searchQuery = '';
+    let missingOnly = false;
+
+    function toggleMissingOnly() {
+      missingOnly = !missingOnly;
+      const btn = document.getElementById('filter-missing-only-btn');
+      if (missingOnly) {
+        btn.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 text-white border border-rose-500 shadow-sm transition whitespace-nowrap';
+      } else {
+        btn.className = 'px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-rose-300 border border-rose-500/30 hover:bg-rose-950/40 transition whitespace-nowrap';
+      }
+      filterCards();
+    }
 
     const cards = document.querySelectorAll('.machine-card');
     const searchInput = document.getElementById('search-input');
@@ -10455,6 +10307,11 @@
       activeBrand = 'all';
       activeMuscle = 'all';
       searchQuery = '';
+      missingOnly = false;
+      const btn = document.getElementById('filter-missing-only-btn');
+      if (btn) {
+        btn.className = 'px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-rose-300 border border-rose-500/30 hover:bg-rose-950/40 transition whitespace-nowrap';
+      }
       searchInput.value = '';
       setBrandFilter('all');
       setMuscleFilter('all');
@@ -10470,8 +10327,10 @@
         const matchBrand = activeBrand === 'all' || brand === activeBrand;
         const matchMuscle = activeMuscle === 'all' || muscle === activeMuscle;
         const matchSearch = !searchQuery || search.includes(searchQuery);
+        const hasImg = card.getAttribute('data-has-image') === 'true';
+        const matchMissing = !missingOnly || !hasImg;
 
-        if (matchBrand && matchMuscle && matchSearch) {
+        if (matchBrand && matchMuscle && matchSearch && matchMissing) {
           card.style.display = 'flex';
           visibleCount++;
         } else {
