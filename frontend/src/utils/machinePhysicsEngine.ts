@@ -494,7 +494,10 @@ export type MachinePathType =
   | 'diverging_arc'
   | 'circular_arc'
   | 'linear_fixed'
-  | 'free_cable';
+  | 'free_cable'
+  | 'convergent'
+  | 'divergent'
+  | 'linear';
 
 export type PeakResistanceZone = 'stretched' | 'mid' | 'shortened' | 'uniform';
 
@@ -509,12 +512,14 @@ export interface MachineResistanceProfile {
     mid: number;
     shortened: number;
   };
+  curveLabel?: string;
   machineBrandGuess?: string;
   machineModelGuess?: string;
 }
 
 /**
- * Pure function classifying resistance profile from fundamental lever physics.
+ * Pure function classifying resistance profile from fundamental lever physics,
+ * incorporating mathematical trajectory modulation (convergent / divergent).
  */
 export function classifyMachineResistanceProfile(input: {
   loadType: MachineLoadType;
@@ -523,7 +528,7 @@ export function classifyMachineResistanceProfile(input: {
   machineBrandGuess?: string;
   machineModelGuess?: string;
 }): MachineResistanceProfile {
-  const { loadType, pivotBehavior, pathType = 'converging_arc', machineBrandGuess, machineModelGuess } = input;
+  const { loadType, pivotBehavior, pathType = 'linear_fixed', machineBrandGuess, machineModelGuess } = input;
 
   let peakZone: PeakResistanceZone = 'uniform';
   let description = '';
@@ -563,6 +568,77 @@ export function classifyMachineResistanceProfile(input: {
       break;
   }
 
+  // Trajectory Modulation: Converging vs Diverging vs Linear
+  const isConvergent = pathType === 'convergent' || pathType === 'converging_arc';
+  const isDivergent = pathType === 'divergent' || pathType === 'diverging_arc';
+
+  let curveLabel = '';
+
+  if (isConvergent) {
+    weights.stretch = Math.max(0.10, weights.stretch + 0.10);
+    weights.mid = Math.max(0.10, weights.mid + 0.03);
+    weights.shortened = Math.max(0.10, weights.shortened - 0.13);
+
+    if (pivotBehavior === 'opens_to_horizontal_gain') {
+      curveLabel = 'Ascendente suavizado (Convergente)';
+      description =
+        'La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva.';
+      peakZone = 'shortened';
+    } else if (pivotBehavior === 'approaches_vertical_loss') {
+      curveLabel = 'Descendente acentuado (Convergente)';
+      description =
+        'El brazo de palanca se aproxima a la vertical decreciendo en la concéntrica y la trayectoria convergente concentra el pico de tensión en estiramiento.';
+      peakZone = 'stretched';
+    } else if (pivotBehavior === 'eccentric_cam_drop') {
+      curveLabel = 'Pico en Punto Medio / Estiramiento (Convergente)';
+      description =
+        'Leva con perfil en campana modulada por trayectoria convergente que refuerza la elongación inicial.';
+      peakZone = 'mid';
+    } else {
+      curveLabel = 'Perfil Uniforme (Convergente)';
+      description =
+        'Transmisión constante modulada por trayectoria convergente que mantiene tensión homogénea con ligero énfasis en estiramiento.';
+      peakZone = 'uniform';
+    }
+  } else if (isDivergent) {
+    weights.stretch = Math.max(0.10, weights.stretch - 0.06);
+    weights.mid = Math.max(0.10, weights.mid + 0.03);
+    weights.shortened = Math.max(0.10, weights.shortened + 0.03);
+
+    if (pivotBehavior === 'approaches_vertical_loss') {
+      curveLabel = 'Descendente suavizado (Divergente)';
+      description =
+        'La palanca aligera el final del recorrido, pero la divergencia del agarre mantiene tensión en la zona media y de contracción.';
+      peakZone = 'stretched';
+    } else if (pivotBehavior === 'opens_to_horizontal_gain') {
+      curveLabel = 'Ascendente reforzado en acortamiento (Divergente)';
+      description =
+        'La palanca y la apertura divergente maximizan la carga en la contracción final.';
+      peakZone = 'shortened';
+    } else if (pivotBehavior === 'eccentric_cam_drop') {
+      curveLabel = 'Pico en Punto Medio / Acortamiento (Divergente)';
+      description =
+        'Leva excéntrica con arco divergente que desplaza el pico de esfuerzo hacia el acortamiento.';
+      peakZone = 'mid';
+    } else {
+      curveLabel = 'Perfil Uniforme (Divergente)';
+      description =
+        'Transmisión constante modulada por trayectoria divergente que acentúa sutilmente el acortamiento.';
+      peakZone = 'uniform';
+    }
+  } else {
+    // Linear or Circular arc
+    if (pivotBehavior === 'approaches_vertical_loss') {
+      curveLabel = 'Pico en Estiramiento · Descendente';
+    } else if (pivotBehavior === 'opens_to_horizontal_gain') {
+      curveLabel = 'Pico en Acortamiento · Ascendente';
+    } else if (pivotBehavior === 'eccentric_cam_drop') {
+      curveLabel = 'Pico en Punto Medio · Campana';
+    } else {
+      curveLabel = 'Perfil Uniforme · Tensión Constante';
+    }
+  }
+
   const sum = weights.stretch + weights.mid + weights.shortened;
   const s = Math.round((weights.stretch / sum) * 1000) / 1000;
   const m = Math.round((weights.mid / sum) * 1000) / 1000;
@@ -579,6 +655,7 @@ export function classifyMachineResistanceProfile(input: {
       mid: m,
       shortened: sh,
     },
+    curveLabel,
     machineBrandGuess,
     machineModelGuess,
   };

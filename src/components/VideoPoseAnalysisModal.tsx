@@ -41,6 +41,8 @@ import {
 import { AnthropometricProfileModal } from './AnthropometricProfileModal';
 import { EffectiveVolumeAudit } from './EffectiveVolumeAudit';
 import { MachineResistanceClassifierModal } from './MachineResistanceClassifierModal';
+import { MachineCatalogPickerModal } from './MachineCatalogPickerModal';
+import { CatalogMachineEntry, getAllCatalogMachines, getMachineById } from '../data/machineCatalog';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
@@ -265,6 +267,7 @@ interface VideoPoseAnalysisModalProps {
   onClose: () => void;
   defaultExerciseId?: string;
   defaultExerciseName?: string;
+  initialCatalogMachine?: CatalogMachineEntry;
   onApplyVolumeMultiplier?: (multiplier: number, targetMuscle: string) => void;
 }
 
@@ -838,22 +841,41 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   onClose,
   defaultExerciseId,
   defaultExerciseName,
+  initialCatalogMachine,
   onApplyVolumeMultiplier
 }) => {
   // Cascading Selection State & Safe Catalog Mapping (Phase 4: Strict Workout Prioritization)
-  const hasInitialExercise = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
+  const [catalogMachine, setCatalogMachine] = useState<CatalogMachineEntry | undefined>(initialCatalogMachine);
+  const [showCatalogPickerModal, setShowCatalogPickerModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (initialCatalogMachine) {
+      setCatalogMachine(initialCatalogMachine);
+    }
+  }, [initialCatalogMachine]);
+
+  const hasInitialExercise = Boolean(
+    (catalogMachine?.canonicalExerciseType || defaultExerciseId) &&
+    (catalogMachine?.canonicalExerciseType || defaultExerciseId) !== 'auto'
+  );
   const initialExercise = useMemo(() => {
+    if (catalogMachine) {
+      return resolveExercise(catalogMachine.canonicalExerciseType, catalogMachine.modelName);
+    }
     if (hasInitialExercise) {
       return resolveExercise(defaultExerciseId, defaultExerciseName);
     }
     return resolveExercise('machine_chest_press', 'Press de Pecho en Máquina');
-  }, [hasInitialExercise, defaultExerciseId, defaultExerciseName]);
+  }, [catalogMachine, hasInitialExercise, defaultExerciseId, defaultExerciseName]);
 
   const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<string>(() => {
     const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === initialExercise.id));
     return parentGroup ? parentGroup.id : 'chest';
   });
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>(() => {
+    if (catalogMachine) {
+      return catalogMachine.canonicalExerciseType;
+    }
     if (hasInitialExercise && initialExercise.id && initialExercise.id !== 'auto') {
       return initialExercise.id;
     }
@@ -871,6 +893,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
     if (isOpen) {
+      if (catalogMachine) {
+        isManualOverrideRef.current = true;
+        setIsManualOverride(true);
+        setSelectedExerciseId(catalogMachine.canonicalExerciseType);
+        const resolved = resolveExercise(catalogMachine.canonicalExerciseType, catalogMachine.modelName);
+        const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === resolved.id));
+        if (parentGroup) {
+          setSelectedMuscleGroupId(parentGroup.id);
+        }
+        setLoadType(resolved.loadType || 'machine');
+        setTargetMuscle(resolved.targetMuscle);
+        return;
+      }
       const hasDef = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
       isManualOverrideRef.current = true;
       setIsManualOverride(true);
@@ -894,7 +929,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         setTargetMuscle(fallback.targetMuscle);
       }
     }
-  }, [isOpen, defaultExerciseId, defaultExerciseName]);
+  }, [isOpen, defaultExerciseId, defaultExerciseName, catalogMachine]);
 
   const activeMuscleGroup =
     MUSCLE_GROUPS.find(g => g.id === selectedMuscleGroupId) || MUSCLE_GROUPS[0];
@@ -1099,7 +1134,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineMessage('');
 
       const detectedName = result.vlm_analysis?.detected_exercise_name || (result as any).detected_exercise_type;
-      if (detectedName && !manualActive && (!defaultExerciseId || defaultExerciseId === 'auto')) {
+      if (detectedName && !manualActive && !catalogMachine && (!defaultExerciseId || defaultExerciseId === 'auto')) {
         const detected = resolveExercise('', detectedName);
         if (detected) {
           setSelectedExerciseId(detected.id);
@@ -1282,11 +1317,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       }
       compressedBlobRef.current = videoBlobToSend;
 
-      const manualActive = isManualOverrideRef.current || isManualOverride;
-      const exToSend = manualActive ? activeExercise.exerciseType : (defaultExerciseId && defaultExerciseId !== 'auto' ? defaultExerciseId : 'auto');
-      const exNameToSend = manualActive ? activeExercise.name : (defaultExerciseName || undefined);
+      const manualActive = catalogMachine ? true : (isManualOverrideRef.current || isManualOverride);
+      const exToSend = catalogMachine
+        ? catalogMachine.canonicalExerciseType
+        : (manualActive ? activeExercise.exerciseType : (defaultExerciseId && defaultExerciseId !== 'auto' ? defaultExerciseId : 'auto'));
+      const exNameToSend = catalogMachine
+        ? `${catalogMachine.brand} ${catalogMachine.modelName}`
+        : (manualActive ? activeExercise.name : (defaultExerciseName || undefined));
       const muscleToSend = manualActive ? activeExercise.targetMuscle : 'auto';
-      const loadToSend = manualActive ? activeExercise.loadType : 'auto';
+      const loadToSend = catalogMachine ? 'machine' : (manualActive ? activeExercise.loadType : 'auto');
 
       await runPipelineAnalysis(
         videoBlobToSend,
@@ -3186,7 +3225,37 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             </div>
 
             {/* Exercise Configuration & Auto-Detection */}
-            {analysisData && !showExerciseConfigEdit ? (
+            {catalogMachine ? (
+              <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-cyan-500/40 flex items-center justify-between gap-2 shadow-sm">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Compass className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-white text-xs truncate">
+                      {catalogMachine.brand} · {catalogMachine.modelName}
+                    </span>
+                    {catalogMachine.line && (
+                      <span className="text-[10px] text-cyan-300 font-semibold px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/40">
+                        {catalogMachine.line}
+                      </span>
+                    )}
+                    <span className="text-slate-400 text-[11px] truncate">
+                      · {catalogMachine.muscleGroupLabel}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowCatalogPickerModal(true)}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700/80 transition active:scale-95"
+                    title="Cambiar máquina del catálogo oficial"
+                  >
+                    <Compass className="w-3 h-3" />
+                    <span>Cambiar</span>
+                  </button>
+                </div>
+              </div>
+            ) : analysisData && !showExerciseConfigEdit ? (
               <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 shadow-sm">
                 <div className="flex items-center gap-2 min-w-0">
                   <Target className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -3204,8 +3273,17 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
+                    onClick={() => setShowCatalogPickerModal(true)}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 px-2 py-1 rounded-xl bg-slate-800 border border-slate-700/80 transition active:scale-95"
+                    title="Vincular con máquina comercial"
+                  >
+                    <Compass className="w-3 h-3" />
+                    <span>Catálogo</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setShowExerciseConfigEdit(true)}
-                    className="flex items-center gap-1 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700/80 transition active:scale-95"
+                    className="flex items-center gap-1 text-[11px] font-semibold text-slate-300 hover:text-white px-2 py-1 rounded-xl bg-slate-800 border border-slate-700/80 transition active:scale-95"
                   >
                     <Edit3 className="w-3 h-3" />
                     <span>Editar</span>
@@ -3752,14 +3830,86 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           </span>
                           <button
                             type="button"
-                            onClick={() => setShowMachineClassifierModal(true)}
-                            className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 hover:border-purple-400 transition flex items-center gap-1.5 active:scale-95"
-                            title="Abrir Clasificador Biomecánico de Máquina"
+                            onClick={() => setShowCatalogPickerModal(true)}
+                            className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 hover:border-cyan-400 transition flex items-center gap-1.5 active:scale-95"
+                            title="Seleccionar máquina comercial del catálogo"
                           >
-                            <Compass className="w-3.5 h-3.5 text-purple-400" />
-                            <span>Perfil: {tensionProfile} · Clasificar</span>
+                            <Compass className="w-3.5 h-3.5 text-cyan-400" />
+                            <span className="truncate max-w-[160px]">
+                              {catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil: ${tensionProfile}`} · Cambiar
+                            </span>
                           </button>
                         </div>
+
+                        {/* Official Machine Resistance Curve (Catalog Integration) */}
+                        {catalogMachine && (() => {
+                          const w = catalogMachine.profile.curveWeights;
+                          const maxW = Math.max(w.stretch, w.mid, w.shortened, 0.4);
+                          const svgW = 280;
+                          const svgH = 85;
+                          const padBottom = 68;
+                          const minTop = 15;
+                          const rangeY = padBottom - minTop;
+                          const getY = (val: number) => {
+                            const r = Math.min(1.0, Math.max(0.0, val / maxW));
+                            return padBottom - r * rangeY;
+                          };
+                          const p1 = { x: 40, y: getY(w.stretch) };
+                          const p2 = { x: 140, y: getY(w.mid) };
+                          const p3 = { x: 240, y: getY(w.shortened) };
+                          const curvePath = `M ${p1.x} ${p1.y} C ${(p1.x + p2.x) / 2} ${p1.y}, ${(p1.x + p2.x) / 2} ${p2.y}, ${p2.x} ${p2.y} C ${(p2.x + p3.x) / 2} ${p2.y}, ${(p2.x + p3.x) / 2} ${p3.y}, ${p3.x} ${p3.y}`;
+                          const areaPath = `${curvePath} L ${p3.x} ${padBottom + 5} L ${p1.x} ${padBottom + 5} Z`;
+
+                          return (
+                            <div className="p-3 bg-gradient-to-br from-slate-950 to-[#121626] border border-cyan-500/30 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
+                                  <Activity className="w-3.5 h-3.5" />
+                                  Curva Oficial: {catalogMachine.brand} · {catalogMachine.modelName}
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold">
+                                  {Math.round(w.stretch * 100)}% · {Math.round(w.mid * 100)}% · {Math.round(w.shortened * 100)}%
+                                </span>
+                              </div>
+
+                              <div className="w-full h-20 bg-slate-950/80 rounded-lg p-1 relative flex items-center justify-center overflow-hidden border border-slate-800">
+                                <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-full">
+                                  <defs>
+                                    <linearGradient id="stimulusCurveGrad" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
+                                      <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                                    </linearGradient>
+                                  </defs>
+                                  <line x1="20" y1={padBottom + 5} x2="260" y2={padBottom + 5} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" />
+                                  <path d={areaPath} fill="url(#stimulusCurveGrad)" />
+                                  <path d={curvePath} fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
+                                  <circle cx={p1.x} cy={p1.y} r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
+                                  <circle cx={p2.x} cy={p2.y} r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
+                                  <circle cx={p3.x} cy={p3.y} r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
+                                  <text x={p1.x} y={svgH - 2} fill="#94a3b8" fontSize="8" textAnchor="middle" fontWeight="bold">Estiramiento</text>
+                                  <text x={p2.x} y={svgH - 2} fill="#94a3b8" fontSize="8" textAnchor="middle" fontWeight="bold">Punto Medio</text>
+                                  <text x={p3.x} y={svgH - 2} fill="#94a3b8" fontSize="8" textAnchor="middle" fontWeight="bold">Acortamiento</text>
+                                </svg>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-bold text-cyan-300">
+                                  {catalogMachine.profile.curveLabel || catalogMachine.profile.peakZone}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowMachineClassifierModal(true)}
+                                  className="text-[10px] text-slate-400 hover:text-cyan-300 underline"
+                                >
+                                  + Clasificar no listada
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-slate-400 leading-snug">
+                                {catalogMachine.profile.resistanceCurveDescription}
+                              </p>
+                            </div>
+                          );
+                        })()}
 
                         {/* Factor Limitante Principal Card */}
                         <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-800/60 space-y-1.5">
@@ -4055,19 +4205,64 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           exerciseTitle={activeExercise.name || selectedExerciseId}
           onSaveProfile={(profile: MachineResistanceProfile) => {
             const label =
-              profile.peakZone === 'stretched'
+              profile.curveLabel ||
+              (profile.peakZone === 'stretched'
                 ? 'Pico en Estiramiento'
                 : profile.peakZone === 'shortened'
                 ? 'Pico en Acortamiento'
                 : profile.peakZone === 'mid'
                 ? 'Pico en Punto Medio'
-                : 'Uniforme';
+                : 'Uniforme');
             setCustomTensionProfile(label);
             if (analysisData?.stimulus_and_specificity) {
               analysisData.stimulus_and_specificity.tension_profile = label;
             }
+            const customEntry: CatalogMachineEntry = {
+              id: `custom_${Date.now()}`,
+              brand: (profile.machineBrandGuess as any) || 'Genérica',
+              modelName: profile.machineModelGuess || activeExercise.name || 'Máquina Personalizada',
+              line: 'Personalizada',
+              canonicalExerciseType: selectedExerciseId || 'chest_press_machine',
+              muscleGroupLabel: activeMuscleGroup.name,
+              profile
+            };
+            setCatalogMachine(customEntry);
           }}
         />
+
+        {/* Machine Catalog Picker Modal */}
+        {showCatalogPickerModal && (
+          <MachineCatalogPickerModal
+            isOpen={true}
+            onClose={() => setShowCatalogPickerModal(false)}
+            selectedMachineId={catalogMachine?.id}
+            onSelectMachine={(machine) => {
+              setCatalogMachine(machine);
+              setSelectedExerciseId(machine.canonicalExerciseType);
+              setIsManualOverride(true);
+              isManualOverrideRef.current = true;
+              const resolved = resolveExercise(machine.canonicalExerciseType, machine.modelName);
+              const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === resolved.id));
+              if (parentGroup) setSelectedMuscleGroupId(parentGroup.id);
+              setLoadType('machine');
+              setTargetMuscle(resolved.targetMuscle);
+              const label =
+                machine.profile.curveLabel ||
+                (machine.profile.peakZone === 'stretched'
+                  ? 'Pico en Estiramiento'
+                  : machine.profile.peakZone === 'shortened'
+                  ? 'Pico en Acortamiento'
+                  : machine.profile.peakZone === 'mid'
+                  ? 'Pico en Punto Medio'
+                  : 'Uniforme');
+              setCustomTensionProfile(label);
+              if (analysisData?.stimulus_and_specificity) {
+                analysisData.stimulus_and_specificity.tension_profile = label;
+              }
+              setShowCatalogPickerModal(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );

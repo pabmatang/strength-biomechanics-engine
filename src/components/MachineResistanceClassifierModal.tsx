@@ -210,8 +210,8 @@ export const MachineResistanceClassifierModal: React.FC<MachineResistanceClassif
   const areaPath = `${curvePath} L ${p3.x} ${padBottom + 8} L ${p1.x} ${padBottom + 8} Z`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-[max(1rem,calc(env(safe-area-inset-top)+0.5rem))] pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] bg-black/85 backdrop-blur-md overflow-hidden">
-      <div className="w-full max-w-lg bg-[#11131f] border border-cyan-500/30 rounded-3xl p-4 sm:p-5 shadow-2xl text-white space-y-4 max-h-full flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 pt-[max(1.25rem,calc(env(safe-area-inset-top)+1rem))] pb-[max(1.25rem,calc(env(safe-area-inset-bottom)+1rem))] bg-black/85 backdrop-blur-md overflow-y-auto">
+      <div className="w-full max-w-lg bg-[#11131f] border border-cyan-500/30 rounded-3xl p-4 sm:p-5 shadow-2xl text-white space-y-4 my-auto max-h-[92vh] flex flex-col">
         
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -504,11 +504,38 @@ export const MachineResistanceClassifierModal: React.FC<MachineResistanceClassif
                 <label className="text-[10px] text-slate-400 block mb-0.5">Marca / Fabricante</label>
                 <input
                   type="text"
+                  list="brand-suggestions"
                   value={brandName}
                   onChange={e => setBrandName(e.target.value)}
-                  placeholder="Ej: Hammer Strength"
+                  placeholder="Selecciona o escribe marca"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-cyan-500"
                 />
+                <datalist id="brand-suggestions">
+                  <option value="Technogym" />
+                  <option value="Hammer Strength" />
+                  <option value="Panatta" />
+                  <option value="Nautilus" />
+                  <option value="Cybex" />
+                  <option value="Matrix" />
+                  <option value="Gym80" />
+                  <option value="Otra" />
+                </datalist>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {(['Technogym', 'Hammer Strength', 'Panatta', 'Nautilus', 'Cybex', 'Matrix', 'Gym80'] as const).map(b => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setBrandName(b)}
+                      className={`text-[9px] px-1.5 py-0.5 rounded transition ${
+                        brandName === b
+                          ? 'bg-cyan-500/30 text-cyan-200 border border-cyan-400/50'
+                          : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="text-[10px] text-slate-400 block mb-0.5">Modelo / Serie</label>

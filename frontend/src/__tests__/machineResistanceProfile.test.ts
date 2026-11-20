@@ -48,6 +48,32 @@ describe('Machine Physics Engine - Resistance Profile & Similarity', () => {
     expect(Math.abs(totalWeight - 1.0)).toBeLessThan(0.005);
   });
 
+  it('modulates opens_to_horizontal_gain with converging arc into smoothed ascending curve (25% / 38% / 37%)', () => {
+    const linearProfile = classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'linear_fixed'
+    });
+
+    const convergentProfile = classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent'
+    });
+
+    // Convergent must increase stretch and reduce gap with shortened
+    expect(convergentProfile.curveWeights.stretch).toBeGreaterThan(linearProfile.curveWeights.stretch);
+    expect(convergentProfile.curveWeights.stretch).toBeCloseTo(0.25, 2);
+    expect(convergentProfile.curveWeights.mid).toBeCloseTo(0.38, 2);
+    expect(convergentProfile.curveWeights.shortened).toBeCloseTo(0.37, 2);
+
+    const linearGap = linearProfile.curveWeights.shortened - linearProfile.curveWeights.stretch;
+    const convGap = convergentProfile.curveWeights.shortened - convergentProfile.curveWeights.stretch;
+    expect(convGap).toBeLessThan(linearGap);
+    expect(convergentProfile.curveLabel).toBe('Ascendente suavizado (Convergente)');
+    expect(convergentProfile.resistanceCurveDescription).toContain('aplana la curva');
+  });
+
   it('classifies eccentric_cam_drop as mid peak profile', () => {
     const profile = classifyMachineResistanceProfile({
       loadType: 'selectorized_stack',

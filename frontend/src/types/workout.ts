@@ -111,6 +111,7 @@ export interface ExerciseTemplate {
   resistance_profile?: ResistanceProfile;
   grips?: GripOption[];
   target_rep_range?: string;
+  catalog_machine_id?: string;
 }
 
 export interface WorkoutExercise {
@@ -127,6 +128,7 @@ export interface WorkoutExercise {
   sets: WorkoutSet[];
   target_rep_range?: string;
   selected_grip?: string;
+  catalog_machine_id?: string;
 }
 
 export interface PersonalRecord {

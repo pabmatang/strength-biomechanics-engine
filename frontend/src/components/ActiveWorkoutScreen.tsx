@@ -7,6 +7,7 @@ import { RestTimer } from './RestTimer';
 import { WorkoutSummaryModal } from './WorkoutSummaryModal';
 import { ExerciseDetailModal } from './ExerciseDetailModal';
 import { VideoPoseAnalysisModal } from './VideoPoseAnalysisModal';
+import { getMachineById } from '../data/machineCatalog';
 import { ErrorBoundary } from './ErrorBoundary';
 import { calculateWorkoutVolume, countCompletedSets, detectPersonalRecords, formatDuration } from '../utils/fitness';
 
@@ -308,14 +309,20 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
       )}
 
       {/* Video Pose Analysis Modal */}
-      {videoExercise && (
-        <VideoPoseAnalysisModal
-          isOpen={true}
-          onClose={() => setVideoExercise(null)}
-          defaultExerciseId={videoExercise.exercise_template_id || videoExercise.id}
-          defaultExerciseName={videoExercise.title}
-        />
-      )}
+      {videoExercise && (() => {
+        const catalogMachine = videoExercise.catalog_machine_id
+          ? getMachineById(videoExercise.catalog_machine_id)
+          : undefined;
+        return (
+          <VideoPoseAnalysisModal
+            isOpen={true}
+            onClose={() => setVideoExercise(null)}
+            defaultExerciseId={catalogMachine?.canonicalExerciseType || videoExercise.exercise_template_id || videoExercise.id}
+            defaultExerciseName={catalogMachine?.modelName || videoExercise.title}
+            initialCatalogMachine={catalogMachine}
+          />
+        );
+      })()}
 
       {/* Finish Summary Modal */}
       {finishedWorkout && (
