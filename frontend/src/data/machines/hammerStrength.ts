@@ -382,5 +382,205 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       machineModelGuess: 'Hammer Strength - Tibia Dorsi Flexion a Discos'
     }),
     imageUrl: null
+  },
+
+  // 22. Hammer Strength — Hammer Strength - Iso-Lateral High Row
+  {
+    id: 'hammer_iso_high_row',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded Iso-Lateral',
+    modelName: 'Hammer Strength - Iso-Lateral High Row',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'divergent',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Palanca divergente iso-lateral con tracción alta; pico de tensión máxima en estiramiento y caída progresiva hacia la contracción escapular.',
+      curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
+      curveLabel: 'Descendente · Pico en Estiramiento'
+    },
+    imageUrl: null
+  },
+
+  // 23. Hammer Strength — Hammer Strength - Iso-Lateral Shoulder Press
+  {
+    id: 'hammer_iso_shoulder_press',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded Iso-Lateral',
+    modelName: 'Hammer Strength - Iso-Lateral Shoulder Press',
+    canonicalExerciseType: 'shoulder_press_machine',
+    muscleGroupLabel: 'Hombros',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Palanca convergente iso-lateral para deltoides; resistencia creciente hacia la extensión terminal y bloqueo overhead.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Pico en Acortamiento'
+    },
+    imageUrl: null
+  },
+
+  // 24. Hammer Strength — Hammer Strength - Iso-Lateral Super Incline Press
+  {
+    id: 'hammer_iso_super_incline_press',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded Iso-Lateral',
+    modelName: 'Hammer Strength - Iso-Lateral Super Incline Press',
+    canonicalExerciseType: 'incline_press',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Ángulo super inclinado (~60°) con trayectoria convergente enfocada en porción clavicular; máxima sobrecarga en la fase final de empuje.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Clavicular'
+    },
+    imageUrl: null
+  },
+
+  // 25. Hammer Strength — Hammer Strength - Iso-Lateral Wide Pulldown
+  {
+    id: 'hammer_iso_wide_pulldown',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded Iso-Lateral',
+    modelName: 'Hammer Strength - Iso-Lateral Wide Pulldown',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'divergent',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Palancas divergentes de arco amplio con tracción vertical; tensión máxima en elongación lats con descarga en compresión costal.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Pico en Estiramiento'
+    },
+    imageUrl: null
+  },
+
+  // 26. Hammer Strength — Hammer Strength - Plate-Loaded Belt Squat
+  {
+    id: 'hammer_plate_loaded_belt_squat',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded',
+    modelName: 'Hammer Strength - Plate-Loaded Belt Squat',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Cinturón de tracción pélvica con descarga axial espinal; máxima resistencia en flexión profunda de rodilla con descompresión en extensión.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Sobrecarga en Estiramiento'
+    },
+    imageUrl: null
+  },
+
+  // 27. Hammer Strength — Hammer Strength - Plate-Loaded Pendulum Squat
+  {
+    id: 'hammer_plate_loaded_pendulum_squat',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded',
+    modelName: 'Hammer Strength - Plate-Loaded Pendulum Squat',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Péndulo con arco de movimiento circular y contrapeso regulable; máxima demanda en flexión profunda con alivio en bloqueo articular.',
+      curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
+      curveLabel: 'Descendente · Péndulo Profundo'
+    },
+    imageUrl: null
+  },
+
+  // 28. Hammer Strength — Hammer Strength - Iso-Lateral Lateral Raise
+  {
+    id: 'hammer_iso_lateral_raise',
+    brand: 'Hammer Strength',
+    line: 'Plate-Loaded Iso-Lateral',
+    modelName: 'Hammer Strength - Iso-Lateral Lateral Raise',
+    canonicalExerciseType: 'lateral_raise',
+    muscleGroupLabel: 'Hombros',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Elevación lateral en arco circular; el brazo de palanca se aproxima a la horizontal a 90° de abducción, generando máxima resistencia en acortamiento.',
+      curveWeights: { stretch: 0.15, mid: 0.35, shortened: 0.50 },
+      curveLabel: 'Ascendente · Pico en Acortamiento'
+    },
+    imageUrl: null
+  },
+
+  // 29. Hammer Strength — Hammer Strength Select - Pec Fly / Rear Delt
+  {
+    id: 'hammer_select_pec_fly',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Pec Fly / Rear Delt',
+    canonicalExerciseType: 'pec_deck',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Torre de placas con leva excéntrica de doble función; resistencia optimizada en el rango medio de aducción horizontal para alineación con longitud-tensión pectoral.',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Pico en Rango Medio'
+    },
+    imageUrl: null
+  },
+
+  // 30. Hammer Strength — Hammer Strength Select - Seated Leg Curl
+  {
+    id: 'hammer_select_seated_leg_curl',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Seated Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Leva excéntrica biomecánica con máxima sobrecarga en posición elongada (cadera a 90°, rodilla extendida) y descompresión progresiva en flexión profunda.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Sobrecarga en Estiramiento'
+    },
+    imageUrl: null
+  },
+
+  // 31. Hammer Strength — Hammer Strength Select - Abdominal Crunch
+  {
+    id: 'hammer_select_ab_crunch',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Abdominal Crunch',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Torre de placas con eje de flexión toraco-lumbar guiado; curva en campana con pico máximo en rango medio de flexión espinal.',
+      curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
+      curveLabel: 'Campana · Pico en Rango Medio'
+    },
+    imageUrl: null
   }
 ];

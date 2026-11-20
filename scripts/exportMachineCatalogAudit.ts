@@ -167,12 +167,12 @@ const html = `<!DOCTYPE html>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Con Imagen</div>
-        <div class="text-lg font-black font-mono text-emerald-400">${machinesWithImages}</div>
+        <div class="text-lg font-black font-mono text-emerald-400" id="stat-with-image">${machinesWithImages}</div>
       </div>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Sin Imagen</div>
-        <div class="text-lg font-black font-mono ${machinesWithoutImages > 0 ? 'text-amber-400' : 'text-slate-500'}">${machinesWithoutImages}</div>
+        <div class="text-lg font-black font-mono ${machinesWithoutImages > 0 ? 'text-amber-400' : 'text-slate-500'}" id="stat-without-image">${machinesWithoutImages}</div>
       </div>
     </div>
   </header>
@@ -292,10 +292,11 @@ const html = `<!DOCTYPE html>
             hasImg
               ? `<img 
                    src="${primarySrc}" 
+                   data-raw="${rawImg}"
                    alt="${m.modelName}" 
                    class="w-full h-full object-contain p-2" 
                    loading="lazy" 
-                   onerror="if(!this.dataset.fallbackTried){this.dataset.fallbackTried='1';this.src='${rawImg}';}else if(!this.dataset.extTried){this.dataset.extTried='1';if(this.src.endsWith('.png')){this.src=this.src.replace('.png','.jpg');}else if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png');}}" 
+                   onerror="handleImageFallback(this, '${rawImg}')" 
                  />`
               : `<div class="text-center p-3 flex flex-col items-center justify-center">
                   <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
@@ -387,6 +388,26 @@ const html = `<!DOCTYPE html>
     let searchQuery = '';
     let missingOnly = false;
 
+    function handleImageFallback(img, rawPath) {
+      if (!img.dataset.stage) {
+        img.dataset.stage = '1';
+        // First fallback: root-relative path (for Vite / web servers)
+        img.src = rawPath;
+      } else if (img.dataset.stage === '1') {
+        img.dataset.stage = '2';
+        // Second fallback: alternate extension
+        if (img.src.endsWith('.png')) {
+          img.src = img.src.slice(0, -4) + '.jpg';
+        } else if (img.src.endsWith('.jpg')) {
+          img.src = img.src.slice(0, -4) + '.png';
+        }
+      } else if (img.dataset.stage === '2') {
+        img.dataset.stage = '3';
+        // Third fallback: relative public/ path
+        img.src = 'public' + rawPath;
+      }
+    }
+
     function toggleMissingOnly() {
       missingOnly = !missingOnly;
       const btn = document.getElementById('filter-missing-only-btn');
@@ -446,6 +467,9 @@ const html = `<!DOCTYPE html>
 
     function filterCards() {
       let visibleCount = 0;
+      let visibleWithImg = 0;
+      let visibleWithoutImg = 0;
+
       cards.forEach(card => {
         const brand = card.getAttribute('data-brand');
         const muscle = card.getAttribute('data-muscle');
@@ -460,11 +484,16 @@ const html = `<!DOCTYPE html>
         if (matchBrand && matchMuscle && matchSearch && matchMissing) {
           card.style.display = 'flex';
           visibleCount++;
+          if (hasImg) visibleWithImg++;
+          else visibleWithoutImg++;
         } else {
           card.style.display = 'none';
         }
       });
+
       document.getElementById('stat-total').innerText = visibleCount;
+      document.getElementById('stat-with-image').innerText = visibleWithImg;
+      document.getElementById('stat-without-image').innerText = visibleWithoutImg;
     }
   </script>
 </body>

@@ -706,5 +706,185 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       machineModelGuess: 'Technogym - Dual Adjustable Pulley (DAP / Polea Doble)'
     }),
     imageUrl: '/machines/technogym_cable_crossover_dap.png'
+  },
+
+  // 40. Technogym — Technogym Pure Strength - Leg Extension a Discos
+  {
+    id: 'technogym_pure_leg_extension',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Leg Extension a Discos',
+    canonicalExerciseType: 'leg_extension',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Extensión de rodilla a discos con brazo de palanca que incrementa el torque hacia la extensión completa.',
+      curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
+      curveLabel: 'Ascendente · Pico Acortamiento'
+    },
+    imageUrl: null
+  },
+
+  // 41. Technogym — Technogym Pure Strength - Seated Calf a Discos
+  {
+    id: 'technogym_pure_seated_calf',
+    brand: 'Technogym',
+    line: 'Pure Strength',
+    modelName: 'Technogym Pure Strength - Seated Calf a Discos',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Palanca de gemelo sentado a discos con rodilla a 90°, sobrecargando sóleo en máxima dorsiflexión.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Sóleo Estirado'
+    },
+    imageUrl: null
+  },
+
+  // 42. Technogym — Technogym Selection 900 - Glute (Patada de Glúteo)
+  {
+    id: 'technogym_selection_glute',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Glute (Patada de Glúteo)',
+    canonicalExerciseType: 'glute_kickback',
+    muscleGroupLabel: 'Glúteo',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Extensión de cadera en torre de placas con leva que maximiza la resistencia en contracción pico de glúteo.',
+      curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
+      curveLabel: 'Ascendente · Pico Contracción'
+    },
+    imageUrl: null
+  },
+
+  // 43. Technogym — Technogym Selection 900 - Arm Extension (Tríceps)
+  {
+    id: 'technogym_selection_arm_extension',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Arm Extension (Tríceps)',
+    canonicalExerciseType: 'triceps_extension',
+    muscleGroupLabel: 'Tríceps',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Extensión de codo en placas con leva biomecánica que sitúa la mayor carga a 90° de flexión.',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Pico Rango Medio'
+    },
+    imageUrl: null
+  },
+
+  // 44. Technogym — Technogym Selection 900 - Rotary Torso (Oblicuos)
+  {
+    id: 'technogym_selection_rotary_torso',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Rotary Torso (Oblicuos)',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Rotación de tronco guiada por placas con resistencia simétrica y pico de tensión en el sector intermedio de giro.',
+      curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
+      curveLabel: 'Campana · Rotación Media'
+    },
+    imageUrl: null
+  },
+
+  // 45. Technogym — Technogym Selection 900 - Upper Back (Remo Alto)
+  {
+    id: 'technogym_selection_upper_back',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Upper Back (Remo Alto)',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Remo alto divergente en placas que enfatiza retractores escapulares y deltoides posterior con pico en contracción.',
+      curveWeights: { stretch: 0.20, mid: 0.40, shortened: 0.40 },
+      curveLabel: 'Ascendente · Pico Acortamiento'
+    },
+    imageUrl: null
+  },
+
+  // 46. Technogym — Technogym Selection 900 - Vertical Traction (Jalón)
+  {
+    id: 'technogym_selection_vertical_traction',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Vertical Traction (Jalón)',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'divergent',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Jalón vertical divergente en placas con sobrecarga biomecánica en máxima elongación del dorsal ancho.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
+    imageUrl: null
+  },
+
+  // 47. Technogym — Technogym Selection 900 - Delts Machine (Laterales)
+  {
+    id: 'technogym_selection_delts_machine',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Delts Machine (Laterales)',
+    canonicalExerciseType: 'lateral_raise',
+    muscleGroupLabel: 'Hombros',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Elevaciones laterales guiadas por placas con leva adaptada para coincidir con la máxima palanca a 90° de abducción.',
+      curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
+      curveLabel: 'Ascendente · Pico Abducción'
+    },
+    imageUrl: null
+  },
+
+  // 48. Technogym — Technogym Selection 900 - Chest Incline (Placas)
+  {
+    id: 'technogym_selection_chest_incline',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Chest Incline (Placas)',
+    canonicalExerciseType: 'incline_press',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Press inclinado de placas con trayectoria convergente hacia el haz clavicular con máxima resistencia en extensión.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Convergente'
+    },
+    imageUrl: null
   }
 ];
