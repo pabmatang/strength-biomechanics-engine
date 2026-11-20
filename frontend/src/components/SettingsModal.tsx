@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Settings as SettingsIcon, Sliders, Volume2, Activity, Heart, Shield, Check, Cloud, LogOut, User, RefreshCw, Dumbbell, Bell, Send } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types/workout';
+import { Sparkles, Copy } from 'lucide-react';
+import {
+  isSuperUserMode,
+  setSuperUserMode,
+  exportOverridesAsTypeScript,
+  getAllCurveOverrides
+} from '../utils/superuserCurveStore';
 import { 
   getNotificationSettings, 
   saveNotificationSettings, 
@@ -34,6 +41,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>(() => getNotificationSettings());
   const [permissionStatus, setPermissionStatus] = useState<string>(() => getNotificationPermission());
   const [testSentFeedback, setTestSentFeedback] = useState<string | null>(null);
+  const [superUserActive, setSuperUserActive] = useState<boolean>(() => isSuperUserMode());
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  useEffect(() => {
+    const handleSU = () => setSuperUserActive(isSuperUserMode());
+    window.addEventListener('mia_superuser_state_changed', handleSU);
+    return () => window.removeEventListener('mia_superuser_state_changed', handleSU);
+  }, []);
+
+  const handleToggleSuperUser = () => {
+    const next = !superUserActive;
+    setSuperUserActive(next);
+    setSuperUserMode(next);
+  };
+
+  const handleCopyAllCurves = async () => {
+    const code = exportOverridesAsTypeScript();
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    } catch {
+      console.warn('Clipboard failed');
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -288,6 +320,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <div className="w-4 h-4 rounded-full bg-white shadow-md transform" />
             </button>
+          </div>
+
+          {/* Modo Superusuario: Admin Curvas */}
+          <div className="p-3.5 bg-gradient-to-r from-purple-950/40 via-slate-900 to-[#181a28] rounded-2xl border border-purple-500/40 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 pr-2">
+                <div className="font-bold text-slate-100 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>Modo Superusuario (Admin Curvas)</span>
+                  {superUserActive && (
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-200 border border-purple-400/50">
+                      Admin Activo
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400">
+                  Habilita el editor interactivo con ratón sobre cualquier curva de resistencia (arrastra nodos y calibra porcentajes). Atajo: <code className="text-purple-300 font-mono font-bold">Ctrl + Shift + A</code>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleSuperUser}
+                className={`w-12 h-6 flex items-center rounded-full p-1 transition duration-300 shrink-0 ${
+                  superUserActive ? 'bg-purple-600 justify-end' : 'bg-slate-700 justify-start'
+                }`}
+              >
+                <div className="w-4 h-4 rounded-full bg-white shadow-md transform" />
+              </button>
+            </div>
+
+            {superUserActive && (
+              <div className="pt-2 border-t border-purple-500/20 flex items-center justify-between gap-2 text-xs">
+                <span className="text-purple-300/80 text-[11px]">
+                  {Object.keys(getAllCurveOverrides()).length} curvas calibradas en este navegador.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyAllCurves}
+                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 rounded-lg text-[11px] font-bold transition flex items-center gap-1 shrink-0 active:scale-95"
+                >
+                  <Copy className="w-3 h-3 text-purple-300" />
+                  <span>{copiedAll ? '¡Copiado al portapapeles!' : 'Copiar overrides (TS)'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Health integrations: intentionally not implemented */}

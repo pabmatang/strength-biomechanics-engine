@@ -64,6 +64,7 @@ export const INITIAL_ROUTINES: Routine[] = [
       {
         id: 'e1',
         exercise_template_id: 'technogym_pure_chest_press',
+        catalog_machine_id: 'technogym_pure_chest_press',
         title: 'Technogym Pure Strength - Chest Press',
         brand: 'Technogym',
         muscle_group: 'chest',
@@ -80,6 +81,7 @@ export const INITIAL_ROUTINES: Routine[] = [
       {
         id: 'e2',
         exercise_template_id: 'technogym_pure_shoulder_press',
+        catalog_machine_id: 'technogym_pure_shoulder_press',
         title: 'Technogym Pure Strength - Shoulder Press',
         brand: 'Technogym',
         muscle_group: 'shoulders',
@@ -94,6 +96,7 @@ export const INITIAL_ROUTINES: Routine[] = [
       {
         id: 'e3',
         exercise_template_id: 'hammer_iso_decline_press',
+        catalog_machine_id: 'hammer_iso_decline_press',
         title: 'Hammer Strength - Iso-Lateral Decline Press',
         brand: 'Hammer Strength',
         muscle_group: 'chest',
@@ -118,6 +121,7 @@ export const INITIAL_ROUTINES: Routine[] = [
       {
         id: 'e20',
         exercise_template_id: 'technogym_pure_pulldown',
+        catalog_machine_id: 'technogym_pure_pulldown',
         title: 'Technogym Pure Strength - Pulldown',
         brand: 'Technogym',
         muscle_group: 'lats',
@@ -131,6 +135,7 @@ export const INITIAL_ROUTINES: Routine[] = [
       {
         id: 'e21',
         exercise_template_id: 'hammer_iso_dy_row',
+        catalog_machine_id: 'hammer_iso_dy_row',
         title: 'Hammer Strength - Iso-Lateral DY Row',
         brand: 'Hammer Strength',
         muscle_group: 'upper_back',

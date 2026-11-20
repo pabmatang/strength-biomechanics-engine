@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Dumbbell, Timer, Flame, Weight, Check, Video } from 'lucide-react';
+import { Plus, Dumbbell, Timer, Flame, Weight, Check, Video, Sparkles } from 'lucide-react';
 import { Workout, WorkoutExercise, ExerciseTemplate } from '../types/workout';
 import { WorkoutExerciseCard } from './WorkoutExerciseCard';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
@@ -7,7 +7,8 @@ import { RestTimer } from './RestTimer';
 import { WorkoutSummaryModal } from './WorkoutSummaryModal';
 import { ExerciseDetailModal } from './ExerciseDetailModal';
 import { VideoPoseAnalysisModal } from './VideoPoseAnalysisModal';
-import { getMachineById } from '../data/machineCatalog';
+import { getMachineById, resolveCatalogMachine } from '../data/machineCatalog';
+import { isSuperUserMode } from '../utils/superuserCurveStore';
 import { ErrorBoundary } from './ErrorBoundary';
 import { calculateWorkoutVolume, countCompletedSets, detectPersonalRecords, formatDuration } from '../utils/fitness';
 
@@ -35,6 +36,13 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
   const [finishedWorkout, setFinishedWorkout] = useState<Workout | null>(null);
   const [detailExercise, setDetailExercise] = useState<WorkoutExercise | null>(null);
   const [videoExercise, setVideoExercise] = useState<WorkoutExercise | null>(null);
+  const [isSuperUser, setIsSuperUser] = useState<boolean>(() => isSuperUserMode());
+
+  useEffect(() => {
+    const handleState = () => setIsSuperUser(isSuperUserMode());
+    window.addEventListener('mia_superuser_state_changed', handleState);
+    return () => window.removeEventListener('mia_superuser_state_changed', handleState);
+  }, []);
 
   // Live timer tick
   useEffect(() => {
@@ -152,6 +160,12 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
             <div className="flex items-center justify-center gap-1.5 text-xs font-mono font-bold text-blue-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>{formatDuration(seconds)}</span>
+              {isSuperUser && (
+                <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-purple-500/15 border border-purple-500/30 text-purple-300 shadow-sm animate-pulse">
+                  <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+                  Admin Curvas
+                </span>
+              )}
             </div>
             <input
               type="text"
@@ -310,15 +324,13 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
 
       {/* Video Pose Analysis Modal */}
       {videoExercise && (() => {
-        const catalogMachine = videoExercise.catalog_machine_id
-          ? getMachineById(videoExercise.catalog_machine_id)
-          : undefined;
+        const catalogMachine = resolveCatalogMachine(videoExercise);
         return (
           <VideoPoseAnalysisModal
             isOpen={true}
             onClose={() => setVideoExercise(null)}
             defaultExerciseId={catalogMachine?.canonicalExerciseType || videoExercise.exercise_template_id || videoExercise.id}
-            defaultExerciseName={catalogMachine?.modelName || videoExercise.title}
+            defaultExerciseName={videoExercise.title || catalogMachine?.modelName}
             initialCatalogMachine={catalogMachine}
           />
         );

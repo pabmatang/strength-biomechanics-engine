@@ -576,13 +576,13 @@ export function classifyMachineResistanceProfile(input: {
 
   if (isConvergent) {
     weights.stretch = Math.max(0.10, weights.stretch + 0.10);
-    weights.mid = Math.max(0.10, weights.mid + 0.03);
-    weights.shortened = Math.max(0.10, weights.shortened - 0.13);
+    weights.mid = Math.max(0.10, weights.mid + 0.00);
+    weights.shortened = Math.max(0.10, weights.shortened - 0.10);
 
     if (pivotBehavior === 'opens_to_horizontal_gain') {
-      curveLabel = 'Ascendente suavizado (Convergente)';
+      curveLabel = 'Ascendente suavizado · Convergente';
       description =
-        'La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva.';
+        'La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.';
       peakZone = 'shortened';
     } else if (pivotBehavior === 'approaches_vertical_loss') {
       curveLabel = 'Descendente acentuado (Convergente)';
@@ -601,9 +601,9 @@ export function classifyMachineResistanceProfile(input: {
       peakZone = 'uniform';
     }
   } else if (isDivergent) {
-    weights.stretch = Math.max(0.10, weights.stretch - 0.06);
-    weights.mid = Math.max(0.10, weights.mid + 0.03);
-    weights.shortened = Math.max(0.10, weights.shortened + 0.03);
+    weights.stretch = Math.max(0.10, weights.stretch - 0.05);
+    weights.mid = Math.max(0.10, weights.mid + 0.00);
+    weights.shortened = Math.max(0.10, weights.shortened + 0.05);
 
     if (pivotBehavior === 'approaches_vertical_loss') {
       curveLabel = 'Descendente suavizado (Divergente)';

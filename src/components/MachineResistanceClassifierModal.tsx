@@ -23,6 +23,7 @@ import {
   classifyMachineResistanceProfile
 } from '../utils/machinePhysicsEngine';
 import { classifyMachinePhoto } from '../services/modalBiomechanicsClient';
+import { ResistanceCurveEditor } from './ResistanceCurveEditor';
 
 interface MachineResistanceClassifierModalProps {
   isOpen: boolean;
@@ -298,57 +299,23 @@ export const MachineResistanceClassifierModal: React.FC<MachineResistanceClassif
             )}
           </div>
 
-          {/* Live SVG Resistance Curve */}
+          {/* Live SVG Resistance Curve with Superuser Interactive Editing */}
           <div className="p-3.5 bg-gradient-to-br from-slate-900 to-[#141829] border border-cyan-500/30 rounded-2xl space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
-                <Activity className="w-3.5 h-3.5" />
-                Curva de Resistencia Calculada
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold">
-                {Math.round(customWeights.stretch * 100)}% · {Math.round(customWeights.mid * 100)}% · {Math.round(customWeights.shortened * 100)}%
-              </span>
-            </div>
-
-            <div className="w-full h-28 bg-slate-950/70 rounded-xl p-2 relative flex items-center justify-center overflow-hidden border border-slate-800">
-              <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-full">
-                <defs>
-                  <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.45" />
-                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-                  </linearGradient>
-                </defs>
-
-                {/* Base horizontal grid lines */}
-                <line x1="20" y1={padBottom + 8} x2="260" y2={padBottom + 8} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" />
-                <line x1="20" y1={(minTop + padBottom) / 2} x2="260" y2={(minTop + padBottom) / 2} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" />
-
-                {/* Area under curve */}
-                <path d={areaPath} fill="url(#curveGradient)" />
-
-                {/* Main Curve Line */}
-                <path d={curvePath} fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
-
-                {/* 3 Physical Nodes */}
-                <circle cx={p1.x} cy={p1.y} r="4.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
-                <circle cx={p2.x} cy={p2.y} r="4.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
-                <circle cx={p3.x} cy={p3.y} r="4.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
-
-                {/* Labels */}
-                <text x={p1.x} y={svgH - 3} fill="#94a3b8" fontSize="9" textAnchor="middle" fontWeight="bold">
-                  Estiramiento
-                </text>
-                <text x={p2.x} y={svgH - 3} fill="#94a3b8" fontSize="9" textAnchor="middle" fontWeight="bold">
-                  Punto Medio
-                </text>
-                <text x={p3.x} y={svgH - 3} fill="#94a3b8" fontSize="9" textAnchor="middle" fontWeight="bold">
-                  Acortamiento
-                </text>
-              </svg>
-            </div>
+            <ResistanceCurveEditor
+              targetId={modelName ? `custom_${modelName.toLowerCase().replace(/\s+/g, '_')}` : (exerciseTitle ? `custom_${exerciseTitle.toLowerCase().replace(/\s+/g, '_')}` : 'custom_classifier')}
+              targetName={modelName || exerciseTitle || 'Máquina en Clasificación'}
+              initialWeights={customWeights}
+              initialPeakZone={peakZone}
+              initialLabel={getPeakZoneLabel(peakZone)}
+              onWeightsChange={(newW, newLabel) => {
+                setCustomWeights(newW);
+                if (newLabel) setCustomDescription(newLabel);
+              }}
+              height={100}
+            />
 
             {/* Verdict Label */}
-            <div className="space-y-1">
+            <div className="space-y-1 pt-1">
               <div className="text-xs font-black text-cyan-300 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-cyan-400" />
                 <span>{getPeakZoneLabel(peakZone)}</span>

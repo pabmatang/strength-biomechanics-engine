@@ -17,6 +17,7 @@ import {
 } from '../data/machineCatalog';
 import { MachineResistanceClassifierModal } from './MachineResistanceClassifierModal';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
+import { getCurveOverride } from '../utils/superuserCurveStore';
 
 interface MachineCatalogPickerModalProps {
   isOpen: boolean;
@@ -145,10 +146,12 @@ export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps>
                 </button>
               </div>
             ) : (
-              filteredMachines.map((machine) => {
+              filteredMachines.map((machine: CatalogMachineEntry) => {
                 const isSelected = selectedMachineId === machine.id;
-                const weights = machine.profile.curveWeights;
+                const override = getCurveOverride(machine.id);
+                const weights = override?.curveWeights || machine.profile.curveWeights;
                 const curveText = `${Math.round(weights.stretch * 100)}% · ${Math.round(weights.mid * 100)}% · ${Math.round(weights.shortened * 100)}%`;
+                const labelText = override?.curveLabel || machine.profile.curveLabel || machine.profile.peakZone;
 
                 return (
                   <div
@@ -181,7 +184,7 @@ export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps>
                           {curveText}
                         </span>
                         <span>·</span>
-                        <span className="truncate">{machine.profile.curveLabel || machine.profile.peakZone}</span>
+                        <span className="truncate">{labelText}</span>
                       </div>
                     </div>
 

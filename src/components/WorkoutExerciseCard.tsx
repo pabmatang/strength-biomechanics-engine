@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Check, ArrowUp, ArrowDown, Info, Dumbbell, RefreshCw, Target, MapPin, Video, Compass } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, ArrowUp, ArrowDown, Info, Dumbbell, RefreshCw, Target, MapPin, Video, Compass, Activity } from 'lucide-react';
 import { WorkoutExercise, WorkoutSet, ExerciseTemplate } from '../types/workout';
 import { SetRow } from './SetRow';
 import { MachineSubstitutionModal } from './MachineSubstitutionModal';
 import { MachineCatalogPickerModal } from './MachineCatalogPickerModal';
-import { getMachineById } from '../data/machineCatalog';
+import { getMachineById, resolveCatalogMachine } from '../data/machineCatalog';
 import { getSafeMachineImageUrl } from '../utils/machineImages';
 import { formatMuscleName } from '../utils/muscleLabels';
 
@@ -39,7 +39,11 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
   const [editedTitle, setEditedTitle] = useState(exercise.title);
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
-  const assignedMachine = exercise.catalog_machine_id ? getMachineById(exercise.catalog_machine_id) : undefined;
+  const assignedMachine = resolveCatalogMachine(exercise);
+  const isBrandMachine = Boolean(
+    (assignedMachine && assignedMachine.brand && assignedMachine.brand !== 'Genérica') ||
+    (exercise.brand && exercise.brand !== 'General')
+  );
   const [machinePin, setMachinePin] = useState(() => {
     try {
       return localStorage.getItem(`chance_pin_${exercise.exercise_template_id}`) || '';
@@ -153,23 +157,23 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
                 {formatMuscleName(exercise.muscle_group)}
               </span>
 
-              {/* Catalog Machine Badge */}
-              {assignedMachine ? (
-                <button
-                  type="button"
-                  onClick={() => setIsCatalogPickerOpen(true)}
-                  className="flex items-center gap-1 bg-cyan-950/70 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 px-2 py-0.5 rounded-lg text-[10px] font-bold transition"
-                  title="Máquina del catálogo asignada · Clic para cambiar"
+              {/* Profile Pill for Brand Machine OR Link Button for Generic */}
+              {isBrandMachine && assignedMachine ? (
+                <div
+                  className="flex items-center gap-1 bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 px-2 py-0.5 rounded-lg text-[10px] font-bold"
+                  title={`Perfil oficial de ${assignedMachine.brand}: ${assignedMachine.profile.curveLabel || assignedMachine.profile.peakZone}`}
                 >
-                  <Compass className="w-3 h-3 text-cyan-400" />
-                  <span className="truncate max-w-[130px]">{assignedMachine.brand} · {assignedMachine.modelName}</span>
-                </button>
+                  <Activity className="w-3 h-3 text-cyan-400" />
+                  <span>
+                    {assignedMachine.profile.peakZone === 'shortened' ? 'Ascendente' : assignedMachine.profile.peakZone === 'stretched' ? 'Descendente' : assignedMachine.profile.peakZone === 'mid' ? 'Campana' : 'Uniforme'} · {Math.round(assignedMachine.profile.curveWeights.stretch * 100)}/{Math.round(assignedMachine.profile.curveWeights.mid * 100)}/{Math.round(assignedMachine.profile.curveWeights.shortened * 100)}
+                  </span>
+                </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => setIsCatalogPickerOpen(true)}
                   className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-medium transition"
-                  title="Vincular máquina del catálogo oficial"
+                  title="Vincular máquina genérica con modelo del catálogo oficial"
                 >
                   <Compass className="w-3 h-3 text-slate-400" />
                   <span>Vincular máquina</span>

@@ -42,7 +42,14 @@ import { AnthropometricProfileModal } from './AnthropometricProfileModal';
 import { EffectiveVolumeAudit } from './EffectiveVolumeAudit';
 import { MachineResistanceClassifierModal } from './MachineResistanceClassifierModal';
 import { MachineCatalogPickerModal } from './MachineCatalogPickerModal';
-import { CatalogMachineEntry, getAllCatalogMachines, getMachineById } from '../data/machineCatalog';
+import {
+  CatalogMachineEntry,
+  getAllCatalogMachines,
+  getMachineById,
+  resolveCatalogMachine,
+  getDefaultProfileForExerciseType
+} from '../data/machineCatalog';
+import { ResistanceCurveEditor } from './ResistanceCurveEditor';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
@@ -420,19 +427,23 @@ export function resolveExercise(exerciseId?: string | null, exerciseName?: strin
   }
   if (combined.includes('chest_press') || combined.includes('bench') || combined.includes('banca') || combined.includes('chest') || combined.includes('pecho')) {
     if (combined.includes('inclin')) return ALL_EXERCISES.find(e => e.id === 'incline_press') || ALL_EXERCISES[0];
-    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'chest_press_machine') || ALL_EXERCISES.find(e => e.id === 'machine_chest_press') || ALL_EXERCISES[0];
+    if (combined.includes('mach') || combined.includes('máquina') || combined.includes('chest_press') || combined.includes('technogym') || combined.includes('hammer') || combined.includes('pure') || combined.includes('panatta') || combined.includes('matrix')) {
+      return ALL_EXERCISES.find(e => e.id === 'chest_press_machine') || ALL_EXERCISES.find(e => e.id === 'machine_chest_press') || ALL_EXERCISES[0];
+    }
     return ALL_EXERCISES.find(e => e.id === 'bench_press') || ALL_EXERCISES[0];
   }
   if (combined.includes('row') || combined.includes('remo') || combined.includes('gironda') || combined.includes('dorsal')) {
-    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'machine_row') || ALL_EXERCISES[0];
     if (combined.includes('barbell') || combined.includes('barra')) return ALL_EXERCISES.find(e => e.id === 'barbell_row') || ALL_EXERCISES[0];
-    return ALL_EXERCISES.find(e => e.id === 'machine_row') || ALL_EXERCISES[0];
+    if (combined.includes('t_bar') || combined.includes('t-bar')) return ALL_EXERCISES.find(e => e.id === 't_bar_row') || ALL_EXERCISES[0];
+    return ALL_EXERCISES.find(e => e.id === 'seated_row') || ALL_EXERCISES.find(e => e.id === 'machine_row') || ALL_EXERCISES[0];
   }
   if (combined.includes('jalon') || combined.includes('pulldown') || combined.includes('dominada') || combined.includes('pullup')) {
     return ALL_EXERCISES.find(e => e.id === 'lat_pulldown') || ALL_EXERCISES[0];
   }
   if (combined.includes('militar') || combined.includes('overhead') || combined.includes('shoulder') || combined.includes('hombro')) {
-    if (combined.includes('mach') || combined.includes('máquina')) return ALL_EXERCISES.find(e => e.id === 'shoulder_press_machine') || ALL_EXERCISES[0];
+    if (combined.includes('mach') || combined.includes('máquina') || combined.includes('technogym') || combined.includes('hammer') || combined.includes('pure') || combined.includes('shoulder_press')) {
+      return ALL_EXERCISES.find(e => e.id === 'shoulder_press_machine') || ALL_EXERCISES[0];
+    }
     return ALL_EXERCISES.find(e => e.id === 'overhead_press') || ALL_EXERCISES[0];
   }
   if (combined.includes('lateral')) {
@@ -845,36 +856,44 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   onApplyVolumeMultiplier
 }) => {
   // Cascading Selection State & Safe Catalog Mapping (Phase 4: Strict Workout Prioritization)
-  const [catalogMachine, setCatalogMachine] = useState<CatalogMachineEntry | undefined>(initialCatalogMachine);
+  const effectiveCatalogMachine = useMemo(() => {
+    if (initialCatalogMachine) return initialCatalogMachine;
+    return resolveCatalogMachine({ id: defaultExerciseId, title: defaultExerciseName });
+  }, [initialCatalogMachine, defaultExerciseId, defaultExerciseName]);
+
+  const [catalogMachine, setCatalogMachine] = useState<CatalogMachineEntry | undefined>(effectiveCatalogMachine);
   const [showCatalogPickerModal, setShowCatalogPickerModal] = useState<boolean>(false);
 
   useEffect(() => {
-    if (initialCatalogMachine) {
-      setCatalogMachine(initialCatalogMachine);
+    const resolved = initialCatalogMachine || resolveCatalogMachine({ id: defaultExerciseId, title: defaultExerciseName });
+    if (resolved) {
+      setCatalogMachine(resolved);
     }
-  }, [initialCatalogMachine]);
+  }, [initialCatalogMachine, defaultExerciseId, defaultExerciseName]);
 
   const hasInitialExercise = Boolean(
     (catalogMachine?.canonicalExerciseType || defaultExerciseId) &&
     (catalogMachine?.canonicalExerciseType || defaultExerciseId) !== 'auto'
   );
   const initialExercise = useMemo(() => {
-    if (catalogMachine) {
-      return resolveExercise(catalogMachine.canonicalExerciseType, catalogMachine.modelName);
+    const activeM = catalogMachine || effectiveCatalogMachine;
+    if (activeM) {
+      return resolveExercise(activeM.canonicalExerciseType, activeM.modelName);
     }
     if (hasInitialExercise) {
       return resolveExercise(defaultExerciseId, defaultExerciseName);
     }
     return resolveExercise('machine_chest_press', 'Press de Pecho en Máquina');
-  }, [catalogMachine, hasInitialExercise, defaultExerciseId, defaultExerciseName]);
+  }, [catalogMachine, effectiveCatalogMachine, hasInitialExercise, defaultExerciseId, defaultExerciseName]);
 
   const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<string>(() => {
     const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === initialExercise.id));
     return parentGroup ? parentGroup.id : 'chest';
   });
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>(() => {
-    if (catalogMachine) {
-      return catalogMachine.canonicalExerciseType;
+    const activeM = catalogMachine || effectiveCatalogMachine;
+    if (activeM) {
+      return activeM.canonicalExerciseType;
     }
     if (hasInitialExercise && initialExercise.id && initialExercise.id !== 'auto') {
       return initialExercise.id;
@@ -893,11 +912,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
     if (isOpen) {
-      if (catalogMachine) {
+      const activeM = catalogMachine || effectiveCatalogMachine;
+      if (activeM) {
+        setCatalogMachine(activeM);
         isManualOverrideRef.current = true;
         setIsManualOverride(true);
-        setSelectedExerciseId(catalogMachine.canonicalExerciseType);
-        const resolved = resolveExercise(catalogMachine.canonicalExerciseType, catalogMachine.modelName);
+        setSelectedExerciseId(activeM.canonicalExerciseType);
+        const resolved = resolveExercise(activeM.canonicalExerciseType, activeM.modelName);
         const parentGroup = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === resolved.id));
         if (parentGroup) {
           setSelectedMuscleGroupId(parentGroup.id);
@@ -929,7 +950,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         setTargetMuscle(fallback.targetMuscle);
       }
     }
-  }, [isOpen, defaultExerciseId, defaultExerciseName, catalogMachine]);
+  }, [isOpen, defaultExerciseId, defaultExerciseName, catalogMachine, effectiveCatalogMachine]);
 
   const activeMuscleGroup =
     MUSCLE_GROUPS.find(g => g.id === selectedMuscleGroupId) || MUSCLE_GROUPS[0];
@@ -3841,60 +3862,42 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           </button>
                         </div>
 
-                        {/* Official Machine Resistance Curve (Catalog Integration) */}
-                        {catalogMachine && (() => {
-                          const w = catalogMachine.profile.curveWeights;
-                          const maxW = Math.max(w.stretch, w.mid, w.shortened, 0.4);
-                          const svgW = 280;
-                          const svgH = 85;
-                          const padBottom = 68;
-                          const minTop = 15;
-                          const rangeY = padBottom - minTop;
-                          const getY = (val: number) => {
-                            const r = Math.min(1.0, Math.max(0.0, val / maxW));
-                            return padBottom - r * rangeY;
-                          };
-                          const p1 = { x: 40, y: getY(w.stretch) };
-                          const p2 = { x: 140, y: getY(w.mid) };
-                          const p3 = { x: 240, y: getY(w.shortened) };
-                          const curvePath = `M ${p1.x} ${p1.y} C ${(p1.x + p2.x) / 2} ${p1.y}, ${(p1.x + p2.x) / 2} ${p2.y}, ${p2.x} ${p2.y} C ${(p2.x + p3.x) / 2} ${p2.y}, ${(p2.x + p3.x) / 2} ${p3.y}, ${p3.x} ${p3.y}`;
-                          const areaPath = `${curvePath} L ${p3.x} ${padBottom + 5} L ${p1.x} ${padBottom + 5} Z`;
+                        {/* Biomechanical Resistance Curve with Superuser Interactive Editing */}
+                        {(() => {
+                          const activeProfile = catalogMachine
+                            ? catalogMachine.profile
+                            : getDefaultProfileForExerciseType(selectedExerciseId || activeExercise.id);
+                          const profileTargetId = catalogMachine ? catalogMachine.id : (selectedExerciseId || activeExercise.id);
+                          const profileTargetName = catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : activeExercise.name;
 
                           return (
                             <div className="p-3 bg-gradient-to-br from-slate-950 to-[#121626] border border-cyan-500/30 rounded-xl space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
                                   <Activity className="w-3.5 h-3.5" />
-                                  Curva Oficial: {catalogMachine.brand} · {catalogMachine.modelName}
-                                </span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold">
-                                  {Math.round(w.stretch * 100)}% · {Math.round(w.mid * 100)}% · {Math.round(w.shortened * 100)}%
+                                  {catalogMachine ? `Curva Oficial: ${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil Biomecánico: ${activeExercise.name}`}
                                 </span>
                               </div>
 
-                              <div className="w-full h-20 bg-slate-950/80 rounded-lg p-1 relative flex items-center justify-center overflow-hidden border border-slate-800">
-                                <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-full">
-                                  <defs>
-                                    <linearGradient id="stimulusCurveGrad" x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
-                                      <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-                                    </linearGradient>
-                                  </defs>
-                                  <line x1="20" y1={padBottom + 5} x2="260" y2={padBottom + 5} stroke="#1e293b" strokeWidth="1" strokeDasharray="3 3" />
-                                  <path d={areaPath} fill="url(#stimulusCurveGrad)" />
-                                  <path d={curvePath} fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" />
-                                  <circle cx={p1.x} cy={p1.y} r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
-                                  <circle cx={p2.x} cy={p2.y} r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
-                                  <circle cx={p3.x} cy={p3.y} r="3.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
-                                  <text x={p1.x} y={svgH - 2} fill="#94a3b8" fontSize="8" textAnchor="middle" fontWeight="bold">Estiramiento</text>
-                                  <text x={p2.x} y={svgH - 2} fill="#94a3b8" fontSize="8" textAnchor="middle" fontWeight="bold">Punto Medio</text>
-                                  <text x={p3.x} y={svgH - 2} fill="#94a3b8" fontSize="8" textAnchor="middle" fontWeight="bold">Acortamiento</text>
-                                </svg>
-                              </div>
+                              <ResistanceCurveEditor
+                                targetId={profileTargetId}
+                                targetName={profileTargetName}
+                                initialWeights={activeProfile.curveWeights}
+                                initialPeakZone={activeProfile.peakZone}
+                                initialLabel={activeProfile.curveLabel}
+                                height={85}
+                                onWeightsChange={(newW, newLabel) => {
+                                  if (newLabel) setCustomTensionProfile(newLabel);
+                                  if (catalogMachine) {
+                                    catalogMachine.profile.curveWeights = newW;
+                                    if (newLabel) catalogMachine.profile.curveLabel = newLabel;
+                                  }
+                                }}
+                              />
 
-                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <div className="flex items-center justify-between gap-2 text-[11px] pt-1">
                                 <span className="font-bold text-cyan-300">
-                                  {catalogMachine.profile.curveLabel || catalogMachine.profile.peakZone}
+                                  {activeProfile.curveLabel || activeProfile.peakZone}
                                 </span>
                                 <button
                                   type="button"
@@ -3905,7 +3908,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                                 </button>
                               </div>
                               <p className="text-[10px] text-slate-400 leading-snug">
-                                {catalogMachine.profile.resistanceCurveDescription}
+                                {activeProfile.resistanceCurveDescription}
                               </p>
                             </div>
                           );
