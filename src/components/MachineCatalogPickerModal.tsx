@@ -19,6 +19,7 @@ import {
 import { MachineResistanceClassifierModal } from './MachineResistanceClassifierModal';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 import { getCurveOverride } from '../utils/superuserCurveStore';
+import { MachineThumbnail } from './MachineThumbnail';
 
 interface MachineCatalogPickerModalProps {
   isOpen: boolean;
@@ -169,28 +170,39 @@ export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps>
                         : 'bg-slate-900/80 border-slate-800/80 hover:bg-slate-800/80 hover:border-slate-700'
                     }`}
                   >
-                    <div className="space-y-1 min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                          {machine.brand}
-                        </span>
-                        {machine.line && (
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            {machine.line}
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <MachineThumbnail
+                        imageUrl={machine.imageUrl}
+                        alt={machine.modelName}
+                        brand={machine.brand}
+                        modelName={machine.modelName}
+                        curveWeights={weights}
+                        className="w-13 h-13 rounded-xl shrink-0"
+                        imageClassName="w-full h-full object-contain p-1"
+                      />
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                            {machine.brand}
                           </span>
-                        )}
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                          {machine.muscleGroupLabel}
-                        </span>
-                      </div>
-                      <h4 className="text-xs font-bold text-white truncate">{machine.modelName}</h4>
-                      <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                        <span className="flex items-center gap-1 text-cyan-400 font-mono font-bold">
-                          <Activity className="w-3 h-3" />
-                          {curveText}
-                        </span>
-                        <span>·</span>
-                        <span className="truncate">{labelText}</span>
+                          {machine.line && (
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              {machine.line}
+                            </span>
+                          )}
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                            {machine.muscleGroupLabel}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-white truncate">{machine.modelName}</h4>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                          <span className="flex items-center gap-1 text-cyan-400 font-mono font-bold">
+                            <Activity className="w-3 h-3" />
+                            {curveText}
+                          </span>
+                          <span>·</span>
+                          <span className="truncate">{labelText}</span>
+                        </div>
                       </div>
                     </div>
 

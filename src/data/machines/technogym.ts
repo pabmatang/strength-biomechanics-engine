@@ -731,7 +731,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Pico Acortamiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_pure_leg_extension.png'
   },
 
   // 41. Technogym — Technogym Pure Strength - Seated Calf a Discos
@@ -751,7 +751,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Sóleo Estirado'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_pure_seated_calf.png'
   },
 
   // 42. Technogym — Technogym Selection 900 - Glute (Patada de Glúteo)
@@ -771,7 +771,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Pico Contracción'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_glute.png'
   },
 
   // 43. Technogym — Technogym Selection 900 - Arm Extension (Tríceps)
@@ -791,7 +791,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Pico Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_arm_extension.png'
   },
 
   // 44. Technogym — Technogym Selection 900 - Rotary Torso (Oblicuos)
@@ -811,7 +811,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
       curveLabel: 'Campana · Rotación Media'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_rotary_torso.png'
   },
 
   // 45. Technogym — Technogym Selection 900 - Upper Back (Remo Alto)
@@ -831,7 +831,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.40, shortened: 0.40 },
       curveLabel: 'Ascendente · Pico Acortamiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_upper_back.png'
   },
 
   // 46. Technogym — Technogym Selection 900 - Vertical Traction (Jalón)
@@ -851,7 +851,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_vertical_traction.png'
   },
 
   // 47. Technogym — Technogym Selection 900 - Delts Machine (Laterales)
@@ -871,7 +871,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Pico Abducción'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_delts_machine.png'
   },
 
   // 48. Technogym — Technogym Selection 900 - Chest Incline (Placas)
@@ -891,6 +891,6 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Convergente'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_chest_incline.png'
   }
 ];

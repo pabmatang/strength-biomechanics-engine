@@ -29,6 +29,7 @@ import {
   calculateEstimatedSessionDuration,
   generateWizardRoutines
 } from '../utils/routineGenerator';
+import { MachineThumbnail } from './MachineThumbnail';
 
 interface SmartRoutineWizardModalProps {
   isOpen: boolean;
@@ -658,20 +659,15 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                         className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          {ex.image_url ? (
-                            <img
-                              src={ex.image_url}
-                              alt={ex.title}
-                              className="w-10 h-10 rounded-lg object-cover bg-slate-950 border border-slate-800 flex-shrink-0"
-                              onError={e => {
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 text-slate-400">
-                              <Dumbbell className="w-5 h-5" />
-                            </div>
-                          )}
+                          <MachineThumbnail
+                            imageUrl={ex.image_url}
+                            alt={ex.title}
+                            brand={ex.brand}
+                            modelName={ex.title}
+                            className="w-10 h-10 rounded-lg flex-shrink-0"
+                            imageClassName="w-full h-full object-contain p-0.5"
+                            showCurve={false}
+                          />
                           <div className="min-w-0">
                             <div className="font-bold text-white truncate">{ex.title}</div>
                             <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">

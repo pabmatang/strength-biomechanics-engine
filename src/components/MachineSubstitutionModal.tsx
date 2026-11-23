@@ -9,6 +9,7 @@ import {
   type MachineResistanceProfile
 } from '../utils/machinePhysicsEngine';
 import { MachineResistanceClassifierModal } from './MachineResistanceClassifierModal';
+import { MachineThumbnail } from './MachineThumbnail';
 
 interface MachineSubstitutionModalProps {
   exercise: WorkoutExercise;
@@ -128,13 +129,13 @@ export const MachineSubstitutionModal: React.FC<MachineSubstitutionModalProps> =
           {/* Current Machine Mini-Card */}
           <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-950 flex-shrink-0">
-                {exercise.image_url ? (
-                  <img src={exercise.image_url} alt={exercise.title} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-slate-600"><Dumbbell className="w-5 h-5" /></div>
-                )}
-              </div>
+              <MachineThumbnail
+                imageUrl={exercise.image_url}
+                alt={exercise.title}
+                brand={exercise.brand}
+                modelName={exercise.title}
+                className="w-12 h-12 rounded-xl flex-shrink-0"
+              />
               <div className="flex-1 min-w-0 text-xs">
                 <span className="text-[10px] text-slate-400 uppercase font-mono">Actual en sesión</span>
                 <div className="font-bold text-slate-200 truncate">{exercise.title}</div>
@@ -172,13 +173,13 @@ export const MachineSubstitutionModal: React.FC<MachineSubstitutionModalProps> =
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/60 flex-shrink-0">
-                        {cand.image_url ? (
-                          <img src={cand.image_url} alt={cand.title} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-600"><Dumbbell className="w-6 h-6" /></div>
-                        )}
-                      </div>
+                      <MachineThumbnail
+                        imageUrl={cand.image_url}
+                        alt={cand.title}
+                        brand={cand.brand}
+                        modelName={cand.title}
+                        className="w-14 h-14 rounded-xl flex-shrink-0"
+                      />
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-[10px] px-2 py-0.2 rounded bg-blue-500/20 text-blue-400 font-bold font-mono">

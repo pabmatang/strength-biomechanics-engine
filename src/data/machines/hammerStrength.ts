@@ -349,7 +349,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Hammer Strength',
       machineModelGuess: 'Hammer Strength - Iso-Lateral Seated Row (Remo Sentado a Discos)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/hammer_plate_loaded_seated_row.png'
   },
 
   // 20. Hammer Strength — Hammer Strength - 45° Linear Plate-Loaded Leg Press (Prensa 45° a Discos)
@@ -387,7 +387,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Hammer Strength',
       machineModelGuess: 'Hammer Strength - Tibia Dorsi Flexion a Discos'
     }),
-    imageUrl: null
+    imageUrl: '/machines/hammer_tibia_dorsi_flexion.png'
   },
 
   // 22. Hammer Strength — Hammer Strength - Iso-Lateral High Row
@@ -407,7 +407,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
       curveLabel: 'Descendente · Pico en Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_iso_high_row.png'
   },
 
   // 23. Hammer Strength — Hammer Strength - Iso-Lateral Shoulder Press
@@ -427,7 +427,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Pico en Acortamiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_iso_shoulder_press.png'
   },
 
   // 24. Hammer Strength — Hammer Strength - Iso-Lateral Super Incline Press
@@ -447,7 +447,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Clavicular'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_iso_super_incline_press.png'
   },
 
   // 25. Hammer Strength — Hammer Strength - Iso-Lateral Wide Pulldown
@@ -467,7 +467,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Pico en Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_iso_wide_pulldown.png'
   },
 
   // 26. Hammer Strength — Hammer Strength - Plate-Loaded Belt Squat
@@ -487,7 +487,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Sobrecarga en Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_plate_loaded_belt_squat.png'
   },
 
   // 27. Hammer Strength — Hammer Strength - Plate-Loaded Pendulum Squat
@@ -507,7 +507,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
       curveLabel: 'Descendente · Péndulo Profundo'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_plate_loaded_pendulum_squat.png'
   },
 
   // 28. Hammer Strength — Hammer Strength - Iso-Lateral Lateral Raise
@@ -527,7 +527,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.15, mid: 0.35, shortened: 0.50 },
       curveLabel: 'Ascendente · Pico en Acortamiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_iso_lateral_raise.png'
   },
 
   // 29. Hammer Strength — Hammer Strength Select - Pec Fly / Rear Delt
@@ -547,7 +547,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Pico en Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_select_pec_fly.jpg'
   },
 
   // 30. Hammer Strength — Hammer Strength Select - Seated Leg Curl
@@ -567,7 +567,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Sobrecarga en Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_select_seated_leg_curl.jpg'
   },
 
   // 31. Hammer Strength — Hammer Strength Select - Abdominal Crunch
@@ -587,6 +587,6 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
       curveLabel: 'Campana · Pico en Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/hammer_select_ab_crunch.jpg'
   }
 ];
