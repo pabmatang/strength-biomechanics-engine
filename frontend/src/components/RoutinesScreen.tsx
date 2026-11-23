@@ -873,16 +873,18 @@ export const RoutinesScreen: React.FC<RoutinesScreenProps> = ({
       )}
 
       {/* Smart Routine Wizard Modal (AI / Beginner) */}
-      <SmartRoutineWizardModal
-        isOpen={isSmartWizardOpen}
-        onClose={() => setIsSmartWizardOpen(false)}
-        onSaveRoutine={(routine) => {
-          onCreateRoutine(routine);
-        }}
-        onSaveAllRoutines={(routines) => {
-          [...routines].reverse().forEach(r => onCreateRoutine(r));
-        }}
-      />
+      <ErrorBoundary onReset={() => setIsSmartWizardOpen(false)}>
+        <SmartRoutineWizardModal
+          isOpen={isSmartWizardOpen}
+          onClose={() => setIsSmartWizardOpen(false)}
+          onSaveRoutine={(routine) => {
+            onCreateRoutine(routine);
+          }}
+          onSaveAllRoutines={(routines) => {
+            [...routines].reverse().forEach(r => onCreateRoutine(r));
+          }}
+        />
+      </ErrorBoundary>
 
     </div>
   );

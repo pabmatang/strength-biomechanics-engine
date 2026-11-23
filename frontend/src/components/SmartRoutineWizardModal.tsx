@@ -90,6 +90,17 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
     setTargetWeeklyVolume(calculateDefaultWeeklyVolume(experienceLevel, daysPerWeek, durationMinutes));
   }, [experienceLevel, daysPerWeek, durationMinutes]);
 
+  // Total weekly volume sum
+  const totalWeeklySets = useMemo(() => {
+    return Object.values(targetWeeklyVolume).reduce((a, b) => a + b, 0);
+  }, [targetWeeklyVolume]);
+
+  const estimatedMinutesPerSession = useMemo(() => {
+    return calculateEstimatedSessionDuration(totalWeeklySets, daysPerWeek);
+  }, [totalWeeklySets, daysPerWeek]);
+
+  const isDurationOverbudget = estimatedMinutesPerSession > durationMinutes + 12;
+
   if (!isOpen) return null;
 
   // Toggle base equipment (guarantee at least 1 remains selected)
@@ -114,17 +125,6 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       }
     });
   };
-
-  // Total weekly volume sum
-  const totalWeeklySets = useMemo(() => {
-    return Object.values(targetWeeklyVolume).reduce((a, b) => a + b, 0);
-  }, [targetWeeklyVolume]);
-
-  const estimatedMinutesPerSession = useMemo(() => {
-    return calculateEstimatedSessionDuration(totalWeeklySets, daysPerWeek);
-  }, [totalWeeklySets, daysPerWeek]);
-
-  const isDurationOverbudget = estimatedMinutesPerSession > durationMinutes + 12;
 
   // Handle generation click
   const handleGenerateRoutines = () => {
