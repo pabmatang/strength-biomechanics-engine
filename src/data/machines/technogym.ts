@@ -320,13 +320,15 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Technogym Pure Strength - Hack Squat',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Technogym',
-      machineModelGuess: 'Technogym Pure Strength - Hack Squat'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Guiado lineal en plano inclinado con máxima demanda en flexión profunda de rodilla y foco en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/technogym_pure_hack_squat.png'
   },
 
@@ -338,13 +340,15 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Technogym Pure Strength - Belt Squat (Sentadilla con Cinturón a Discos)',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Technogym',
-      machineModelGuess: 'Technogym Pure Strength - Belt Squat (Sentadilla con Cinturón a Discos)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Sentadilla con cinturón a discos; máxima demanda en flexión profunda con foco en elongación de cuádriceps.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/technogym_pure_belt_squat.png'
   },
 
@@ -374,13 +378,15 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Technogym Pure Strength - Prensa de Piernas a Discos 45° (Pure Leg Press)',
     canonicalExerciseType: 'leg_press',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Technogym',
-      machineModelGuess: 'Technogym Pure Strength - Prensa de Piernas a Discos 45° (Pure Leg Press)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Prensa de discos a 45° con plano inclinado lineal; máxima carga en la fase de flexión profunda de rodillas.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/technogym_pure_leg_press.png'
   },
 

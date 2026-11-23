@@ -230,13 +230,15 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Hammer Strength - Linear Hack Squat (Sentadilla Hack a Discos)',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Hammer Strength',
-      machineModelGuess: 'Hammer Strength - Linear Hack Squat (Sentadilla Hack a Discos)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Guiado lineal en carro inclinado con sobrecarga en flexión profunda de rodilla y foco en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/hammer_linear_hack_squat.png'
   },
 
@@ -248,13 +250,15 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Hammer Strength - Plate-Loaded V-Squat (Sentadilla V)',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Hammer Strength',
-      machineModelGuess: 'Hammer Strength - Plate-Loaded V-Squat (Sentadilla V)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Sentadilla en V guiada; mayor brazo de resistencia en flexión y estiramiento profundo.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/hammer_plate_loaded_v_squat.png'
   },
 
@@ -345,7 +349,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Hammer Strength',
       machineModelGuess: 'Hammer Strength - Iso-Lateral Seated Row (Remo Sentado a Discos)'
     }),
-    imageUrl: '/machines/hammer_iso_low_row.png'
+    imageUrl: null
   },
 
   // 20. Hammer Strength — Hammer Strength - 45° Linear Plate-Loaded Leg Press (Prensa 45° a Discos)
@@ -356,13 +360,15 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Hammer Strength - 45° Linear Plate-Loaded Leg Press (Prensa 45° a Discos)',
     canonicalExerciseType: 'leg_press',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Hammer Strength',
-      machineModelGuess: 'Hammer Strength - 45° Linear Plate-Loaded Leg Press (Prensa 45° a Discos)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Prensa lineal de discos a 45°; máxima demanda en flexión profunda de rodilla decreciendo hacia la extensión.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/hammer_plate_loaded_leg_press_45.png'
   },
 

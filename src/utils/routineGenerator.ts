@@ -822,7 +822,7 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
     });
 
     routines.push({
-      id: `wizard_routine_day_${dayIdx + 1}`,
+      id: `wizard_routine_${Date.now()}_day_${dayIdx + 1}`,
       title: dayPlan.name,
       folder_name: 'Rutina Generada por MIA',
       description: `Sesión de ${durationMinutes} min · ${exercises.length} ejercicios · ${exercises.reduce((acc, e) => acc + e.sets.length, 0)} series`,

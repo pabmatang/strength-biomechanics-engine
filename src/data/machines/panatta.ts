@@ -14,13 +14,15 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Panatta - Super Hack Squat 45°',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta - Super Hack Squat 45°'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Guiado lineal en carro 45°; pico de carga en la máxima flexión de rodilla con foco en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/panatta_super_hack_squat.png'
   },
 
@@ -68,13 +70,15 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Panatta - Super Leg Press Bridge 45°',
     canonicalExerciseType: 'leg_press',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta - Super Leg Press Bridge 45°'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Prensa lineal a 45° con carro sobre puente; máxima tensión en elongación profunda.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/panatta_super_leg_press_bridge.png'
   },
 
@@ -121,7 +125,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     line: 'Monolith Selection',
     modelName: 'Panatta Monolith - Standing Abductor (Abducción de Glúteo de Pie)',
     canonicalExerciseType: 'abductor_machine',
-    muscleGroupLabel: 'Glúteo',
+    muscleGroupLabel: 'Abductores',
     profile: classifyMachineResistanceProfile({
       loadType: 'selectorized_stack',
       pivotBehavior: 'opens_to_horizontal_gain',
@@ -194,13 +198,15 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Panatta Freeweight - 45° Hyperextension / Roman Chair (Banco Lumbar y Glúteo)',
     canonicalExerciseType: 'back_extension',
     muscleGroupLabel: 'Lumbares',
-    profile: classifyMachineResistanceProfile({
-      loadType: 'selectorized_stack',
+    profile: {
+      loadType: 'free_weight',
       pivotBehavior: 'linear_neutral',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta Freeweight - 45° Hyperextension / Roman Chair (Banco Lumbar y Glúteo)'
-    }),
+      peakZone: 'uniform',
+      resistanceCurveDescription: 'Banco a 45° para hiperextensión lumbar y glúteo con autocarga / peso libre.',
+      curveWeights: { stretch: 0.334, mid: 0.333, shortened: 0.333 },
+      curveLabel: 'Perfil Uniforme'
+    },
     imageUrl: null
   },
 
@@ -248,13 +254,15 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Panatta Freeweight - Belt Squat a Discos (Sentadilla con Cinturón)',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta Freeweight - Belt Squat a Discos (Sentadilla con Cinturón)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Sentadilla con cinturón a discos; máxima demanda en flexión profunda con foco en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: null
   },
 
@@ -266,13 +274,15 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Panatta Super Freeweight - Pendulum Squat (Sentadilla Péndulo)',
     canonicalExerciseType: 'squat',
     muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
-      pathType: 'linear_fixed',
-      machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta Super Freeweight - Pendulum Squat (Sentadilla Péndulo)'
-    }),
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Sentadilla en péndulo con arco curvo contrapesado; máxima demanda en flexión profunda con descarga hacia la extensión.',
+      curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
+      curveLabel: 'Descendente · Péndulo Profundo'
+    },
     imageUrl: null
   },
 

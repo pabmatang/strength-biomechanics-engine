@@ -253,7 +253,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
     line: 'Gimnasio Estándar',
     modelName: 'Máquina de Abductores (Abrir Piernas)',
     canonicalExerciseType: 'abductor_machine',
-    muscleGroupLabel: 'Glúteo',
+    muscleGroupLabel: 'Abductores',
     profile: {
       loadType: 'selectorized_stack',
       pivotBehavior: 'eccentric_cam_drop',

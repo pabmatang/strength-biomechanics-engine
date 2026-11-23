@@ -880,7 +880,7 @@ export const RoutinesScreen: React.FC<RoutinesScreenProps> = ({
           onCreateRoutine(routine);
         }}
         onSaveAllRoutines={(routines) => {
-          routines.forEach(r => onCreateRoutine(r));
+          [...routines].reverse().forEach(r => onCreateRoutine(r));
         }}
       />
 

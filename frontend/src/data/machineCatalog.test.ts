@@ -126,4 +126,27 @@ describe('MACHINE_CATALOG Integrity Police Suite', () => {
 
     expect(invalidLabels, `Inconsistent or unnormalized muscle group labels: ${invalidLabels.join('; ')}`).toEqual([]);
   });
+
+  it('7. commercial machines (brand !== Estándar) must not share the same imageUrl', () => {
+    const commercialImageMap = new Map<string, string>();
+    const duplicateImageViolations: string[] = [];
+
+    MACHINE_CATALOG.forEach(m => {
+      if (m.brand === 'Estándar' || !m.imageUrl) return;
+
+      const existingMachineId = commercialImageMap.get(m.imageUrl);
+      if (existingMachineId) {
+        duplicateImageViolations.push(
+          `Image '${m.imageUrl}' is shared by '${existingMachineId}' and '${m.id}' (${m.brand})`
+        );
+      } else {
+        commercialImageMap.set(m.imageUrl, m.id);
+      }
+    });
+
+    expect(
+      duplicateImageViolations,
+      `Shared images detected among commercial machines: ${duplicateImageViolations.join('; ')}`
+    ).toEqual([]);
+  });
 });

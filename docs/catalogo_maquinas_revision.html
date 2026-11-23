@@ -67,12 +67,12 @@
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Con Imagen</div>
-        <div class="text-lg font-black font-mono text-emerald-400" id="stat-with-image">94</div>
+        <div class="text-lg font-black font-mono text-emerald-400" id="stat-with-image">93</div>
       </div>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Sin Imagen</div>
-        <div class="text-lg font-black font-mono text-amber-400" id="stat-without-image">67</div>
+        <div class="text-lg font-black font-mono text-amber-400" id="stat-without-image">68</div>
       </div>
     </div>
   </header>
@@ -725,6 +725,93 @@
           <span>free_weight</span>
           <span>linear_fixed</span>
           <span>eleiko_olympic_bench</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Estándar"
+      data-muscle="Abductores"
+      data-has-image="true"
+      data-search="máquina de abductores (abrir piernas) standard_abductor_machine abductor_machine estándar"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <img 
+                   src="../public/machines/technogym_selection_abductor.jpg" 
+                   data-raw="/machines/technogym_selection_abductor.jpg"
+                   alt="Máquina de Abductores (Abrir Piernas)" 
+                   class="w-full h-full object-contain p-2" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/technogym_selection_abductor.jpg')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
+            Estándar
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Máquina de Abductores (Abrir Piernas)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Acortamiento Glúteo Medio</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-standard_abductor_machine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-standard_abductor_machine)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aislamiento de glúteo medio y tensor de la fascia lata con mayor resistencia en abducción total.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>standard_abductor_machine</span>
         </div>
       </div>
     </article>
@@ -1508,93 +1595,6 @@
           <span>selectorized_stack</span>
           <span>circular_arc</span>
           <span>standard_hip_thrust_machine</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Estándar"
-      data-muscle="Glúteo"
-      data-has-image="true"
-      data-search="máquina de abductores (abrir piernas) standard_abductor_machine abductor_machine estándar"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/technogym_selection_abductor.jpg" 
-                   data-raw="/machines/technogym_selection_abductor.jpg"
-                   alt="Máquina de Abductores (Abrir Piernas)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="handleImageFallback(this, '/machines/technogym_selection_abductor.jpg')" 
-                 />
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Glúteo
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-teal-500/15 text-teal-300 border-teal-500/30">
-            Estándar
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Gimnasio Estándar</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Máquina de Abductores (Abrir Piernas)
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>abductor_machine</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Ascendente · Acortamiento Glúteo Medio</span>
-          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-standard_abductor_machine" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
-              fill="none"
-              stroke="url(#grad-standard_abductor_machine)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          Aislamiento de glúteo medio y tensor de la fascia lata con mayor resistencia en abducción total.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
-          <span>circular_arc</span>
-          <span>standard_abductor_machine</span>
         </div>
       </div>
     </article>
@@ -2597,8 +2597,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -2612,20 +2612,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-hammer_plate_loaded_leg_press_45)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Prensa lineal de discos a 45°; máxima demanda en flexión profunda de rodilla decreciendo hacia la extensión.
         </p>
 
         <!-- Technical Footer -->
@@ -2771,8 +2771,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -2786,20 +2786,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-hammer_linear_hack_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Guiado lineal en carro inclinado con sobrecarga en flexión profunda de rodilla y foco en estiramiento.
         </p>
 
         <!-- Technical Footer -->
@@ -3028,8 +3028,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -3043,20 +3043,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-hammer_plate_loaded_v_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Sentadilla en V guiada; mayor brazo de resistencia en flexión y estiramiento profundo.
         </p>
 
         <!-- Technical Footer -->
@@ -3158,20 +3158,18 @@
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Hammer Strength"
       data-muscle="Dorsales"
-      data-has-image="true"
+      data-has-image="false"
       data-search="hammer strength - iso-lateral seated row (remo sentado a discos) hammer_plate_loaded_seated_row seated_row hammer strength"
     >
       <div>
         <!-- Top Media Container -->
         <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <img 
-                   src="../public/machines/hammer_iso_low_row.png" 
-                   data-raw="/machines/hammer_iso_low_row.png"
-                   alt="Hammer Strength - Iso-Lateral Seated Row (Remo Sentado a Discos)" 
-                   class="w-full h-full object-contain p-2" 
-                   loading="lazy" 
-                   onerror="handleImageFallback(this, '/machines/hammer_iso_low_row.png')" 
-                 />
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/hammer_plate_loaded_seated_row.png
+                  </span>
+                </div>
 
           <!-- Muscle Badge -->
           <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
@@ -7370,6 +7368,91 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
+      data-muscle="Abductores"
+      data-has-image="false"
+      data-search="panatta monolith - standing abductor (abducción de glúteo de pie) panatta_monolith_standing_abductor abductor_machine panatta"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+          <div class="text-center p-3 flex flex-col items-center justify-center">
+                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Falta: /machines/panatta_monolith_standing_abductor.png
+                  </span>
+                </div>
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
+            Panatta
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Monolith Selection</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Panatta Monolith - Standing Abductor (Abducción de Glúteo de Pie)
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Pico en Acortamiento · Ascendente</span>
+          <span class="text-slate-400 font-mono">15% / 35% / 50%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-panatta_monolith_standing_abductor" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,29 Q 50,19.666666666666664 90,12.666666666666664"
+              fill="none"
+              stroke="url(#grad-panatta_monolith_standing_abductor)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="12.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>panatta_monolith_standing_abductor</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Panatta"
       data-muscle="Bíceps"
       data-has-image="false"
       data-search="panatta super scott - preacher biceps curl (banco scott a discos) panatta_super_preacher_curl biceps_curl panatta"
@@ -7500,8 +7583,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -7515,20 +7598,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-panatta_super_hack_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Guiado lineal en carro 45°; pico de carga en la máxima flexión de rodilla con foco en estiramiento.
         </p>
 
         <!-- Technical Footer -->
@@ -7587,8 +7670,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -7602,20 +7685,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-panatta_super_leg_press_bridge)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Prensa lineal a 45° con carro sobre puente; máxima tensión en elongación profunda.
         </p>
 
         <!-- Technical Footer -->
@@ -7672,8 +7755,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -7687,20 +7770,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-panatta_super_belt_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Sentadilla con cinturón a discos; máxima demanda en flexión profunda con foco en estiramiento.
         </p>
 
         <!-- Technical Footer -->
@@ -7757,8 +7840,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Péndulo Profundo</span>
+          <span class="text-slate-400 font-mono">50% / 35% / 15%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -7772,26 +7855,26 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,12.666666666666664 Q 50,19.666666666666664 90,29"
               fill="none"
               stroke="url(#grad-panatta_super_pendulum_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="12.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="29" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Sentadilla en péndulo con arco curvo contrapesado; máxima demanda en flexión profunda con descarga hacia la extensión.
         </p>
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
           <span>plate_loaded</span>
-          <span>linear_fixed</span>
+          <span>circular_arc</span>
           <span>panatta_super_pendulum_squat</span>
         </div>
       </div>
@@ -8226,91 +8309,6 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Panatta"
-      data-muscle="Glúteo"
-      data-has-image="false"
-      data-search="panatta monolith - standing abductor (abducción de glúteo de pie) panatta_monolith_standing_abductor abductor_machine panatta"
-    >
-      <div>
-        <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
-          <div class="text-center p-3 flex flex-col items-center justify-center">
-                  <div class="w-9 h-9 mx-auto rounded-full bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400 mb-1.5 font-bold">📷</div>
-                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                    Falta: /machines/panatta_monolith_standing_abductor.png
-                  </span>
-                </div>
-
-          <!-- Muscle Badge -->
-          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
-            Glúteo
-          </span>
-        </div>
-
-        <!-- Brand & Line -->
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
-            Panatta
-          </span>
-          <span class="text-[11px] text-slate-400 font-medium">· Monolith Selection</span>
-        </div>
-
-        <!-- Model Name -->
-        <h3 class="text-base font-bold text-white leading-snug mb-1">
-          Panatta Monolith - Standing Abductor (Abducción de Glúteo de Pie)
-        </h3>
-
-        <!-- Canonical Exercise ID -->
-        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
-          <span class="text-slate-500">ID canónico:</span>
-          <code>abductor_machine</code>
-        </div>
-      </div>
-
-      <!-- Resistance Profile Section -->
-      <div class="pt-3 border-t border-slate-800/80 space-y-2">
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Pico en Acortamiento · Ascendente</span>
-          <span class="text-slate-400 font-mono">15% / 35% / 50%</span>
-        </div>
-
-        <!-- Mini SVG Curve -->
-        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
-          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="grad-panatta_monolith_standing_abductor" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 10,29 Q 50,19.666666666666664 90,12.666666666666664"
-              fill="none"
-              stroke="url(#grad-panatta_monolith_standing_abductor)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-            />
-            <circle cx="10" cy="29" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="12.666666666666664" r="3" fill="#8b5cf6" />
-          </svg>
-        </div>
-
-        <p class="text-[10px] text-slate-400 leading-tight">
-          La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.
-        </p>
-
-        <!-- Technical Footer -->
-        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
-          <span>circular_arc</span>
-          <span>panatta_monolith_standing_abductor</span>
-        </div>
-      </div>
-    </article>
-    <article
-      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
-      data-brand="Panatta"
       data-muscle="Hombros"
       data-has-image="true"
       data-search="panatta - viking press & standing calf (hombros & gemelos) panatta_viking_press_calf shoulder_press_machine panatta"
@@ -8611,7 +8609,7 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
+          <span class="font-bold text-cyan-300">Perfil Uniforme</span>
           <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
         </div>
 
@@ -8639,12 +8637,12 @@
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Banco a 45° para hiperextensión lumbar y glúteo con autocarga / peso libre.
         </p>
 
         <!-- Technical Footer -->
         <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
-          <span>selectorized_stack</span>
+          <span>free_weight</span>
           <span>linear_fixed</span>
           <span>panatta_45_hyperextension_bench</span>
         </div>
@@ -9477,8 +9475,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -9492,20 +9490,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-technogym_pure_belt_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Sentadilla con cinturón a discos; máxima demanda en flexión profunda con foco en elongación de cuádriceps.
         </p>
 
         <!-- Technical Footer -->
@@ -9564,8 +9562,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -9579,20 +9577,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-technogym_pure_hack_squat)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Guiado lineal en plano inclinado con máxima demanda en flexión profunda de rodilla y foco en estiramiento.
         </p>
 
         <!-- Technical Footer -->
@@ -9736,8 +9734,8 @@
       <!-- Resistance Profile Section -->
       <div class="pt-3 border-t border-slate-800/80 space-y-2">
         <div class="flex items-center justify-between text-[11px]">
-          <span class="font-bold text-cyan-300">Perfil Uniforme · Tensión Constante</span>
-          <span class="text-slate-400 font-mono">33% / 33% / 33%</span>
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
         </div>
 
         <!-- Mini SVG Curve -->
@@ -9751,20 +9749,20 @@
               </linearGradient>
             </defs>
             <path
-              d="M 10,20.41333333333333 Q 50,20.46 90,20.46"
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
               fill="none"
               stroke="url(#grad-technogym_pure_leg_press)"
               stroke-width="2.5"
               stroke-linecap="round"
             />
-            <circle cx="10" cy="20.41333333333333" r="3" fill="#06b6d4" />
-            <circle cx="50" cy="20.46" r="3" fill="#3b82f6" />
-            <circle cx="90" cy="20.46" r="3" fill="#8b5cf6" />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
           </svg>
         </div>
 
         <p class="text-[10px] text-slate-400 leading-tight">
-          Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.
+          Prensa de discos a 45° con plano inclinado lineal; máxima carga en la fase de flexión profunda de rodillas.
         </p>
 
         <!-- Technical Footer -->
