@@ -340,8 +340,21 @@ export function getDefaultProfileForExerciseType(exerciseTypeOrId: string): Mach
     };
   }
 
+  // Remo en T / Remo en Punta -> 50/35/15 (Descendente · Pico en Estiramiento)
+  if (id.includes('t_bar_row') || id.includes('t_bar') || id.includes('remo_punta') || id.includes('barra_t')) {
+    return {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'La barra pivota desde el suelo: máximo brazo de momento en estiramiento abajo, reduciéndose al verticalizarse cerca del torso.',
+      curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
+      curveLabel: 'Descendente · Pico en Estiramiento'
+    };
+  }
+
   // Remo en Barra / Mancuerna -> 20/35/45
-  if (id.includes('barbell_row') || id.includes('dumbbell_row') || id.includes('t_bar_row')) {
+  if (id.includes('barbell_row') || id.includes('dumbbell_row')) {
     return {
       loadType: 'plate_loaded',
       pivotBehavior: 'opens_to_horizontal_gain',

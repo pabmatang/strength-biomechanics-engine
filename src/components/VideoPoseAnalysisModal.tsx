@@ -472,10 +472,28 @@ interface SnapshotViewerProps {
   jointsPeak?: Record<string, [number, number]>;
   loadType?: string;
   isUpperBody: boolean;
+  exerciseType?: string;
   activeTab: 'both' | 'stretch' | 'peak';
   isCalibrating: boolean;
   pulleyOrigin: { x: number; y: number } | null;
   onSetPulleyOrigin: (pt: { x: number; y: number }) => void;
+}
+
+function getLeverJointLabels(exerciseType?: string, isUpperBody?: boolean) {
+  if (!isUpperBody) {
+    return { joint1: 'Cadera', joint2: 'Rodilla' };
+  }
+  const ex = (exerciseType || '').toLowerCase();
+  const isPull = ex.includes('pull') || ex.includes('row') || ex.includes('remo') || ex.includes('jalon') || ex.includes('chin') || ex.includes('lat') || ex.includes('t_bar') || ex.includes('gironda') || ex.includes('curl');
+  const isShoulderPress = ex.includes('shoulder') || ex.includes('military') || ex.includes('overhead') || ex.includes('press_militar') || ex.includes('press_hombro');
+  
+  if (isPull) {
+    return { joint1: 'Espalda/Hombro', joint2: 'Bíceps/Codo' };
+  }
+  if (isShoulderPress) {
+    return { joint1: 'Deltoides/Hombro', joint2: 'Tríceps/Codo' };
+  }
+  return { joint1: 'Pectoral/Hombro', joint2: 'Tríceps/Codo' };
 }
 
 interface LeverInfo {
@@ -492,10 +510,11 @@ const SingleSnapshotCanvas: React.FC<{
   joints?: Record<string, [number, number]>;
   loadType?: string;
   isUpperBody: boolean;
+  exerciseType?: string;
   isCalibrating: boolean;
   pulleyOrigin: { x: number; y: number } | null;
   onSetPulleyOrigin: (pt: { x: number; y: number }) => void;
-}> = ({ title, badge, b64, joints, isUpperBody, isCalibrating, pulleyOrigin, onSetPulleyOrigin }) => {
+}> = ({ title, badge, b64, joints, isUpperBody, exerciseType, isCalibrating, pulleyOrigin, onSetPulleyOrigin }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leverInfo, setLeverInfo] = useState<LeverInfo | null>(null);
@@ -642,25 +661,27 @@ const SingleSnapshotCanvas: React.FC<{
           const dEl = pEl ? Math.abs(pEl.x - loadX) : 0;
           const totD = dSh + dEl;
 
-          let ratioText = 'Pectoral: 70% · Codo: 30%';
+          const { joint1, joint2 } = getLeverJointLabels(exerciseType, isUpperBody);
+          let ratioText = `${joint1}: 70% · ${joint2}: 30%`;
           if (totD > 5) {
             const pctSh = Math.round((dSh / totD) * 100);
             const pctEl = 100 - pctSh;
-            ratioText = `Pectoral/Hombro: ${pctSh}% · Tríceps/Codo: ${pctEl}%`;
+            ratioText = `${joint1}: ${pctSh}% · ${joint2}: ${pctEl}%`;
           }
 
           setLeverInfo({
             distPx: Math.round(dSh),
             ratioText,
             mode: 'gravity',
-            targetJointName: 'Hombro'
+            targetJointName: joint1.split('/')[1] || joint1
           });
         } else {
+          const { joint1, joint2 } = getLeverJointLabels(exerciseType, isUpperBody);
           setLeverInfo({
             distPx: Math.round(canvas.width * 0.18),
-            ratioText: 'Pectoral: 68% · Tríceps: 32%',
+            ratioText: `${joint1}: 68% · ${joint2}: 32%`,
             mode: 'gravity',
-            targetJointName: 'Hombro'
+            targetJointName: joint1.split('/')[1] || joint1
           });
         }
       } else {
@@ -759,7 +780,10 @@ const SingleSnapshotCanvas: React.FC<{
         </div>
         <div className="flex items-center gap-1.5">
           <span className="font-mono font-black text-amber-300">
-            {leverInfo?.ratioText || (isUpperBody ? 'Hombro: 70% · Codo: 30%' : 'Cadera: 68% · Rodilla: 32%')}
+            {leverInfo?.ratioText || (() => {
+              const { joint1, joint2 } = getLeverJointLabels(exerciseType, isUpperBody);
+              return `${joint1}: 70% · ${joint2}: 30%`;
+            })()}
           </span>
         </div>
       </div>
@@ -774,6 +798,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
   jointsPeak,
   loadType,
   isUpperBody,
+  exerciseType,
   activeTab,
   isCalibrating,
   pulleyOrigin,
@@ -799,6 +824,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
               joints={jointsStretch}
               loadType={loadType}
               isUpperBody={isUpperBody}
+              exerciseType={exerciseType}
               isCalibrating={isCalibrating}
               pulleyOrigin={pulleyOrigin}
               onSetPulleyOrigin={onSetPulleyOrigin}
@@ -812,6 +838,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
               joints={jointsPeak}
               loadType={loadType}
               isUpperBody={isUpperBody}
+              exerciseType={exerciseType}
               isCalibrating={isCalibrating}
               pulleyOrigin={pulleyOrigin}
               onSetPulleyOrigin={onSetPulleyOrigin}
@@ -826,6 +853,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
           joints={jointsStretch}
           loadType={loadType}
           isUpperBody={isUpperBody}
+          exerciseType={exerciseType}
           isCalibrating={isCalibrating}
           pulleyOrigin={pulleyOrigin}
           onSetPulleyOrigin={onSetPulleyOrigin}
@@ -838,6 +866,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
           joints={jointsPeak}
           loadType={loadType}
           isUpperBody={isUpperBody}
+          exerciseType={exerciseType}
           isCalibrating={isCalibrating}
           pulleyOrigin={pulleyOrigin}
           onSetPulleyOrigin={onSetPulleyOrigin}
@@ -3834,7 +3863,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     effective_set_credit: idx === 0 ? 0.5 : 0.3,
                     reason: 'Sinergista agonista / estabilizador.'
                   }));
-                  const tensionProfile = customTensionProfile || stim?.tension_profile || 'Uniforme';
+                  const activeProfile = catalogMachine
+                    ? catalogMachine.profile
+                    : getDefaultProfileForExerciseType(selectedExerciseId || activeExercise.id);
+                  const effectiveProfileLabel = customTensionProfile || activeProfile.curveLabel || activeProfile.peakZone || stim?.tension_profile || 'Uniforme';
 
                   const rirVal = analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2.0;
                   const totalRepsCurrent = analysisData?.total_reps ?? 0;
@@ -3857,16 +3889,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           >
                             <Compass className="w-3.5 h-3.5 text-cyan-400" />
                             <span className="truncate max-w-[160px]">
-                              {catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil: ${tensionProfile}`} · Cambiar
+                              {catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil: ${effectiveProfileLabel}`} · Cambiar
                             </span>
                           </button>
                         </div>
 
                         {/* Biomechanical Resistance Curve with Superuser Interactive Editing */}
                         {(() => {
-                          const activeProfile = catalogMachine
-                            ? catalogMachine.profile
-                            : getDefaultProfileForExerciseType(selectedExerciseId || activeExercise.id);
                           const profileTargetId = catalogMachine ? catalogMachine.id : (selectedExerciseId || activeExercise.id);
                           const profileTargetName = catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : activeExercise.name;
 
@@ -4095,6 +4124,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           jointsPeak={analysisData.joints_peak}
                           loadType={activeExercise.loadType}
                           isUpperBody={isUpperBody}
+                          exerciseType={activeExercise.exerciseType || activeExercise.name}
                           activeTab={activeSnapshotTab}
                           isCalibrating={isCalibratingPulley}
                           pulleyOrigin={proPulleyOrigin}

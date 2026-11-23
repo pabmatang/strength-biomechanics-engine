@@ -389,22 +389,30 @@ const html = `<!DOCTYPE html>
     let missingOnly = false;
 
     function handleImageFallback(img, rawPath) {
-      if (!img.dataset.stage) {
-        img.dataset.stage = '1';
-        // First fallback: root-relative path (for Vite / web servers)
-        img.src = rawPath;
-      } else if (img.dataset.stage === '1') {
-        img.dataset.stage = '2';
-        // Second fallback: alternate extension
-        if (img.src.endsWith('.png')) {
-          img.src = img.src.slice(0, -4) + '.jpg';
-        } else if (img.src.endsWith('.jpg')) {
-          img.src = img.src.slice(0, -4) + '.png';
+      const candidates = [
+        rawPath,
+        '../public' + rawPath,
+        'public' + rawPath,
+        '.' + rawPath,
+        rawPath.endsWith('.png') ? rawPath.slice(0, -4) + '.jpg' : rawPath.slice(0, -4) + '.png',
+        ('../public' + rawPath).endsWith('.png') ? ('../public' + rawPath).slice(0, -4) + '.jpg' : ('../public' + rawPath).slice(0, -4) + '.png'
+      ];
+      let step = parseInt(img.dataset.failStep || '0', 10);
+      if (step < candidates.length) {
+        img.dataset.failStep = String(step + 1);
+        img.src = candidates[step];
+      } else {
+        // Fallback gracefully without showing broken image cross
+        const parent = img.parentElement;
+        if (parent) {
+          const alt = img.alt || 'Máquina';
+          const cleanName = rawPath.replace('/machines/', '');
+          parent.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center bg-slate-900/80 text-slate-400 p-3 text-center">' +
+            '<div class="w-9 h-9 rounded-2xl bg-cyan-950/60 border border-cyan-800/40 flex items-center justify-center text-cyan-400 font-bold mb-1.5 text-base shadow-sm">🏋️</div>' +
+            '<span class="text-[11px] font-bold text-slate-200 line-clamp-2 px-1">' + alt + '</span>' +
+            '<span class="text-[9px] text-cyan-400 font-mono mt-0.5">' + cleanName + '</span>' +
+            '</div>';
         }
-      } else if (img.dataset.stage === '2') {
-        img.dataset.stage = '3';
-        // Third fallback: relative public/ path
-        img.src = 'public' + rawPath;
       }
     }
 
@@ -503,4 +511,9 @@ const html = `<!DOCTYPE html>
 const htmlPath = path.join(docsDir, 'catalogo_maquinas_revision.html');
 fs.writeFileSync(htmlPath, html, 'utf-8');
 console.log(`Saved HTML visual catalog to: ${htmlPath}`);
+
+const publicHtmlPath = path.join(publicDir, 'catalogo_maquinas_revision.html');
+fs.writeFileSync(publicHtmlPath, html, 'utf-8');
+console.log(`Saved HTML visual catalog copy to: ${publicHtmlPath}`);
+
 console.log(`Audit complete: ${totalMachines} machines processed.`);

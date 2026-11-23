@@ -608,7 +608,36 @@ def generate_deterministic_clinical_audit(
         })
     cues.sort(key=lambda x: x["timestamp_sec"])
     
-    if is_upper:
+    is_free_inclined_row = any(k in ex_lower for k in ["t_bar", "remo_punta", "barra_t", "barbell_row", "dumbbell_row", "remo_barra", "remo_mancuerna"]) or (("row" in ex_lower or "remo" in ex_lower) and not any(k in ex_lower for k in ["chest_supported", "apoyo", "pecho", "machine_row", "seated_row"]))
+    
+    if is_free_inclined_row:
+        checks = [
+            {
+                "joint": "Columna Lumbar",
+                "status": "pass",
+                "observation": "Bisagra de cadera estable y columna neutra sin redondeo lumbar ni balanceo excesivo del torso.",
+                "fix": "Mantén la rigidez abdominal (bracing) y evita utilizar impulso de cadera en la tracción."
+            },
+            {
+                "joint": "Hombro / Escápula",
+                "status": "pass",
+                "observation": "Protracción controlada en estiramiento y retracción escapular limpia al final de la tracción.",
+                "fix": "Permite que las escápulas abran abajo pero no encorves la columna dorsal."
+            },
+            {
+                "joint": "Codo",
+                "status": "pass",
+                "observation": "Trayectoria del codo dirigida hacia la cadera/costillas sin elevación compensatoria del trapecio.",
+                "fix": "Conduce el movimiento desde los codos manteniendo los hombros lejos de las orejas."
+            },
+            {
+                "joint": "Muñeca",
+                "status": "pass",
+                "observation": "Muñeca neutra alineada con el antebrazo.",
+                "fix": "Mantén un agarre firme en gancho sin flexionar la muñeca hacia dentro."
+            }
+        ]
+    elif is_upper:
         checks = [
             {
                 "joint": "Hombro",
@@ -1429,58 +1458,103 @@ def run_inference_batches(
     # ---------------------------------------------------------------------
     # Pass 2: Strict Temporal Athlete Tracking across ALL frames
     # ---------------------------------------------------------------------
+    # Step A: Identify and lock the primary active athlete during initial frames
+    init_window = min(25, n_frames)
+    tracklets = []
+    for f_idx in range(init_window):
+        cands = all_frame_detections[f_idx]
+        unmatched_cands = list(cands)
+        for trk in tracklets:
+            last_b = trk['boxes'][-1]
+            best_iou = 0.0
+            best_cand_idx = -1
+            for idx, (b_cand, score) in enumerate(unmatched_cands):
+                ix1 = max(last_b[0], b_cand[0])
+                iy1 = max(last_b[1], b_cand[1])
+                ix2 = min(last_b[2], b_cand[2])
+                iy2 = min(last_b[3], b_cand[3])
+                inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+                a1 = max(1.0, (last_b[2] - last_b[0]) * (last_b[3] - last_b[1]))
+                a2 = max(1.0, (b_cand[2] - b_cand[0]) * (b_cand[3] - b_cand[1]))
+                iou_val = inter / (a1 + a2 - inter)
+                if iou_val > best_iou:
+                    best_iou = iou_val
+                    best_cand_idx = idx
+            if best_cand_idx >= 0 and best_iou >= 0.30:
+                b_cand, score = unmatched_cands.pop(best_cand_idx)
+                trk['boxes'].append(b_cand)
+                trk['frames'].append(f_idx)
+        for b_cand, score in unmatched_cands:
+            tracklets.append({'boxes': [b_cand], 'frames': [f_idx]})
+
+    # Select the tracklet with greatest active movement and horizontal centering
+    best_metric = -1.0
+    locked_athlete_box = None
+    for trk in tracklets:
+        if len(trk['boxes']) < 2:
+            continue
+        motion = 0.0
+        cxs, cys, areas = [], [], []
+        for i in range(1, len(trk['boxes'])):
+            b_prev = trk['boxes'][i-1]
+            b_curr = trk['boxes'][i]
+            c1 = ((b_prev[0] + b_prev[2]) / 2.0, (b_prev[1] + b_prev[3]) / 2.0)
+            c2 = ((b_curr[0] + b_curr[2]) / 2.0, (b_curr[1] + b_curr[3]) / 2.0)
+            motion += math.hypot(c2[0] - c1[0], c2[1] - c1[1])
+            cxs.append(c2[0])
+            cys.append(c2[1])
+            areas.append((b_curr[2] - b_curr[0]) * (b_curr[3] - b_curr[1]))
+        mean_cx_norm = (sum(cxs) / len(cxs)) / float(eff_w) if cxs else 0.5
+        horiz_centering = max(0.1, 1.0 - 1.5 * abs(mean_cx_norm - 0.5))
+        metric = (motion + 15.0) * (horiz_centering ** 2) * (np.mean(areas) ** 0.5 if areas else 1.0)
+        if metric > best_metric:
+            best_metric = metric
+            locked_athlete_box = trk['boxes'][0]
+
+    # Fallback if no multi-frame tracklet formed
+    if locked_athlete_box is None:
+        p0 = all_frame_detections[0] if len(all_frame_detections) > 0 else []
+        if len(p0) > 0:
+            locked_athlete_box = max(p0, key=lambda x: (x[0][2]-x[0][0])*(x[0][3]-x[0][1]))[0]
+        else:
+            locked_athlete_box = [0.0, 0.0, float(eff_w), float(eff_h)]
+
+    # Step B: Track strictly with IoU >= 0.35 lock, prohibiting jumps to spotters/third parties
     raw_tracked_boxes = []
-    tracked_box = None
+    tracked_box = locked_athlete_box
 
     for f_idx in range(n_frames):
         p_candidates = all_frame_detections[f_idx]
-        if tracked_box is None:
-            # First valid frame: pick person with max area * centeredness
-            if len(p_candidates) > 0:
-                best_metric = -1.0
-                best_box = p_candidates[0][0]
-                for b, score in p_candidates:
-                    area = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
-                    cx_norm = ((b[0] + b[2]) / 2.0) / float(eff_w)
-                    cy_norm = ((b[1] + b[3]) / 2.0) / float(eff_h)
-                    dist_center = math.hypot(cx_norm - 0.5, cy_norm - 0.5)
-                    centeredness = max(0.05, 1.0 - 0.8 * dist_center)
-                    metric = area * centeredness * score
-                    if metric > best_metric:
-                        best_metric = metric
-                        best_box = b
-                tracked_box = best_box
-            else:
-                tracked_box = [0.0, 0.0, float(eff_w), float(eff_h)]
-            raw_tracked_boxes.append(tracked_box)
-        else:
-            prev_b = tracked_box
-            prev_cx = (prev_b[0] + prev_b[2]) / 2.0
-            prev_cy = (prev_b[1] + prev_b[3]) / 2.0
-            prev_area = max(1.0, (prev_b[2] - prev_b[0]) * (prev_b[3] - prev_b[1]))
+        prev_b = tracked_box
+        prev_cx = (prev_b[0] + prev_b[2]) / 2.0
+        prev_cy = (prev_b[1] + prev_b[3]) / 2.0
+        prev_area = max(1.0, (prev_b[2] - prev_b[0]) * (prev_b[3] - prev_b[1]))
 
-            # Filter candidates within normalized center distance < 0.25
-            valid_cands = []
-            for b, score in p_candidates:
-                cand_cx = (b[0] + b[2]) / 2.0
-                cand_cy = (b[1] + b[3]) / 2.0
-                norm_center_dist = math.hypot(cand_cx - prev_cx, cand_cy - prev_cy) / float(max(eff_w, eff_h))
-                if norm_center_dist < 0.25:
-                    # Compute IoU with tracked_box
-                    ix1 = max(prev_b[0], b[0])
-                    iy1 = max(prev_b[1], b[1])
-                    ix2 = min(prev_b[2], b[2])
-                    iy2 = min(prev_b[3], b[3])
-                    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
-                    cand_area = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
-                    iou = inter / (prev_area + cand_area - inter)
-                    match_score = iou * 0.70 + score * 0.30 - norm_center_dist * 0.50
-                    valid_cands.append((match_score, b))
+        valid_cands = []
+        for b, score in p_candidates:
+            cand_cx = (b[0] + b[2]) / 2.0
+            cand_cy = (b[1] + b[3]) / 2.0
+            norm_center_dist = math.hypot(cand_cx - prev_cx, cand_cy - prev_cy) / float(max(eff_w, eff_h))
+            
+            ix1 = max(prev_b[0], b[0])
+            iy1 = max(prev_b[1], b[1])
+            ix2 = min(prev_b[2], b[2])
+            iy2 = min(prev_b[3], b[3])
+            inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+            cand_area = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
+            iou = inter / (prev_area + cand_area - inter)
 
-            if len(valid_cands) > 0:
-                valid_cands.sort(key=lambda x: x[0], reverse=True)
-                tracked_box = valid_cands[0][1]
-            raw_tracked_boxes.append(tracked_box)
+            # Strict association: require IoU >= 0.35 and close spatial continuity
+            if iou >= 0.35 and norm_center_dist < 0.25:
+                # Rank primarily by IoU and distance, detector score is NOT allowed to cause jumps to bystanders
+                match_score = iou * 0.85 - norm_center_dist * 0.15
+                valid_cands.append((match_score, b))
+
+        if len(valid_cands) > 0:
+            valid_cands.sort(key=lambda x: x[0], reverse=True)
+            tracked_box = valid_cands[0][1]
+        # If no box meets IoU >= 0.35, maintain tracked_box (smooth interpolation/persistence)
+        raw_tracked_boxes.append(tracked_box)
 
     raw_tracked_boxes = np.array(raw_tracked_boxes, dtype=np.float32)
 
