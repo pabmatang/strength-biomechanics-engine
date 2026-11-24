@@ -31,5 +31,5 @@ scripts/__pycache__/
 
 *.zip
 
-data/
-scratch/
+/data/
+/scratch/

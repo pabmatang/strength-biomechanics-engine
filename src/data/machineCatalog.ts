@@ -68,7 +68,7 @@ import {
   LIFE_FITNESS_MACHINES,
   OTHER_BRANDS_MACHINES,
   ALL_MODULAR_MACHINES
-} from './machines';
+} from './machines/index';
 
 export {
   TECHNOGYM_MACHINES,
