@@ -42,6 +42,8 @@ export type MachineCatalogBrand =
   | 'Estándar'
   | 'Genérica';
 
+export type MachineLaterality = 'bilateral' | 'iso_lateral' | 'unilateral';
+
 export interface CatalogMachineEntry {
   id: string; // ej. 'technogym_pure_chest_press'
   brand: MachineCatalogBrand;
@@ -51,27 +53,36 @@ export interface CatalogMachineEntry {
   muscleGroupLabel: NormalizedMuscleGroup;
   profile: MachineResistanceProfile;
   imageUrl?: string | null;
+  laterality?: MachineLaterality;
+  setupCue?: string;
+  aliases?: string[];
 }
 
-import { TECHNOGYM_MACHINES } from './machines/technogym';
-import { HAMMER_STRENGTH_MACHINES } from './machines/hammerStrength';
-import { TITANIUM_STRENGTH_MACHINES } from './machines/titaniumStrength';
-import { MATRIX_MACHINES } from './machines/matrix';
-import { PANATTA_MACHINES } from './machines/panatta';
-import { ESTANDAR_MACHINES } from './machines/estandar';
-import { LIFE_FITNESS_MACHINES } from './machines/lifeFitness';
-import { OTHER_BRANDS_MACHINES } from './machines/otherBrands';
+import {
+  TECHNOGYM_MACHINES,
+  HAMMER_STRENGTH_MACHINES,
+  TITANIUM_STRENGTH_MACHINES,
+  MATRIX_MACHINES,
+  PANATTA_MACHINES,
+  ESTANDAR_MACHINES,
+  LIFE_FITNESS_MACHINES,
+  OTHER_BRANDS_MACHINES,
+  ALL_MODULAR_MACHINES
+} from './machines';
 
-export const MACHINE_CATALOG: CatalogMachineEntry[] = [
-  ...TECHNOGYM_MACHINES,
-  ...HAMMER_STRENGTH_MACHINES,
-  ...TITANIUM_STRENGTH_MACHINES,
-  ...MATRIX_MACHINES,
-  ...PANATTA_MACHINES,
-  ...ESTANDAR_MACHINES,
-  ...LIFE_FITNESS_MACHINES,
-  ...OTHER_BRANDS_MACHINES
-];
+export {
+  TECHNOGYM_MACHINES,
+  HAMMER_STRENGTH_MACHINES,
+  TITANIUM_STRENGTH_MACHINES,
+  MATRIX_MACHINES,
+  PANATTA_MACHINES,
+  ESTANDAR_MACHINES,
+  LIFE_FITNESS_MACHINES,
+  OTHER_BRANDS_MACHINES,
+  ALL_MODULAR_MACHINES
+};
+
+export const MACHINE_CATALOG: CatalogMachineEntry[] = ALL_MODULAR_MACHINES;
 
 export function getCustomMachines(): CatalogMachineEntry[] {
   try {
@@ -96,8 +107,140 @@ export function getCustomMachines(): CatalogMachineEntry[] {
   }
 }
 
+export function enrichMachineEntry(m: CatalogMachineEntry): CatalogMachineEntry {
+  const idLower = m.id.toLowerCase();
+  const nameLower = m.modelName.toLowerCase();
+  const lineLower = (m.line || '').toLowerCase();
+  const exType = m.canonicalExerciseType.toLowerCase();
+
+  // Infiere laterality si no existe
+  let laterality = m.laterality;
+  if (!laterality) {
+    if (
+      idLower.includes('unilateral') ||
+      idLower.includes('single') ||
+      nameLower.includes('unilateral') ||
+      idLower.includes('standing_glute') ||
+      idLower.includes('standing_abductor') ||
+      idLower.includes('standing_leg_curl') ||
+      nameLower.includes('de pie')
+    ) {
+      laterality = 'unilateral';
+    } else if (
+      idLower.includes('iso') ||
+      nameLower.includes('iso-lateral') ||
+      nameLower.includes('isolateral') ||
+      lineLower.includes('pure strength') ||
+      lineLower.includes('black series') ||
+      lineLower.includes('freeweight') ||
+      lineLower.includes('magnum') ||
+      nameLower.includes('convergente') ||
+      nameLower.includes('divergente')
+    ) {
+      laterality = 'iso_lateral';
+    } else {
+      laterality = 'bilateral';
+    }
+  }
+
+  // Infiere setupCue si no existe
+  let setupCue = m.setupCue;
+  if (!setupCue) {
+    if (exType.includes('leg_press')) {
+      setupCue = 'Ajusta el respaldo para permitir flexión completa sin despegue sacro; pies al ancho de cadera.';
+    } else if (exType.includes('squat')) {
+      setupCue = 'Coloca los hombros firmes bajo las almohadillas y los pies adelantados para máxima flexión de rodilla.';
+    } else if (exType.includes('incline_press')) {
+      setupCue = 'Ajusta la altura del asiento para alinear las empuñaduras con la parte clavicular del pectoral.';
+    } else if (exType.includes('chest_press')) {
+      setupCue = 'Ajusta el asiento para que los agarres queden a la altura del esternón medio.';
+    } else if (exType.includes('t_bar')) {
+      setupCue = 'Coloca los pies anclados y apoya el pecho firme sin arquear la zona lumbar.';
+    } else if (exType.includes('row') || exType.includes('remo')) {
+      setupCue = 'Ajusta el apoyo torácico para permitir elongación completa sin encorvar la zona lumbar.';
+    } else if (exType.includes('lat_pulldown') || exType.includes('pulldown') || exType.includes('pullup')) {
+      setupCue = 'Fija el rodillo sobre los muslos para anclar la pelvis; inicia el tirón deprimiendo escápulas.';
+    } else if (exType.includes('shoulder')) {
+      setupCue = 'Regula el asiento para que los agarres inicien a la altura de las clavículas.';
+    } else if (exType.includes('lateral_raise')) {
+      setupCue = 'Alinea el eje de rotación de la máquina con el centro de la articulación glenohumeral.';
+    } else if (exType.includes('seated_leg_curl')) {
+      setupCue = 'Alinea el eje del rodillo con la articulación de la rodilla y ajusta la almohadilla superior sobre los muslos.';
+    } else if (exType.includes('leg_extension')) {
+      setupCue = 'Alinea el eje de giro con los cóndilos femorales y coloca el rodillo sobre el empeine.';
+    } else if (exType.includes('hip_thrust')) {
+      setupCue = 'Coloca la almohadilla o cinturón sobre la pelvis y apoya las escápulas firmemente en el respaldo.';
+    } else if (exType.includes('calf')) {
+      setupCue = 'Apoya los metatarsos en el borde para máximo rango excéntrico sin doblar rodillas.';
+    } else if (exType.includes('pec_deck') || exType.includes('fly')) {
+      setupCue = 'Ajusta el asiento de modo que los codos y muñecas queden a la altura de los pezones.';
+    } else if (exType.includes('biceps') || exType.includes('curl')) {
+      setupCue = 'Apoya los codos planos en la almohadilla del predicador alineando el eje articular con los codos.';
+    } else if (exType.includes('abductor')) {
+      setupCue = 'Espalda pegada al respaldo; empuja desde las rodillas y controla la fase excéntrica.';
+    } else if (exType.includes('adductor')) {
+      setupCue = 'Inicia desde una apertura cómoda sin dolor inguinal; cierra de forma fluida.';
+    } else if (exType.includes('deadlift')) {
+      setupCue = 'Bloquea la columna neutra y empuja el suelo con las piernas manteniendo el torso compacto.';
+    } else {
+      setupCue = 'Ajusta la posición del asiento para alinear tus articulaciones con el eje de palanca de la máquina.';
+    }
+  }
+
+  // Infiere aliases si no existen
+  let aliases = m.aliases;
+  if (!aliases || aliases.length === 0) {
+    const defaultAliases: string[] = [];
+    if (exType.includes('leg_press')) {
+      defaultAliases.push('prensa', 'leg press', 'prensa 45', 'prensa de piernas');
+    } else if (exType.includes('squat')) {
+      defaultAliases.push('sentadilla', 'hack', 'hack squat', 'sentadilla hack', 'pendulum');
+    } else if (exType.includes('incline_press')) {
+      defaultAliases.push('press inclinado', 'incline press', 'pecho superior', 'inclinado');
+    } else if (exType.includes('chest_press')) {
+      defaultAliases.push('press banca', 'press pecho', 'press plano', 'chest press', 'pecho');
+    } else if (exType.includes('t_bar')) {
+      defaultAliases.push('remo en t', 't-bar', 't bar', 'remo punta', 'barra t');
+    } else if (exType.includes('row') || exType.includes('remo')) {
+      defaultAliases.push('remo', 'remo sentado', 'remo gironda', 'row', 'remo polea', 'remo apoyo');
+    } else if (exType.includes('pulldown') || exType.includes('lat')) {
+      defaultAliases.push('jalon', 'jalón', 'polea alta', 'lat pulldown', 'traccion dorsal');
+    } else if (exType.includes('shoulder')) {
+      defaultAliases.push('press militar', 'press hombro', 'shoulder press', 'deltoides');
+    } else if (exType.includes('lateral_raise')) {
+      defaultAliases.push('elevaciones laterales', 'vuelos', 'laterales', 'pajaros', 'deltoides lateral');
+    } else if (exType.includes('seated_leg_curl') || exType.includes('leg_curl')) {
+      defaultAliases.push('curl femoral', 'femoral sentado', 'femoral tumbado', 'leg curl', 'isquios');
+    } else if (exType.includes('leg_extension')) {
+      defaultAliases.push('extension cuadriceps', 'extensiones', 'leg extension', 'cuadriceps');
+    } else if (exType.includes('hip_thrust')) {
+      defaultAliases.push('hip thrust', 'empuje cadera', 'gluteo', 'glute drive', 'puente');
+    } else if (exType.includes('pec_deck') || exType.includes('fly')) {
+      defaultAliases.push('contractora', 'aperturas', 'pec deck', 'peck deck', 'pec fly', 'mariposa');
+    } else if (exType.includes('calf')) {
+      defaultAliases.push('gemelos', 'elevacion talones', 'calf raise', 'soleo', 'pantorrilla');
+    } else if (exType.includes('abductor')) {
+      defaultAliases.push('abductores', 'abductor', 'abrir piernas', 'gluteo medio');
+    } else if (exType.includes('adductor')) {
+      defaultAliases.push('aductores', 'adductor', 'cerrar piernas', 'entrepierna');
+    } else if (exType.includes('biceps') || exType.includes('curl')) {
+      defaultAliases.push('biceps', 'curl predicador', 'scott', 'arm curl');
+    } else if (exType.includes('deadlift')) {
+      defaultAliases.push('peso muerto', 'deadlift', 'bisagra cadera');
+    }
+    aliases = defaultAliases;
+  }
+
+  return {
+    ...m,
+    laterality,
+    setupCue,
+    aliases
+  };
+}
+
 export function getAllCatalogMachines(): CatalogMachineEntry[] {
-  return [...MACHINE_CATALOG, ...getCustomMachines()];
+  return [...MACHINE_CATALOG, ...getCustomMachines()].map(enrichMachineEntry);
 }
 
 export function searchCatalogMachines(query: string = '', brand?: string): CatalogMachineEntry[] {
@@ -113,7 +256,8 @@ export function searchCatalogMachines(query: string = '', brand?: string): Catal
       m.brand.toLowerCase().includes(q) ||
       m.canonicalExerciseType.toLowerCase().includes(q) ||
       m.muscleGroupLabel.toLowerCase().includes(q) ||
-      (m.line && m.line.toLowerCase().includes(q))
+      (m.line && m.line.toLowerCase().includes(q)) ||
+      (m.aliases && m.aliases.some(alias => alias.toLowerCase().includes(q)))
     );
   }
   return list;
@@ -340,8 +484,21 @@ export function getDefaultProfileForExerciseType(exerciseTypeOrId: string): Mach
     };
   }
 
+  // Remo en T / Remo en Punta -> 50/35/15 (Descendente · Pico en Estiramiento)
+  if (id.includes('t_bar_row') || id.includes('t_bar') || id.includes('remo_punta') || id.includes('barra_t')) {
+    return {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'La barra pivota desde el suelo: máximo brazo de momento en estiramiento abajo, reduciéndose al verticalizarse cerca del torso.',
+      curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
+      curveLabel: 'Descendente · Pico en Estiramiento'
+    };
+  }
+
   // Remo en Barra / Mancuerna -> 20/35/45
-  if (id.includes('barbell_row') || id.includes('dumbbell_row') || id.includes('t_bar_row')) {
+  if (id.includes('barbell_row') || id.includes('dumbbell_row')) {
     return {
       loadType: 'plate_loaded',
       pivotBehavior: 'opens_to_horizontal_gain',

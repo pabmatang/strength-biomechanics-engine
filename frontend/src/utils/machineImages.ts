@@ -14,7 +14,7 @@ export const VERIFIED_MACHINE_IMAGES: Record<string, string> = {
   hammer_iso_decline_press_plate: '/machines/hammer_iso_decline_press.png',
   hammer_decline_press: '/machines/hammer_decline_press.png',
   hammer_incline_press: '/machines/hammer_incline_press.png',
-  matrix_ultra_converging_chest: '/machines/matrix_ultra_converging_chest.jpg',
+  matrix_ultra_converging_chest: '/machines/matrix_ultra_converging_chest.png',
   matrix_chest_press: '/machines/matrix_chest_press.jpg',
   panatta_incline_chest: '/machines/panatta_incline_chest.png',
   technogym_selection_pec_deck_reverse_fly: '/machines/technogym_selection_pec_deck_reverse_fly.png',
@@ -41,7 +41,7 @@ export const VERIFIED_MACHINE_IMAGES: Record<string, string> = {
   panatta_super_t_bar_row: '/machines/hammer_iso_dy_row.png',
   panatta_super_high_row: '/machines/panatta_super_high_row.png',
   panatta_super_rowing_plate: '/machines/panatta_super_high_row.png',
-  matrix_ultra_diverging_lat_pulldown: '/machines/matrix_ultra_diverging_lat_pulldown.jpg',
+  matrix_ultra_diverging_lat_pulldown: '/machines/matrix_ultra_diverging_lat_pulldown.png',
   matrix_lat_pulldown: '/machines/matrix_lat_pulldown.jpg',
   matrix_ultra_seated_row: '/machines/matrix_ultra_seated_row.jpg',
 
@@ -61,7 +61,7 @@ export const VERIFIED_MACHINE_IMAGES: Record<string, string> = {
   panatta_super_pendulum_squat: '/machines/panatta_super_hack_squat.png',
   technogym_selection_leg_extension: '/machines/technogym_selection_leg_extension.png',
   hammer_iso_leg_extension: '/machines/hammer_iso_leg_extension.png',
-  matrix_ultra_leg_extension: '/machines/matrix_ultra_leg_extension.jpg',
+  matrix_ultra_leg_extension: '/machines/matrix_ultra_leg_extension.png',
   matrix_leg_extension: '/machines/matrix_leg_extension.jpg',
 
   // Femoral (Hamstrings)
@@ -94,7 +94,7 @@ export const VERIFIED_MACHINE_IMAGES: Record<string, string> = {
   hammer_super_horizontal_calf: '/machines/hammer_super_horizontal_calf.png',
   technogym_selection_standing_calf: '/machines/technogym_selection_standing_calf.png',
   matrix_calf_extension: '/machines/matrix_calf_extension.jpg',
-  matrix_versa_calf_extension: '/machines/matrix_calf_extension.jpg',
+  matrix_versa_calf_extension: '/machines/matrix_versa_calf_extension.png',
   gym80_pure_kraft_seated_calf: '/machines/hammer_seated_calf_raise.png',
   hammer_tibia_dorsi_flexion: '/machines/matrix_calf_extension.jpg',
 

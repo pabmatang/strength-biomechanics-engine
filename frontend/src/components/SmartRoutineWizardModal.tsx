@@ -29,6 +29,7 @@ import {
   calculateEstimatedSessionDuration,
   generateWizardRoutines
 } from '../utils/routineGenerator';
+import { MachineThumbnail } from './MachineThumbnail';
 
 interface SmartRoutineWizardModalProps {
   isOpen: boolean;
@@ -40,12 +41,9 @@ interface SmartRoutineWizardModalProps {
 const AVAILABLE_BRANDS: { brand: MachineBrandFilter; title: string; desc: string }[] = [
   { brand: 'Technogym', title: 'Technogym Pure Strength', desc: 'Palancas de discos independientes y convergentes' },
   { brand: 'Hammer Strength', title: 'Hammer Strength Iso-Lateral', desc: 'Máquinas olímpicas divergentes de alta carga' },
-  { brand: 'Titanium Strength', title: 'Titanium Strength', desc: 'Maquinaria pesada comercial de palancas convergentes' },
+  { brand: 'Matrix', title: 'Matrix Ultra & Magnum', desc: 'Torres selectorizadas y palancas convergentes/divergentes' },
   { brand: 'Panatta', title: 'Panatta FreeWeight / Monolith', desc: 'Biomecánica italiana con brazos de palanca circulares' },
-  { brand: 'Nautilus', title: 'Nautilus Nitro', desc: 'Leva excéntrica para máxima curva de fuerza' },
-  { brand: 'Cybex', title: 'Cybex Eagle', desc: 'Doble eje articulado para articulaciones protegidas' },
-  { brand: 'Matrix', title: 'Matrix Ultra Converging', desc: 'Torres selectorizadas convergentes/divergentes' },
-  { brand: 'Gym80', title: 'Gym80 Sygnum', desc: 'Ingeniería alemana de acero pesado y tensión uniforme' }
+  { brand: 'Titanium Strength', title: 'Titanium Strength Black Series', desc: 'Maquinaria pesada comercial de palancas convergentes' }
 ];
 
 export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = ({
@@ -658,20 +656,15 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                         className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          {ex.image_url ? (
-                            <img
-                              src={ex.image_url}
-                              alt={ex.title}
-                              className="w-10 h-10 rounded-lg object-cover bg-slate-950 border border-slate-800 flex-shrink-0"
-                              onError={e => {
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 text-slate-400">
-                              <Dumbbell className="w-5 h-5" />
-                            </div>
-                          )}
+                          <MachineThumbnail
+                            imageUrl={ex.image_url}
+                            alt={ex.title}
+                            brand={ex.brand}
+                            modelName={ex.title}
+                            className="w-10 h-10 rounded-lg flex-shrink-0"
+                            imageClassName="w-full h-full object-contain p-0.5"
+                            showCurve={false}
+                          />
                           <div className="min-w-0">
                             <div className="font-bold text-white truncate">{ex.title}</div>
                             <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">

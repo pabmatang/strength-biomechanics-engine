@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { MACHINE_CATALOG, type NormalizedMuscleGroup } from './machineCatalog';
 
 const VALID_NORMALIZED_MUSCLES: NormalizedMuscleGroup[] = [
@@ -148,5 +149,35 @@ describe('MACHINE_CATALOG Integrity Police Suite', () => {
       duplicateImageViolations,
       `Shared images detected among commercial machines: ${duplicateImageViolations.join('; ')}`
     ).toEqual([]);
+  });
+
+  it('8. commercial machines must not share identical binary image file contents (hash check)', () => {
+    const publicDir = path.resolve(process.cwd(), 'public');
+    const hashMap = new Map<string, string>();
+    const hashViolations: string[] = [];
+
+    MACHINE_CATALOG.forEach(m => {
+      if (m.brand === 'Estándar' || !m.imageUrl) return;
+      const rel = m.imageUrl.startsWith('/') ? m.imageUrl.slice(1) : m.imageUrl;
+      let full = path.join(publicDir, rel);
+      if (!fs.existsSync(full)) {
+        if (full.endsWith('.jpg') && fs.existsSync(full.slice(0, -4) + '.png')) full = full.slice(0, -4) + '.png';
+        else if (full.endsWith('.png') && fs.existsSync(full.slice(0, -4) + '.jpg')) full = full.slice(0, -4) + '.jpg';
+      }
+      if (fs.existsSync(full)) {
+        const buf = fs.readFileSync(full);
+        const hash = crypto.createHash('sha256').update(buf).digest('hex');
+        const existing = hashMap.get(hash);
+        if (existing) {
+          hashViolations.push(
+            `Machines '${existing}' and '${m.id}' share identical binary image content: ${rel} (hash: ${hash.slice(0, 10)})`
+          );
+        } else {
+          hashMap.set(hash, m.id);
+        }
+      }
+    });
+
+    expect(hashViolations, `Duplicate binary image files detected: ${hashViolations.join('; ')}`).toEqual([]);
   });
 });

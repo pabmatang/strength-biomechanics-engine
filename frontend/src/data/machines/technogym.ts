@@ -10,7 +10,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
   {
     id: 'technogym_pure_pulldown',
     brand: 'Technogym',
-    line: 'Pure Strength (Palancas convergentes)',
+    line: 'Pure Strength (Palancas divergentes)',
     modelName: 'Technogym Pure Strength - Pulldown',
     canonicalExerciseType: 'lat_pulldown',
     muscleGroupLabel: 'Dorsales',
@@ -46,7 +46,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
   {
     id: 'technogym_pure_row_dorian',
     brand: 'Technogym',
-    line: 'Pure Strength (Palancas convergentes)',
+    line: 'Pure Strength (Palancas divergentes)',
     modelName: 'Technogym Pure Strength - Row (Remo Dorian / Remo Horizontal a Discos)',
     canonicalExerciseType: 'seated_row',
     muscleGroupLabel: 'Espalda Alta',
@@ -86,13 +86,15 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Technogym Pure Strength - Deadlift (Peso Muerto a Discos)',
     canonicalExerciseType: 'deadlift',
     muscleGroupLabel: 'Lumbares',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'linear_neutral',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Technogym',
-      machineModelGuess: 'Technogym Pure Strength - Deadlift (Peso Muerto a Discos)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'La palanca pivota desde el suelo creando máximo brazo de momento en la posición inicial de flexión de cadera profunda, descargando al bloquear arriba.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/technogym_pure_deadlift.png'
   },
 
@@ -434,13 +436,15 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Technogym Selection - Seated Leg Curl',
     canonicalExerciseType: 'seated_leg_curl',
     muscleGroupLabel: 'Isquiosurales',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'selectorized_stack',
-      pivotBehavior: 'eccentric_cam_drop',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'circular_arc',
-      machineBrandGuess: 'Technogym',
-      machineModelGuess: 'Technogym Selection - Seated Leg Curl'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Curl femoral sentado con flexión de cadera: máxima elongación de isquiosurales y pico de tensión en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
     imageUrl: '/machines/technogym_selection_leg_curl.png'
   },
 
@@ -588,24 +592,6 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     imageUrl: '/machines/technogym_pure_standing_glute.png'
   },
 
-  // 33. Technogym — Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)
-  {
-    id: 'technogym_pure_lateral_raise',
-    brand: 'Technogym',
-    line: 'Pure Strength (Palancas convergentes)',
-    modelName: 'Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)',
-    canonicalExerciseType: 'lateral_raise',
-    muscleGroupLabel: 'Hombros',
-    profile: classifyMachineResistanceProfile({
-      loadType: 'plate_loaded',
-      pivotBehavior: 'opens_to_horizontal_gain',
-      pathType: 'circular_arc',
-      machineBrandGuess: 'Technogym',
-      machineModelGuess: 'Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)'
-    }),
-    imageUrl: '/machines/technogym_pure_lateral_raise.png'
-  },
-
   // 34. Technogym — Technogym Selection - Lower Back (Extensión Lumbar en Torre)
   {
     id: 'technogym_selection_lower_back',
@@ -714,26 +700,6 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
     imageUrl: '/machines/technogym_cable_crossover_dap.png'
   },
 
-  // 40. Technogym — Technogym Pure Strength - Leg Extension a Discos
-  {
-    id: 'technogym_pure_leg_extension',
-    brand: 'Technogym',
-    line: 'Pure Strength',
-    modelName: 'Technogym Pure Strength - Leg Extension a Discos',
-    canonicalExerciseType: 'leg_extension',
-    muscleGroupLabel: 'Cuádriceps',
-    profile: {
-      loadType: 'plate_loaded',
-      pivotBehavior: 'opens_to_horizontal_gain',
-      pathType: 'circular_arc',
-      peakZone: 'shortened',
-      resistanceCurveDescription: 'Extensión de rodilla a discos con brazo de palanca que incrementa el torque hacia la extensión completa.',
-      curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
-      curveLabel: 'Ascendente · Pico Acortamiento'
-    },
-    imageUrl: null
-  },
-
   // 41. Technogym — Technogym Pure Strength - Seated Calf a Discos
   {
     id: 'technogym_pure_seated_calf',
@@ -751,7 +717,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Sóleo Estirado'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_pure_seated_calf.png'
   },
 
   // 42. Technogym — Technogym Selection 900 - Glute (Patada de Glúteo)
@@ -771,7 +737,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Pico Contracción'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_glute.png'
   },
 
   // 43. Technogym — Technogym Selection 900 - Arm Extension (Tríceps)
@@ -791,7 +757,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Pico Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_arm_extension.png'
   },
 
   // 44. Technogym — Technogym Selection 900 - Rotary Torso (Oblicuos)
@@ -811,7 +777,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
       curveLabel: 'Campana · Rotación Media'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_rotary_torso.png'
   },
 
   // 45. Technogym — Technogym Selection 900 - Upper Back (Remo Alto)
@@ -831,7 +797,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.40, shortened: 0.40 },
       curveLabel: 'Ascendente · Pico Acortamiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_upper_back.png'
   },
 
   // 46. Technogym — Technogym Selection 900 - Vertical Traction (Jalón)
@@ -851,7 +817,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_vertical_traction.png'
   },
 
   // 47. Technogym — Technogym Selection 900 - Delts Machine (Laterales)
@@ -871,7 +837,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Pico Abducción'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_delts_machine.png'
   },
 
   // 48. Technogym — Technogym Selection 900 - Chest Incline (Placas)
@@ -891,6 +857,45 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Convergente'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_chest_incline.png'
+  },
+  // 49. Technogym — Multipower Smith Machine
+  {
+    id: 'technogym_multipower_smith',
+    brand: 'Technogym',
+    line: 'Multipower',
+    modelName: 'Technogym Multipower Smith Machine',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'circular_cam_constant',
+      pathType: 'linear_fixed',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Barra guiada sobre raíles verticales lineales con contrapeso equilibrado y fricción ultra reducida.',
+      curveWeights: { stretch: 0.33, mid: 0.34, shortened: 0.33 },
+      curveLabel: 'Constante Lineal'
+    },
+    imageUrl: '/machines/technogym_multipower_smith.png'
+  },
+
+  // 50. Technogym — Selection 900 Chin & Dip Asistido
+  {
+    id: 'technogym_selection_chin_dip',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Chin & Dip Asistido',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Plataforma asistida contrapesada para dominadas y fondos en paralelas con asistencia progresiva en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Máxima Asistencia en Estiramiento'
+    },
+    imageUrl: '/machines/technogym_selection_chin_dip.png'
   }
 ];

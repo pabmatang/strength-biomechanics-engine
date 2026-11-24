@@ -564,7 +564,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
       'Apoya los metatarsos en el borde de la plataforma con talones libres',
       'Desciende hasta el estiramiento completo con pausa de 2 segundos'
     ],
-    image_url: '/machines/matrix_calf_extension.jpg'
+    image_url: '/machines/matrix_versa_calf_extension.png'
   },
 
   // Abdomen (Abdominals)
@@ -831,7 +831,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
     setup_tips: [
       'El dial superior permite añadir micro-pesos de 1.1 kg y 2.3 kg para sobrecarga milimétrica'
     ],
-    image_url: '/machines/matrix_ultra_converging_chest.jpg'
+    image_url: '/machines/matrix_ultra_converging_chest.png'
   },
   {
     id: 'matrix_ultra_diverging_lat_pulldown',
@@ -846,7 +846,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
     setup_tips: [
       'Las empuñaduras rotan libremente: permite pronación arriba y supinación abajo'
     ],
-    image_url: '/machines/matrix_ultra_diverging_lat_pulldown.jpg'
+    image_url: '/machines/matrix_ultra_diverging_lat_pulldown.png'
   },
   {
     id: 'matrix_ultra_seated_row',
@@ -877,7 +877,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
       'Alinea el centro de la rodilla con el indicador circular del marco',
       'Aprieta 1 segundo al llegar a la extensión completa'
     ],
-    image_url: '/machines/matrix_ultra_leg_extension.jpg'
+    image_url: '/machines/matrix_ultra_leg_extension.png'
   },
 
   // ==========================================

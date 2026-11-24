@@ -5,6 +5,7 @@ import { ExerciseTemplate, MuscleGroup, GymBrand } from '../types/workout';
 import { CreateCustomExerciseModal } from './CreateCustomExerciseModal';
 import { ImageLightboxModal } from './ImageLightboxModal';
 import { getSafeMachineImageUrl } from '../utils/machineImages';
+import { MachineThumbnail } from './MachineThumbnail';
 
 interface ExerciseSelectorModalProps {
   isOpen: boolean;
@@ -251,13 +252,13 @@ export const ExerciseSelectorModal: React.FC<ExerciseSelectorModalProps> = ({
                           className="w-14 h-14 rounded-xl overflow-hidden bg-slate-900 border border-slate-800 flex-shrink-0 relative group/img cursor-zoom-in"
                           title="Haz click para ver la foto de la máquina en grande y alta calidad"
                         >
-                          <img
-                            src={safeUrl}
+                          <MachineThumbnail
+                            imageUrl={safeUrl}
                             alt={ex.title}
-                            className="w-full h-full object-cover group-hover/img:scale-110 transition duration-300"
-                            onError={(e) => {
-                              e.currentTarget.src = '/machines/technogym_pure_chest_press.jpg';
-                            }}
+                            brand={ex.brand}
+                            modelName={ex.title}
+                            className="w-full h-full rounded-none"
+                            imageClassName="w-full h-full object-contain p-1 group-hover/img:scale-105 transition duration-300"
                           />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition flex items-center justify-center">
                             <ZoomIn className="w-4 h-4 text-white drop-shadow" />

@@ -51,6 +51,7 @@ import {
 } from '../data/machineCatalog';
 import { ResistanceCurveEditor } from './ResistanceCurveEditor';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
+import { isSuperUserMode } from '../utils/superuserCurveStore';
 import { prepareVideoForAnalysis } from '../utils/videoCompressor';
 import {
   analyzeVideoWithModal,
@@ -472,10 +473,32 @@ interface SnapshotViewerProps {
   jointsPeak?: Record<string, [number, number]>;
   loadType?: string;
   isUpperBody: boolean;
+  exerciseType?: string;
   activeTab: 'both' | 'stretch' | 'peak';
   isCalibrating: boolean;
   pulleyOrigin: { x: number; y: number } | null;
   onSetPulleyOrigin: (pt: { x: number; y: number }) => void;
+}
+
+function getLeverJointLabels(exerciseType?: string, isUpperBody?: boolean) {
+  const ex = (exerciseType || '').toLowerCase();
+  if (!isUpperBody) {
+    const isKneeDominant = ex.includes('squat') || ex.includes('leg_press') || ex.includes('leg_extension') || ex.includes('hack') || ex.includes('prensa') || ex.includes('sentadilla') || ex.includes('quad');
+    if (isKneeDominant) {
+      return { joint1: 'Cuádriceps/Rodilla', joint2: 'Glúteo/Cadera', primary: 'knee' };
+    }
+    return { joint1: 'Isquios-Glúteo/Cadera', joint2: 'Rodilla/Flexión', primary: 'hip' };
+  }
+  const isPull = ex.includes('pull') || ex.includes('row') || ex.includes('remo') || ex.includes('jalon') || ex.includes('chin') || ex.includes('lat') || ex.includes('t_bar') || ex.includes('gironda') || ex.includes('curl');
+  const isShoulderPress = ex.includes('shoulder') || ex.includes('military') || ex.includes('overhead') || ex.includes('press_militar') || ex.includes('press_hombro');
+  
+  if (isPull) {
+    return { joint1: 'Espalda/Hombro', joint2: 'Bíceps/Codo', primary: 'shoulder' };
+  }
+  if (isShoulderPress) {
+    return { joint1: 'Deltoides/Hombro', joint2: 'Tríceps/Codo', primary: 'shoulder' };
+  }
+  return { joint1: 'Pectoral/Hombro', joint2: 'Tríceps/Codo', primary: 'shoulder' };
 }
 
 interface LeverInfo {
@@ -492,10 +515,11 @@ const SingleSnapshotCanvas: React.FC<{
   joints?: Record<string, [number, number]>;
   loadType?: string;
   isUpperBody: boolean;
+  exerciseType?: string;
   isCalibrating: boolean;
   pulleyOrigin: { x: number; y: number } | null;
   onSetPulleyOrigin: (pt: { x: number; y: number }) => void;
-}> = ({ title, badge, b64, joints, isUpperBody, isCalibrating, pulleyOrigin, onSetPulleyOrigin }) => {
+}> = ({ title, badge, b64, joints, isUpperBody, exerciseType, isCalibrating, pulleyOrigin, onSetPulleyOrigin }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leverInfo, setLeverInfo] = useState<LeverInfo | null>(null);
@@ -642,25 +666,27 @@ const SingleSnapshotCanvas: React.FC<{
           const dEl = pEl ? Math.abs(pEl.x - loadX) : 0;
           const totD = dSh + dEl;
 
-          let ratioText = 'Pectoral: 70% · Codo: 30%';
+          const { joint1, joint2 } = getLeverJointLabels(exerciseType, isUpperBody);
+          let ratioText = `${joint1}: 70% · ${joint2}: 30%`;
           if (totD > 5) {
             const pctSh = Math.round((dSh / totD) * 100);
             const pctEl = 100 - pctSh;
-            ratioText = `Pectoral/Hombro: ${pctSh}% · Tríceps/Codo: ${pctEl}%`;
+            ratioText = `${joint1}: ${pctSh}% · ${joint2}: ${pctEl}%`;
           }
 
           setLeverInfo({
             distPx: Math.round(dSh),
             ratioText,
             mode: 'gravity',
-            targetJointName: 'Hombro'
+            targetJointName: joint1.split('/')[1] || joint1
           });
         } else {
+          const { joint1, joint2 } = getLeverJointLabels(exerciseType, isUpperBody);
           setLeverInfo({
             distPx: Math.round(canvas.width * 0.18),
-            ratioText: 'Pectoral: 68% · Tríceps: 32%',
+            ratioText: `${joint1}: 68% · ${joint2}: 32%`,
             mode: 'gravity',
-            targetJointName: 'Hombro'
+            targetJointName: joint1.split('/')[1] || joint1
           });
         }
       } else {
@@ -700,22 +726,27 @@ const SingleSnapshotCanvas: React.FC<{
         }
         ctx.setLineDash([]);
 
-        let ratioText = 'Cadera: 68% · Rodilla: 32%';
+        const { joint1, joint2, primary } = getLeverJointLabels(exerciseType, isUpperBody);
+        let ratioText = `${joint1}: 65% · ${joint2}: 35%`;
         if (tot > 5) {
           const pctHp = Math.round((dHp / tot) * 100);
           const pctKn = 100 - pctHp;
-          ratioText = `Cadera: ${pctHp}% · Rodilla: ${pctKn}%`;
+          if (primary === 'knee') {
+            ratioText = `${joint1}: ${pctKn}% · ${joint2}: ${pctHp}%`;
+          } else {
+            ratioText = `${joint1}: ${pctHp}% · ${joint2}: ${pctKn}%`;
+          }
         }
 
         setLeverInfo({
           distPx: Math.round(dHp > 0 ? dHp : canvas.width * 0.22),
           ratioText,
           mode: 'gravity',
-          targetJointName: 'Cadera'
+          targetJointName: primary === 'knee' ? 'Rodilla' : 'Cadera'
         });
       }
     };
-  }, [b64, joints, isUpperBody, pulleyOrigin, isCalibrating]);
+  }, [b64, joints, isUpperBody, pulleyOrigin, isCalibrating, exerciseType]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isCalibrating) return;
@@ -759,7 +790,10 @@ const SingleSnapshotCanvas: React.FC<{
         </div>
         <div className="flex items-center gap-1.5">
           <span className="font-mono font-black text-amber-300">
-            {leverInfo?.ratioText || (isUpperBody ? 'Hombro: 70% · Codo: 30%' : 'Cadera: 68% · Rodilla: 32%')}
+            {leverInfo?.ratioText || (() => {
+              const { joint1, joint2 } = getLeverJointLabels(exerciseType, isUpperBody);
+              return `${joint1}: 70% · ${joint2}: 30%`;
+            })()}
           </span>
         </div>
       </div>
@@ -774,6 +808,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
   jointsPeak,
   loadType,
   isUpperBody,
+  exerciseType,
   activeTab,
   isCalibrating,
   pulleyOrigin,
@@ -799,6 +834,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
               joints={jointsStretch}
               loadType={loadType}
               isUpperBody={isUpperBody}
+              exerciseType={exerciseType}
               isCalibrating={isCalibrating}
               pulleyOrigin={pulleyOrigin}
               onSetPulleyOrigin={onSetPulleyOrigin}
@@ -812,6 +848,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
               joints={jointsPeak}
               loadType={loadType}
               isUpperBody={isUpperBody}
+              exerciseType={exerciseType}
               isCalibrating={isCalibrating}
               pulleyOrigin={pulleyOrigin}
               onSetPulleyOrigin={onSetPulleyOrigin}
@@ -826,6 +863,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
           joints={jointsStretch}
           loadType={loadType}
           isUpperBody={isUpperBody}
+          exerciseType={exerciseType}
           isCalibrating={isCalibrating}
           pulleyOrigin={pulleyOrigin}
           onSetPulleyOrigin={onSetPulleyOrigin}
@@ -838,6 +876,7 @@ const SnapshotViewer: React.FC<SnapshotViewerProps> = ({
           joints={jointsPeak}
           loadType={loadType}
           isUpperBody={isUpperBody}
+          exerciseType={exerciseType}
           isCalibrating={isCalibrating}
           pulleyOrigin={pulleyOrigin}
           onSetPulleyOrigin={onSetPulleyOrigin}
@@ -908,6 +947,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [isGeneratingCoachReview, setIsGeneratingCoachReview] = useState<boolean>(false);
   const [coachReviewError, setCoachReviewError] = useState<string | null>(null);
   const [showProSnapshots, setShowProSnapshots] = useState<boolean>(false);
+
+  // Superuser / Dev mode state
+  const [isSuperUser, setIsSuperUser] = useState<boolean>(() => isSuperUserMode());
+  useEffect(() => {
+    const handleState = () => setIsSuperUser(isSuperUserMode());
+    window.addEventListener('mia_superuser_state_changed', handleState);
+    return () => window.removeEventListener('mia_superuser_state_changed', handleState);
+  }, []);
 
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
@@ -1141,7 +1188,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         anthropometry: userProfile
       };
 
-      const result = await analyzeVideoWithModal(blob, config, fileId, { range });
+      const result = await analyzeVideoWithModal(blob, config, fileId, {
+        range,
+        onProgress: (stage, progress) => {
+          setPipelineMessage(`${stage} (${progress}%)`);
+        }
+      });
       if (result.debug_pose_audit) {
         console.info("[MIA Audit]", result.debug_pose_audit);
         if (result.vlm_error) {
@@ -2626,7 +2678,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   // 4 Commercial Biomechanical View Switcher Buttons
   const viewTabs: { id: AnalysisView; label: string; sub: string; icon: any }[] = [
     { id: 'velocity', label: 'Velocidad', sub: 'VBT e Intensidad', icon: Gauge },
-    { id: 'coach', label: 'Coach IA', sub: 'Línea de Tiempo', icon: MessageSquare },
+    { id: 'coach', label: 'Puntos Clave', sub: 'Línea de Tiempo', icon: MessageSquare },
     { id: 'alignment', label: 'Alineación', sub: 'Salud y Lesiones', icon: ShieldCheck },
     { id: 'stimulus', label: 'Estímulo', sub: 'Radiografía y Polea', icon: Dna },
   ];
@@ -3609,12 +3661,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             )}
 
             {/* ============================================================== */}
-            {/* VIEW 2: COACH IA (TIMELINE INTERACTIVA & CUES)                  */}
+            {/* VIEW 2: PUNTOS CLAVE (TIMELINE INTERACTIVA & CUES)             */}
             {/* ============================================================== */}
             {activeView === 'coach' && (
               <div className="space-y-3">
-                {/* On-demand Coach Review Generator Banner */}
-                {(!analysisData?.vlm_used || !analysisData?.timeline_cues || analysisData.timeline_cues.length === 0) && (
+                {/* On-demand Coach Review Generator Banner (Superuser / Dev mode only) */}
+                {isSuperUser && (!analysisData?.vlm_used || !analysisData?.timeline_cues || analysisData.timeline_cues.length === 0) && (
                   <div className="p-4 bg-slate-900/90 rounded-2xl border border-slate-800 text-center space-y-3">
                     <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
                       <Sparkles className="w-5 h-5" />
@@ -3644,8 +3696,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                 )}
 
-                {/* Friendly Error Banner (e.g. 429 quota error) */}
-                {coachReviewError && (
+                {/* Friendly Error Banner (e.g. 429 quota error, Superuser only) */}
+                {isSuperUser && coachReviewError && (
                   <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl text-xs text-amber-200 space-y-2">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -3671,7 +3723,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   const totalRepsCurrent = analysisData?.total_reps ?? 0;
                   const validCues = (analysisData?.timeline_cues || []).filter(c => !(c.badge === 'Esfuerzo Terminal' && (rirCurrent >= 3.0 || totalRepsCurrent < 4)));
 
-                  if (validCues.length === 0) return null;
+                  if (validCues.length === 0) {
+                    return (
+                      <div className="p-6 bg-slate-900/60 rounded-2xl border border-slate-800 text-center space-y-2">
+                        <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-200">Ejecución Limpia y Estable</h4>
+                        <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                          No se han detectado anomalías de trayectoria ni pérdidas críticas de velocidad durante las repeticiones analizadas.
+                        </p>
+                      </div>
+                    );
+                  }
 
                   return (
                     <>
@@ -3834,7 +3898,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     effective_set_credit: idx === 0 ? 0.5 : 0.3,
                     reason: 'Sinergista agonista / estabilizador.'
                   }));
-                  const tensionProfile = customTensionProfile || stim?.tension_profile || 'Uniforme';
+                  const activeProfile = catalogMachine
+                    ? catalogMachine.profile
+                    : getDefaultProfileForExerciseType(selectedExerciseId || activeExercise.id);
+                  const effectiveProfileLabel = customTensionProfile || activeProfile.curveLabel || activeProfile.peakZone || stim?.tension_profile || 'Uniforme';
 
                   const rirVal = analysisData?.intensity_audit?.rir_estimated ?? analysisData?.intensity_metrics?.exact_rir ?? 2.0;
                   const totalRepsCurrent = analysisData?.total_reps ?? 0;
@@ -3857,16 +3924,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           >
                             <Compass className="w-3.5 h-3.5 text-cyan-400" />
                             <span className="truncate max-w-[160px]">
-                              {catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil: ${tensionProfile}`} · Cambiar
+                              {catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil: ${effectiveProfileLabel}`} · Cambiar
                             </span>
                           </button>
                         </div>
 
                         {/* Biomechanical Resistance Curve with Superuser Interactive Editing */}
                         {(() => {
-                          const activeProfile = catalogMachine
-                            ? catalogMachine.profile
-                            : getDefaultProfileForExerciseType(selectedExerciseId || activeExercise.id);
                           const profileTargetId = catalogMachine ? catalogMachine.id : (selectedExerciseId || activeExercise.id);
                           const profileTargetName = catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : activeExercise.name;
 
@@ -4095,6 +4159,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           jointsPeak={analysisData.joints_peak}
                           loadType={activeExercise.loadType}
                           isUpperBody={isUpperBody}
+                          exerciseType={activeExercise.exerciseType || activeExercise.name}
                           activeTab={activeSnapshotTab}
                           isCalibrating={isCalibratingPulley}
                           pulleyOrigin={proPulleyOrigin}
