@@ -5273,19 +5273,20 @@ def upload_chunk(upload_id: str, chunk_base64: str) -> dict:
     return {"status": "ok", "bytes_received": len(raw_bytes), "total_bytes": total_bytes}
 
 def upload_complete(
-    upload_id: str,
-    exercise_type: str = "auto",
-    exercise_name: str = "",
-    target_muscle: str = "auto",
-    load_type: str = "auto",
-    is_manual_override: bool = False,
-    gemini_api_key: str = "",
-    start_time: float = 0.0,
-    end_time: Optional[float] = None,
-    weight_kg: Optional[float] = None,
-    target_reps: Optional[int] = None,
-    anthropometry: Optional[dict] = None,
-    run_vlm: bool = False
+    upload_id,
+    exercise_type="auto",
+    exercise_name="",
+    target_muscle="auto",
+    load_type="auto",
+    is_manual_override=False,
+    gemini_api_key="",
+    start_time=0.0,
+    end_time=None,
+    weight_kg=None,
+    target_reps=None,
+    anthropometry=None,
+    run_vlm=False,
+    **kwargs
 ) -> dict:
     """
     Cerebrium-compatible endpoint to finalize chunked upload and execute

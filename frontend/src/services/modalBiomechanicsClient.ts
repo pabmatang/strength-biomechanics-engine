@@ -481,9 +481,8 @@ export async function analyzeVideoWithModal(
           throw new DOMException('Aborted', 'AbortError');
         }
         const chunkBlob = videoBlob.slice(offset, Math.min(offset + CHUNK_SIZE, totalBytes));
-        const pct = Math.min(35, Math.round((offset / totalBytes) * 30) + 5);
         const displayPct = Math.round((offset / totalBytes) * 100);
-        options?.onProgress?.(`Subiendo ${displayPct}%...`, pct);
+        options?.onProgress?.('Subiendo fragmentos...', displayPct);
 
         let chunkRes: Response;
         if (isCerebrium) {
