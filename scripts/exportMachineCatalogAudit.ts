@@ -312,14 +312,14 @@ function generateCatalogHtml(embedImages = false): string {
     >
       <div>
         <!-- Top Media Container -->
-        <div class="relative w-full h-44 rounded-2xl bg-[#0c0e1a] border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5">
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
           ${
             hasImg
               ? `<img 
                    src="${primarySrc}" 
                    data-raw="${rawImg}"
                    alt="${m.modelName}" 
-                   class="w-full h-full object-contain p-2" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
                    loading="lazy" 
                    onerror="handleImageFallback(this, '${rawImg}')" 
                  />`

@@ -131,7 +131,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Technogym',
       machineModelGuess: 'Technogym Selection 900 - Seated Wide Row (Remo Sentado Abierto de Placas)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_wide_row.png'
   },
 
   // 8. Technogym — Technogym Pure Strength - Chest Press
@@ -257,7 +257,7 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Technogym',
       machineModelGuess: 'Technogym Selection 900 / Biostrength - Hip Thrust (Empuje de Cadera / Glúteo de Placas)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_hip_thrust.png'
   },
 
   // 15. Technogym — Technogym Selection - Adductor (Aductores / Cerrar Piernas)
@@ -858,5 +858,44 @@ export const TECHNOGYM_MACHINES: CatalogMachineEntry[] = [
       curveLabel: 'Ascendente · Convergente'
     },
     imageUrl: '/machines/technogym_selection_chest_incline.png'
+  },
+  // 49. Technogym — Multipower Smith Machine
+  {
+    id: 'technogym_multipower_smith',
+    brand: 'Technogym',
+    line: 'Multipower',
+    modelName: 'Technogym Multipower Smith Machine',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'circular_cam_constant',
+      pathType: 'linear_fixed',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Barra guiada sobre raíles verticales lineales con contrapeso equilibrado y fricción ultra reducida.',
+      curveWeights: { stretch: 0.33, mid: 0.34, shortened: 0.33 },
+      curveLabel: 'Constante Lineal'
+    },
+    imageUrl: '/machines/technogym_multipower_smith.png'
+  },
+
+  // 50. Technogym — Selection 900 Chin & Dip Asistido
+  {
+    id: 'technogym_selection_chin_dip',
+    brand: 'Technogym',
+    line: 'Selection 900',
+    modelName: 'Technogym Selection 900 - Chin & Dip Asistido',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Plataforma asistida contrapesada para dominadas y fondos en paralelas con asistencia progresiva en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Máxima Asistencia en Estiramiento'
+    },
+    imageUrl: '/machines/technogym_selection_chin_dip.png'
   }
 ];

@@ -21,7 +21,7 @@
       "machineBrandGuess": "Booty Builder",
       "machineModelGuess": "Booty Builder - Standing Abductor (Abductor de Pie 45°)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/booty_builder_standing_abductor.png"
   },
   {
     "id": "booty_builder_platinum",
@@ -45,7 +45,7 @@
       "machineBrandGuess": "Booty Builder",
       "machineModelGuess": "Booty Builder - Platinum Hip Thrust (Empuje de Cadera Guiado)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/booty_builder_platinum.png"
   },
   {
     "id": "cybex_eagle_row",
@@ -69,7 +69,7 @@
       "machineBrandGuess": "Cybex",
       "machineModelGuess": "Eagle NX Row"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/cybex_eagle_row.png"
   },
   {
     "id": "eleiko_prestera_half_rack",
@@ -161,7 +161,7 @@
       },
       "curveLabel": "Ascendente · Acortamiento Glúteo Medio"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_abductor.png"
   },
   {
     "id": "standard_adductor_machine",
@@ -183,7 +183,7 @@
       },
       "curveLabel": "Ascendente · Contracción Aductores"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_adductor.png"
   },
   {
     "id": "standard_leg_extension",
@@ -205,7 +205,29 @@
       },
       "curveLabel": "Ascendente · Bloqueo Cuádriceps"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_leg_extension.png"
+  },
+  {
+    "id": "standard_smith_machine",
+    "brand": "Estándar",
+    "line": "Gimnasio Estándar",
+    "modelName": "Máquina Multipower / Smith",
+    "canonicalExerciseType": "squat",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "circular_cam_constant",
+      "pathType": "linear_fixed",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Barra guiada multipower comercial para sentadilla, press y zancada con trayectoria lineal constante.",
+      "curveWeights": {
+        "stretch": 0.33,
+        "mid": 0.34,
+        "shortened": 0.33
+      },
+      "curveLabel": "Constante Lineal"
+    },
+    "imageUrl": "/machines/technogym_multipower_smith.png"
   },
   {
     "id": "standard_leg_press_45",
@@ -252,6 +274,28 @@
     "imageUrl": "/machines/hammer_linear_hack_squat.png"
   },
   {
+    "id": "standard_assisted_dip_chin",
+    "brand": "Estándar",
+    "line": "Gimnasio Estándar",
+    "modelName": "Dominadas y Fondos Asistidos",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "Torre de placas con almohadilla de rodillas contrapesada para dominadas y fondos con descarga en estiramiento.",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Máxima Asistencia en Estiramiento"
+    },
+    "imageUrl": "/machines/technogym_selection_chin_dip.png"
+  },
+  {
     "id": "standard_lat_pulldown",
     "brand": "Estándar",
     "line": "Gimnasio Estándar",
@@ -271,7 +315,7 @@
       },
       "curveLabel": "Descendente · Foco Estiramiento"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_lat_machine.png"
   },
   {
     "id": "standard_seated_row",
@@ -293,7 +337,7 @@
       },
       "curveLabel": "Campana · Rango Medio"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_pure_row_dorian.png"
   },
   {
     "id": "standard_standing_calf",
@@ -315,7 +359,7 @@
       },
       "curveLabel": "Descendente · Estiramiento Gastrocnemio"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_standing_calf.png"
   },
   {
     "id": "standard_seated_calf",
@@ -337,7 +381,7 @@
       },
       "curveLabel": "Descendente · Foco Sóleo Estirado"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_pure_seated_calf.png"
   },
   {
     "id": "standard_hip_thrust_machine",
@@ -381,7 +425,7 @@
       },
       "curveLabel": "Ascendente · Acortamiento Deltoides"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_lateral_raise.png"
   },
   {
     "id": "standard_shoulder_press",
@@ -403,7 +447,7 @@
       },
       "curveLabel": "Ascendente · Bloqueo"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_shoulder_press.png"
   },
   {
     "id": "standard_seated_leg_curl",
@@ -425,7 +469,7 @@
       },
       "curveLabel": "Descendente · Foco Estiramiento"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_leg_curl.png"
   },
   {
     "id": "standard_lying_leg_curl",
@@ -447,7 +491,7 @@
       },
       "curveLabel": "Campana · Rango Medio 90°"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_prone_leg_curl.png"
   },
   {
     "id": "standard_pec_deck",
@@ -469,7 +513,7 @@
       },
       "curveLabel": "Campana · Pico a 90°"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_pec_deck.png"
   },
   {
     "id": "standard_incline_press",
@@ -491,7 +535,7 @@
       },
       "curveLabel": "Ascendente · Convergente"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_pure_incline_chest.png"
   },
   {
     "id": "standard_chest_press",
@@ -537,7 +581,7 @@
       "machineBrandGuess": "Gym80",
       "machineModelGuess": "Gym80 - Pure Kraft Seated Calf Raise a Discos"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/gym80_pure_kraft_seated_calf.png"
   },
   {
     "id": "gym80_pure_kraft_shrug_machine",
@@ -561,7 +605,7 @@
       "machineBrandGuess": "Gym80",
       "machineModelGuess": "Gym80 - Pure Kraft Shrug Machine a Discos (Encogimientos)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/gym80_pure_kraft_shrug_machine.png"
   },
   {
     "id": "hammer_select_ab_crunch",
@@ -1287,7 +1331,7 @@
     "canonicalExerciseType": "cardio",
     "muscleGroupLabel": "Cardio",
     "profile": {
-      "loadType": "selectorized_stack",
+      "loadType": "free_weight",
       "pivotBehavior": "linear_neutral",
       "pathType": "linear_fixed",
       "peakZone": "uniform",
@@ -1333,7 +1377,7 @@
     "canonicalExerciseType": "back_extension",
     "muscleGroupLabel": "Lumbares",
     "profile": {
-      "loadType": "selectorized_stack",
+      "loadType": "free_weight",
       "pivotBehavior": "linear_neutral",
       "pathType": "linear_fixed",
       "peakZone": "uniform",
@@ -1647,7 +1691,7 @@
       "machineBrandGuess": "Matrix",
       "machineModelGuess": "Matrix Versa - Calf Extension (Gemelos en Prensa de Placas)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/matrix_versa_calf_extension.png"
   },
   {
     "id": "matrix_ultra_standing_glute_kick",
@@ -1875,7 +1919,7 @@
       "machineBrandGuess": "Nautilus",
       "machineModelGuess": "Leg Extension (Leva Excéntrica)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/nautilus_leg_extension.png"
   },
   {
     "id": "nautilus_nitro_chest_press",
@@ -1899,7 +1943,7 @@
       "machineBrandGuess": "Nautilus",
       "machineModelGuess": "Nitro Chest Press"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/nautilus_nitro_chest_press.png"
   },
   {
     "id": "panatta_monolith_standing_abductor",
@@ -2464,6 +2508,28 @@
     "imageUrl": "/machines/technogym_selection_arm_curl.png"
   },
   {
+    "id": "technogym_multipower_smith",
+    "brand": "Technogym",
+    "line": "Multipower",
+    "modelName": "Technogym Multipower Smith Machine",
+    "canonicalExerciseType": "squat",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "circular_cam_constant",
+      "pathType": "linear_fixed",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Barra guiada sobre raíles verticales lineales con contrapeso equilibrado y fricción ultra reducida.",
+      "curveWeights": {
+        "stretch": 0.33,
+        "mid": 0.34,
+        "shortened": 0.33
+      },
+      "curveLabel": "Constante Lineal"
+    },
+    "imageUrl": "/machines/technogym_multipower_smith.png"
+  },
+  {
     "id": "technogym_pure_belt_squat",
     "brand": "Technogym",
     "line": "Pure Strength",
@@ -2624,6 +2690,28 @@
       "machineModelGuess": "Technogym Selection - Lat Machine"
     },
     "imageUrl": "/machines/technogym_selection_lat_machine.png"
+  },
+  {
+    "id": "technogym_selection_chin_dip",
+    "brand": "Technogym",
+    "line": "Selection 900",
+    "modelName": "Technogym Selection 900 - Chin & Dip Asistido",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "Plataforma asistida contrapesada para dominadas y fondos en paralelas con asistencia progresiva en estiramiento.",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Máxima Asistencia en Estiramiento"
+    },
+    "imageUrl": "/machines/technogym_selection_chin_dip.png"
   },
   {
     "id": "technogym_selection_pulley",
@@ -2789,7 +2877,7 @@
       "machineBrandGuess": "Technogym",
       "machineModelGuess": "Technogym Selection 900 - Seated Wide Row (Remo Sentado Abierto de Placas)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_wide_row.png"
   },
   {
     "id": "technogym_selection_upper_back",
@@ -2975,7 +3063,7 @@
       "machineBrandGuess": "Technogym",
       "machineModelGuess": "Technogym Selection 900 / Biostrength - Hip Thrust (Empuje de Cadera / Glúteo de Placas)"
     },
-    "imageUrl": null
+    "imageUrl": "/machines/technogym_selection_hip_thrust.png"
   },
   {
     "id": "technogym_pure_shoulder_press",

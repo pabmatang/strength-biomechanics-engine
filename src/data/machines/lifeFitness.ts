@@ -15,7 +15,7 @@ export const LIFE_FITNESS_MACHINES: CatalogMachineEntry[] = [
     canonicalExerciseType: 'back_extension',
     muscleGroupLabel: 'Lumbares',
     profile: classifyMachineResistanceProfile({
-      loadType: 'selectorized_stack',
+      loadType: 'free_weight',
       pivotBehavior: 'linear_neutral',
       pathType: 'linear_fixed',
       machineBrandGuess: 'Life Fitness',
@@ -71,7 +71,7 @@ export const LIFE_FITNESS_MACHINES: CatalogMachineEntry[] = [
     canonicalExerciseType: 'cardio',
     muscleGroupLabel: 'Cardio',
     profile: classifyMachineResistanceProfile({
-      loadType: 'selectorized_stack',
+      loadType: 'free_weight',
       pivotBehavior: 'linear_neutral',
       pathType: 'linear_fixed',
       machineBrandGuess: 'Life Fitness',

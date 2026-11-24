@@ -34,14 +34,10 @@ const BRAND_FILTERS: (string | 'Todas')[] = [
   'Estándar',
   'Technogym',
   'Hammer Strength',
-  'Titanium Strength',
-  'Panatta',
-  'Nautilus',
-  'Cybex',
   'Matrix',
-  'Gym80',
+  'Panatta',
+  'Titanium Strength',
   'Life Fitness',
-  'Booty Builder',
   'Eleiko'
 ];
 
@@ -171,15 +167,17 @@ export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps>
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <MachineThumbnail
-                        imageUrl={machine.imageUrl}
-                        alt={machine.modelName}
-                        brand={machine.brand}
-                        modelName={machine.modelName}
-                        curveWeights={weights}
-                        className="w-13 h-13 rounded-xl shrink-0"
-                        imageClassName="w-full h-full object-contain p-1"
-                      />
+                      <div className="w-13 h-13 rounded-xl shrink-0 overflow-hidden bg-[radial-gradient(circle,#252c40_0%,#0e111d_80%)] border border-slate-800 flex items-center justify-center p-1">
+                        <MachineThumbnail
+                          imageUrl={machine.imageUrl}
+                          alt={machine.modelName}
+                          brand={machine.brand}
+                          modelName={machine.modelName}
+                          curveWeights={weights}
+                          className="w-full h-full rounded-lg"
+                          imageClassName="w-full h-full object-contain"
+                        />
+                      </div>
                       <div className="space-y-1 min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
@@ -232,7 +230,7 @@ export const MachineCatalogPickerModal: React.FC<MachineCatalogPickerModalProps>
               className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 active:scale-95"
             >
               <Plus className="w-3.5 h-3.5 text-cyan-400" />
-              <span>+ Clasificar máquina no listada</span>
+              <span>Clasificar máquina no listada</span>
             </button>
           </div>
         </div>

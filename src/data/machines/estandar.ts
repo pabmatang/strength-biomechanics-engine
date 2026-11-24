@@ -43,7 +43,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Convergente'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_pure_incline_chest.png'
   },
 
   // 3. Estándar — Peck Deck / Aperturas en Máquina
@@ -63,7 +63,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Pico a 90°'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_pec_deck.png'
   },
 
   // 4. Estándar — Remo Sentado en Máquina (Apoyo al Pecho)
@@ -83,7 +83,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.40, shortened: 0.35 },
       curveLabel: 'Campana · Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_pure_row_dorian.png'
   },
 
   // 5. Estándar — Jalón al Pecho en Máquina
@@ -103,7 +103,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_lat_machine.png'
   },
 
   // 6. Estándar — Press de Hombro en Máquina
@@ -123,7 +123,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Bloqueo'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_shoulder_press.png'
   },
 
   // 7. Estándar — Elevaciones Laterales en Máquina
@@ -143,7 +143,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Acortamiento Deltoides'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_lateral_raise.png'
   },
 
   // 8. Estándar — Prensa de Piernas Inclinada 45°
@@ -203,7 +203,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Bloqueo Cuádriceps'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_leg_extension.png'
   },
 
   // 11. Estándar — Curl Femoral Sentado en Máquina
@@ -223,7 +223,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_leg_curl.png'
   },
 
   // 12. Estándar — Curl Femoral Tumbado en Máquina
@@ -243,7 +243,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Rango Medio 90°'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_prone_leg_curl.png'
   },
 
   // 13. Estándar — Máquina de Abductores (Abrir Piernas)
@@ -263,7 +263,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Acortamiento Glúteo Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_abductor.png'
   },
 
   // 14. Estándar — Máquina de Aductores (Cerrar Piernas)
@@ -283,7 +283,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Contracción Aductores'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_adductor.png'
   },
 
   // 15. Estándar — Hip Thrust en Máquina (Cinturón / Almohadilla)
@@ -323,7 +323,7 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Sóleo Estirado'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_pure_seated_calf.png'
   },
 
   // 17. Estándar — Gemelo de Pie en Máquina (Placas / Hombros)
@@ -343,6 +343,45 @@ export const ESTANDAR_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
       curveLabel: 'Descendente · Estiramiento Gastrocnemio'
     },
-    imageUrl: null
+    imageUrl: '/machines/technogym_selection_standing_calf.png'
+  },
+  // 18. Estándar — Máquina Multipower / Smith
+  {
+    id: 'standard_smith_machine',
+    brand: 'Estándar',
+    line: 'Gimnasio Estándar',
+    modelName: 'Máquina Multipower / Smith',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'circular_cam_constant',
+      pathType: 'linear_fixed',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Barra guiada multipower comercial para sentadilla, press y zancada con trayectoria lineal constante.',
+      curveWeights: { stretch: 0.33, mid: 0.34, shortened: 0.33 },
+      curveLabel: 'Constante Lineal'
+    },
+    imageUrl: '/machines/technogym_multipower_smith.png'
+  },
+
+  // 19. Estándar — Dominadas y Fondos Asistidos
+  {
+    id: 'standard_assisted_dip_chin',
+    brand: 'Estándar',
+    line: 'Gimnasio Estándar',
+    modelName: 'Dominadas y Fondos Asistidos',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Torre de placas con almohadilla de rodillas contrapesada para dominadas y fondos con descarga en estiramiento.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Máxima Asistencia en Estiramiento'
+    },
+    imageUrl: '/machines/technogym_selection_chin_dip.png'
   }
 ];

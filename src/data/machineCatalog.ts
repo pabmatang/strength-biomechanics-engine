@@ -58,25 +58,31 @@ export interface CatalogMachineEntry {
   aliases?: string[];
 }
 
-import { TECHNOGYM_MACHINES } from './machines/technogym';
-import { HAMMER_STRENGTH_MACHINES } from './machines/hammerStrength';
-import { TITANIUM_STRENGTH_MACHINES } from './machines/titaniumStrength';
-import { MATRIX_MACHINES } from './machines/matrix';
-import { PANATTA_MACHINES } from './machines/panatta';
-import { ESTANDAR_MACHINES } from './machines/estandar';
-import { LIFE_FITNESS_MACHINES } from './machines/lifeFitness';
-import { OTHER_BRANDS_MACHINES } from './machines/otherBrands';
+import {
+  TECHNOGYM_MACHINES,
+  HAMMER_STRENGTH_MACHINES,
+  TITANIUM_STRENGTH_MACHINES,
+  MATRIX_MACHINES,
+  PANATTA_MACHINES,
+  ESTANDAR_MACHINES,
+  LIFE_FITNESS_MACHINES,
+  OTHER_BRANDS_MACHINES,
+  ALL_MODULAR_MACHINES
+} from './machines';
 
-export const MACHINE_CATALOG: CatalogMachineEntry[] = [
-  ...TECHNOGYM_MACHINES,
-  ...HAMMER_STRENGTH_MACHINES,
-  ...TITANIUM_STRENGTH_MACHINES,
-  ...MATRIX_MACHINES,
-  ...PANATTA_MACHINES,
-  ...ESTANDAR_MACHINES,
-  ...LIFE_FITNESS_MACHINES,
-  ...OTHER_BRANDS_MACHINES
-];
+export {
+  TECHNOGYM_MACHINES,
+  HAMMER_STRENGTH_MACHINES,
+  TITANIUM_STRENGTH_MACHINES,
+  MATRIX_MACHINES,
+  PANATTA_MACHINES,
+  ESTANDAR_MACHINES,
+  LIFE_FITNESS_MACHINES,
+  OTHER_BRANDS_MACHINES,
+  ALL_MODULAR_MACHINES
+};
+
+export const MACHINE_CATALOG: CatalogMachineEntry[] = ALL_MODULAR_MACHINES;
 
 export function getCustomMachines(): CatalogMachineEntry[] {
   try {

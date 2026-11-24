@@ -21,7 +21,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Versa - Calf Extension (Gemelos en Prensa de Placas)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/matrix_versa_calf_extension.png'
   },
 
   // 2. Matrix — Matrix Ultra - Converging Chest Press

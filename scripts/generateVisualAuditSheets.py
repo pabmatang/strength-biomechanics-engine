@@ -8,7 +8,37 @@ para auditar visualmente el catálogo completo de máquinas biomecánicas de MIA
 import os
 import json
 import math
-from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+_SPOTLIGHT_CACHE = {}
+
+def get_spotlight_box(w, h, radius=10):
+    key = (w, h, radius)
+    if key in _SPOTLIGHT_CACHE:
+        return _SPOTLIGHT_CACHE[key]
+
+    y, x = np.ogrid[:h, :w]
+    cx, cy = w / 2.0, h / 2.0
+    dist = np.hypot(x - cx, y - cy)
+    max_dist = np.hypot(cx, cy) * 0.82
+    t = np.clip(dist / max_dist, 0.0, 1.0)
+
+    # Radial gradient from #252c40 (37, 44, 64) to #0e111d (14, 17, 29)
+    r = (37 + (14 - 37) * t).astype(np.uint8)
+    g = (44 + (17 - 44) * t).astype(np.uint8)
+    b = (64 + (29 - 64) * t).astype(np.uint8)
+
+    grad_img = Image.fromarray(np.dstack([r, g, b])).convert('RGBA')
+
+    # Rounded corner mask
+    mask = Image.new('L', (w, h), 0)
+    m_draw = ImageDraw.Draw(mask)
+    m_draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+
+    grad_img.putalpha(mask)
+    _SPOTLIGHT_CACHE[key] = (grad_img, mask)
+    return _SPOTLIGHT_CACHE[key]
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DOCS_DIR = os.path.join(PROJECT_ROOT, 'docs')
@@ -108,23 +138,35 @@ def draw_sheet(machines, sheet_num, total_sheets, sheet_title, output_path):
         # Card container
         draw.rounded_rectangle([x0, y0, x1, y1], radius=14, fill=CARD_BG, outline=CARD_BORDER, width=1)
 
-        # Image container
+        # Image container with Studio Spotlight Background
         img_pad = 8
         ix0 = x0 + img_pad
         iy0 = y0 + img_pad
         ix1 = x1 - img_pad
         iy1 = iy0 + 205
-        draw.rounded_rectangle([ix0, iy0, ix1, iy1], radius=10, fill=IMAGE_BG, outline=IMAGE_BORDER, width=1)
+        bw = ix1 - ix0
+        bh = iy1 - iy0
+        spot_box, spot_mask = get_spotlight_box(bw, bh, radius=10)
+        sheet.paste(spot_box, (ix0, iy0), spot_mask)
+        draw.rounded_rectangle([ix0, iy0, ix1, iy1], radius=10, outline=IMAGE_BORDER, width=1)
 
-        # Load and paste machine photo
+        # Load and paste machine photo with subtle studio halo for matte black chassis
         raw_img = get_machine_image(m.get('imageUrl'))
         if raw_img:
             # Resize preserving aspect ratio
-            max_w = ix1 - ix0 - 12
-            max_h = iy1 - iy0 - 12
+            max_w = ix1 - ix0 - 14
+            max_h = iy1 - iy0 - 14
             raw_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
             px = ix0 + (ix1 - ix0 - raw_img.width) // 2
             py = iy0 + (iy1 - iy0 - raw_img.height) // 2
+
+            # Subtle light halo/drop-shadow for matte-black chassis contrast
+            if raw_img.mode == 'RGBA':
+                alpha = raw_img.split()[-1]
+                shadow = Image.new('RGBA', raw_img.size, (220, 230, 255, 18))
+                shadow.putalpha(alpha.filter(ImageFilter.GaussianBlur(radius=4)))
+                sheet.paste(shadow, (px, py), shadow)
+
             sheet.paste(raw_img, (px, py), raw_img)
         else:
             # Placeholder clean icon

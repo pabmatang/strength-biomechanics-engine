@@ -1251,6 +1251,118 @@ def analyze_biomechanics_with_vlm(
 
 analyze_biomechanics_with_gemini_video = analyze_biomechanics_with_vlm
 
+def get_video_rotation(video_path: str) -> int:
+    """Detect rotation angle (0, 90, 180, 270) from video metadata / side data."""
+    # 1. Try ffprobe if available
+    try:
+        import subprocess, json, shutil
+        ffprobe_bin = shutil.which("ffprobe")
+        if ffprobe_bin:
+            cmd = [
+                ffprobe_bin, "-v", "quiet", "-print_format", "json",
+                "-show_streams", video_path
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                data = json.loads(res.stdout)
+                for s in data.get("streams", []):
+                    if s.get("codec_type") == "video":
+                        tags = s.get("tags", {})
+                        if "rotate" in tags:
+                            rot = int(float(tags["rotate"])) % 360
+                            if rot != 0:
+                                return rot
+                        for sd in s.get("side_data_list", []):
+                            if "rotation" in sd:
+                                rot = int(float(sd["rotation"])) % 360
+                                if rot < 0:
+                                    rot = (360 + rot) % 360
+                                if rot != 0:
+                                    return rot
+    except Exception:
+        pass
+
+    # 2. Try PyAV stream side data / metadata
+    try:
+        import av
+        with av.open(video_path) as cont:
+            if len(cont.streams.video) > 0:
+                st = cont.streams.video[0]
+                meta = getattr(st, "metadata", {}) or {}
+                if "rotate" in meta:
+                    return int(float(meta["rotate"])) % 360
+                for sd in getattr(st, "side_data", []):
+                    if hasattr(sd, "rotation"):
+                        rot = int(sd.rotation) % 360
+                        if rot < 0:
+                            rot = (360 + rot) % 360
+                        if rot != 0:
+                            return rot
+    except Exception:
+        pass
+
+    # 3. Try OpenCV CAP_PROP_ORIENTATION_META
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            prop_rot = cap.get(cv2.CAP_PROP_ORIENTATION_META if hasattr(cv2, "CAP_PROP_ORIENTATION_META") else 57)
+            cap.release()
+            if prop_rot and not math.isnan(prop_rot) and prop_rot > 0:
+                return int(prop_rot) % 360
+    except Exception:
+        pass
+
+    return 0
+
+def apply_rotation_to_frame(frame_rgb: np.ndarray, rotation: int) -> np.ndarray:
+    """Rotate image upright according to EXIF/MP4 rotation metadata."""
+    if rotation == 90:
+        return cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
+    elif rotation == 180:
+        return cv2.rotate(frame_rgb, cv2.ROTATE_180)
+    elif rotation == 270:
+        return cv2.rotate(frame_rgb, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return frame_rgb
+
+def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: int = 20) -> str:
+    """
+    Normalizes/downscales video using ffmpeg ultra-fast mode.
+    Auto-rotates to visual upright and rescales.
+    Returns path to optimized temporary mp4.
+    """
+    import subprocess, shutil, tempfile
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        return input_path
+    
+    fd, out_path = tempfile.mkstemp(suffix="_opt.mp4")
+    os.close(fd)
+    
+    vf = f"scale=-2:{max_h},fps={target_fps}"
+    cmd = [
+        ffmpeg_bin, "-y",
+        "-i", input_path,
+        "-vf", vf,
+        "-preset", "ultrafast",
+        "-c:v", "libx264",
+        "-crf", "28",
+        "-an",
+        out_path
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if res.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            return out_path
+    except Exception as e:
+        print(f"[FFmpeg Opt] Warning: {e}")
+        
+    if os.path.exists(out_path):
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+    return input_path
+
 def sample_video_frames(
     video_path: str,
     target_fps: float = 15.0,
@@ -1261,12 +1373,16 @@ def sample_video_frames(
     """
     Read video sequentially, sampling strictly at target_fps up to max_frames (30s at 15 FPS)
     within the exact [start_time, end_time] interval.
+    Detects and normalizes rotation metadata so all frames are visual upright.
     """
     frames_rgb = []
     timestamps = []
     step_dt = 1.0 / target_fps
     t_start = max(0.0, float(start_time))
     t_end = float(end_time) if (end_time is not None and float(end_time) > t_start) else None
+    video_rot = get_video_rotation(video_path)
+    if video_rot != 0:
+        print(f"[Video Decoder] Detected MP4 rotation={video_rot}°. Normalizing frames upright.")
 
     # Strategy 1: PyAV Frame-Accurate Demuxing
     try:
@@ -1308,6 +1424,8 @@ def sample_video_frames(
                         
                         while target_idx < len(target_timestamps) and f_pts_sec >= target_timestamps[target_idx] - (0.5 / fps_val):
                             img = frame.to_rgb().to_ndarray()
+                            if video_rot != 0:
+                                img = apply_rotation_to_frame(img, video_rot)
                             frames_rgb.append(img)
                             timestamps.append(target_timestamps[target_idx])
                             target_idx += 1
@@ -1353,6 +1471,8 @@ def sample_video_frames(
         if not ret or frame_bgr is None:
             break
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        if video_rot != 0:
+            frame_rgb = apply_rotation_to_frame(frame_rgb, video_rot)
         frames_rgb.append(frame_rgb)
         exact_ts = round(float(target_f_idx / native_fps), 4)
         timestamps.append(exact_ts)
@@ -2375,10 +2495,10 @@ def process_kinematics(
 
     # 5. Peak-Trough Repetition Detection
     signal_range = float(np.max(clean_curve) - np.min(clean_curve))
-    t_min_bound = timestamps[0] + 0.6 if timestamps else 0.6
+    t_min_bound = timestamps[0] + 0.3 if timestamps else 0.3
     t_max_bound = timestamps[-1] - 0.3 if timestamps else 29.7
 
-    min_rep_frames = max(20, int(15.0 * 1.30)) if is_pattern_b else max(16, int(15.0 * 1.15))
+    min_rep_frames = max(20, int(15.0 * 1.30)) if (is_pattern_b or is_pattern_a) else max(16, int(15.0 * 1.15))
 
     p10 = float(np.percentile(clean_curve, 10))
     p90 = float(np.percentile(clean_curve, 90))
@@ -2418,10 +2538,10 @@ def process_kinematics(
             filtered_peaks.append(p)
         else:
             prev_p = filtered_peaks[-1]
-            if is_pattern_b:
-                # Lockout check: between two press valleys, check elbow extension with perspective-safe threshold
+            if is_pattern_b or is_pattern_a:
+                # Lockout check: between two press/row valleys, check elbow extension with perspective-safe threshold
                 crest_val = float(np.max(clean_primary[prev_p : p + 1]))
-                if crest_val < max(100.0, clean_primary[prev_p] + 15.0):
+                if crest_val < max(95.0, clean_primary[prev_p] + 15.0):
                     # Incomplete extension, sticking point or pause: merge and keep the deeper inflection point
                     if clean_primary[p] < clean_primary[prev_p]:
                         filtered_peaks[-1] = p
@@ -2603,24 +2723,24 @@ def process_kinematics(
         
         # Start of rep
         if i == 0:
-            # Search backwards from peak p to find the true onset of movement.
-            # Frames prior to motion onset must stay rep_number = 0 and phase = "IDLE".
-            search_start = max(0, p - int(15.0 * 2.5))
+            # Search backwards to video onset to find true onset of movement
+            search_start = 0
             left_search = clean_curve[search_start : p]
             local_min_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
             cand_start = search_start + local_min_offset
-
-            # Refine onset: find where angular velocity rises above 12 deg/s moving towards p
-            start_frame = cand_start
-            for f_scan in range(cand_start, p):
-                if ang_vel[f_scan] >= 12.0:
-                    start_frame = max(0, f_scan - 2)
-                    break
         else:
             prev_bound = valid_peaks[i - 1]
             left_search = clean_curve[prev_bound : p]
             start_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
-            start_frame = prev_bound + start_offset
+            cand_start = prev_bound + start_offset
+
+        # Refine onset: find where angular velocity rises above 8.0 deg/s moving towards p
+        # (Applied to all repetitions so bottom pauses between reps are not counted into concentric_time_s)
+        start_frame = cand_start
+        for f_scan in range(cand_start, p):
+            if ang_vel[f_scan] >= 8.0:
+                start_frame = max(0, f_scan - 2)
+                break
         
         # End of rep
         next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else n_frames - 1
@@ -2893,8 +3013,9 @@ def process_kinematics(
         }
 
         # Sub-pixel optical flow load metrics for this rep
-        con_start = bottom_frame if is_pattern_b else start_frame
-        con_end = end_frame if is_pattern_b else bottom_frame
+        is_press_or_squat = is_pattern_b or (is_pattern_c and not is_hip_thrust)
+        con_start = bottom_frame if is_press_or_squat else start_frame
+        con_end = end_frame if is_press_or_squat else bottom_frame
         idx_low = min(con_start, con_end)
         idx_high = max(con_start, con_end)
 
@@ -3030,6 +3151,11 @@ def process_kinematics(
             min_rom_ratio = 0.75 if n_reps_total >= 3 else 0.70
             if rep["rom_deg"] < min_rom_ratio * med_rom_val or rep["concentric_sec"] < 0.38:
                 continue
+            # Prune terminal racking/suelta artifact: if last rep ends in final 0.6s and has rom < 0.80 * rep1
+            if idx == n_reps_total - 1 and n_reps_total > 1:
+                t_end_rep = rep.get("end_time_sec", timestamps[rep["end_frame"]])
+                if (timestamps[-1] - t_end_rep < 0.6) and (rep["rom_deg"] < 0.80 * repetitions_summary[0]["rom_deg"]):
+                    continue
             valid_reps.append(rep)
 
         if len(valid_reps) > 0:
@@ -3142,9 +3268,9 @@ def process_kinematics(
         else:
             raw_vel_loss = 0.0
 
-        # Guardia 1: Coherencia temporal concéntrica (si subió más rápido o casi igual, no hay fatiga extrema)
-        if last_conc <= r1_conc * 1.05:
-            vel_loss = round(min(raw_vel_loss, 8.0), 1)
+        # Guardia 1: Coherencia temporal concéntrica (si subió a ritmo estable <= r1_conc * 1.15, no hay fatiga extrema)
+        if last_conc <= r1_conc * 1.15:
+            vel_loss = round(min(raw_vel_loss, 10.0), 1)
         else:
             vel_loss = round(raw_vel_loss, 1)
 
@@ -4005,13 +4131,55 @@ def process_kinematics(
 # 4. Helper & Cerebrium Endpoint Definition
 # ---------------------------------------------------------------------------
 
+def optimize_video_with_ffmpeg(input_path: str) -> str:
+    """Pre-scale and normalize video with ffmpeg in ultrafast mode to prevent decoding timeouts on 4K files."""
+    if not os.path.exists(input_path):
+        return input_path
+    
+    ffmpeg_bin = None
+    try:
+        import imageio_ffmpeg
+        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        import shutil
+        ffmpeg_bin = shutil.which("ffmpeg")
+
+    if not ffmpeg_bin:
+        return input_path
+
+    fd, opt_output = tempfile.mkstemp(suffix="_opt.mp4")
+    os.close(fd)
+
+    # Scale height to 480 maintaining aspect ratio (-2 ensures divisible by 2), fps 20, ultrafast preset
+    cmd = [
+        ffmpeg_bin, "-y", "-i", input_path,
+        "-vf", "scale=-2:480,fps=20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-an", opt_output
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        if proc.returncode == 0 and os.path.exists(opt_output) and os.path.getsize(opt_output) > 1000:
+            return opt_output
+    except Exception as e:
+        print(f"[Video Optimization] ffmpeg fast normalization skipped/failed: {e}")
+    
+    if os.path.exists(opt_output):
+        try:
+            os.unlink(opt_output)
+        except OSError:
+            pass
+    return input_path
+
 def _extract_video_to_tempfile(
     video_base64: Optional[str] = None,
     video_url: Optional[str] = None,
     video: Optional[str] = None
 ) -> str:
-    """Helper to extract incoming video payload (base64 data URI or HTTP URL) to a local tempfile."""
+    """Helper to extract incoming video payload (base64 data URI, HTTP URL, or local file) to a local tempfile."""
     target_data = video_base64 or video
+    if target_data and os.path.isfile(target_data):
+        return target_data
     
     if target_data and not target_data.startswith("http://") and not target_data.startswith("https://"):
         if "," in target_data:
@@ -4481,7 +4649,8 @@ def analyze(
     except (ValueError, TypeError):
         end_time = None
 
-    temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
+    raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
+    temp_path = optimize_video_with_ffmpeg(raw_temp_path)
     try:
         frames_rgb, timestamps, duration = sample_video_frames(
             temp_path,
@@ -4517,11 +4686,12 @@ def analyze(
         )
         return sanitize_for_json(result)
     finally:
-        if os.path.exists(temp_path):
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
+        for p in set([raw_temp_path, temp_path]):
+            if p and os.path.exists(p) and not (video and p == video):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
 # Alias for generic prediction endpoints
 def predict(
@@ -4552,3 +4722,144 @@ def predict(
         gemini_api_key=gemini_api_key,
         **kwargs
     ))
+
+# ---------------------------------------------------------------------------
+# 5. FastAPI Asynchronous Job Server
+# ---------------------------------------------------------------------------
+
+import uuid
+import threading
+import time
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+app = FastAPI(
+    title="MIA Biomechanics Engine",
+    description="Asynchronous Kinematic, VBT & Joint Moment Arm Biomechanical Analyzer",
+    version="2.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+JOBS: Dict[str, Dict[str, Any]] = {}
+JOBS_LOCK = threading.Lock()
+
+def _cleanup_old_jobs():
+    """Remove completed or expired jobs older than 1 hour to prevent memory bloat."""
+    now = time.time()
+    with JOBS_LOCK:
+        to_del = [jid for jid, info in JOBS.items() if now - info.get("created_at", now) > 3600]
+        for jid in to_del:
+            del JOBS[jid]
+
+def worker_process_analysis(job_id: str, payload: dict):
+    _cleanup_old_jobs()
+    try:
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["status"] = "processing"
+                JOBS[job_id]["stage"] = "Optimizando vídeo"
+                JOBS[job_id]["progress"] = 25
+                JOBS[job_id]["updated_at"] = time.time()
+
+        time.sleep(0.05)
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["stage"] = "Analizando biomecánica"
+                JOBS[job_id]["progress"] = 55
+                JOBS[job_id]["updated_at"] = time.time()
+
+        result = analyze(**payload)
+
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["status"] = "done"
+                JOBS[job_id]["stage"] = "Completado"
+                JOBS[job_id]["progress"] = 100
+                JOBS[job_id]["result"] = result
+                JOBS[job_id]["updated_at"] = time.time()
+    except Exception as exc:
+        print(f"[Worker Error] Job {job_id} failed: {exc}")
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["status"] = "error"
+                JOBS[job_id]["stage"] = "Error"
+                JOBS[job_id]["error"] = str(exc)
+                JOBS[job_id]["updated_at"] = time.time()
+
+@app.get("/")
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "service": "MIA Biomechanics Engine",
+        "version": "2.0.0",
+        "active_jobs": len(JOBS)
+    }
+
+@app.post("/analyze", status_code=status.HTTP_202_ACCEPTED)
+async def post_analyze(request: Request, background_tasks: BackgroundTasks):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # If client explicitly requests synchronous response (?sync=true)
+    if request.query_params.get("sync", "").lower() in ["true", "1"]:
+        try:
+            res = analyze(**payload)
+            return JSONResponse(content=res, status_code=200)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    job_id = str(uuid.uuid4())
+    now = time.time()
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 5,
+            "stage": "Subiendo",
+            "result": None,
+            "error": None,
+            "created_at": now,
+            "updated_at": now
+        }
+
+    background_tasks.add_task(worker_process_analysis, job_id, payload)
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "job_id": job_id,
+            "status": "queued",
+            "stage": "Subiendo",
+            "progress": 5,
+            "message": "Analysis started asynchronously"
+        }
+    )
+
+@app.get("/analyze/status/{job_id}")
+def get_analyze_status(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "progress": job["progress"],
+        "stage": job["stage"],
+        "result": job.get("result"),
+        "error": job.get("error")
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)

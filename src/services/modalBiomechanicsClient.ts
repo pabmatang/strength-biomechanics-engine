@@ -349,6 +349,7 @@ export interface BiomechanicsAnalysisOptions {
     startTime: number;
     endTime: number;
   };
+  onProgress?: (stage: string, progress: number) => void;
 }
 
 export function getBiomechanicsCacheKey(
@@ -396,6 +397,7 @@ export async function analyzeVideoWithModal(
   activeAbortController = currentController;
 
   const rawEndpoint =
+    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
     (import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL as string | undefined)?.trim() ||
     (import.meta.env.VITE_MODAL_ENDPOINT_URL as string | undefined)?.trim() ||
     'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
@@ -504,6 +506,53 @@ export async function analyzeVideoWithModal(
       }
     }
 
+    // Asynchronous Job Queue Polling (HTTP 202 Accepted)
+    if (response.status === 202) {
+      const initJson = await response.json();
+      const jobId = initJson.job_id;
+      if (!jobId) {
+        throw new Error('Respuesta 202 sin job_id recibido.');
+      }
+      options?.onProgress?.(initJson.stage || 'Procesando vídeo en cola...', initJson.progress || 10);
+
+      const statusBase = endpointUrl.replace(/\/analyze\/?$/, '');
+      const statusUrl = `${statusBase}/analyze/status/${jobId}`;
+
+      let completedData: BiomechanicsAnalysisResponse | null = null;
+      while (!currentController.signal.aborted) {
+        await new Promise((res) => setTimeout(res, 1500));
+        if (currentController.signal.aborted) break;
+
+        const statusResp = await fetch(statusUrl, {
+          headers,
+          signal: currentController.signal
+        });
+        if (!statusResp.ok) {
+          throw new Error(`Error consultando estado del análisis (${statusResp.status})`);
+        }
+        const statusJson = await statusResp.json();
+        options?.onProgress?.(statusJson.stage || 'Analizando biomecánica...', statusJson.progress || 50);
+
+        if (statusJson.status === 'done') {
+          const raw = statusJson.result?.result || statusJson.result?.data || statusJson.result;
+          completedData = raw as BiomechanicsAnalysisResponse;
+          break;
+        } else if (statusJson.status === 'error') {
+          throw new Error(statusJson.error || 'Error en el procesamiento del análisis en el servidor');
+        }
+      }
+
+      if (!completedData) {
+        throw new Error('Análisis cancelado o no completado.');
+      }
+      if (!completedData.frames || !Array.isArray(completedData.frames)) {
+        throw new Error('La respuesta del microservicio no contiene el array de frames cinemáticos esperado.');
+      }
+
+      analysisCache.set(cacheKey, completedData);
+      return completedData;
+    }
+
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
       const message = `Error en el microservicio biomecánico (${response.status}): ${errorText || response.statusText}`;
@@ -544,6 +593,7 @@ export async function analyzeAnthropometry(
   sideBase64: string
 ): Promise<AnthropometricProfile> {
   const endpointUrl =
+    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
     (import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL as string | undefined)?.trim() ||
     'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';
 
@@ -606,6 +656,7 @@ export async function requestCoachReviewWithModal(
   summaryData: any
 ): Promise<CoachReviewResponse> {
   const rawEndpoint =
+    (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
     (import.meta.env.VITE_CEREBRIUM_ENDPOINT_URL as string | undefined)?.trim() ||
     (import.meta.env.VITE_MODAL_ENDPOINT_URL as string | undefined)?.trim() ||
     'https://api.cerebrium.ai/v4/p-88374926/biomechanics-engine/analyze';

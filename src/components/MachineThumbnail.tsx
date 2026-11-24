@@ -180,14 +180,17 @@ export const MachineThumbnail: React.FC<MachineThumbnailProps> = ({
 
   return (
     <div
-      className={`relative overflow-hidden flex-shrink-0 bg-gradient-to-b ${theme.containerBg} border border-slate-800 flex items-center justify-center select-none ${className}`}
+      className={`relative overflow-hidden flex-shrink-0 border border-slate-800 flex items-center justify-center select-none ${className}`}
+      style={{
+        background: 'radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%)'
+      }}
       title={modelName || alt}
     >
       {showImage ? (
         <img
           src={cleanUrl}
           alt={alt}
-          className={`${imageClassName} transition duration-200`}
+          className={`${imageClassName} transition duration-200 drop-shadow-[0_2px_8px_rgba(255,255,255,0.08)]`}
           loading="lazy"
           onError={() => setHasError(true)}
         />

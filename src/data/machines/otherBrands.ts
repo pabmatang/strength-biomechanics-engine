@@ -77,7 +77,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Booty Builder',
       machineModelGuess: 'Booty Builder - Platinum Hip Thrust (Empuje de Cadera Guiado)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/booty_builder_platinum.png'
   },
 
   // 5. Booty Builder — Booty Builder - Standing Abductor (Abductor de Pie 45°)
@@ -95,7 +95,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Booty Builder',
       machineModelGuess: 'Booty Builder - Standing Abductor (Abductor de Pie 45°)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/booty_builder_standing_abductor.png'
   },
 
   // 6. Gym80 — Gym80 - Pure Kraft Shrug Machine a Discos (Encogimientos)
@@ -113,7 +113,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Gym80',
       machineModelGuess: 'Gym80 - Pure Kraft Shrug Machine a Discos (Encogimientos)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/gym80_pure_kraft_shrug_machine.png'
   },
 
   // 7. Gym80 — Gym80 - Pure Kraft Seated Calf Raise a Discos
@@ -131,7 +131,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Gym80',
       machineModelGuess: 'Gym80 - Pure Kraft Seated Calf Raise a Discos'
     }),
-    imageUrl: null
+    imageUrl: '/machines/gym80_pure_kraft_seated_calf.png'
   },
 
   // 8. Nautilus — Nitro Chest Press
@@ -149,7 +149,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Nautilus',
       machineModelGuess: 'Nitro Chest Press'
     }),
-    imageUrl: null
+    imageUrl: '/machines/nautilus_nitro_chest_press.png'
   },
 
   // 9. Nautilus — Leg Extension (Leva Excéntrica)
@@ -167,7 +167,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Nautilus',
       machineModelGuess: 'Leg Extension (Leva Excéntrica)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/nautilus_leg_extension.png'
   },
 
   // 10. Cybex — Eagle NX Row
@@ -185,6 +185,6 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Cybex',
       machineModelGuess: 'Eagle NX Row'
     }),
-    imageUrl: null
+    imageUrl: '/machines/cybex_eagle_row.png'
   }
 ];
