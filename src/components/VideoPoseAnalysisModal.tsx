@@ -812,7 +812,7 @@ const SingleSnapshotCanvas: React.FC<{
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-cyan-400" />
           <span className="text-slate-300 font-medium">
-            {leverInfo?.mode === 'cable' ? 'Brazo Palanca (Cable): ' : 'Brazo Momento (Gravedad): '}
+            {leverInfo?.mode === 'cable' ? 'Brazo Palanca (Cable):\u00A0' : 'Brazo Momento (Gravedad):\u00A0'}
           </span>
         </div>
         <div className="flex items-center gap-1.5">

@@ -1253,9 +1253,10 @@ analyze_biomechanics_with_gemini_video = analyze_biomechanics_with_vlm
 
 def get_video_rotation(video_path: str) -> int:
     """Detect rotation angle (0, 90, 180, 270) from video metadata / side data."""
+    import subprocess, json, shutil, re
+
     # 1. Try ffprobe if available
     try:
-        import subprocess, json, shutil
         ffprobe_bin = shutil.which("ffprobe")
         if ffprobe_bin:
             cmd = [
@@ -1282,7 +1283,37 @@ def get_video_rotation(video_path: str) -> int:
     except Exception:
         pass
 
-    # 2. Try PyAV stream side data / metadata
+    # 2. Try ffmpeg -i to parse stderr for rotation or displaymatrix
+    try:
+        ffmpeg_bin = None
+        try:
+            import imageio_ffmpeg
+            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg_bin = shutil.which("ffmpeg")
+        if ffmpeg_bin:
+            cmd = [ffmpeg_bin, "-i", video_path]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            err = res.stderr or ""
+            # Check displaymatrix: rotation of -90.00 degrees
+            m_disp = re.search(r"rotation of\s*(-?\d+(?:\.\d+)?)", err)
+            if m_disp:
+                val = float(m_disp.group(1))
+                rot = int(round(-val)) % 360
+                if rot < 0:
+                    rot = (360 + rot) % 360
+                if rot != 0:
+                    return rot
+            # Check rotate : 90
+            m_rot = re.search(r"rotate\s*:\s*(\d+)", err)
+            if m_rot:
+                rot = int(m_rot.group(1)) % 360
+                if rot != 0:
+                    return rot
+    except Exception:
+        pass
+
+    # 3. Try PyAV stream side data / metadata
     try:
         import av
         with av.open(video_path) as cont:
@@ -1301,7 +1332,7 @@ def get_video_rotation(video_path: str) -> int:
     except Exception:
         pass
 
-    # 3. Try OpenCV CAP_PROP_ORIENTATION_META
+    # 4. Try OpenCV CAP_PROP_ORIENTATION_META
     try:
         cap = cv2.VideoCapture(video_path)
         if cap.isOpened():
@@ -1326,7 +1357,7 @@ def apply_rotation_to_frame(frame_rgb: np.ndarray, rotation: int) -> np.ndarray:
 
 def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: int = 20) -> str:
     """
-    Normalizes/downscales video using ffmpeg ultra-fast mode.
+    Normalizes/downscales video using ffmpeg ultra-fast mode with minimal RAM.
     Auto-rotates to visual upright, transposes pixels, and clears rotation tags so rotate=0.
     Returns path to optimized temporary mp4.
     """
@@ -1347,12 +1378,24 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
     if not ffmpeg_bin:
         return input_path
     
+    raw_rot = get_video_rotation(input_path)
+    
     fd, out_path = tempfile.mkstemp(suffix="_opt.mp4")
     os.close(fd)
     
-    vf = f"scale=-2:{max_h},fps={target_fps}"
+    # Construct video filter guaranteeing physical upright orientation
+    if raw_rot == 90:
+        vf = f"transpose=1,scale=-2:{max_h},fps={target_fps}"
+    elif raw_rot == 270:
+        vf = f"transpose=2,scale=-2:{max_h},fps={target_fps}"
+    elif raw_rot == 180:
+        vf = f"hflip,vflip,scale=-2:{max_h},fps={target_fps}"
+    else:
+        vf = f"scale=-2:{max_h},fps={target_fps}"
+        
     cmd = [
         ffmpeg_bin, "-y",
+        "-threads", "1",
         "-i", input_path,
         "-vf", vf,
         "-metadata:s:v", "rotate=0",
@@ -1366,6 +1409,38 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
         if res.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            # Verify output dimensions
+            cap = cv2.VideoCapture(out_path)
+            if cap.isOpened():
+                ow = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                oh = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                cap.release()
+                # If input was portrait (90 or 270) but output came out landscape (w > h),
+                # re-run with explicit transpose
+                if raw_rot in (90, 270) and ow > oh:
+                    fd2, out_path2 = tempfile.mkstemp(suffix="_opt2.mp4")
+                    os.close(fd2)
+                    vf_fix = f"transpose=1,scale=-2:{max_h},fps={target_fps}" if raw_rot == 90 else f"transpose=2,scale=-2:{max_h},fps={target_fps}"
+                    cmd2 = [
+                        ffmpeg_bin, "-y", "-threads", "1",
+                        "-i", input_path, "-vf", vf_fix,
+                        "-metadata:s:v", "rotate=0", "-metadata:s:v:0", "rotate=0",
+                        "-preset", "ultrafast", "-c:v", "libx264", "-crf", "28", "-an",
+                        out_path2
+                    ]
+                    res2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=45)
+                    if res2.returncode == 0 and os.path.exists(out_path2) and os.path.getsize(out_path2) > 1000:
+                        try:
+                            os.unlink(out_path)
+                        except OSError:
+                            pass
+                        return out_path2
+                    else:
+                        if os.path.exists(out_path2):
+                            try:
+                                os.unlink(out_path2)
+                            except OSError:
+                                pass
             return out_path
     except Exception as e:
         print(f"[FFmpeg Opt] Warning: {e}")
@@ -1494,6 +1569,10 @@ def sample_video_frames(
         
     cap.release()
     total_dur_ret = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
+    if video_rot in (90, 270):
+        for idx_fr in range(len(frames_rgb)):
+            if frames_rgb[idx_fr].shape[1] > frames_rgb[idx_fr].shape[0]:
+                frames_rgb[idx_fr] = apply_rotation_to_frame(frames_rgb[idx_fr], video_rot)
     return frames_rgb, timestamps, total_dur_ret
 
 def detect_content_bbox(frame: np.ndarray, threshold: int = 15) -> Tuple[int, int, int, int]:
@@ -2485,7 +2564,26 @@ def process_kinematics(
         clean_curve = -clean_primary.copy()
     elif is_pattern_b:
         # Pattern B — Empuje / Extensión
-        clean_primary = clean_el
+        # Combinar ángulo de flexión/extensión del codo con desplazamiento a lo largo del eje principal de empuje PCA
+        wr_x = primary_joints["wrist"]["x"]
+        wr_y = primary_joints["wrist"]["y"]
+        if len(wr_x) > 5 and np.ptp(wr_x) + np.ptp(wr_y) > 0.02:
+            wr_pts = np.column_stack([wr_x - np.mean(wr_x), wr_y - np.mean(wr_y)])
+            cov = np.cov(wr_pts, rowvar=False)
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            v_push = eigvecs[:, int(np.argmax(eigvals))]
+            disp_pca = wr_pts @ v_push
+            if len(clean_el) > 1:
+                corr = np.corrcoef(disp_pca, clean_el)[0, 1]
+                if not np.isnan(corr) and corr < 0:
+                    disp_pca = -disp_pca
+            el_range = max(10.0, float(np.percentile(clean_el, 90) - np.percentile(clean_el, 10)))
+            pca_range = max(1e-4, float(np.percentile(disp_pca, 90) - np.percentile(disp_pca, 10)))
+            disp_scaled = (disp_pca - np.median(disp_pca)) / pca_range * el_range + np.median(clean_el)
+            disp_smooth = apply_zero_phase_butterworth_continuous(disp_scaled, fs=15.0, cutoff=1.8)
+            clean_primary = 0.70 * clean_el + 0.30 * disp_smooth
+        else:
+            clean_primary = clean_el
         clean_secondary = clean_hu
         is_trough_movement = True
         clean_curve = -clean_primary.copy()
@@ -2751,10 +2849,17 @@ def process_kinematics(
         # Refine onset: find where angular velocity rises above 5.0 deg/s or displacement occurs moving towards p
         # (Detects first eccentric/concentric phase at t=0.5s - 1.5s without getting stuck in IDLE)
         start_frame = cand_start
-        for f_scan in range(cand_start, p):
-            if ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
-                start_frame = max(0, f_scan - 1)
-                break
+        if i == 0 and is_pattern_b:
+            init_ang = clean_primary[0]
+            for f_scan in range(0, p):
+                if abs(clean_primary[f_scan] - init_ang) >= 20.0 or ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
+                    start_frame = max(0, f_scan - 1)
+                    break
+        else:
+            for f_scan in range(cand_start, p):
+                if ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
+                    start_frame = max(0, f_scan - 1)
+                    break
         
         # End of rep
         next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else n_frames - 1
@@ -3162,8 +3267,9 @@ def process_kinematics(
         for idx, rep in enumerate(repetitions_summary):
             # Solo válida si completa el valle y la concéntrica alcanzando >= 65% del ROM mediano
             # En series muy cortas (1-2), permitir >= 60% si la concéntrica duró >= 0.20s
+            # En press inclinado y empujes, aceptar siempre cualquier ciclo completo que supere 35° de amplitud angular
             min_rom_ratio = 0.65 if n_reps_total >= 3 else 0.60
-            if rep["rom_deg"] < min_rom_ratio * med_rom_val or rep["concentric_sec"] < 0.20:
+            if (rep["rom_deg"] < min_rom_ratio * med_rom_val and rep["rom_deg"] < 35.0) or rep["concentric_sec"] < 0.20:
                 continue
             # Prune terminal racking/suelta artifact: if last rep ends in final 0.5s and has rom < 0.80 * rep1
             if idx == n_reps_total - 1 and n_reps_total > 1:
@@ -4665,6 +4771,12 @@ def analyze(
     raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     raw_rot = get_video_rotation(raw_temp_path)
     temp_path = optimize_video_with_ffmpeg(raw_temp_path)
+    # Delete raw 4K video immediately after transcoding to free disk/RAM before MediaPipe starts
+    if temp_path != raw_temp_path and os.path.exists(raw_temp_path):
+        try:
+            os.unlink(raw_temp_path)
+        except Exception as e:
+            print(f"[Analyze Cleanup] Warning deleting raw video: {e}")
     try:
         frames_rgb, timestamps, duration = sample_video_frames(
             temp_path,
@@ -4771,6 +4883,9 @@ app.add_middleware(
 JOBS: Dict[str, Dict[str, Any]] = {}
 JOBS_LOCK = threading.Lock()
 
+UPLOADS: Dict[str, Dict[str, Any]] = {}
+UPLOADS_LOCK = threading.Lock()
+
 def _cleanup_old_jobs():
     """Remove completed or expired jobs older than 1 hour to prevent memory bloat."""
     now = time.time()
@@ -4778,6 +4893,23 @@ def _cleanup_old_jobs():
         to_del = [jid for jid, info in JOBS.items() if now - info.get("created_at", now) > 3600]
         for jid in to_del:
             del JOBS[jid]
+
+def _cleanup_old_uploads():
+    """Remove pending or abandoned uploads older than 1 hour to prevent disk bloat."""
+    now = time.time()
+    with UPLOADS_LOCK:
+        to_del = []
+        for uid, info in UPLOADS.items():
+            if now - info.get("created_at", now) > 3600:
+                to_del.append(uid)
+                fpath = info.get("file_path")
+                if fpath and os.path.exists(fpath):
+                    try:
+                        os.unlink(fpath)
+                    except OSError:
+                        pass
+        for uid in to_del:
+            del UPLOADS[uid]
 
 def worker_process_analysis(job_id: str, payload: dict):
     _cleanup_old_jobs()
@@ -4862,6 +4994,114 @@ async def post_analyze(request: Request, background_tasks: BackgroundTasks):
             "stage": "Subiendo",
             "progress": 5,
             "message": "Analysis started asynchronously"
+        }
+    )
+
+@app.post("/analyze/upload/init")
+def post_upload_init():
+    """Initializes chunked video upload session, returning upload_id."""
+    _cleanup_old_uploads()
+    upload_id = str(uuid.uuid4())
+    fd, temp_file_path = tempfile.mkstemp(suffix="_chunked_upload.mp4")
+    os.close(fd)
+    with UPLOADS_LOCK:
+        UPLOADS[upload_id] = {
+            "upload_id": upload_id,
+            "file_path": temp_file_path,
+            "total_bytes": 0,
+            "created_at": time.time(),
+            "updated_at": time.time()
+        }
+    return {"upload_id": upload_id}
+
+@app.post("/analyze/upload/chunk/{upload_id}")
+async def post_upload_chunk(upload_id: str, request: Request):
+    """
+    Receives binary 4 MB chunks and streams directly to disk.
+    Never loads entire payload into RAM.
+    """
+    with UPLOADS_LOCK:
+        info = UPLOADS.get(upload_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+
+    file_path = info["file_path"]
+    content_type = request.headers.get("content-type", "")
+
+    bytes_written = 0
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        chunk_file = form.get("chunk") or form.get("file")
+        if not chunk_file:
+            raise HTTPException(status_code=400, detail="No chunk file provided in form")
+        with open(file_path, "ab") as f:
+            while True:
+                data = await chunk_file.read(1024 * 1024)
+                if not data:
+                    break
+                f.write(data)
+                bytes_written += len(data)
+    else:
+        with open(file_path, "ab") as f:
+            async for chunk_bytes in request.stream():
+                if chunk_bytes:
+                    f.write(chunk_bytes)
+                    bytes_written += len(chunk_bytes)
+
+    with UPLOADS_LOCK:
+        info["total_bytes"] += bytes_written
+        info["updated_at"] = time.time()
+
+    return {"status": "ok", "bytes_received": bytes_written, "total_bytes": info["total_bytes"]}
+
+@app.post("/analyze/upload/complete/{upload_id}", status_code=status.HTTP_202_ACCEPTED)
+async def post_upload_complete(upload_id: str, request: Request, background_tasks: BackgroundTasks):
+    """
+    Completes chunked video upload, enqueues async background analysis job,
+    and returns 202 Accepted { job_id }.
+    """
+    with UPLOADS_LOCK:
+        info = UPLOADS.pop(upload_id, None)
+    if not info:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+
+    file_path = info["file_path"]
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded video file is empty or missing on disk")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    # Stream file path directly to analysis worker without base64 in RAM
+    payload["video"] = file_path
+    payload["video_base64"] = None
+    payload["video_url"] = None
+
+    job_id = str(uuid.uuid4())
+    now = time.time()
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 5,
+            "stage": "Subiendo",
+            "result": None,
+            "error": None,
+            "created_at": now,
+            "updated_at": now
+        }
+
+    background_tasks.add_task(worker_process_analysis, job_id, payload)
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "job_id": job_id,
+            "status": "queued",
+            "stage": "Subiendo",
+            "progress": 5,
+            "message": "Upload complete, analysis queued asynchronously"
         }
     )
 

@@ -428,81 +428,157 @@ export async function analyzeVideoWithModal(
       ? Number(range.endTime.toFixed(2))
       : null;
 
-    let base64Data = '';
-    if (isCerebrium) {
-      headers['Content-Type'] = 'application/json';
-      base64Data = await blobToBase64(videoBlob);
-
-      if (!base64Data || typeof base64Data !== 'string' || base64Data.length < 100) {
-        throw new Error('No valid video payload provided (expected base64 or video_url). El archivo de vídeo no contiene datos válidos.');
-      }
-    }
-
     const geminiApiKey = config.geminiApiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+    const CHUNK_THRESHOLD = 8 * 1024 * 1024; // 8 MB
+    const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
-    const doFetch = async () => {
-      if (isCerebrium) {
-        return fetch(endpointUrl, {
-          method: 'POST',
-          headers,
-          signal: currentController.signal,
-          body: JSON.stringify({
-            video_base64: base64Data,
-            exercise_type: String(config.exerciseType),
-            exercise_name: String(config.exerciseName || ''),
-            target_muscle: String(config.targetMuscle),
-            load_type: String(config.loadType),
-            is_manual_override: Boolean(config.isManualOverride),
-            gemini_api_key: geminiApiKey,
-            start_time: startTime,
-            end_time: endTime,
-            weight_kg: config.weightKg,
-            target_reps: config.targetReps,
-            anthropometry: config.anthropometry,
-            run_vlm: Boolean(config.runVlm)
-          })
-        });
-      } else {
-        const formData = new FormData();
-        formData.append('video', videoBlob, 'input_video.webm');
-        formData.append('exercise_type', String(config.exerciseType));
-        formData.append('exercise_name', String(config.exerciseName || ''));
-        formData.append('target_muscle', String(config.targetMuscle));
-        formData.append('load_type', String(config.loadType));
-        formData.append('gemini_api_key', geminiApiKey);
-        formData.append('start_time', String(startTime));
-        formData.append('run_vlm', String(Boolean(config.runVlm)));
-        if (endTime !== null) {
-          formData.append('end_time', String(endTime));
+    if (videoBlob.size > CHUNK_THRESHOLD) {
+      const apiBase = endpointUrl.replace(/\/analyze\/?$/, '');
+      const initUrl = `${apiBase}/analyze/upload/init`;
+      const chunkBaseUrl = `${apiBase}/analyze/upload/chunk`;
+      const completeUrl = `${apiBase}/analyze/upload/complete`;
+
+      options?.onProgress?.('Iniciando subida optimizada...', 5);
+      const initRes = await fetch(initUrl, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        },
+        signal: currentController.signal
+      });
+
+      if (!initRes.ok) {
+        throw new Error(`Error al inicializar sesión de subida por fragmentos (${initRes.status})`);
+      }
+
+      const { upload_id } = await initRes.json();
+      const totalBytes = videoBlob.size;
+      let offset = 0;
+
+      while (offset < totalBytes) {
+        if (currentController.signal.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
         }
+        const chunkBlob = videoBlob.slice(offset, Math.min(offset + CHUNK_SIZE, totalBytes));
+        const pct = Math.min(35, Math.round((offset / totalBytes) * 30) + 5);
+        const displayPct = Math.round((offset / totalBytes) * 100);
+        options?.onProgress?.(`Subiendo ${displayPct}%...`, pct);
 
-        return fetch(endpointUrl, {
+        const chunkRes = await fetch(`${chunkBaseUrl}/${upload_id}`, {
           method: 'POST',
-          headers,
-          signal: currentController.signal,
-          body: formData
+          headers: {
+            ...headers,
+            'Content-Type': 'application/octet-stream'
+          },
+          body: chunkBlob,
+          signal: currentController.signal
         });
-      }
-    };
 
-    try {
-      response = await doFetch();
-    } catch (fetchErr: any) {
-      if (fetchErr.name !== 'AbortError') {
-        console.warn('[BiomechanicsClient] Error de conexión en primer intento. Reintentando tras 1500 ms...', fetchErr);
+        if (!chunkRes.ok) {
+          throw new Error(`Error al subir fragmento de vídeo (${chunkRes.status})`);
+        }
+        offset += chunkBlob.size;
+      }
+
+      options?.onProgress?.('Optimizando vídeo en servidor...', 35);
+      response = await fetch(`${completeUrl}/${upload_id}`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        },
+        signal: currentController.signal,
+        body: JSON.stringify({
+          exercise_type: String(config.exerciseType),
+          exercise_name: String(config.exerciseName || ''),
+          target_muscle: String(config.targetMuscle),
+          load_type: String(config.loadType),
+          is_manual_override: Boolean(config.isManualOverride),
+          gemini_api_key: geminiApiKey,
+          start_time: startTime,
+          end_time: endTime,
+          weight_kg: config.weightKg,
+          target_reps: config.targetReps,
+          anthropometry: config.anthropometry,
+          run_vlm: Boolean(config.runVlm)
+        })
+      });
+    } else {
+      let base64Data = '';
+      if (isCerebrium) {
+        headers['Content-Type'] = 'application/json';
+        base64Data = await blobToBase64(videoBlob);
+
+        if (!base64Data || typeof base64Data !== 'string' || base64Data.length < 100) {
+          throw new Error('No valid video payload provided (expected base64 or video_url). El archivo de vídeo no contiene datos válidos.');
+        }
+      }
+
+      const doFetch = async () => {
+        if (isCerebrium) {
+          return fetch(endpointUrl, {
+            method: 'POST',
+            headers,
+            signal: currentController.signal,
+            body: JSON.stringify({
+              video_base64: base64Data,
+              exercise_type: String(config.exerciseType),
+              exercise_name: String(config.exerciseName || ''),
+              target_muscle: String(config.targetMuscle),
+              load_type: String(config.loadType),
+              is_manual_override: Boolean(config.isManualOverride),
+              gemini_api_key: geminiApiKey,
+              start_time: startTime,
+              end_time: endTime,
+              weight_kg: config.weightKg,
+              target_reps: config.targetReps,
+              anthropometry: config.anthropometry,
+              run_vlm: Boolean(config.runVlm)
+            })
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('video', videoBlob, 'input_video.webm');
+          formData.append('exercise_type', String(config.exerciseType));
+          formData.append('exercise_name', String(config.exerciseName || ''));
+          formData.append('target_muscle', String(config.targetMuscle));
+          formData.append('load_type', String(config.loadType));
+          formData.append('gemini_api_key', geminiApiKey);
+          formData.append('start_time', String(startTime));
+          formData.append('run_vlm', String(Boolean(config.runVlm)));
+          if (endTime !== null) {
+            formData.append('end_time', String(endTime));
+          }
+
+          return fetch(endpointUrl, {
+            method: 'POST',
+            headers,
+            signal: currentController.signal,
+            body: formData
+          });
+        }
+      };
+
+      try {
+        response = await doFetch();
+      } catch (fetchErr: any) {
+        if (fetchErr.name !== 'AbortError') {
+          console.warn('[BiomechanicsClient] Error de conexión en primer intento. Reintentando tras 1500 ms...', fetchErr);
+          await new Promise((res) => setTimeout(res, 1500));
+          response = await doFetch();
+        } else {
+          throw fetchErr;
+        }
+      }
+
+      // Auto-retry transparente ante 502 / 503 / 504 (Cold Start en Cerebrium GPU)
+      if ([502, 503, 504].includes(response.status)) {
+        console.warn(`[BiomechanicsClient] Cold start detectado (${response.status}). Esperando 1500 ms y reintentando automáticamente en segundo plano...`);
         await new Promise((res) => setTimeout(res, 1500));
-        response = await doFetch();
-      } else {
-        throw fetchErr;
-      }
-    }
-
-    // Auto-retry transparente ante 502 / 503 / 504 (Cold Start en Cerebrium GPU)
-    if ([502, 503, 504].includes(response.status)) {
-      console.warn(`[BiomechanicsClient] Cold start detectado (${response.status}). Esperando 1500 ms y reintentando automáticamente en segundo plano...`);
-      await new Promise((res) => setTimeout(res, 1500));
-      if (!currentController.signal.aborted) {
-        response = await doFetch();
+        if (!currentController.signal.aborted) {
+          response = await doFetch();
+        }
       }
     }
 
