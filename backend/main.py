@@ -4862,23 +4862,15 @@ def predict(
 import uuid
 import threading
 import time
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-app = FastAPI(
-    title="MIA Biomechanics Engine",
-    description="Asynchronous Kinematic, VBT & Joint Moment Arm Biomechanical Analyzer",
-    version="2.0.0"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+try:
+    from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response, status
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
+    HAS_FASTAPI = True
+except ImportError:
+    HAS_FASTAPI = False
+    FastAPI = None  # type: ignore
 
 JOBS: Dict[str, Dict[str, Any]] = {}
 JOBS_LOCK = threading.Lock()
@@ -4910,6 +4902,22 @@ def _cleanup_old_uploads():
                         pass
         for uid in to_del:
             del UPLOADS[uid]
+
+def _init_upload_session() -> dict:
+    """Initializes chunked video upload session, returning upload_id."""
+    _cleanup_old_uploads()
+    upload_id = str(uuid.uuid4())
+    fd, temp_file_path = tempfile.mkstemp(suffix="_chunked_upload.mp4")
+    os.close(fd)
+    with UPLOADS_LOCK:
+        UPLOADS[upload_id] = {
+            "upload_id": upload_id,
+            "file_path": temp_file_path,
+            "total_bytes": 0,
+            "created_at": time.time(),
+            "updated_at": time.time()
+        }
+    return {"upload_id": upload_id}
 
 def worker_process_analysis(job_id: str, payload: dict):
     _cleanup_old_jobs()
@@ -4946,179 +4954,181 @@ def worker_process_analysis(job_id: str, payload: dict):
                 JOBS[job_id]["error"] = str(exc)
                 JOBS[job_id]["updated_at"] = time.time()
 
-@app.get("/")
-@app.get("/health")
-def health():
-    return {
-        "status": "ok",
-        "service": "MIA Biomechanics Engine",
-        "version": "2.0.0",
-        "active_jobs": len(JOBS)
-    }
+if HAS_FASTAPI:
+    app = FastAPI(
+        title="MIA Biomechanics Engine",
+        description="Asynchronous Kinematic, VBT & Joint Moment Arm Biomechanical Analyzer",
+        version="2.0.0"
+    )
 
-@app.post("/analyze", status_code=status.HTTP_202_ACCEPTED)
-async def post_analyze(request: Request, background_tasks: BackgroundTasks):
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    # If client explicitly requests synchronous response (?sync=true)
-    if request.query_params.get("sync", "").lower() in ["true", "1"]:
+    @app.get("/")
+    @app.get("/health")
+    def health():
+        return {
+            "status": "ok",
+            "service": "MIA Biomechanics Engine",
+            "version": "2.0.0",
+            "active_jobs": len(JOBS)
+        }
+
+    @app.post("/analyze", status_code=status.HTTP_202_ACCEPTED)
+    async def post_analyze(request: Request, background_tasks: BackgroundTasks):
         try:
-            res = analyze(**payload)
-            return JSONResponse(content=res, status_code=200)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            payload = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    job_id = str(uuid.uuid4())
-    now = time.time()
-    with JOBS_LOCK:
-        JOBS[job_id] = {
-            "job_id": job_id,
-            "status": "queued",
-            "progress": 5,
-            "stage": "Subiendo",
-            "result": None,
-            "error": None,
-            "created_at": now,
-            "updated_at": now
+        # If client explicitly requests synchronous response (?sync=true)
+        if request.query_params.get("sync", "").lower() in ["true", "1"]:
+            try:
+                res = analyze(**payload)
+                return JSONResponse(content=res, status_code=200)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        job_id = str(uuid.uuid4())
+        now = time.time()
+        with JOBS_LOCK:
+            JOBS[job_id] = {
+                "job_id": job_id,
+                "status": "queued",
+                "progress": 5,
+                "stage": "Subiendo",
+                "result": None,
+                "error": None,
+                "created_at": now,
+                "updated_at": now
+            }
+
+        background_tasks.add_task(worker_process_analysis, job_id, payload)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job_id,
+                "status": "queued",
+                "stage": "Subiendo",
+                "progress": 5,
+                "message": "Analysis started asynchronously"
+            }
+        )
+
+    @app.post("/analyze/upload/init")
+    def post_upload_init():
+        return _init_upload_session()
+
+    @app.post("/analyze/upload/chunk/{upload_id}")
+    async def post_upload_chunk(upload_id: str, request: Request):
+        """
+        Receives binary 4 MB chunks and streams directly to disk.
+        Never loads entire payload into RAM.
+        """
+        with UPLOADS_LOCK:
+            info = UPLOADS.get(upload_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="Upload session not found or expired")
+
+        file_path = info["file_path"]
+        content_type = request.headers.get("content-type", "")
+
+        bytes_written = 0
+        if "multipart/form-data" in content_type:
+            form = await request.form()
+            chunk_file = form.get("chunk") or form.get("file")
+            if not chunk_file:
+                raise HTTPException(status_code=400, detail="No chunk file provided in form")
+            with open(file_path, "ab") as f:
+                while True:
+                    data = await chunk_file.read(1024 * 1024)
+                    if not data:
+                        break
+                    f.write(data)
+                    bytes_written += len(data)
+        else:
+            with open(file_path, "ab") as f:
+                async for chunk_bytes in request.stream():
+                    if chunk_bytes:
+                        f.write(chunk_bytes)
+                        bytes_written += len(chunk_bytes)
+
+        with UPLOADS_LOCK:
+            info["total_bytes"] += bytes_written
+            info["updated_at"] = time.time()
+
+        return {"status": "ok", "bytes_received": bytes_written, "total_bytes": info["total_bytes"]}
+
+    @app.post("/analyze/upload/complete/{upload_id}", status_code=status.HTTP_202_ACCEPTED)
+    async def post_upload_complete(upload_id: str, request: Request, background_tasks: BackgroundTasks):
+        """
+        Completes chunked video upload, enqueues async background analysis job,
+        and returns 202 Accepted { job_id }.
+        """
+        with UPLOADS_LOCK:
+            info = UPLOADS.pop(upload_id, None)
+        if not info:
+            raise HTTPException(status_code=404, detail="Upload session not found or expired")
+
+        file_path = info["file_path"]
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded video file is empty or missing on disk")
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+        # Stream file path directly to analysis worker without base64 in RAM
+        payload["video"] = file_path
+        payload["video_base64"] = None
+        payload["video_url"] = None
+
+        job_id = str(uuid.uuid4())
+        now = time.time()
+        with JOBS_LOCK:
+            JOBS[job_id] = {
+                "job_id": job_id,
+                "status": "queued",
+                "progress": 5,
+                "stage": "Subiendo",
+                "result": None,
+                "error": None,
+                "created_at": now,
+                "updated_at": now
+            }
+
+        background_tasks.add_task(worker_process_analysis, job_id, payload)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job_id,
+                "status": "queued",
+                "stage": "Subiendo",
+                "progress": 5,
+                "message": "Upload complete, analysis queued asynchronously"
+            }
+        )
+
+    @app.get("/analyze/status/{job_id}")
+    def get_analyze_status(job_id: str):
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {
+            "job_id": job["job_id"],
+            "status": job["status"],
+            "progress": job["progress"],
+            "stage": job["stage"],
+            "result": job.get("result"),
+            "error": job.get("error")
         }
-
-    background_tasks.add_task(worker_process_analysis, job_id, payload)
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={
-            "job_id": job_id,
-            "status": "queued",
-            "stage": "Subiendo",
-            "progress": 5,
-            "message": "Analysis started asynchronously"
-        }
-    )
-
-@app.post("/analyze/upload/init")
-def post_upload_init():
-    """Initializes chunked video upload session, returning upload_id."""
-    _cleanup_old_uploads()
-    upload_id = str(uuid.uuid4())
-    fd, temp_file_path = tempfile.mkstemp(suffix="_chunked_upload.mp4")
-    os.close(fd)
-    with UPLOADS_LOCK:
-        UPLOADS[upload_id] = {
-            "upload_id": upload_id,
-            "file_path": temp_file_path,
-            "total_bytes": 0,
-            "created_at": time.time(),
-            "updated_at": time.time()
-        }
-    return {"upload_id": upload_id}
-
-@app.post("/analyze/upload/chunk/{upload_id}")
-async def post_upload_chunk(upload_id: str, request: Request):
-    """
-    Receives binary 4 MB chunks and streams directly to disk.
-    Never loads entire payload into RAM.
-    """
-    with UPLOADS_LOCK:
-        info = UPLOADS.get(upload_id)
-    if not info:
-        raise HTTPException(status_code=404, detail="Upload session not found or expired")
-
-    file_path = info["file_path"]
-    content_type = request.headers.get("content-type", "")
-
-    bytes_written = 0
-    if "multipart/form-data" in content_type:
-        form = await request.form()
-        chunk_file = form.get("chunk") or form.get("file")
-        if not chunk_file:
-            raise HTTPException(status_code=400, detail="No chunk file provided in form")
-        with open(file_path, "ab") as f:
-            while True:
-                data = await chunk_file.read(1024 * 1024)
-                if not data:
-                    break
-                f.write(data)
-                bytes_written += len(data)
-    else:
-        with open(file_path, "ab") as f:
-            async for chunk_bytes in request.stream():
-                if chunk_bytes:
-                    f.write(chunk_bytes)
-                    bytes_written += len(chunk_bytes)
-
-    with UPLOADS_LOCK:
-        info["total_bytes"] += bytes_written
-        info["updated_at"] = time.time()
-
-    return {"status": "ok", "bytes_received": bytes_written, "total_bytes": info["total_bytes"]}
-
-@app.post("/analyze/upload/complete/{upload_id}", status_code=status.HTTP_202_ACCEPTED)
-async def post_upload_complete(upload_id: str, request: Request, background_tasks: BackgroundTasks):
-    """
-    Completes chunked video upload, enqueues async background analysis job,
-    and returns 202 Accepted { job_id }.
-    """
-    with UPLOADS_LOCK:
-        info = UPLOADS.pop(upload_id, None)
-    if not info:
-        raise HTTPException(status_code=404, detail="Upload session not found or expired")
-
-    file_path = info["file_path"]
-    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-        raise HTTPException(status_code=400, detail="Uploaded video file is empty or missing on disk")
-
-    try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-
-    # Stream file path directly to analysis worker without base64 in RAM
-    payload["video"] = file_path
-    payload["video_base64"] = None
-    payload["video_url"] = None
-
-    job_id = str(uuid.uuid4())
-    now = time.time()
-    with JOBS_LOCK:
-        JOBS[job_id] = {
-            "job_id": job_id,
-            "status": "queued",
-            "progress": 5,
-            "stage": "Subiendo",
-            "result": None,
-            "error": None,
-            "created_at": now,
-            "updated_at": now
-        }
-
-    background_tasks.add_task(worker_process_analysis, job_id, payload)
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={
-            "job_id": job_id,
-            "status": "queued",
-            "stage": "Subiendo",
-            "progress": 5,
-            "message": "Upload complete, analysis queued asynchronously"
-        }
-    )
-
-@app.get("/analyze/status/{job_id}")
-def get_analyze_status(job_id: str):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {
-        "job_id": job["job_id"],
-        "status": job["status"],
-        "progress": job["progress"],
-        "stage": job["stage"],
-        "result": job.get("result"),
-        "error": job.get("error")
-    }
 
 # ==============================================================================
 # CEREBRIUM CORTEX TOP-LEVEL FUNCTIONS FOR CHUNKED VIDEO UPLOAD
@@ -5126,7 +5136,7 @@ def get_analyze_status(job_id: str):
 
 def upload_init() -> dict:
     """Cerebrium-compatible endpoint to initialize a chunked upload session."""
-    return post_upload_init()
+    return _init_upload_session()
 
 def upload_chunk(upload_id: str, chunk_base64: str) -> dict:
     """
