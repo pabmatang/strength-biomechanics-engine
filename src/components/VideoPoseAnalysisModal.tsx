@@ -480,23 +480,50 @@ interface SnapshotViewerProps {
   onSetPulleyOrigin: (pt: { x: number; y: number }) => void;
 }
 
+function formatMachineBrandAndModel(brand?: string | null, modelName?: string | null, separator: string = ' · '): string {
+  if (!modelName) return brand || '';
+  if (!brand) return modelName;
+  const b = brand.trim();
+  const m = modelName.trim();
+  if (m.toLowerCase().startsWith(b.toLowerCase())) {
+    return m;
+  }
+  return `${b}${separator}${m}`;
+}
+
 function getLeverJointLabels(exerciseType?: string, isUpperBody?: boolean) {
   const ex = (exerciseType || '').toLowerCase();
-  if (!isUpperBody) {
-    const isKneeDominant = ex.includes('squat') || ex.includes('leg_press') || ex.includes('leg_extension') || ex.includes('hack') || ex.includes('prensa') || ex.includes('sentadilla') || ex.includes('quad');
-    if (isKneeDominant) {
-      return { joint1: 'Cuádriceps/Rodilla', joint2: 'Glúteo/Cadera', primary: 'knee' };
-    }
+  
+  // 1. Dominancia Tren Inferior
+  const isKneeDominant = ex.includes('squat') || ex.includes('leg_press') || ex.includes('leg_extension') || ex.includes('hack') || ex.includes('prensa') || ex.includes('sentadilla') || ex.includes('quad');
+  const isHipDominant = ex.includes('deadlift') || ex.includes('hip_thrust') || ex.includes('leg_curl') || ex.includes('rdl') || ex.includes('peso_muerto') || ex.includes('isquio');
+
+  if (isKneeDominant) {
+    return { joint1: 'Cuádriceps/Rodilla', joint2: 'Glúteo/Cadera', primary: 'knee' };
+  }
+  if (isHipDominant) {
     return { joint1: 'Isquios-Glúteo/Cadera', joint2: 'Rodilla/Flexión', primary: 'hip' };
   }
-  const isPull = ex.includes('pull') || ex.includes('row') || ex.includes('remo') || ex.includes('jalon') || ex.includes('chin') || ex.includes('lat') || ex.includes('t_bar') || ex.includes('gironda') || ex.includes('curl');
-  const isShoulderPress = ex.includes('shoulder') || ex.includes('military') || ex.includes('overhead') || ex.includes('press_militar') || ex.includes('press_hombro');
-  
+  if (!isUpperBody) {
+    return { joint1: 'Cuádriceps/Rodilla', joint2: 'Glúteo/Cadera', primary: 'knee' };
+  }
+
+  // 2. Tren Superior: Tracción vs Empuje Pecho vs Empuje Hombro
+  // Nota crítica: NUNCA usar ex.includes('lat') porque colisiona con 'lateral_raise'!
+  const isPull = ex.includes('row') || ex.includes('remo') || ex.includes('pulldown') || ex.includes('jalon') || ex.includes('chin') || ex.includes('pullup') || ex.includes('t_bar') || ex.includes('gironda') || ex.includes('lat_') || ex.includes('lat ') || ex.endsWith('lat') || ex.includes('curl');
+
+  const isShoulderPush = ex.includes('shoulder') || ex.includes('lateral') || ex.includes('elevacion') || ex.includes('military') || ex.includes('overhead') || ex.includes('arnold') || ex.includes('press_militar') || ex.includes('press_hombro');
+
+  const isChestPush = ex.includes('chest') || ex.includes('incline_press') || ex.includes('bench_press') || ex.includes('pec_deck') || ex.includes('pecho') || (ex.includes('press') && !isShoulderPush) || ex.includes('dip') || ex.includes('fondo');
+
   if (isPull) {
     return { joint1: 'Espalda/Hombro', joint2: 'Bíceps/Codo', primary: 'shoulder' };
   }
-  if (isShoulderPress) {
+  if (isShoulderPush) {
     return { joint1: 'Deltoides/Hombro', joint2: 'Tríceps/Codo', primary: 'shoulder' };
+  }
+  if (isChestPush) {
+    return { joint1: 'Pectoral/Hombro', joint2: 'Tríceps/Codo', primary: 'shoulder' };
   }
   return { joint1: 'Pectoral/Hombro', joint2: 'Tríceps/Codo', primary: 'shoulder' };
 }
@@ -942,6 +969,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [isManualOverride, setIsManualOverride] = useState<boolean>(true);
   const isManualOverrideRef = useRef<boolean>(true);
   const [showManualExerciseSelector, setShowManualExerciseSelector] = useState<boolean>(false);
+  const [showExercisePickerInOverlay, setShowExercisePickerInOverlay] = useState<boolean>(false);
 
   // States for on-demand Coach IA review and Pro snapshots
   const [isGeneratingCoachReview, setIsGeneratingCoachReview] = useState<boolean>(false);
@@ -959,6 +987,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   // Synchronize exercise and group when modal opens or defaults change
   useEffect(() => {
     if (isOpen) {
+      setShowExercisePickerInOverlay(false);
       const activeM = catalogMachine || effectiveCatalogMachine;
       if (activeM) {
         setCatalogMachine(activeM);
@@ -1355,6 +1384,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     setPlaybackSpeed(1.0);
     setShowConfigBottomSheet(false);
     setShowTrimmer(false);
+    setShowExercisePickerInOverlay(false);
     setAnalysisData(null);
     setCurrentFrame(null);
     const hasDef = Boolean(defaultExerciseId && defaultExerciseId !== 'auto');
@@ -1395,7 +1425,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         ? catalogMachine.canonicalExerciseType
         : (manualActive ? activeExercise.exerciseType : (defaultExerciseId && defaultExerciseId !== 'auto' ? defaultExerciseId : 'auto'));
       const exNameToSend = catalogMachine
-        ? `${catalogMachine.brand} ${catalogMachine.modelName}`
+        ? formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName, ' ')
         : (manualActive ? activeExercise.name : (defaultExerciseName || undefined));
       const muscleToSend = manualActive ? activeExercise.targetMuscle : 'auto';
       const loadToSend = catalogMachine ? 'machine' : (manualActive ? activeExercise.loadType : 'auto');
@@ -2977,45 +3007,89 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       Ajusta los deslizadores de inicio ({trimStart.toFixed(1)}s) y fin ({trimEnd.toFixed(1)}s) para delimitar la serie de trabajo. Elige el ejercicio o déjalo en auto-detección y pulsa iniciar.
                     </p>
                   </div>
-                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full max-w-md">
-                    <select
-                      value={isManualOverride ? selectedExerciseId : 'auto'}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === 'auto') {
-                          isManualOverrideRef.current = false;
-                          setIsManualOverride(false);
-                          setSelectedExerciseId('auto');
-                        } else {
-                          const item = ALL_EXERCISES.find(x => x.id === val);
-                          if (item) {
-                            handleExerciseSelect(item);
+                  {Boolean((catalogMachine || effectiveCatalogMachine || (defaultExerciseId && defaultExerciseId !== 'auto'))) && !showExercisePickerInOverlay ? (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 w-full max-w-md bg-slate-900/95 border border-cyan-500/40 rounded-xl px-3.5 py-2.5 shadow-xl">
+                      <div className="flex items-center gap-2.5 min-w-0 text-left w-full sm:w-auto">
+                        <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
+                              Ejercicio Vinculado
+                            </span>
+                            {catalogMachine?.muscleGroupLabel && (
+                              <span className="text-[9px] font-medium text-slate-400">
+                                · {catalogMachine.muscleGroupLabel}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-black text-white truncate">
+                            {catalogMachine
+                              ? formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName)
+                              : (defaultExerciseName || activeExercise.name)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0 pt-1 sm:pt-0 border-t border-slate-800 sm:border-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowExercisePickerInOverlay(true)}
+                          className="text-[11px] font-semibold text-slate-400 hover:text-cyan-300 underline px-1 py-1 transition"
+                        >
+                          Cambiar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleStartAnalysis}
+                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-cyan-200" />
+                          <span>Iniciar Análisis</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row items-center gap-2 w-full max-w-md">
+                      <select
+                        value={isManualOverride ? selectedExerciseId : 'auto'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === 'auto') {
+                            isManualOverrideRef.current = false;
+                            setIsManualOverride(false);
+                            setSelectedExerciseId('auto');
+                          } else {
+                            const item = ALL_EXERCISES.find(x => x.id === val);
+                            if (item) {
+                              handleExerciseSelect(item);
+                            }
                           }
-                        }
-                      }}
-                      className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 shadow-md truncate"
-                    >
-                      <option value="auto">Auto-detectar ejercicio con IA</option>
-                      {MUSCLE_GROUPS.map((group) => (
-                        <optgroup key={group.id} label={group.name}>
-                          {group.exercises.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                        }}
+                        className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 shadow-md truncate"
+                      >
+                        <option value="auto">Auto-detectar ejercicio con IA</option>
+                        {MUSCLE_GROUPS.map((group) => (
+                          <optgroup key={group.id} label={group.name}>
+                            {group.exercises.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
 
-                    <button
-                      type="button"
-                      onClick={handleStartAnalysis}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
-                    >
-                      <RefreshCw className="w-4 h-4 text-cyan-200" />
-                      <span>Iniciar Análisis</span>
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={handleStartAnalysis}
+                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+                      >
+                        <RefreshCw className="w-4 h-4 text-cyan-200" />
+                        <span>Iniciar Análisis</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3304,7 +3378,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   <Compass className="w-4 h-4 text-cyan-400 shrink-0" />
                   <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
                     <span className="font-bold text-white text-xs truncate">
-                      {catalogMachine.brand} · {catalogMachine.modelName}
+                      {formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName)}
                     </span>
                     {catalogMachine.line && (
                       <span className="text-[10px] text-cyan-300 font-semibold px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/40">
@@ -3924,7 +3998,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           >
                             <Compass className="w-3.5 h-3.5 text-cyan-400" />
                             <span className="truncate max-w-[160px]">
-                              {catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil: ${effectiveProfileLabel}`} · Cambiar
+                              {catalogMachine ? formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName) : `Perfil: ${effectiveProfileLabel}`} · Cambiar
                             </span>
                           </button>
                         </div>
@@ -3932,14 +4006,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         {/* Biomechanical Resistance Curve with Superuser Interactive Editing */}
                         {(() => {
                           const profileTargetId = catalogMachine ? catalogMachine.id : (selectedExerciseId || activeExercise.id);
-                          const profileTargetName = catalogMachine ? `${catalogMachine.brand} · ${catalogMachine.modelName}` : activeExercise.name;
+                          const profileTargetName = catalogMachine ? formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName) : activeExercise.name;
 
                           return (
                             <div className="p-3 bg-gradient-to-br from-slate-950 to-[#121626] border border-cyan-500/30 rounded-xl space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
                                   <Activity className="w-3.5 h-3.5" />
-                                  {catalogMachine ? `Curva Oficial: ${catalogMachine.brand} · ${catalogMachine.modelName}` : `Perfil Biomecánico: ${activeExercise.name}`}
+                                  {catalogMachine ? `Curva Oficial: ${formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName)}` : `Perfil Biomecánico: ${activeExercise.name}`}
                                 </span>
                               </div>
 
@@ -4159,7 +4233,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           jointsPeak={analysisData.joints_peak}
                           loadType={activeExercise.loadType}
                           isUpperBody={isUpperBody}
-                          exerciseType={activeExercise.exerciseType || activeExercise.name}
+                          exerciseType={catalogMachine?.canonicalExerciseType || (activeExercise.exerciseType !== 'auto' ? activeExercise.exerciseType : '') || resolvedExercise || activeExercise.name}
                           activeTab={activeSnapshotTab}
                           isCalibrating={isCalibratingPulley}
                           pulleyOrigin={proPulleyOrigin}

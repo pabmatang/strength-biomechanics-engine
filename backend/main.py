@@ -1327,11 +1327,23 @@ def apply_rotation_to_frame(frame_rgb: np.ndarray, rotation: int) -> np.ndarray:
 def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: int = 20) -> str:
     """
     Normalizes/downscales video using ffmpeg ultra-fast mode.
-    Auto-rotates to visual upright and rescales.
+    Auto-rotates to visual upright, transposes pixels, and clears rotation tags so rotate=0.
     Returns path to optimized temporary mp4.
     """
+    if not os.path.exists(input_path):
+        return input_path
+
     import subprocess, shutil, tempfile
-    ffmpeg_bin = shutil.which("ffmpeg")
+    ffmpeg_bin = None
+    try:
+        import imageio_ffmpeg
+        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_bin = shutil.which("ffmpeg")
+
+    if not ffmpeg_bin:
+        ffmpeg_bin = shutil.which("ffmpeg")
+
     if not ffmpeg_bin:
         return input_path
     
@@ -1343,6 +1355,8 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
         ffmpeg_bin, "-y",
         "-i", input_path,
         "-vf", vf,
+        "-metadata:s:v", "rotate=0",
+        "-metadata:s:v:0", "rotate=0",
         "-preset", "ultrafast",
         "-c:v", "libx264",
         "-crf", "28",
@@ -1350,7 +1364,7 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
         out_path
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
         if res.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
             return out_path
     except Exception as e:
@@ -2495,24 +2509,24 @@ def process_kinematics(
 
     # 5. Peak-Trough Repetition Detection
     signal_range = float(np.max(clean_curve) - np.min(clean_curve))
-    t_min_bound = timestamps[0] + 0.3 if timestamps else 0.3
-    t_max_bound = timestamps[-1] - 0.3 if timestamps else 29.7
+    t_min_bound = timestamps[0] + 0.35 if timestamps else 0.35
+    t_max_bound = timestamps[-1] - 0.25 if timestamps else 29.75
 
-    min_rep_frames = max(20, int(15.0 * 1.30)) if (is_pattern_b or is_pattern_a) else max(16, int(15.0 * 1.15))
+    min_rep_frames = max(12, int(15.0 * 0.85))
 
     p10 = float(np.percentile(clean_curve, 10))
     p90 = float(np.percentile(clean_curve, 90))
     eff_range = max(p90 - p10, 8.0)
 
     if is_pattern_a:
-        # Bug 2 Fix: Lower prominence (max 20.0) for back/diagonal views where perspective compresses angular range
-        target_prom = max(10.0, min(20.0, eff_range * 0.22))
+        # Lower prominence (max 20.0) for back/diagonal views where perspective compresses angular range
+        target_prom = max(8.0, min(20.0, eff_range * 0.20))
     elif is_pattern_b:
-        target_prom = max(10.0, min(20.0, eff_range * 0.18))
+        target_prom = max(8.0, min(18.0, eff_range * 0.16))
     elif is_hip_thrust:
-        target_prom = max(15.0, min(28.0, eff_range * 0.22))
+        target_prom = max(12.0, min(26.0, eff_range * 0.20))
     else:
-        target_prom = max(12.0, min(22.0, eff_range * 0.22))
+        target_prom = max(10.0, min(20.0, eff_range * 0.20))
 
     pks, _ = scipy.signal.find_peaks(
         clean_curve,
@@ -2522,10 +2536,10 @@ def process_kinematics(
     in_bounds = [p for p in pks if t_min_bound <= timestamps[p] <= t_max_bound]
 
     # Fallback for subtle/slow executions
-    if len(in_bounds) < 2 and eff_range >= 12.0:
+    if len(in_bounds) < 2 and eff_range >= 10.0:
         pks_soft, _ = scipy.signal.find_peaks(
             clean_curve,
-            prominence=max(10.0, target_prom * 0.60),
+            prominence=max(7.0, target_prom * 0.60),
             distance=min_rep_frames
         )
         in_bounds_soft = [p for p in pks_soft if t_min_bound <= timestamps[p] <= t_max_bound]
@@ -2539,9 +2553,9 @@ def process_kinematics(
         else:
             prev_p = filtered_peaks[-1]
             if is_pattern_b or is_pattern_a:
-                # Lockout check: between two press/row valleys, check elbow extension with perspective-safe threshold
+                # Lockout check: between two press/row valleys, check extension with perspective-safe threshold
                 crest_val = float(np.max(clean_primary[prev_p : p + 1]))
-                if crest_val < max(95.0, clean_primary[prev_p] + 15.0):
+                if crest_val < min(85.0, clean_primary[prev_p] + 8.0):
                     # Incomplete extension, sticking point or pause: merge and keep the deeper inflection point
                     if clean_primary[p] < clean_primary[prev_p]:
                         filtered_peaks[-1] = p
@@ -2550,7 +2564,7 @@ def process_kinematics(
             valley_val = float(np.min(clean_curve[prev_p : p + 1]))
             dip_from_prev = clean_curve[prev_p] - valley_val
             dip_from_curr = clean_curve[p] - valley_val
-            min_dip_required = max(4.5, target_prom * 0.50)
+            min_dip_required = max(3.5, target_prom * 0.40)
             if dip_from_prev >= min_dip_required and dip_from_curr >= min_dip_required:
                 filtered_peaks.append(p)
             else:
@@ -2734,12 +2748,12 @@ def process_kinematics(
             start_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
             cand_start = prev_bound + start_offset
 
-        # Refine onset: find where angular velocity rises above 8.0 deg/s moving towards p
-        # (Applied to all repetitions so bottom pauses between reps are not counted into concentric_time_s)
+        # Refine onset: find where angular velocity rises above 5.0 deg/s or displacement occurs moving towards p
+        # (Detects first eccentric/concentric phase at t=0.5s - 1.5s without getting stuck in IDLE)
         start_frame = cand_start
         for f_scan in range(cand_start, p):
-            if ang_vel[f_scan] >= 8.0:
-                start_frame = max(0, f_scan - 2)
+            if ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
+                start_frame = max(0, f_scan - 1)
                 break
         
         # End of rep
@@ -2763,27 +2777,27 @@ def process_kinematics(
 
         if is_pattern_a:
             # Pattern A (Tracción/Remo): Pulling to body is concentric, returning forward is eccentric
-            concentric_time_s = round(max(0.25, t_inflect - t_start), 2)
-            eccentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+            concentric_time_s = round(max(0.20, t_inflect - t_start), 2)
+            eccentric_time_s = round(max(0.20, t_end - t_inflect), 2)
             delta_angle_conc = abs(clean_primary[bottom_frame] - clean_primary[start_frame])
         elif is_pattern_b:
             # Pattern B (Empuje/Presses): Lowering is eccentric, pressing up is concentric
-            eccentric_time_s = round(max(0.25, t_inflect - t_start), 2)
-            concentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+            eccentric_time_s = round(max(0.20, t_inflect - t_start), 2)
+            concentric_time_s = round(max(0.20, t_end - t_inflect), 2)
             delta_angle_conc = abs(clean_primary[end_frame] - clean_primary[bottom_frame])
         else:
             # Pattern C (Tren inferior):
             if is_hip_thrust:
-                concentric_time_s = round(max(0.25, t_inflect - t_start), 2)
-                eccentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+                concentric_time_s = round(max(0.20, t_inflect - t_start), 2)
+                eccentric_time_s = round(max(0.20, t_end - t_inflect), 2)
                 delta_angle_conc = abs(clean_primary[bottom_frame] - clean_primary[start_frame])
             else:
-                eccentric_time_s = round(max(0.25, t_inflect - t_start), 2)
-                concentric_time_s = round(max(0.25, t_end - t_inflect), 2)
+                eccentric_time_s = round(max(0.20, t_inflect - t_start), 2)
+                concentric_time_s = round(max(0.20, t_end - t_inflect), 2)
                 delta_angle_conc = abs(clean_primary[end_frame] - clean_primary[bottom_frame])
 
         # Reject micro-reps, twitches, or incomplete hesitations
-        if rom_deg < 22.0 or (t_end - t_start) < 1.25 or (is_pattern_b and concentric_time_s < 0.28):
+        if rom_deg < 16.0 or (t_end - t_start) < 0.75 or (is_pattern_b and concentric_time_s < 0.20):
             continue
 
         # Pause duration: time stationary (velocity < 15 deg/s) around inflection
@@ -3146,15 +3160,15 @@ def process_kinematics(
         valid_reps = []
         n_reps_total = len(repetitions_summary)
         for idx, rep in enumerate(repetitions_summary):
-            # Solo válida si completa el valle y la concéntrica alcanzando >= 75% del ROM mediano
-            # En series muy cortas (1-2), permitir >= 70% si la concéntrica duró >= 0.38s
-            min_rom_ratio = 0.75 if n_reps_total >= 3 else 0.70
-            if rep["rom_deg"] < min_rom_ratio * med_rom_val or rep["concentric_sec"] < 0.38:
+            # Solo válida si completa el valle y la concéntrica alcanzando >= 65% del ROM mediano
+            # En series muy cortas (1-2), permitir >= 60% si la concéntrica duró >= 0.20s
+            min_rom_ratio = 0.65 if n_reps_total >= 3 else 0.60
+            if rep["rom_deg"] < min_rom_ratio * med_rom_val or rep["concentric_sec"] < 0.20:
                 continue
-            # Prune terminal racking/suelta artifact: if last rep ends in final 0.6s and has rom < 0.80 * rep1
+            # Prune terminal racking/suelta artifact: if last rep ends in final 0.5s and has rom < 0.80 * rep1
             if idx == n_reps_total - 1 and n_reps_total > 1:
                 t_end_rep = rep.get("end_time_sec", timestamps[rep["end_frame"]])
-                if (timestamps[-1] - t_end_rep < 0.6) and (rep["rom_deg"] < 0.80 * repetitions_summary[0]["rom_deg"]):
+                if (timestamps[-1] - t_end_rep < 0.5) and (rep["rom_deg"] < 0.80 * repetitions_summary[0]["rom_deg"]):
                     continue
             valid_reps.append(rep)
 
@@ -3250,19 +3264,42 @@ def process_kinematics(
         v_fail = 42.0
 
     if len(repetitions_summary) >= 2:
-        rep_vels = [float(r.get("mean_concentric_vel", 0.0)) for r in repetitions_summary]
+        # Descartar última rep cortada del cálculo de velocidad si termina en últimos 0.5s o tiene Pérdida ROM > 20%
+        vbt_reps = list(repetitions_summary)
+        last_rep_candidate = vbt_reps[-1]
+        t_end_candidate = float(last_rep_candidate.get("end_time_sec", timestamps[last_rep_candidate["end_frame"]]))
+        base_rom_ref = max(1e-4, float(repetitions_summary[0].get("rom_deg", 1.0)))
+        last_rom_val = float(last_rep_candidate.get("rom_deg", 0.0))
+        rom_loss_candidate = max(0.0, 100.0 - (last_rom_val / base_rom_ref) * 100.0)
+        
+        is_last_rep_cut = (timestamps[-1] - t_end_candidate < 0.5) or (rom_loss_candidate > 20.0)
+        if is_last_rep_cut and len(vbt_reps) > 2:
+            vbt_reps = vbt_reps[:-1]
+
+        rep_vels = [float(r.get("mean_concentric_vel", 0.0)) for r in vbt_reps]
         N = len(rep_vels)
-        v_initial_best = float(max(rep_vels[0], rep_vels[1])) if N >= 2 else float(rep_vels[0])
+
+        # Baseline robusto (anti-tirón en Rep #1):
+        # Si la velocidad concéntrica de la Rep #1 es > 22% superior a la de la Rep #2,
+        # usa como velocidad de referencia max(vel_rep2, mediana_inicial) en lugar de vel_rep1.
+        vel_rep1 = float(rep_vels[0])
+        vel_rep2 = float(rep_vels[1]) if N >= 2 else vel_rep1
+        mediana_inicial = float(np.median(rep_vels[:min(3, N)]))
+        if vel_rep1 > 1.22 * vel_rep2:
+            v_initial_best = float(max(vel_rep2, mediana_inicial))
+        else:
+            v_initial_best = float(max(vel_rep1, vel_rep2)) if N >= 2 else vel_rep1
+
         v_last = float(rep_vels[-1])
         first_rep_vel = float(rep_vels[0])
         max_rep_vel = float(max(rep_vels))
 
-        r1 = repetitions_summary[0]
-        r_last_rep = repetitions_summary[-1]
+        r1 = vbt_reps[0]
+        r_last_rep = vbt_reps[-1]
         r1_conc = float(r1.get("concentric_sec", 1.0))
         last_conc = float(r_last_rep.get("concentric_sec", 1.0))
 
-        # Relative velocity loss % between best initial rep (max(rep1, rep2)) and last rep
+        # Relative velocity loss % between baseline and last rep
         if v_initial_best > 1e-4:
             raw_vel_loss = float(max(0.0, ((v_initial_best - v_last) / v_initial_best) * 100.0))
         else:
@@ -3274,13 +3311,29 @@ def process_kinematics(
         else:
             vel_loss = round(raw_vel_loss, 1)
 
-        # Guardia 2: En series cortas (<= 2 reps), solo RIR 0-1 si last_conc >= r1_conc * 1.45 o last_conc >= 2.2s
-        if N <= 2:
-            is_real_grind = (last_conc >= r1_conc * 1.45) or (last_conc >= 2.2)
-            if not is_real_grind and vel_loss > 28.0:
-                vel_loss = min(vel_loss, 20.0)
+        # Guardia 2: Coherencia con el Tempo (anti-falsos RIR 0):
+        # Si la duración absoluta de la fase concéntrica de la última rep válida es < 1.2s,
+        # no permitir que el veredicto caiga en RIR 0 / Fallo Muscular (limitar RIR >= 2 salvo desaceleración real > 35% en 2 reps consecutivas)
+        has_sustained_decel = False
+        if N >= 3:
+            decel_flags = [bool((v_initial_best - v) / v_initial_best > 0.35) for v in rep_vels[1:]]
+            for k in range(len(decel_flags) - 1):
+                if decel_flags[k] and decel_flags[k + 1]:
+                    has_sustained_decel = True
+                    break
+
+        if last_conc < 1.2 and not has_sustained_decel:
+            vel_loss = min(vel_loss, 28.0)
 
         exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(vel_loss)
+
+        if last_conc < 1.2 and not has_sustained_decel and exact_rir < 2.0:
+            exact_rir = 2.0
+            exact_rpe = 8.0
+            rir_str = "RIR 2"
+            status_text = "Zona óptima de hipertrofia"
+            vbt_proximity = "effective_growth"
+            vbt_verdict = "Velocidad conservada (tempo rápido < 1.2s). Estimación ajustada a RIR 2."
 
         estimated_1rm_kg = None
         if weight_kg is not None:
@@ -4131,46 +4184,6 @@ def process_kinematics(
 # 4. Helper & Cerebrium Endpoint Definition
 # ---------------------------------------------------------------------------
 
-def optimize_video_with_ffmpeg(input_path: str) -> str:
-    """Pre-scale and normalize video with ffmpeg in ultrafast mode to prevent decoding timeouts on 4K files."""
-    if not os.path.exists(input_path):
-        return input_path
-    
-    ffmpeg_bin = None
-    try:
-        import imageio_ffmpeg
-        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        import shutil
-        ffmpeg_bin = shutil.which("ffmpeg")
-
-    if not ffmpeg_bin:
-        return input_path
-
-    fd, opt_output = tempfile.mkstemp(suffix="_opt.mp4")
-    os.close(fd)
-
-    # Scale height to 480 maintaining aspect ratio (-2 ensures divisible by 2), fps 20, ultrafast preset
-    cmd = [
-        ffmpeg_bin, "-y", "-i", input_path,
-        "-vf", "scale=-2:480,fps=20",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-        "-an", opt_output
-    ]
-    try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
-        if proc.returncode == 0 and os.path.exists(opt_output) and os.path.getsize(opt_output) > 1000:
-            return opt_output
-    except Exception as e:
-        print(f"[Video Optimization] ffmpeg fast normalization skipped/failed: {e}")
-    
-    if os.path.exists(opt_output):
-        try:
-            os.unlink(opt_output)
-        except OSError:
-            pass
-    return input_path
-
 def _extract_video_to_tempfile(
     video_base64: Optional[str] = None,
     video_url: Optional[str] = None,
@@ -4650,6 +4663,7 @@ def analyze(
         end_time = None
 
     raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
+    raw_rot = get_video_rotation(raw_temp_path)
     temp_path = optimize_video_with_ffmpeg(raw_temp_path)
     try:
         frames_rgb, timestamps, duration = sample_video_frames(
@@ -4662,6 +4676,12 @@ def analyze(
         if not frames_rgb:
             raise ValueError("Failed to decode frames from input video.")
             
+        # Guarantee upright orientation: if original video was vertical (90 or 270 deg)
+        # and frames are still horizontal (h < w), rotate upright so h > w
+        if raw_rot in (90, 270) and frames_rgb[0].shape[0] < frames_rgb[0].shape[1]:
+            rot_code = cv2.ROTATE_90_CLOCKWISE if raw_rot == 90 else cv2.ROTATE_90_COUNTERCLOCKWISE
+            frames_rgb = [cv2.rotate(f, rot_code) for f in frames_rgb]
+
         h, w = frames_rgb[0].shape[:2]
         raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=64)
         
