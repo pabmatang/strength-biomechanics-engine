@@ -29,6 +29,7 @@ export interface RoutineGeneratorOptions {
   routineSplitType?: RoutineSplitType;
   dislikedMuscles?: string[];
   priorityMuscles?: string[];
+  priorityOrder?: string[];
 }
 
 export const BROAD_GROUP_MAP: Record<string, string> = {
@@ -181,52 +182,190 @@ export function isMusclePrioritized(muscle: string, priorities: string[]): boole
 
 export interface DayQueueItem {
   muscle: string;
-  bias?: 'lats' | 'upper_back' | 'trapezius';
+  bias?: 'lats' | 'upper_back' | 'trapezius' | 'quad_extension';
   note?: string;
   isComplementary?: boolean;
 }
 
-export function orderDayExercises(queue: DayQueueItem[], priorities: string[]): DayQueueItem[] {
-  if (!priorities || priorities.length === 0) return queue;
+export const FINISHER_MUSCLES = new Set(['calves', 'adductors', 'abdominals']);
 
-  const priorityItems = queue.filter(item => isMusclePrioritized(item.muscle, priorities));
-  const secondaryItems = queue.filter(item => !isMusclePrioritized(item.muscle, priorities));
+export function getExercisePattern(t: ExerciseTemplate): string {
+  const id = (t.id || '').toLowerCase();
+  const title = (t.title || '').toLowerCase();
+  const m = t.muscle_group;
 
-  if (priorityItems.length === 0) return queue;
+  if (m === 'chest') {
+    if (id.includes('incline') || title.includes('incline') || title.includes('inclinad')) return 'chest_incline_press';
+    if (id.includes('decline') || title.includes('decline') || title.includes('declinad') || id.includes('wide') || title.includes('wide')) return 'chest_decline_wide_press';
+    if (id.includes('pec_deck') || id.includes('pec_fly') || id.includes('fly') || title.includes('apertura') || title.includes('pec')) return 'chest_fly_pec_deck';
+    return 'chest_flat_press';
+  }
+  if (m === 'lats' || m === 'upper_back' || m === 'traps') {
+    if (id.includes('pullover') || title.includes('pullover')) return 'back_pullover';
+    if (id.includes('pulldown') || id.includes('lat_machine') || id.includes('vertical_traction') || title.includes('jalón') || title.includes('dominada')) return 'back_vertical_pull';
+    if (id.includes('t_bar') || id.includes('high_row') || title.includes('remo en t') || title.includes('remo alto') || title.includes('dy_row')) return 'back_tbar_high_row';
+    if (id.includes('shrug') || title.includes('encogimiento')) return 'back_shrug';
+    if (id.includes('face_pull') || id.includes('rear_delt') || title.includes('pájaro')) return 'back_rear_delt';
+    return 'back_horizontal_row';
+  }
+  if (m === 'shoulders') {
+    if (id.includes('lateral') || id.includes('delts_machine') || title.includes('lateral') || title.includes('delts')) return 'shoulder_lateral_raise';
+    return 'shoulder_press';
+  }
+  if (m === 'biceps') {
+    if (id.includes('scott') || id.includes('preacher') || title.includes('predicador') || t.equipment_category === 'machine') return 'biceps_preacher_machine';
+    if (id.includes('incline') || title.includes('inclinad')) return 'biceps_incline_curl';
+    if (id.includes('hammer') || title.includes('martillo')) return 'biceps_hammer_curl';
+    return 'biceps_standing_curl';
+  }
+  if (m === 'triceps') {
+    if (id.includes('dip') || id.includes('triceps_press') || title.includes('fondo')) return 'triceps_dip_press';
+    if (id.includes('skull') || id.includes('french') || id.includes('francés') || id.includes('overhead')) return 'triceps_overhead';
+    return 'triceps_pushdown_extension';
+  }
+  if (m === 'quadriceps') {
+    if (id.includes('leg_extension') || title.includes('extensión de cuádriceps') || title.includes('leg extension')) return 'quad_leg_extension';
+    if (id.includes('leg_press') || title.includes('prensa')) return 'quad_leg_press';
+    return 'quad_squat_pattern';
+  }
+  if (m === 'hamstrings') {
+    if (id.includes('seated_leg_curl') || title.includes('sentado')) return 'ham_seated_curl';
+    if (id.includes('leg_curl') || id.includes('prone') || id.includes('lying') || id.includes('standing_leg_curl') || title.includes('curl')) return 'ham_lying_curl';
+    return 'ham_hinge_rdl';
+  }
+  if (m === 'glutes') {
+    if (id.includes('hip_thrust') || id.includes('glute_drive') || id.includes('platinum') || title.includes('hip thrust') || title.includes('bridge')) return 'glute_hip_thrust';
+    if (id.includes('abductor') || title.includes('abductor')) return 'glute_abductor';
+    return 'glute_kickback_extension';
+  }
+  if (m === 'calves') {
+    if (id.includes('seated') || title.includes('sentado')) return 'calf_seated';
+    return 'calf_standing';
+  }
+  if (m === 'adductors' || m === 'abductors') return 'hip_adduction_abduction';
+  if (m === 'abdominals') return 'core_crunch';
+  return `${m}_${t.equipment_category}`;
+}
 
-  const result: DayQueueItem[] = [];
-  const prioPool = [...priorityItems];
-  const secPool = [...secondaryItems];
+export function isAntagonistPair(m1: string, m2: string): boolean {
+  const b1 = BROAD_GROUP_MAP[m1] || m1;
+  const b2 = BROAD_GROUP_MAP[m2] || m2;
+  const pair = [b1, b2].sort().join('|');
+  return (
+    pair === 'back|chest' ||
+    pair === 'hamstrings|quadriceps' ||
+    pair === 'glutes|quadriceps' ||
+    pair === 'biceps|triceps' ||
+    pair === 'back|shoulders'
+  );
+}
 
-  while (prioPool.length > 0 || secPool.length > 0) {
-    if (prioPool.length > 0) {
-      const lastBroad = result.length > 0
-        ? (BROAD_GROUP_MAP[result[result.length - 1].muscle] || result[result.length - 1].muscle)
-        : null;
+export function getTargetRepsForExercise(
+  t: ExerciseTemplate,
+  isPrimaryCompound: boolean,
+  experienceLevel: ExperienceLevel
+): number {
+  const pattern = getExercisePattern(t);
+  const m = t.muscle_group;
 
-      const candidateIdx = prioPool.findIndex(item => {
-        const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
-        return broad !== lastBroad;
-      });
+  // 12-20 reps: lateral delts, calves, adductors/abductors, abs
+  if (
+    pattern === 'shoulder_lateral_raise' ||
+    m === 'calves' ||
+    m === 'adductors' ||
+    m === 'abductors' ||
+    m === 'abdominals'
+  ) {
+    return 15;
+  }
 
-      if (candidateIdx !== -1) {
-        result.push(prioPool.splice(candidateIdx, 1)[0]);
-        continue;
-      } else if (secPool.length > 0) {
-        result.push(secPool.shift()!);
-        continue;
-      } else {
-        result.push(prioPool.shift()!);
-        continue;
-      }
+  // 10-15 reps: arm & leg isolations
+  if (
+    m === 'biceps' ||
+    m === 'triceps' ||
+    pattern === 'quad_leg_extension' ||
+    pattern === 'ham_seated_curl' ||
+    pattern === 'ham_lying_curl' ||
+    pattern === 'chest_fly_pec_deck' ||
+    pattern === 'back_rear_delt'
+  ) {
+    return 12;
+  }
+
+  // 6-10 reps (or 6-8 in avanzado): heavy primary compounds
+  if (isPrimaryCompound) {
+    return experienceLevel === 'avanzado' ? 7 : 8;
+  }
+
+  // 8-12 reps: secondary guided machines / secondary compounds
+  return 10;
+}
+
+export function orderDayExercises(
+  queue: DayQueueItem[],
+  priorities: string[],
+  targetWeeklyVolume: Record<string, number> = {}
+): DayQueueItem[] {
+  if (queue.length <= 1) return queue;
+
+  const getRank = (muscle: string): number => {
+    const broad = BROAD_GROUP_MAP[muscle] || muscle;
+    if (priorities && priorities.length > 0) {
+      const idx = priorities.findIndex(p => p === muscle || p === broad);
+      if (idx !== -1) return idx;
     }
+    return 999;
+  };
 
-    if (secPool.length > 0) {
-      result.push(secPool.shift()!);
+  const getVol = (muscle: string): number => {
+    const broad = BROAD_GROUP_MAP[muscle] || muscle;
+    return targetWeeklyVolume[muscle] ?? targetWeeklyVolume[broad] ?? 10;
+  };
+
+  const isFinisher = (item: DayQueueItem): boolean => {
+    return FINISHER_MUSCLES.has(item.muscle) || getVol(item.muscle) <= 4;
+  };
+
+  const mainItems = queue.filter(i => !isFinisher(i));
+  const finisherItems = queue.filter(i => isFinisher(i));
+
+  // Group main items by muscle, ordered by priority rank (then descending volume)
+  const uniqueMainMuscles = Array.from(new Set(mainItems.map(i => i.muscle))).sort((a, b) => {
+    const ra = getRank(a);
+    const rb = getRank(b);
+    if (ra !== rb) return ra - rb;
+    return getVol(b) - getVol(a);
+  });
+
+  const pools: Record<string, DayQueueItem[]> = {};
+  uniqueMainMuscles.forEach(m => {
+    pools[m] = mainItems.filter(i => i.muscle === m);
+  });
+
+  const orderedMain: DayQueueItem[] = [];
+  if (uniqueMainMuscles.length >= 2) {
+    const m1 = uniqueMainMuscles[0];
+    const m2 = uniqueMainMuscles[1];
+    if (isAntagonistPair(m1, m2)) {
+      // Interleave #1 <-> #2
+      while ((pools[m1]?.length || 0) > 0 || (pools[m2]?.length || 0) > 0) {
+        if (pools[m1]?.length) orderedMain.push(pools[m1].shift()!);
+        if (pools[m2]?.length) orderedMain.push(pools[m2].shift()!);
+      }
     }
   }
 
-  return result;
+  // Drain remaining main muscles in strict priority order
+  for (const m of uniqueMainMuscles) {
+    while (pools[m]?.length) {
+      orderedMain.push(pools[m].shift()!);
+    }
+  }
+
+  // Finishers always at the end, sorted by priorityOrder if provided
+  finisherItems.sort((a, b) => getRank(a.muscle) - getRank(b.muscle));
+
+  return [...orderedMain, ...finisherItems];
 }
 
 /**
@@ -242,8 +381,11 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
     targetWeeklyVolume,
     routineSplitType = 'auto',
     dislikedMuscles = [],
-    priorityMuscles = []
+    priorityMuscles = [],
+    priorityOrder = []
   } = options;
+
+  const effectivePriorities = priorityOrder.length > 0 ? priorityOrder : priorityMuscles;
 
   // Normalized exercise count per session:
   // 45m = 4, 60m = 5, 75m = 6, 90m = 7, 105m = 8, 120m = 9
@@ -258,53 +400,78 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
   const allowedExercises = EXERCISE_DATABASE.filter(t => isExerciseAllowed(t, baseEquipment, machineBrands));
 
   // Helper to pick best exercise for muscle strictly within allowedExercises
+  // Enforces anti-redundancy (no duplicate biomechanical pattern in same day) and Day A / Day B rotation
   const pickBestExercise = (
     muscle: string,
     usedIds: Set<string>,
-    variantBias?: 'lats' | 'upper_back' | 'trapezius'
+    usedPatterns: Set<string>,
+    globalUsedIds: Set<string>,
+    variantBias?: 'lats' | 'upper_back' | 'trapezius' | 'quad_extension',
+    preferCompound: boolean = false
   ): ExerciseTemplate => {
-    // First, direct primary muscle match unused
     let pool = allowedExercises.filter(t => t.muscle_group === muscle && !usedIds.has(t.id));
 
-    // Fallback to direct primary match used
     if (pool.length === 0) {
       pool = allowedExercises.filter(t => t.muscle_group === muscle);
     }
-
-    // Fallback to secondary other_muscles
     if (pool.length === 0) {
       pool = allowedExercises.filter(
         t => t.other_muscles && (t.other_muscles as string[]).includes(muscle) && !usedIds.has(t.id)
       );
     }
-
-    // Fallback to broad group match within allowedExercises
     if (pool.length === 0) {
       const broad = BROAD_GROUP_MAP[muscle] || muscle;
       pool = allowedExercises.filter(t => (BROAD_GROUP_MAP[t.muscle_group] || t.muscle_group) === broad);
     }
-
-    // If still empty (e.g. extremely constrained), take any allowed exercise
     if (pool.length === 0) {
       return allowedExercises[0] || EXERCISE_DATABASE[0];
+    }
+
+    // Filter out already-used biomechanical patterns in this session when alternatives exist
+    const nonRedundant = pool.filter(t => !usedPatterns.has(getExercisePattern(t)));
+    if (nonRedundant.length > 0) {
+      pool = nonRedundant;
     }
 
     // Apply variant bias if requested
     if (variantBias && pool.length > 1) {
       const biased = pool.filter(t => {
         const title = t.title.toLowerCase();
+        const id = t.id.toLowerCase();
         if (variantBias === 'lats') {
           return title.includes('jalón') || title.includes('dorsal') || title.includes('lat') || title.includes('pulldown') || title.includes('pullover');
         } else if (variantBias === 'upper_back') {
           return title.includes('remo') || title.includes('row') || title.includes('pájaros') || title.includes('face') || title.includes('pecho');
         } else if (variantBias === 'trapezius') {
           return title.includes('encogimiento') || title.includes('shrug') || title.includes('trapecio');
+        } else if (variantBias === 'quad_extension') {
+          return id.includes('leg_extension') || title.includes('leg extension') || title.includes('extensión');
         }
         return true;
       });
       if (biased.length > 0) {
         pool = biased;
       }
+    } else if (variantBias === 'quad_extension') {
+      const extPool = pool.filter(t => t.id.toLowerCase().includes('leg_extension') || t.title.toLowerCase().includes('leg extension'));
+      if (extPool.length > 0) pool = extPool;
+    }
+
+    // Prefer compound for opening exercise when requested
+    if (preferCompound && pool.length > 1) {
+      const compoundPool = pool.filter(t => {
+        const pat = getExercisePattern(t);
+        return !pat.includes('fly') && !pat.includes('extension') && !pat.includes('curl') && !pat.includes('lateral') && !pat.includes('abductor');
+      });
+      if (compoundPool.length > 0) {
+        pool = compoundPool;
+      }
+    }
+
+    // Rotate machines/angles across Day A / Day B whenever available
+    const freshAcrossWeek = pool.filter(t => !globalUsedIds.has(t.id));
+    if (freshAcrossWeek.length > 0) {
+      pool = freshAcrossWeek;
     }
 
     return pool[0];
@@ -726,67 +893,145 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
     }
   }
 
-  // Count how many times each muscle appears across the whole routine
-  const muscleOccurrenceCount: Record<string, number> = {};
-  splitPlan.forEach(day => {
+  // Map each muscle -> list of compatible day indices in splitPlan
+  const muscleDaysMap: Record<string, number[]> = {};
+  splitPlan.forEach((day, dIdx) => {
+    const seenInDay = new Set<string>();
     day.focusMuscles.forEach(item => {
-      const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
-      // Check if excluded: volume === 0 or in dislikedMuscles
-      const targetSets = targetWeeklyVolume[item.muscle] ?? targetWeeklyVolume[broad] ?? 10;
-      if (targetSets > 0 && !dislikedMuscles.includes(item.muscle) && !dislikedMuscles.includes(broad)) {
-        muscleOccurrenceCount[item.muscle] = (muscleOccurrenceCount[item.muscle] || 0) + 1;
+      const m = item.muscle;
+      if (seenInDay.has(m)) return;
+      seenInDay.add(m);
+      const broad = BROAD_GROUP_MAP[m] || m;
+      const targetSets = targetWeeklyVolume[m] ?? targetWeeklyVolume[broad] ?? 0;
+      if (targetSets > 0 && !dislikedMuscles.includes(m) && !dislikedMuscles.includes(broad)) {
+        if (!muscleDaysMap[m]) muscleDaysMap[m] = [];
+        muscleDaysMap[m].push(dIdx);
       }
     });
   });
 
+  // Ensure any non-zero muscle in targetWeeklyVolume has at least one compatible day
+  Object.entries(targetWeeklyVolume).forEach(([m, sets]) => {
+    if (sets <= 0 || dislikedMuscles.includes(m)) return;
+    if (!muscleDaysMap[m] || muscleDaysMap[m].length === 0) {
+      const isLower = ['quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors'].includes(m);
+      const matchIdx = splitPlan.findIndex(d =>
+        isLower ? (d.focusCategory === 'lower' || d.focusCategory === 'legs' || d.focusCategory === 'fullbody') : (d.focusCategory !== 'lower' && d.focusCategory !== 'legs')
+      );
+      muscleDaysMap[m] = [matchIdx >= 0 ? matchIdx : 0];
+    }
+  });
+
+  // Allocate exact weekly sets per (dayIdx, muscle)
+  // Maintenance (1..4 sets/wk) is consolidated into ONE single session per week!
+  const dayMuscleSets: Record<number, Record<string, number>> = {};
+  splitPlan.forEach((_, idx) => { dayMuscleSets[idx] = {}; });
+
+  Object.entries(muscleDaysMap).forEach(([m, dayIndices]) => {
+    const broad = BROAD_GROUP_MAP[m] || m;
+    const totalSets = targetWeeklyVolume[m] ?? targetWeeklyVolume[broad] ?? 0;
+    if (totalSets <= 0 || dayIndices.length === 0) return;
+
+    if (totalSets <= 4) {
+      // Consolidate 100% into a single session
+      const chosenDay = m === 'abdominals' ? dayIndices[dayIndices.length - 1] : dayIndices[0];
+      dayMuscleSets[chosenDay][m] = totalSets;
+    } else {
+      const count = dayIndices.length;
+      const base = Math.floor(totalSets / count);
+      const rem = totalSets % count;
+      dayIndices.forEach((dIdx, i) => {
+        const allocated = base + (i < rem ? 1 : 0);
+        if (allocated > 0) {
+          dayMuscleSets[dIdx][m] = allocated;
+        }
+      });
+    }
+  });
+
   const routines: Routine[] = [];
+  const globalUsedIds = new Set<string>();
 
   splitPlan.forEach((dayPlan, dayIdx) => {
     const usedIds = new Set<string>();
+    const usedPatterns = new Set<string>();
+    const allocatedForDay = dayMuscleSets[dayIdx] || {};
 
-    // 1. Filter out omitted muscles (targetWeeklyVolume === 0 or in dislikedMuscles)
-    let validQueue = dayPlan.focusMuscles.filter(item => {
-      const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
-      const targetSets = targetWeeklyVolume[item.muscle] ?? targetWeeklyVolume[broad] ?? 10;
-      if (targetSets <= 0) return false;
-      if (dislikedMuscles.includes(item.muscle) || dislikedMuscles.includes(broad)) return false;
-      return true;
+    // Build DayQueueItems with exact set counts per exercise
+    interface PlannedItem extends DayQueueItem {
+      plannedSets: number;
+    }
+    const dayQueue: PlannedItem[] = [];
+
+    Object.entries(allocatedForDay).forEach(([m, setsForMuscle]) => {
+      if (setsForMuscle <= 0) return;
+
+      // Count distinct available templates/patterns for this muscle
+      const availForMuscle = allowedExercises.filter(t => t.muscle_group === m);
+      const distinctPatterns = new Set(availForMuscle.map(t => getExercisePattern(t))).size;
+
+      // Normal: 2-4 sets/exercise prioritizing variety; 4-5 sets ONLY as fallback for short sessions or limited equipment
+      let numExercises = setsForMuscle <= 4 ? 1 : setsForMuscle <= 8 ? 2 : 3;
+      if (durationMinutes <= 45 && setsForMuscle <= 5) {
+        numExercises = 1;
+      }
+      if (distinctPatterns > 0) {
+        numExercises = Math.min(numExercises, Math.max(1, distinctPatterns));
+      }
+      // Ensure each exercise gets at least 2 sets (or exact 1 set if user configured 1 set)
+      if (setsForMuscle >= 2) {
+        while (numExercises > 1 && Math.floor(setsForMuscle / numExercises) < 2) {
+          numExercises--;
+        }
+      }
+
+      const baseSets = Math.floor(setsForMuscle / numExercises);
+      const remSets = setsForMuscle % numExercises;
+
+      // Gather bias hints from dayPlan.focusMuscles
+      const planBiases = dayPlan.focusMuscles.filter(x => x.muscle === m && x.bias).map(x => x.bias);
+
+      for (let i = 0; i < numExercises; i++) {
+        const exSets = baseSets + (i < remSets ? 1 : 0);
+        if (exSets <= 0) continue;
+        let bias: PlannedItem['bias'] = planBiases[i] as any;
+        if (m === 'quadriceps' && numExercises >= 2 && i === numExercises - 1) {
+          bias = 'quad_extension';
+        }
+        dayQueue.push({
+          muscle: m,
+          bias,
+          plannedSets: exSets,
+          isComplementary: FINISHER_MUSCLES.has(m) || setsForMuscle <= 4
+        });
+      }
     });
 
-    // 2. Order queue prioritizing priorityMuscles
-    validQueue = orderDayExercises(validQueue, priorityMuscles);
-
-    // 3. Take exactly exactExercisesCount exercises
-    const selectedQueue = validQueue.slice(0, exactExercisesCount);
-
-    // If still short of exactExercisesCount (e.g. user set many muscles to 0), fill from allowed non-zero muscles
-    if (selectedQueue.length < exactExercisesCount) {
-      const allowedMuscles = Object.entries(targetWeeklyVolume)
-        .filter(([m, v]) => v > 0 && !dislikedMuscles.includes(m))
-        .map(([m]) => m);
-
-      for (const m of allowedMuscles) {
-        if (selectedQueue.length >= exactExercisesCount) break;
-        selectedQueue.push({ muscle: m });
-      }
-    }
+    // Smart sequencing: Priority opening, #1 <-> #2 antagonist interleaving, finishers strictly last
+    const orderedQueue = orderDayExercises(dayQueue, effectivePriorities, targetWeeklyVolume) as PlannedItem[];
 
     const exercises: WorkoutExercise[] = [];
+    const seenPrimaryMuscles = new Set<string>();
 
-    selectedQueue.forEach((item, exIdx) => {
-      const template = pickBestExercise(item.muscle, usedIds, item.bias);
+    orderedQueue.forEach((item, exIdx) => {
+      const isFirstForMuscle = !seenPrimaryMuscles.has(item.muscle);
+      seenPrimaryMuscles.add(item.muscle);
+
+      const template = pickBestExercise(
+        item.muscle,
+        usedIds,
+        usedPatterns,
+        globalUsedIds,
+        item.bias,
+        isFirstForMuscle
+      );
       usedIds.add(template.id);
+      usedPatterns.add(getExercisePattern(template));
+      globalUsedIds.add(template.id);
 
-      // Determine sets count for this exercise based on targetWeeklyVolume
-      const broad = BROAD_GROUP_MAP[item.muscle] || item.muscle;
-      const totalWeeklySets = targetWeeklyVolume[item.muscle] ?? targetWeeklyVolume[broad] ?? 10;
-      const occurrences = muscleOccurrenceCount[item.muscle] || 1;
-      
-      // Distribute sets cleanly per session
-      let setsForThisExercise = Math.max(2, Math.round(totalWeeklySets / occurrences));
-
-      // Clamp between 2 and 5 sets per exercise
-      setsForThisExercise = Math.max(2, Math.min(5, setsForThisExercise));
+      const setsForThisExercise = Math.max(1, item.plannedSets);
+      const isPrimaryCompound = isFirstForMuscle && !FINISHER_MUSCLES.has(item.muscle);
+      const baseReps = getTargetRepsForExercise(template, isPrimaryCompound, experienceLevel);
 
       const defaultWeight =
         template.equipment_category === 'barbell' ? 50 :
@@ -795,15 +1040,15 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
         template.equipment_category === 'machine' ? 40 : 0;
 
       const sets = Array.from({ length: setsForThisExercise }, (_, sIdx) => {
-        const isWarmup = sIdx === 0 && (experienceLevel === 'avanzado' || (setsForThisExercise >= 4 && sIdx === 0));
-        const isFailure = sIdx === setsForThisExercise - 1 && experienceLevel === 'avanzado';
+        const isWarmup = sIdx === 0 && (experienceLevel === 'avanzado' && setsForThisExercise >= 3);
+        const isFailure = sIdx === setsForThisExercise - 1 && experienceLevel === 'avanzado' && setsForThisExercise >= 2;
 
         return {
           id: `s_${dayIdx + 1}_${exIdx + 1}_${sIdx + 1}`,
           index: sIdx + 1,
           type: isWarmup ? ('warmup' as const) : isFailure ? ('failure' as const) : ('normal' as const),
           weight_kg: isWarmup ? Math.round(defaultWeight * 0.6) : defaultWeight,
-          reps: isWarmup ? 12 : 8 + (sIdx % 3) * 2,
+          reps: isWarmup ? Math.min(12, baseReps + 2) : baseReps,
           is_completed: false
         };
       });

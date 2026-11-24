@@ -1160,5 +1160,99 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
       const absExercises = allExercises.filter(ex => ex.muscle_group === 'abdominals');
       expect(absExercises.length).toBe(0);
     });
+
+    it('respects priorityOrder tie-breakers, interleaves antagonists (#1 <-> #2), and places maintenance finishers last', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 75,
+        baseEquipment: ['free_weight', 'cable', 'generic_machine'],
+        machineBrands: ['Technogym', 'Hammer Strength'],
+        targetWeeklyVolume: {
+          chest: 10,
+          lats: 10,
+          upper_back: 8,
+          shoulders: 8,
+          biceps: 6,
+          triceps: 6,
+          quadriceps: 10,
+          hamstrings: 10,
+          glutes: 10,
+          calves: 2,
+          adductors: 2,
+          abdominals: 2
+        },
+        priorityOrder: [
+          'chest', 'lats', 'upper_back', 'shoulders', 'biceps', 'triceps',
+          'hamstrings', 'quadriceps', 'glutes', 'calves', 'adductors', 'abdominals'
+        ]
+      });
+
+      // Lower day: hamstrings (#1) opens and interleaves with quadriceps (#2), finishers at the very end
+      const lowerA = routines[1];
+      expect(lowerA.exercises[0].muscle_group).toBe('hamstrings');
+      expect(lowerA.exercises[1].muscle_group).toBe('quadriceps');
+
+      // Maintenance (2 sets/wk) consolidated into 1 single day with exact 2 sets total and at the end
+      const allEx = routines.flatMap(r => r.exercises);
+      const calfEx = allEx.filter(e => e.muscle_group === 'calves');
+      const absEx = allEx.filter(e => e.muscle_group === 'abdominals');
+      const addEx = allEx.filter(e => e.muscle_group === 'adductors');
+
+      expect(calfEx.length).toBe(1);
+      expect(calfEx[0].sets.length).toBe(2);
+      expect(absEx.length).toBe(1);
+      expect(absEx[0].sets.length).toBe(2);
+      expect(addEx.length).toBe(1);
+      expect(addEx[0].sets.length).toBe(2);
+
+      // Finishers in lowerA must be after all main quad/ham/glute exercises
+      const lastMainIdx = lowerA.exercises.reduce((acc, e, idx) =>
+        ['quadriceps', 'hamstrings', 'glutes'].includes(e.muscle_group) ? idx : acc, -1);
+      const firstFinisherIdx = lowerA.exercises.findIndex(e => ['calves', 'adductors', 'abdominals'].includes(e.muscle_group));
+      if (firstFinisherIdx !== -1) {
+        expect(firstFinisherIdx).toBeGreaterThan(lastMainIdx);
+      }
+    });
+
+    it('prevents redundant patterns in same session, includes leg_extension for quads, and differentiates rep ranges', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 90,
+        baseEquipment: ['free_weight', 'cable', 'generic_machine'],
+        machineBrands: ['Technogym', 'Matrix'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 12,
+          upper_back: 10,
+          shoulders: 8,
+          biceps: 8,
+          triceps: 8,
+          quadriceps: 12,
+          hamstrings: 10,
+          glutes: 8,
+          calves: 4,
+          adductors: 4,
+          abdominals: 4
+        }
+      });
+
+      const lowerA = routines[1];
+      const hasLegExt = lowerA.exercises.some(e =>
+        e.exercise_template_id.includes('leg_extension') || e.title.toLowerCase().includes('leg extension')
+      );
+      expect(hasLegExt).toBe(true);
+
+      // Differentiated rep ranges
+      const allEx = routines.flatMap(r => r.exercises);
+      const calfEx = allEx.find(e => e.muscle_group === 'calves');
+      const absEx = allEx.find(e => e.muscle_group === 'abdominals');
+      const compoundChest = routines[0].exercises.find(e => e.muscle_group === 'chest');
+
+      expect(calfEx?.sets[0].reps).toBeGreaterThanOrEqual(12);
+      expect(absEx?.sets[0].reps).toBeGreaterThanOrEqual(12);
+      expect(compoundChest?.sets[0].reps).toBeLessThanOrEqual(10);
+    });
   });
 });

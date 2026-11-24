@@ -15,7 +15,10 @@ import {
   Sliders,
   AlertTriangle,
   Flame,
-  ChevronRight
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  GripVertical
 } from 'lucide-react';
 import { Routine, WorkoutExercise } from '../types/workout';
 import {
@@ -39,7 +42,7 @@ interface SmartRoutineWizardModalProps {
 }
 
 const AVAILABLE_BRANDS: { brand: MachineBrandFilter; title: string; desc: string }[] = [
-  { brand: 'Technogym', title: 'Technogym Pure Strength', desc: 'Palancas de discos independientes y convergentes' },
+  { brand: 'Technogym', title: 'Technogym (Pure & Selection)', desc: 'Palancas de discos y torres de placas Selection 900' },
   { brand: 'Hammer Strength', title: 'Hammer Strength Iso-Lateral', desc: 'Máquinas olímpicas divergentes de alta carga' },
   { brand: 'Matrix', title: 'Matrix Ultra & Magnum', desc: 'Torres selectorizadas y palancas convergentes/divergentes' },
   { brand: 'Panatta', title: 'Panatta FreeWeight / Monolith', desc: 'Biomecánica italiana con brazos de palanca circulares' },
@@ -74,10 +77,18 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
     'Hammer Strength'
   ]);
 
-  // Step 3: Volumen Semanal por Músculo
+  // Step 3: Volumen Semanal por Músculo & Orden de Prioridad
   const [targetWeeklyVolume, setTargetWeeklyVolume] = useState<Record<string, number>>(() =>
     calculateDefaultWeeklyVolume('intermedio', 4, 60)
   );
+  const [step3Tab, setStep3Tab] = useState<'volume' | 'priority'>('volume');
+  const [priorityOrder, setPriorityOrder] = useState<string[]>(() => {
+    const def = calculateDefaultWeeklyVolume('intermedio', 4, 60);
+    return [...ALL_DISPLAY_MUSCLES]
+      .sort((a, b) => (def[b.key] || 0) - (def[a.key] || 0))
+      .map(m => m.key);
+  });
+  const [draggedMuscle, setDraggedMuscle] = useState<string | null>(null);
 
   // Active muscle being edited in modal sheet
   const [activeEditingMuscle, setActiveEditingMuscle] = useState<string | null>(null);
@@ -88,7 +99,13 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 
   // Auto-recalculate recommended volume baseline when Level, Days or Duration change in Step 1
   useEffect(() => {
-    setTargetWeeklyVolume(calculateDefaultWeeklyVolume(experienceLevel, daysPerWeek, durationMinutes));
+    const def = calculateDefaultWeeklyVolume(experienceLevel, daysPerWeek, durationMinutes);
+    setTargetWeeklyVolume(def);
+    setPriorityOrder(
+      [...ALL_DISPLAY_MUSCLES]
+        .sort((a, b) => (def[b.key] || 0) - (def[a.key] || 0))
+        .map(m => m.key)
+    );
   }, [experienceLevel, daysPerWeek, durationMinutes]);
 
   // Total weekly volume sum
@@ -135,7 +152,9 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
       durationMinutes,
       baseEquipment,
       machineBrands,
-      targetWeeklyVolume
+      targetWeeklyVolume,
+      priorityOrder,
+      priorityMuscles: priorityOrder.filter(k => (targetWeeklyVolume[k] || 0) > 4).slice(0, 4)
     });
 
     setGeneratedRoutines(routines);
@@ -396,7 +415,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                     <span>Bloque B — Marcas de Máquinas Disponibles (Opcional)</span>
                   </span>
                   <span className="text-[10px] text-purple-400 font-mono">
-                    {machineBrands.length} marcas activas
+                    {machineBrands.length} {machineBrands.length === 1 ? 'marca activa' : 'marcas activas'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400">
@@ -466,6 +485,36 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 )}
               </div>
 
+              {/* Segmented Control: Volumen Semanal vs Orden de Prioridad */}
+              <div className="flex p-1 bg-slate-900/90 border border-slate-800 rounded-xl gap-1">
+                <button
+                  type="button"
+                  onClick={() => setStep3Tab('volume')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    step3Tab === 'volume'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Volumen Semanal</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep3Tab('priority')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    step3Tab === 'priority'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Orden de Prioridad</span>
+                </button>
+              </div>
+
+              {step3Tab === 'volume' && (
+              <>
               {/* Rejilla Compacta de Músculos (Chips / Tarjetas Limpias) */}
               <div className="space-y-1.5">
                 <div className="text-xs text-slate-400 flex items-center justify-between">
@@ -606,6 +655,158 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                   )}
                 </div>
               )}
+              </>
+              )}
+
+              {step3Tab === 'priority' && (() => {
+                const torsoKeys = ['chest', 'lats', 'upper_back', 'shoulders', 'biceps', 'triceps', 'abdominals'];
+                const piernaKeys = ['quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors'];
+
+                const moveInGroup = (groupKeys: string[], key: string, dir: -1 | 1) => {
+                  const groupOrdered = priorityOrder.filter(k => groupKeys.includes(k));
+                  const idx = groupOrdered.indexOf(key);
+                  const targetIdx = idx + dir;
+                  if (idx < 0 || targetIdx < 0 || targetIdx >= groupOrdered.length) return;
+                  const swapKey = groupOrdered[targetIdx];
+                  setPriorityOrder(prev => {
+                    const next = [...prev];
+                    const posA = next.indexOf(key);
+                    const posB = next.indexOf(swapKey);
+                    if (posA !== -1 && posB !== -1) {
+                      [next[posA], next[posB]] = [next[posB], next[posA]];
+                    }
+                    return next;
+                  });
+                };
+
+                const reorderDrop = (groupKeys: string[], sourceKey: string, targetKey: string) => {
+                  if (!sourceKey || sourceKey === targetKey) return;
+                  if (!groupKeys.includes(sourceKey) || !groupKeys.includes(targetKey)) return;
+                  setPriorityOrder(prev => {
+                    const groupOrdered = prev.filter(k => groupKeys.includes(k));
+                    const fromIdx = groupOrdered.indexOf(sourceKey);
+                    const toIdx = groupOrdered.indexOf(targetKey);
+                    if (fromIdx === -1 || toIdx === -1) return prev;
+                    const reorderedGroup = [...groupOrdered];
+                    const [moved] = reorderedGroup.splice(fromIdx, 1);
+                    reorderedGroup.splice(toIdx, 0, moved);
+                    let gPtr = 0;
+                    return prev.map(k => (groupKeys.includes(k) ? reorderedGroup[gPtr++] : k));
+                  });
+                };
+
+                const renderPriorityGroup = (title: string, groupKeys: string[], accentClass: string) => {
+                  const ordered = priorityOrder.filter(k => groupKeys.includes(k));
+                  return (
+                    <div className="space-y-1.5">
+                      <div className={`text-[11px] font-bold uppercase tracking-wider ${accentClass}`}>
+                        {title}
+                      </div>
+                      <div className="space-y-1.5">
+                        {ordered.map((key, idx) => {
+                          const meta = ALL_DISPLAY_MUSCLES.find(m => m.key === key);
+                          const sets = targetWeeklyVolume[key] || 0;
+                          const isFinisher = sets <= 4;
+                          const roleLabel = sets === 0
+                            ? 'Omitido'
+                            : isFinisher
+                            ? 'Finalizador'
+                            : idx === 0
+                            ? 'Foco Principal'
+                            : idx === 1
+                            ? 'Secundario'
+                            : 'Soporte';
+                          const roleColor = sets === 0
+                            ? 'bg-slate-800/80 text-slate-500 border-slate-700'
+                            : isFinisher
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            : idx === 0
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                            : idx === 1
+                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                            : 'bg-slate-800 text-slate-300 border-slate-700';
+
+                          return (
+                            <div
+                              key={key}
+                              draggable
+                              onDragStart={() => setDraggedMuscle(key)}
+                              onDragOver={e => e.preventDefault()}
+                              onDrop={() => {
+                                if (draggedMuscle) reorderDrop(groupKeys, draggedMuscle, key);
+                                setDraggedMuscle(null);
+                              }}
+                              className={`flex items-center justify-between p-2 rounded-xl border bg-[#161828] border-slate-800 hover:border-slate-700 transition ${
+                                sets === 0 ? 'opacity-50' : ''
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <GripVertical className="w-3.5 h-3.5 text-slate-600 cursor-grab flex-shrink-0" />
+                                <span className="text-[11px] font-mono font-black px-1.5 py-0.5 rounded-md bg-slate-900 text-cyan-300 border border-slate-700">
+                                  #{idx + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-white truncate">{meta?.label || key}</div>
+                                  <div className="text-[10px] font-mono text-slate-400">{sets} series/sem</div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${roleColor}`}>
+                                  {roleLabel}
+                                </span>
+                                <div className="flex items-center gap-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={() => moveInGroup(groupKeys, key, -1)}
+                                    className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-30"
+                                    aria-label={`Subir ${meta?.label || key}`}
+                                  >
+                                    <ArrowUp className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === ordered.length - 1}
+                                    onClick={() => moveInGroup(groupKeys, key, 1)}
+                                    className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-30"
+                                    aria-label={`Bajar ${meta?.label || key}`}
+                                  >
+                                    <ArrowDown className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>Arrastra o usa ↑/↓ para decidir el orden real dentro de cada sesión:</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPriorityOrder(
+                            [...ALL_DISPLAY_MUSCLES]
+                              .sort((a, b) => (targetWeeklyVolume[b.key] || 0) - (targetWeeklyVolume[a.key] || 0))
+                              .map(m => m.key)
+                          )
+                        }
+                        className="text-[10px] text-cyan-400 hover:text-cyan-300 underline flex-shrink-0 ml-2"
+                      >
+                        Ordenar por series
+                      </button>
+                    </div>
+                    {renderPriorityGroup('Torso', torsoKeys, 'text-cyan-400')}
+                    {renderPriorityGroup('Pierna', piernaKeys, 'text-purple-400')}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

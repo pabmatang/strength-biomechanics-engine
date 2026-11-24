@@ -1417,10 +1417,10 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
   // HOMBROS (MÁQUINAS DE ELEVACIONES LATERALES)
   // ==========================================
   {
-    id: 'technogym_pure_lateral_raise',
-    title: 'Technogym Pure Strength - Lateral Raise (Elevaciones Laterales en Máquina)',
+    id: 'technogym_selection_delts_machine',
+    title: 'Technogym Selection 900 - Delts Machine',
     brand: 'Technogym',
-    model_series: 'Pure Strength (Palancas convergentes)',
+    model_series: 'Selection 900 (Torre de placas)',
     muscle_group: 'shoulders',
     other_muscles: ['traps'],
     equipment_category: 'machine',
@@ -1439,7 +1439,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
       pro_hack: 'Hack Biomecánico Pro: Relaja completamente las manos y empuja exclusivamente con el tríceps distal/codo contra las almohadillas para anular cualquier intervención del trapecio superior.'
     },
     target_rep_range: '12-15',
-    image_url: '/machines/technogym_pure_lateral_raise.png'
+    image_url: '/machines/technogym_selection_delts_machine.png'
   },
   {
     id: 'matrix_ultra_lateral_raise',

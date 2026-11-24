@@ -534,7 +534,7 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
       match_analysis: 'La polea mantiene tensión constante durante todo el arco de recorrido sin puntos muertos.',
       pro_hack: 'Inclina el torso 10° hacia adelante para permitir que la cuerda baje más allá de los muslos.'
     },
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/cable-triceps-pushdown-v-bar.gif',
+    image_url: '/machines/cable_triceps_pushdown_v_bar.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/cable-triceps-pushdown-v-bar.gif'
   },
   {
@@ -559,7 +559,7 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
       match_analysis: 'A diferencia de la mancuerna que tiene 0 torque abajo, el cable ofrece tensión desde el primer grado.',
       pro_hack: 'Usa una muñequera (cuff) en lugar de una manopla para anular la intervención de los flexores del antebrazo.'
     },
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/cable-lateral-raise.gif',
+    image_url: '/machines/cable_lateral_raise.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/cable-lateral-raise.gif'
   },
   {
@@ -584,7 +584,7 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
       match_analysis: 'El cable evita que el bíceps pierda tensión en la parte más alta de la flexión.',
       pro_hack: 'Prueba a dar un paso adelante de espaldas a la polea (bayesian curl) para mayor tensión en estiramiento.'
     },
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/cable-curl.gif',
+    image_url: '/machines/cable_curl.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/biceps/cable-curl.gif'
   },
   {
@@ -609,7 +609,7 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
       match_analysis: 'La tensión es máxima en el punto de cruce donde las fibras esternocostales están acortadas.',
       pro_hack: 'Alterna qué muñeca cruza por encima en cada repetición para mantener la simetría muscular.'
     },
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/cable-standing-fly.gif',
+    image_url: '/machines/cable_standing_fly.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/pectorals/cable-standing-fly.gif'
   },
   {
@@ -634,7 +634,7 @@ export const FREE_EXERCISES_DATABASE: ExerciseTemplate[] = [
       match_analysis: 'El mejor ejercicio preventivo contra el síndrome de pinzamiento subacromial.',
       pro_hack: 'Mantén los codos por encima de las muñecas durante toda la trayectoria.'
     },
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/cable-standing-rear-delt-row-with-rope.gif',
+    image_url: '/machines/cable_rear_delt_row.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/cable-standing-rear-delt-row-with-rope.gif'
   },
 
