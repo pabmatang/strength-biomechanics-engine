@@ -183,5 +183,145 @@ export const PRECOR_MACHINES: CatalogMachineEntry[] = [
       resistanceCurveDescription: 'Curl femoral sentado con ángulo de cadera preestablecido y leva excéntrica que mantiene tensión hasta la flexión total.'
     },
     imageUrl: '/machines/precor_discovery_seated_leg_curl.png'
+  },
+
+  // 10. Precor Discovery — Hack Squat a Discos
+  {
+    id: 'precor_discovery_hack_squat',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Hack Squat a Discos',
+    canonicalExerciseType: 'squat',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento',
+      resistanceCurveDescription: 'Sentadilla Hack guiada a discos con plataforma amplia y máxima demanda de cuádriceps en flexión profunda.'
+    },
+    imageUrl: '/machines/precor_discovery_hack_squat.png'
+  },
+
+  // 11. Precor Discovery — Hip Abductor
+  {
+    id: 'precor_discovery_hip_abductor',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Hip Abductor',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Abductores',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Abductor de cadera con respaldo reclinable y leva progresiva en fase de apertura.'
+    },
+    imageUrl: '/machines/precor_discovery_hip_abductor.png'
+  },
+
+  // 12. Precor Discovery — Hip Adductor
+  {
+    id: 'precor_discovery_hip_adductor',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Hip Adductor',
+    canonicalExerciseType: 'adductor_machine',
+    muscleGroupLabel: 'Aductores',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.35, mid: 0.40, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Aductor de cadera con ajuste inicial de apertura y resistencia controlada en cierre.'
+    },
+    imageUrl: '/machines/precor_discovery_hip_adductor.png'
+  },
+
+  // 13. Precor Discovery — Prone Leg Curl
+  {
+    id: 'precor_discovery_prone_leg_curl',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Prone Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Curl femoral tumbado con banco en V para estabilizar la pelvis durante la flexión de rodilla.'
+    },
+    imageUrl: '/machines/precor_discovery_prone_leg_curl.png'
+  },
+
+  // 14. Precor Discovery — Biceps Curl
+  {
+    id: 'precor_discovery_biceps_curl',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Biceps Curl',
+    canonicalExerciseType: 'biceps_curl',
+    muscleGroupLabel: 'Bíceps',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Curl de bíceps con brazos independientes y empuñaduras ergonómicas autoalineables.'
+    },
+    imageUrl: '/machines/precor_discovery_biceps_curl.png'
+  },
+
+  // 15. Precor Discovery — Triceps Extension
+  {
+    id: 'precor_discovery_triceps_extension',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Triceps Extension',
+    canonicalExerciseType: 'triceps_extension',
+    muscleGroupLabel: 'Tríceps',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Extensión de tríceps sentado con apoyo de brazos inclinado y tensión máxima en extensión.'
+    },
+    imageUrl: '/machines/precor_discovery_triceps_extension.png'
+  },
+
+  // 16. Precor Discovery — Abdominal Crunch
+  {
+    id: 'precor_discovery_abdominal_crunch',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Abdominal Crunch',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Crunch abdominal con pivote anatómico lumbar para flexión torácica pura.'
+    },
+    imageUrl: '/machines/precor_discovery_abdominal_crunch.png'
   }
 ];

@@ -238,5 +238,145 @@ export const LIFE_FITNESS_MACHINES: CatalogMachineEntry[] = [
       resistanceCurveDescription: 'Curl femoral sentado con cojín fijador superior y leva excéntrica de máxima activación en flexión.'
     },
     imageUrl: '/machines/lifefitness_insignia_seated_leg_curl.png'
+  },
+
+  // 13. Life Fitness Insignia — Hip Abduction
+  {
+    id: 'lifefitness_insignia_hip_abduction',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Hip Abduction',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Abductores',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Abducción de cadera sentado con soporte lumbar ergonómico y leva de tensión creciente en apertura máxima.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_hip_abduction.png'
+  },
+
+  // 14. Life Fitness Insignia — Hip Adduction
+  {
+    id: 'lifefitness_insignia_hip_adduction',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Hip Adduction',
+    canonicalExerciseType: 'adductor_machine',
+    muscleGroupLabel: 'Aductores',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.35, mid: 0.40, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Aducción de cadera con rango de inicio ajustable y carga suave en estiramiento proximal.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_hip_adduction.png'
+  },
+
+  // 15. Life Fitness Insignia — Prone Leg Curl
+  {
+    id: 'lifefitness_insignia_prone_leg_curl',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Prone Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Curl femoral tumbado con banco angulado para reducir la lordosis lumbar y maximizar la tensión isquiosural.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_prone_leg_curl.png'
+  },
+
+  // 16. Life Fitness Insignia — Biceps Curl
+  {
+    id: 'lifefitness_insignia_biceps_curl',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Biceps Curl',
+    canonicalExerciseType: 'biceps_curl',
+    muscleGroupLabel: 'Bíceps',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Curl de bíceps en pupitre con agarres rotatorios independientes y eje de pivote alineado al codo.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_biceps_curl.png'
+  },
+
+  // 17. Life Fitness Insignia — Abdominal
+  {
+    id: 'lifefitness_insignia_abdominal',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Abdominal',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Crunch abdominal selectorizado con punto de giro lumbar que aísla el recto abdominal sin flexor de cadera.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_abdominal.png'
+  },
+
+  // 18. Life Fitness Insignia — Calf Extension
+  {
+    id: 'lifefitness_insignia_calf_extension',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Calf Extension',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento',
+      resistanceCurveDescription: 'Extensión de gemelos sentado con rodillas extendidas para carga directa del gastrocnemio.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_calf_extension.png'
+  },
+
+  // 19. Life Fitness Insignia — Glute
+  {
+    id: 'lifefitness_insignia_glute',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Glute',
+    canonicalExerciseType: 'glute_kickback',
+    muscleGroupLabel: 'Glúteo',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Extensión de cadera unilateral de pie con apoyo pectoral para máxima contracción del glúteo mayor.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_glute.png'
   }
 ];

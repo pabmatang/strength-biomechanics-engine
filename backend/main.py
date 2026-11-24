@@ -416,6 +416,264 @@ def clean_gemini_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
                 pass
     return None
 
+def compute_valid_frame_bounds(
+    primary_joints: Dict[str, Dict[str, np.ndarray]],
+    timestamps: List[float],
+    min_vis: float = 0.65,
+    max_cam_jump: float = 0.08
+) -> Tuple[int, int]:
+    """
+    Trims leading and trailing frames where key landmark visibility (shoulder, elbow,
+    wrist, hip) is < min_vis or where global camera motion exceeds max_cam_jump.
+    Returns (valid_start_idx, valid_end_idx) inclusive.
+    """
+    n = len(timestamps)
+    if n < 5:
+        return 0, max(0, n - 1)
+
+    key_names = [k for k in ("shoulder", "elbow", "wrist", "hip") if k in primary_joints]
+    vis_scores = np.ones(n, dtype=np.float64)
+    if key_names:
+        stacked = np.vstack([
+            np.asarray(primary_joints[k].get("score", np.ones(n)), dtype=np.float64)
+            for k in key_names
+        ])
+        vis_scores = np.mean(stacked, axis=0)
+
+    # Detect sudden global camera jumps via frame-to-frame shift of torso anchor (shoulder + hip)
+    cam_stable = np.ones(n, dtype=bool)
+    anchor_keys = [k for k in ("shoulder", "hip") if k in primary_joints]
+    if anchor_keys:
+        ax = np.mean(np.vstack([np.asarray(primary_joints[k]["x"], dtype=np.float64) for k in anchor_keys]), axis=0)
+        ay = np.mean(np.vstack([np.asarray(primary_joints[k]["y"], dtype=np.float64) for k in anchor_keys]), axis=0)
+        dx = np.abs(np.diff(ax, prepend=ax[0]))
+        dy = np.abs(np.diff(ay, prepend=ay[0]))
+        cam_stable = np.hypot(dx, dy) <= max_cam_jump
+
+    valid_mask = (vis_scores >= min_vis) & cam_stable
+
+    # Find longest contiguous valid segment (allowing tiny 2-frame single-frame glitches)
+    best_start, best_end = 0, n - 1
+    best_len = 0
+    cur_start = None
+    glitch_count = 0
+    for idx in range(n):
+        if valid_mask[idx]:
+            if cur_start is None:
+                cur_start = idx
+            glitch_count = 0
+            if (idx - cur_start + 1) > best_len:
+                best_len = idx - cur_start + 1
+                best_start, best_end = cur_start, idx
+        else:
+            if cur_start is not None:
+                glitch_count += 1
+                if glitch_count > 2:
+                    cur_start = None
+                    glitch_count = 0
+
+    if best_len >= max(5, int(n * 0.20)):
+        return int(best_start), int(best_end)
+    return 0, n - 1
+
+
+def extract_push_snapshot_frames(
+    clean_el: np.ndarray,
+    sf: int,
+    ef: int,
+    n_frames: int
+) -> Tuple[int, int]:
+    """
+    For push exercises (incline_press, chest_press_machine, bench_press, shoulder_press_machine),
+    extracts Bottom (Estiramiento) at minimum elbow angle and Lockout (Bloqueo) at maximum elbow angle.
+    """
+    sf_c = max(0, min(n_frames - 1, int(sf)))
+    ef_c = max(sf_c, min(n_frames - 1, int(ef)))
+    f_stretch = sf_c + int(np.argmin(clean_el[sf_c : ef_c + 1]))
+    f_peak = f_stretch + int(np.argmax(clean_el[f_stretch : ef_c + 1]))
+    if float(clean_el[f_peak]) < float(clean_el[f_stretch]) + 20.0 and f_stretch > sf_c:
+        f_peak_pre = sf_c + int(np.argmax(clean_el[sf_c : f_stretch + 1]))
+        if float(clean_el[f_peak_pre]) > float(clean_el[f_peak]):
+            f_peak = f_peak_pre
+    return f_stretch, f_peak
+
+
+def compute_vbt_and_rom_metrics(
+    repetitions_summary: List[Dict[str, Any]],
+    weight_kg: Optional[float] = None
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], Optional[float]]:
+    """
+    Computes VBT velocity loss, RIR/RPE, and ROM comparison strictly from the
+    final validated repetitions list so total_reps == len(rep_velocities).
+    Uses median ROM of valid reps as reference to prevent prep/racking artifacts.
+    """
+    total_reps = len(repetitions_summary)
+    if total_reps == 0:
+        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(0.0)
+        return {
+            "estimated_rir": rir_str,
+            "estimated_rpe": exact_rpe,
+            "exact_rir": exact_rir,
+            "exact_rpe": exact_rpe,
+            "delta_v_rep": 0.0,
+            "estimated_1rm_kg": None,
+            "velocity_loss_pct": 0.0,
+            "first_rep_vel": 0.0,
+            "v_best": 0.0,
+            "last_rep_vel": 0.0,
+            "max_rep_vel": 0.0,
+            "rep_velocities": [],
+            "status_text": "Serie sin reps",
+            "failure_proximity": vbt_proximity,
+            "coach_verdict": vbt_verdict
+        }, None, None
+
+    median_rom_px = max(1e-4, float(np.median([float(r.get("rom_px", 1.0)) for r in repetitions_summary])))
+    for r in repetitions_summary:
+        r["rom_pct_of_rep1"] = round(100.0 * (float(r.get("rom_px", 0.0)) / median_rom_px), 1)
+
+    rep_vels = [float(r.get("mean_concentric_vel", 0.0)) for r in repetitions_summary]
+    N = len(rep_vels)
+
+    if N >= 2:
+        vel_rep1 = float(rep_vels[0])
+        vel_rep2 = float(rep_vels[1])
+        # Baseline: max(R1, R2) unless R1 is an outlier > 35% above R2
+        if vel_rep2 > 1e-4 and vel_rep1 > 1.35 * vel_rep2:
+            v_initial_best = vel_rep2
+        else:
+            v_initial_best = float(max(vel_rep1, vel_rep2))
+
+        v_last = float(rep_vels[-1])
+        first_rep_vel = float(rep_vels[0])
+        max_rep_vel = float(max(rep_vels))
+
+        r1 = repetitions_summary[0]
+        r_last_rep = repetitions_summary[-1]
+        r1_conc = float(r1.get("concentric_sec", 1.0))
+        last_conc = float(r_last_rep.get("concentric_sec", 1.0))
+
+        if v_initial_best > 1e-4:
+            raw_vel_loss = float(max(0.0, ((v_initial_best - v_last) / v_initial_best) * 100.0))
+        else:
+            raw_vel_loss = 0.0
+
+        # Guard 1: only clamp if final concentric is genuinely fast/stable (< 1.8s and <= 1.15 * r1_conc)
+        if last_conc < 1.8 and last_conc <= r1_conc * 1.15:
+            vel_loss = round(min(raw_vel_loss, 10.0), 1)
+        else:
+            vel_loss = round(raw_vel_loss, 1)
+
+        has_sustained_decel = False
+        if N >= 3 and v_initial_best > 1e-4:
+            decel_flags = [bool((v_initial_best - v) / v_initial_best > 0.35) for v in rep_vels[1:]]
+            for k in range(len(decel_flags) - 1):
+                if decel_flags[k] and decel_flags[k + 1]:
+                    has_sustained_decel = True
+                    break
+
+        if last_conc < 1.2 and not has_sustained_decel:
+            vel_loss = min(vel_loss, 28.0)
+
+        # Heavy effort guard: if final concentric >= 2.2s and raw velocity loss >= 25%, ensure high-effort RIR (0-2)
+        if last_conc >= 2.2 and raw_vel_loss >= 25.0:
+            vel_loss = round(max(vel_loss, raw_vel_loss), 1)
+
+        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(vel_loss)
+
+        if last_conc < 1.2 and not has_sustained_decel and exact_rir < 2.0:
+            exact_rir = 2.0
+            exact_rpe = 8.0
+            rir_str = "RIR 2"
+            status_text = "Zona óptima de hipertrofia"
+            vbt_proximity = "effective_growth"
+            vbt_verdict = "Velocidad conservada (tempo rápido < 1.2s). Estimación ajustada a RIR 2."
+        elif last_conc >= 2.2 and raw_vel_loss >= 25.0 and exact_rir > 2.0:
+            exact_rir = 2.0
+            exact_rpe = 8.0
+            rir_str = "RIR 2"
+            status_text = "Zona óptima de hipertrofia"
+            vbt_proximity = "effective_growth"
+
+        estimated_1rm_kg = None
+        if weight_kg is not None:
+            try:
+                w_val = float(weight_kg)
+                if w_val > 0:
+                    estimated_1rm_kg = round(w_val * (1.0 + (N + exact_rir) / 30.0), 1)
+            except (ValueError, TypeError):
+                estimated_1rm_kg = None
+
+        if vel_loss < 15.0:
+            for r in repetitions_summary:
+                r["sticking_point_sec"] = None
+
+        intensity_metrics = {
+            "estimated_rir": rir_str,
+            "estimated_rpe": exact_rpe,
+            "exact_rir": exact_rir,
+            "exact_rpe": exact_rpe,
+            "delta_v_rep": round(float(max(1.0, (v_initial_best - v_last) / max(1, N - 1))), 1),
+            "estimated_1rm_kg": estimated_1rm_kg,
+            "velocity_loss_pct": vel_loss,
+            "first_rep_vel": round(first_rep_vel, 1),
+            "v_best": round(v_initial_best, 1),
+            "last_rep_vel": round(v_last, 1),
+            "max_rep_vel": round(max_rep_vel, 1),
+            "rep_velocities": rep_vels,
+            "status_text": status_text,
+            "failure_proximity": vbt_proximity,
+            "coach_verdict": vbt_verdict
+        }
+    else:
+        v_last = float(rep_vels[0])
+        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(0.0)
+        estimated_1rm_kg = None
+        intensity_metrics = {
+            "estimated_rir": rir_str,
+            "estimated_rpe": exact_rpe,
+            "exact_rir": exact_rir,
+            "exact_rpe": exact_rpe,
+            "delta_v_rep": 0.0,
+            "estimated_1rm_kg": None,
+            "velocity_loss_pct": 0.0,
+            "first_rep_vel": round(v_last, 1),
+            "v_best": round(v_last, 1),
+            "last_rep_vel": round(v_last, 1),
+            "max_rep_vel": round(v_last, 1),
+            "rep_velocities": [v_last] if v_last > 0 else [],
+            "status_text": "Serie de 1 rep",
+            "failure_proximity": vbt_proximity,
+            "coach_verdict": "Serie única completada. Registra ≥ 2 repeticiones para calcular la curva diferencial de fatiga."
+        }
+
+    r1 = repetitions_summary[0]
+    r_last = repetitions_summary[-1]
+    last_rom = float(r_last.get("rom_px", 0.0))
+    last_vel = float(r_last.get("mean_concentric_vel", 0.0))
+    r1_vel = max(1e-4, float(r1.get("mean_concentric_vel", 1.0)))
+    rep_comparison = {
+        "rep1": {
+            "rep_index": 1,
+            "path_points": r1.get("path_points", []),
+            "rom_px": r1.get("rom_px", 0.0),
+            "mean_vel": r1.get("mean_concentric_vel", 0.0),
+            "duration_sec": r1.get("duration_sec", 0.0)
+        },
+        "last_rep": {
+            "rep_index": total_reps,
+            "path_points": r_last.get("path_points", []),
+            "rom_px": r_last.get("rom_px", 0.0),
+            "mean_vel": r_last.get("mean_concentric_vel", 0.0),
+            "duration_sec": r_last.get("duration_sec", 0.0)
+        },
+        "rom_loss_pct": round(max(0.0, 100.0 - (last_rom / median_rom_px) * 100.0), 1),
+        "velocity_loss_pct": round(float(intensity_metrics.get("velocity_loss_pct", max(0.0, 100.0 - (last_vel / r1_vel) * 100.0))), 1)
+    }
+
+    return intensity_metrics, rep_comparison, estimated_1rm_kg
+
+
 def calculate_vbt_rir_rpe(vel_loss_pct: float) -> Tuple[float, float, str, str, str, str]:
     """
     Calcula RIR, RPE, rir_str, status_text, proximity y coach_verdict
@@ -2605,15 +2863,17 @@ def process_kinematics(
             is_trough_movement = True
             clean_curve = -clean_primary.copy()
 
-    # 5. Peak-Trough Repetition Detection
-    signal_range = float(np.max(clean_curve) - np.min(clean_curve))
-    t_min_bound = timestamps[0] + 0.35 if timestamps else 0.35
-    t_max_bound = timestamps[-1] - 0.25 if timestamps else 29.75
+    # 5. Peak-Trough Repetition Detection (after auto-trimming unstable/no-person frames)
+    valid_start_idx, valid_end_idx = compute_valid_frame_bounds(primary_joints, timestamps)
+    signal_range = float(np.max(clean_curve[valid_start_idx : valid_end_idx + 1]) - np.min(clean_curve[valid_start_idx : valid_end_idx + 1]))
+    t_min_bound = max(timestamps[valid_start_idx] + 0.25, timestamps[0] + 0.35) if timestamps else 0.35
+    t_max_bound = min(timestamps[valid_end_idx] - 0.20, timestamps[-1] - 0.25) if timestamps else 29.75
 
     min_rep_frames = max(12, int(15.0 * 0.85))
 
-    p10 = float(np.percentile(clean_curve, 10))
-    p90 = float(np.percentile(clean_curve, 90))
+    valid_curve = clean_curve[valid_start_idx : valid_end_idx + 1]
+    p10 = float(np.percentile(valid_curve, 10))
+    p90 = float(np.percentile(valid_curve, 90))
     eff_range = max(p90 - p10, 8.0)
 
     if is_pattern_a:
@@ -3271,10 +3531,10 @@ def process_kinematics(
             min_rom_ratio = 0.65 if n_reps_total >= 3 else 0.60
             if (rep["rom_deg"] < min_rom_ratio * med_rom_val and rep["rom_deg"] < 35.0) or rep["concentric_sec"] < 0.20:
                 continue
-            # Prune terminal racking/suelta artifact: if last rep ends in final 0.5s and has rom < 0.80 * rep1
+            # Prune terminal racking/suelta artifact ONLY if amplitude < 75% of median ROM
             if idx == n_reps_total - 1 and n_reps_total > 1:
                 t_end_rep = rep.get("end_time_sec", timestamps[rep["end_frame"]])
-                if (timestamps[-1] - t_end_rep < 0.5) and (rep["rom_deg"] < 0.80 * repetitions_summary[0]["rom_deg"]):
+                if (timestamps[-1] - t_end_rep < 0.5) and (rep["rom_deg"] < 0.75 * med_rom_val):
                     continue
             valid_reps.append(rep)
 
@@ -3369,170 +3629,22 @@ def process_kinematics(
     else:
         v_fail = 42.0
 
-    if len(repetitions_summary) >= 2:
-        # Descartar última rep cortada del cálculo de velocidad si termina en últimos 0.5s o tiene Pérdida ROM > 20%
-        vbt_reps = list(repetitions_summary)
-        last_rep_candidate = vbt_reps[-1]
-        t_end_candidate = float(last_rep_candidate.get("end_time_sec", timestamps[last_rep_candidate["end_frame"]]))
-        base_rom_ref = max(1e-4, float(repetitions_summary[0].get("rom_deg", 1.0)))
-        last_rom_val = float(last_rep_candidate.get("rom_deg", 0.0))
-        rom_loss_candidate = max(0.0, 100.0 - (last_rom_val / base_rom_ref) * 100.0)
-        
-        is_last_rep_cut = (timestamps[-1] - t_end_candidate < 0.5) or (rom_loss_candidate > 20.0)
-        if is_last_rep_cut and len(vbt_reps) > 2:
-            vbt_reps = vbt_reps[:-1]
+    intensity_metrics, rep_comparison, estimated_1rm_kg = compute_vbt_and_rom_metrics(
+        repetitions_summary=repetitions_summary,
+        weight_kg=weight_kg
+    )
 
-        rep_vels = [float(r.get("mean_concentric_vel", 0.0)) for r in vbt_reps]
-        N = len(rep_vels)
-
-        # Baseline robusto (anti-tirón en Rep #1):
-        # Si la velocidad concéntrica de la Rep #1 es > 22% superior a la de la Rep #2,
-        # usa como velocidad de referencia max(vel_rep2, mediana_inicial) en lugar de vel_rep1.
-        vel_rep1 = float(rep_vels[0])
-        vel_rep2 = float(rep_vels[1]) if N >= 2 else vel_rep1
-        mediana_inicial = float(np.median(rep_vels[:min(3, N)]))
-        if vel_rep1 > 1.22 * vel_rep2:
-            v_initial_best = float(max(vel_rep2, mediana_inicial))
-        else:
-            v_initial_best = float(max(vel_rep1, vel_rep2)) if N >= 2 else vel_rep1
-
-        v_last = float(rep_vels[-1])
-        first_rep_vel = float(rep_vels[0])
-        max_rep_vel = float(max(rep_vels))
-
-        r1 = vbt_reps[0]
-        r_last_rep = vbt_reps[-1]
-        r1_conc = float(r1.get("concentric_sec", 1.0))
-        last_conc = float(r_last_rep.get("concentric_sec", 1.0))
-
-        # Relative velocity loss % between baseline and last rep
-        if v_initial_best > 1e-4:
-            raw_vel_loss = float(max(0.0, ((v_initial_best - v_last) / v_initial_best) * 100.0))
-        else:
-            raw_vel_loss = 0.0
-
-        # Guardia 1: Coherencia temporal concéntrica (si subió a ritmo estable <= r1_conc * 1.15, no hay fatiga extrema)
-        if last_conc <= r1_conc * 1.15:
-            vel_loss = round(min(raw_vel_loss, 10.0), 1)
-        else:
-            vel_loss = round(raw_vel_loss, 1)
-
-        # Guardia 2: Coherencia con el Tempo (anti-falsos RIR 0):
-        # Si la duración absoluta de la fase concéntrica de la última rep válida es < 1.2s,
-        # no permitir que el veredicto caiga en RIR 0 / Fallo Muscular (limitar RIR >= 2 salvo desaceleración real > 35% en 2 reps consecutivas)
-        has_sustained_decel = False
-        if N >= 3:
-            decel_flags = [bool((v_initial_best - v) / v_initial_best > 0.35) for v in rep_vels[1:]]
-            for k in range(len(decel_flags) - 1):
-                if decel_flags[k] and decel_flags[k + 1]:
-                    has_sustained_decel = True
-                    break
-
-        if last_conc < 1.2 and not has_sustained_decel:
-            vel_loss = min(vel_loss, 28.0)
-
-        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(vel_loss)
-
-        if last_conc < 1.2 and not has_sustained_decel and exact_rir < 2.0:
-            exact_rir = 2.0
-            exact_rpe = 8.0
-            rir_str = "RIR 2"
-            status_text = "Zona óptima de hipertrofia"
-            vbt_proximity = "effective_growth"
-            vbt_verdict = "Velocidad conservada (tempo rápido < 1.2s). Estimación ajustada a RIR 2."
-
-        estimated_1rm_kg = None
-        if weight_kg is not None:
-            try:
-                w_val = float(weight_kg)
-                if w_val > 0:
-                    estimated_1rm_kg = round(w_val * (1.0 + (N + exact_rir) / 30.0), 1)
-            except (ValueError, TypeError):
-                estimated_1rm_kg = None
-
-        # Si la serie es ligera/constante (pérdida < 15%), suprimir alertas de sticking point en el vídeo
-        if vel_loss < 15.0:
-            for r in repetitions_summary:
-                r["sticking_point_sec"] = None
-
-        intensity_metrics = {
-            "estimated_rir": rir_str,
-            "estimated_rpe": exact_rpe,
-            "exact_rir": exact_rir,
-            "exact_rpe": exact_rpe,
-            "delta_v_rep": round(float(max(1.0, (v_initial_best - v_last) / max(1, N - 1))), 1),
-            "estimated_1rm_kg": estimated_1rm_kg,
-            "velocity_loss_pct": vel_loss,
-            "first_rep_vel": round(first_rep_vel, 1),
-            "v_best": round(v_initial_best, 1),
-            "last_rep_vel": round(v_last, 1),
-            "max_rep_vel": round(max_rep_vel, 1),
-            "rep_velocities": rep_vels,
-            "status_text": status_text,
-            "failure_proximity": vbt_proximity,
-            "coach_verdict": vbt_verdict
-        }
-    else:
-        v_last = float(repetitions_summary[0].get("mean_concentric_vel", 0.0)) if repetitions_summary else 0.0
-        exact_rir, exact_rpe, rir_str, status_text, vbt_proximity, vbt_verdict = calculate_vbt_rir_rpe(0.0)
-        intensity_metrics = {
-            "estimated_rir": rir_str,
-            "estimated_rpe": exact_rpe,
-            "exact_rir": exact_rir,
-            "exact_rpe": exact_rpe,
-            "delta_v_rep": 0.0,
-            "estimated_1rm_kg": None,
-            "velocity_loss_pct": 0.0,
-            "first_rep_vel": round(v_last, 1),
-            "v_best": round(v_last, 1),
-            "last_rep_vel": round(v_last, 1),
-            "max_rep_vel": round(v_last, 1),
-            "rep_velocities": [v_last] if v_last > 0 else [],
-            "status_text": "Serie de 1 rep",
-            "failure_proximity": vbt_proximity,
-            "coach_verdict": "Serie única completada. Registra ≥ 2 repeticiones para calcular la curva diferencial de fatiga."
-        }
-        estimated_1rm_kg = None
-
-    # Update Repetition Relative ROM (% of Rep 1)
-    if total_reps > 0:
-        base_rom = max(1.0, float(repetitions_summary[0].get("rom_px", 1.0)))
-        for r in repetitions_summary:
-            r["rom_pct_of_rep1"] = round(100.0 * (float(r.get("rom_px", 0.0)) / base_rom), 1)
-
-    # Repetition 1 vs. Last Repetition Comparison (Form Degradation)
-    rep_comparison = None
-    if total_reps >= 1:
-        r1 = repetitions_summary[0]
-        r_last = repetitions_summary[-1]
-        r1_rom = max(1e-4, float(r1.get("rom_px", 1.0)))
-        r1_vel = max(1e-4, float(r1.get("mean_concentric_vel", 1.0)))
-        last_rom = float(r_last.get("rom_px", 0.0))
-        last_vel = float(r_last.get("mean_concentric_vel", 0.0))
-        rep_comparison = {
-            "rep1": {
-                "rep_index": 1,
-                "path_points": r1.get("path_points", []),
-                "rom_px": r1.get("rom_px", 0.0),
-                "mean_vel": r1.get("mean_concentric_vel", 0.0),
-                "duration_sec": r1.get("duration_sec", 0.0)
-            },
-            "last_rep": {
-                "rep_index": total_reps,
-                "path_points": r_last.get("path_points", []),
-                "rom_px": r_last.get("rom_px", 0.0),
-                "mean_vel": r_last.get("mean_concentric_vel", 0.0),
-                "duration_sec": r_last.get("duration_sec", 0.0)
-            },
-            "rom_loss_pct": round(max(0.0, 100.0 - (last_rom / r1_rom) * 100.0), 1),
-            "velocity_loss_pct": round(max(0.0, 100.0 - (last_vel / r1_vel) * 100.0), 1)
-        }
-
-    # Extract 2 Key Static Snapshots (Max Stretch & Max Peak)
-    rep_target = repetitions_summary[1] if total_reps >= 2 else (repetitions_summary[0] if total_reps >= 1 else None)
+    # Extract 2 Key Static Snapshots (Max Stretch & Max Peak / Lockout)
+    rep_target = repetitions_summary[min(1, total_reps - 1)] if total_reps >= 1 else None
     if rep_target:
-        f_stretch = rep_target.get("bottom_frame", int(n_frames * 0.5))
-        f_peak = rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8))
+        sf_t = max(0, int(rep_target.get("start_frame", 0)))
+        ef_t = min(n_frames - 1, int(rep_target.get("end_frame", n_frames - 1)))
+        if is_pattern_b and ef_t > sf_t:
+            # Push exercises: Bottom = min elbow angle, Lockout = max elbow angle (extended arms)
+            f_stretch, f_peak = extract_push_snapshot_frames(clean_el, sf_t, ef_t, n_frames)
+        else:
+            f_stretch = rep_target.get("bottom_frame", int(n_frames * 0.5))
+            f_peak = rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8))
     else:
         f_stretch = max(0, min(n_frames - 1, int(n_frames * 0.33)))
         f_peak = max(0, min(n_frames - 1, int(n_frames * 0.66)))

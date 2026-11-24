@@ -62,12 +62,12 @@
     <div class="flex items-center gap-3 text-xs bg-slate-900 border border-slate-800 p-2.5 rounded-2xl">
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Total Máquinas</div>
-        <div class="text-lg font-black font-mono text-cyan-400" id="stat-total">188</div>
+        <div class="text-lg font-black font-mono text-cyan-400" id="stat-total">208</div>
       </div>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
         <div class="text-[10px] uppercase font-bold text-slate-400">Con Imagen</div>
-        <div class="text-lg font-black font-mono text-emerald-400" id="stat-with-image">188</div>
+        <div class="text-lg font-black font-mono text-emerald-400" id="stat-with-image">208</div>
       </div>
       <div class="w-px h-8 bg-slate-800"></div>
       <div class="px-2">
@@ -111,7 +111,7 @@
     <!-- Brand Filter Pills -->
     <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/60" id="brand-filters">
       <button onclick="setBrandFilter('all')" class="brand-btn active px-3 py-1 rounded-xl text-xs font-bold bg-cyan-600 text-white transition" data-brand="all">
-        Todas (188)
+        Todas (208)
       </button>
       
       <button onclick="setBrandFilter('Booty Builder')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Booty Builder">
@@ -133,19 +133,19 @@
         Hammer Strength (31)
       </button>
       <button onclick="setBrandFilter('Life Fitness')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Life Fitness">
-        Life Fitness (12)
+        Life Fitness (19)
       </button>
       <button onclick="setBrandFilter('Matrix')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Matrix">
         Matrix (21)
       </button>
       <button onclick="setBrandFilter('Nautilus')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Nautilus">
-        Nautilus (10)
+        Nautilus (16)
       </button>
       <button onclick="setBrandFilter('Panatta')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Panatta">
         Panatta (17)
       </button>
       <button onclick="setBrandFilter('Precor')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Precor">
-        Precor (9)
+        Precor (16)
       </button>
       <button onclick="setBrandFilter('Technogym')" class="brand-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-brand="Technogym">
         Technogym (48)
@@ -5264,6 +5264,354 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Life Fitness"
+      data-muscle="Abdomen"
+      data-has-image="true"
+      data-search="life fitness insignia - abdominal lifefitness_insignia_abdominal abdominal_crunch life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_abdominal.png" 
+                   data-raw="/machines/lifefitness_insignia_abdominal.png"
+                   alt="Life Fitness Insignia - Abdominal" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_abdominal.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abdomen
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Abdominal
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abdominal_crunch</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_abdominal" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_abdominal)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Crunch abdominal selectorizado con punto de giro lumbar que aísla el recto abdominal sin flexor de cadera.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>lifefitness_insignia_abdominal</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
+      data-muscle="Abductores"
+      data-has-image="true"
+      data-search="life fitness insignia - hip abduction lifefitness_insignia_hip_abduction abductor_machine life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_hip_abduction.png" 
+                   data-raw="/machines/lifefitness_insignia_hip_abduction.png"
+                   alt="Life Fitness Insignia - Hip Abduction" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_hip_abduction.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Hip Abduction
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_hip_abduction" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_hip_abduction)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Abducción de cadera sentado con soporte lumbar ergonómico y leva de tensión creciente en apertura máxima.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>lifefitness_insignia_hip_abduction</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
+      data-muscle="Aductores"
+      data-has-image="true"
+      data-search="life fitness insignia - hip adduction lifefitness_insignia_hip_adduction adductor_machine life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_hip_adduction.png" 
+                   data-raw="/machines/lifefitness_insignia_hip_adduction.png"
+                   alt="Life Fitness Insignia - Hip Adduction" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_hip_adduction.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Aductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Hip Adduction
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>adductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">35% / 40% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_hip_adduction" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,19.666666666666664 Q 50,17.333333333333332 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_hip_adduction)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="19.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="17.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aducción de cadera con rango de inicio ajustable y carga suave en estiramiento proximal.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>lifefitness_insignia_hip_adduction</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
+      data-muscle="Bíceps"
+      data-has-image="true"
+      data-search="life fitness insignia - biceps curl lifefitness_insignia_biceps_curl biceps_curl life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_biceps_curl.png" 
+                   data-raw="/machines/lifefitness_insignia_biceps_curl.png"
+                   alt="Life Fitness Insignia - Biceps Curl" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_biceps_curl.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Bíceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Biceps Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>biceps_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_biceps_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_biceps_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Curl de bíceps en pupitre con agarres rotatorios independientes y eje de pivote alineado al codo.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>lifefitness_insignia_biceps_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
       data-muscle="Cardio"
       data-has-image="true"
       data-search="bicicleta estática / spinning cardio_stationary_bike cardio life fitness"
@@ -5786,6 +6134,180 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Life Fitness"
+      data-muscle="Gemelos"
+      data-has-image="true"
+      data-search="life fitness insignia - calf extension lifefitness_insignia_calf_extension calf_raise life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_calf_extension.png" 
+                   data-raw="/machines/lifefitness_insignia_calf_extension.png"
+                   alt="Life Fitness Insignia - Calf Extension" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_calf_extension.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Gemelos
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Calf Extension
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>calf_raise</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_calf_extension" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_calf_extension)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Extensión de gemelos sentado con rodillas extendidas para carga directa del gastrocnemio.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>lifefitness_insignia_calf_extension</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
+      data-muscle="Glúteo"
+      data-has-image="true"
+      data-search="life fitness insignia - glute lifefitness_insignia_glute glute_kickback life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_glute.png" 
+                   data-raw="/machines/lifefitness_insignia_glute.png"
+                   alt="Life Fitness Insignia - Glute" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_glute.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Glúteo
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Glute
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>glute_kickback</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_glute" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_glute)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Extensión de cadera unilateral de pie con apoyo pectoral para máxima contracción del glúteo mayor.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>lifefitness_insignia_glute</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
       data-muscle="Hombros"
       data-has-image="true"
       data-search="life fitness insignia - shoulder press lifefitness_insignia_shoulder_press shoulder_press_machine life fitness"
@@ -5867,6 +6389,93 @@
           <span>selectorized_stack</span>
           <span>convergent</span>
           <span>lifefitness_insignia_shoulder_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Life Fitness"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
+      data-search="life fitness insignia - prone leg curl lifefitness_insignia_prone_leg_curl seated_leg_curl life fitness"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/lifefitness_insignia_prone_leg_curl.png" 
+                   data-raw="/machines/lifefitness_insignia_prone_leg_curl.png"
+                   alt="Life Fitness Insignia - Prone Leg Curl" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/lifefitness_insignia_prone_leg_curl.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Isquiosurales
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-sky-500/15 text-sky-300 border-sky-500/30">
+            Life Fitness
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Insignia Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Life Fitness Insignia - Prone Leg Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_leg_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-lifefitness_insignia_prone_leg_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-lifefitness_insignia_prone_leg_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Curl femoral tumbado con banco angulado para reducir la lordosis lumbar y maximizar la tensión isquiosural.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>lifefitness_insignia_prone_leg_curl</span>
         </div>
       </div>
     </article>
@@ -8135,9 +8744,270 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Nautilus"
+      data-muscle="Abdomen"
+      data-has-image="true"
+      data-search="nautilus nitro plus - abdominal crunch nautilus_nitro_abdominal_crunch abdominal_crunch nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/nautilus_nitro_abdominal_crunch.png" 
+                   data-raw="/machines/nautilus_nitro_abdominal_crunch.png"
+                   alt="Nautilus Nitro Plus - Abdominal Crunch" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/nautilus_nitro_abdominal_crunch.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abdomen
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro Plus</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nautilus Nitro Plus - Abdominal Crunch
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abdominal_crunch</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_abdominal_crunch" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_abdominal_crunch)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Abdominal Crunch clásico con agarre superior y leva de resistencia creciente en flexión espinal.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>nautilus_nitro_abdominal_crunch</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
+      data-muscle="Abductores"
+      data-has-image="true"
+      data-search="nautilus nitro plus - abductor nautilus_nitro_abductor abductor_machine nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/nautilus_nitro_abductor.png" 
+                   data-raw="/machines/nautilus_nitro_abductor.png"
+                   alt="Nautilus Nitro Plus - Abductor" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/nautilus_nitro_abductor.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro Plus</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nautilus Nitro Plus - Abductor
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_abductor" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_abductor)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Máquina de abducción con ajuste de rango y leva progresiva para glúteo medio.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>nautilus_nitro_abductor</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
+      data-muscle="Aductores"
+      data-has-image="true"
+      data-search="nautilus nitro plus - adductor nautilus_nitro_adductor adductor_machine nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/nautilus_nitro_adductor.png" 
+                   data-raw="/machines/nautilus_nitro_adductor.png"
+                   alt="Nautilus Nitro Plus - Adductor" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/nautilus_nitro_adductor.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Aductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro Plus</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nautilus Nitro Plus - Adductor
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>adductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">35% / 40% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_adductor" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,19.666666666666664 Q 50,17.333333333333332 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_adductor)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="19.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="17.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Máquina de aducción con soporte femoral ergonómico y leva compensada.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>nautilus_nitro_adductor</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
       data-muscle="Bíceps"
       data-has-image="true"
-      data-search="nautilus nitro plus - biceps curl nautilus_nitro_biceps_curl biceps_curl_machine nautilus"
+      data-search="nautilus nitro plus - biceps curl nautilus_nitro_biceps_curl biceps_curl nautilus"
     >
       <div>
         <!-- Top Media Container -->
@@ -8173,7 +9043,7 @@
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>biceps_curl_machine</code>
+          <code>biceps_curl</code>
         </div>
       </div>
 
@@ -8303,6 +9173,93 @@
           <span>selectorized_stack</span>
           <span>circular_arc</span>
           <span>nautilus_leg_extension</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
+      data-muscle="Cuádriceps"
+      data-has-image="true"
+      data-search="nautilus nitro plus - leg press nautilus_nitro_leg_press leg_press nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/nautilus_nitro_leg_press.png" 
+                   data-raw="/machines/nautilus_nitro_leg_press.png"
+                   alt="Nautilus Nitro Plus - Leg Press" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/nautilus_nitro_leg_press.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro Plus</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nautilus Nitro Plus - Leg Press
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>leg_press</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">40% / 40% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_leg_press" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,17.333333333333332 Q 50,17.333333333333332 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_leg_press)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="17.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="17.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Prensa horizontal selectorizada con sistema de cuatro barras y leva compensadora.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>linear_fixed</span>
+          <span>nautilus_nitro_leg_press</span>
         </div>
       </div>
     </article>
@@ -8659,6 +9616,93 @@
       data-brand="Nautilus"
       data-muscle="Isquiosurales"
       data-has-image="true"
+      data-search="nautilus nitro plus - prone leg curl nautilus_nitro_prone_leg_curl seated_leg_curl nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/nautilus_nitro_prone_leg_curl.png" 
+                   data-raw="/machines/nautilus_nitro_prone_leg_curl.png"
+                   alt="Nautilus Nitro Plus - Prone Leg Curl" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/nautilus_nitro_prone_leg_curl.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Isquiosurales
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro Plus</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nautilus Nitro Plus - Prone Leg Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_leg_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_prone_leg_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_prone_leg_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Curl femoral prono con leva excéntrica que reduce la carga en el punto muerto superior.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>nautilus_nitro_prone_leg_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="nautilus nitro plus - seated leg curl nautilus_nitro_seated_leg_curl seated_leg_curl nautilus"
     >
       <div>
@@ -8918,9 +9962,96 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Nautilus"
+      data-muscle="Pectoral"
+      data-has-image="true"
+      data-search="nautilus nitro plus - pec fly nautilus_nitro_pec_fly pec_deck nautilus"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/nautilus_nitro_pec_fly.png" 
+                   data-raw="/machines/nautilus_nitro_pec_fly.png"
+                   alt="Nautilus Nitro Plus - Pec Fly" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/nautilus_nitro_pec_fly.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Pectoral
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-blue-500/15 text-blue-300 border-blue-500/30">
+            Nautilus
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Nitro Plus</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Nautilus Nitro Plus - Pec Fly
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>pec_deck</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-nautilus_nitro_pec_fly" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-nautilus_nitro_pec_fly)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Contractora de pectoral con transmisión por leva Nautilus para tensión constante hasta la aducción completa.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>nautilus_nitro_pec_fly</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Nautilus"
       data-muscle="Tríceps"
       data-has-image="true"
-      data-search="nautilus nitro plus - triceps extension nautilus_nitro_triceps_extension triceps_press nautilus"
+      data-search="nautilus nitro plus - triceps extension nautilus_nitro_triceps_extension triceps_extension nautilus"
     >
       <div>
         <!-- Top Media Container -->
@@ -8956,7 +10087,7 @@
         <!-- Canonical Exercise ID -->
         <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
           <span class="text-slate-500">ID canónico:</span>
-          <code>triceps_press</code>
+          <code>triceps_extension</code>
         </div>
       </div>
 
@@ -10484,6 +11615,354 @@
     <article
       class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
       data-brand="Precor"
+      data-muscle="Abdomen"
+      data-has-image="true"
+      data-search="precor discovery - abdominal crunch precor_discovery_abdominal_crunch abdominal_crunch precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_abdominal_crunch.png" 
+                   data-raw="/machines/precor_discovery_abdominal_crunch.png"
+                   alt="Precor Discovery - Abdominal Crunch" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_abdominal_crunch.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abdomen
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Abdominal Crunch
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abdominal_crunch</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_abdominal_crunch" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-precor_discovery_abdominal_crunch)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Crunch abdominal con pivote anatómico lumbar para flexión torácica pura.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>precor_discovery_abdominal_crunch</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
+      data-muscle="Abductores"
+      data-has-image="true"
+      data-search="precor discovery - hip abductor precor_discovery_hip_abductor abductor_machine precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_hip_abductor.png" 
+                   data-raw="/machines/precor_discovery_hip_abductor.png"
+                   alt="Precor Discovery - Hip Abductor" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_hip_abductor.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Abductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Hip Abductor
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>abductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_hip_abductor" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-precor_discovery_hip_abductor)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Abductor de cadera con respaldo reclinable y leva progresiva en fase de apertura.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>precor_discovery_hip_abductor</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
+      data-muscle="Aductores"
+      data-has-image="true"
+      data-search="precor discovery - hip adductor precor_discovery_hip_adductor adductor_machine precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_hip_adductor.png" 
+                   data-raw="/machines/precor_discovery_hip_adductor.png"
+                   alt="Precor Discovery - Hip Adductor" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_hip_adductor.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Aductores
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Hip Adductor
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>adductor_machine</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">35% / 40% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_hip_adductor" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,19.666666666666664 Q 50,17.333333333333332 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-precor_discovery_hip_adductor)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="19.666666666666664" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="17.333333333333332" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Aductor de cadera con ajuste inicial de apertura y resistencia controlada en cierre.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>precor_discovery_hip_adductor</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
+      data-muscle="Bíceps"
+      data-has-image="true"
+      data-search="precor discovery - biceps curl precor_discovery_biceps_curl biceps_curl precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_biceps_curl.png" 
+                   data-raw="/machines/precor_discovery_biceps_curl.png"
+                   alt="Precor Discovery - Biceps Curl" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_biceps_curl.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Bíceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Biceps Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>biceps_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_biceps_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-precor_discovery_biceps_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Curl de bíceps con brazos independientes y empuñaduras ergonómicas autoalineables.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>precor_discovery_biceps_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
       data-muscle="Cuádriceps"
       data-has-image="true"
       data-search="precor discovery - angled leg press 45° a discos precor_discovery_leg_press leg_press precor"
@@ -10565,6 +12044,93 @@
           <span>plate_loaded</span>
           <span>linear_fixed</span>
           <span>precor_discovery_leg_press</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
+      data-muscle="Cuádriceps"
+      data-has-image="true"
+      data-search="precor discovery - hack squat a discos precor_discovery_hack_squat squat precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_hack_squat.png" 
+                   data-raw="/machines/precor_discovery_hack_squat.png"
+                   alt="Precor Discovery - Hack Squat a Discos" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_hack_squat.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Cuádriceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Hack Squat a Discos
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>squat</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Descendente · Foco Estiramiento</span>
+          <span class="text-slate-400 font-mono">45% / 35% / 20%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_hack_squat" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,15 Q 50,19.666666666666664 90,26.666666666666664"
+              fill="none"
+              stroke="url(#grad-precor_discovery_hack_squat)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="15" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="26.666666666666664" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Sentadilla Hack guiada a discos con plataforma amplia y máxima demanda de cuádriceps en flexión profunda.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>plate_loaded</span>
+          <span>linear_fixed</span>
+          <span>precor_discovery_hack_squat</span>
         </div>
       </div>
     </article>
@@ -10921,6 +12487,93 @@
       data-brand="Precor"
       data-muscle="Isquiosurales"
       data-has-image="true"
+      data-search="precor discovery - prone leg curl precor_discovery_prone_leg_curl seated_leg_curl precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_prone_leg_curl.png" 
+                   data-raw="/machines/precor_discovery_prone_leg_curl.png"
+                   alt="Precor Discovery - Prone Leg Curl" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_prone_leg_curl.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Isquiosurales
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Prone Leg Curl
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>seated_leg_curl</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Campana · Máximo Momento Medio</span>
+          <span class="text-slate-400 font-mono">30% / 45% / 25%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_prone_leg_curl" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,22 Q 50,15 90,24.333333333333332"
+              fill="none"
+              stroke="url(#grad-precor_discovery_prone_leg_curl)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="22" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="15" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="24.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Curl femoral tumbado con banco en V para estabilizar la pelvis durante la flexión de rodilla.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>precor_discovery_prone_leg_curl</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
+      data-muscle="Isquiosurales"
+      data-has-image="true"
       data-search="precor discovery - seated leg curl precor_discovery_seated_leg_curl seated_leg_curl precor"
     >
       <div>
@@ -11261,6 +12914,93 @@
           <span>selectorized_stack</span>
           <span>circular_arc</span>
           <span>precor_discovery_pec_fly</span>
+        </div>
+      </div>
+    </article>
+    <article
+      class="machine-card card-glow bg-[#131625] border border-slate-800 rounded-3xl p-4 flex flex-col justify-between transition duration-200"
+      data-brand="Precor"
+      data-muscle="Tríceps"
+      data-has-image="true"
+      data-search="precor discovery - triceps extension precor_discovery_triceps_extension triceps_extension precor"
+    >
+      <div>
+        <!-- Top Media Container -->
+        <div class="relative w-full h-44 rounded-2xl border border-slate-800/80 overflow-hidden flex items-center justify-center mb-3.5" style="background: radial-gradient(circle at 50% 50%, #252c40 0%, #0e111d 80%);">
+          <img 
+                   src="../public/machines/precor_discovery_triceps_extension.png" 
+                   data-raw="/machines/precor_discovery_triceps_extension.png"
+                   alt="Precor Discovery - Triceps Extension" 
+                   class="w-full h-full object-contain p-2 drop-shadow-[0_4px_12px_rgba(255,255,255,0.08)]" 
+                   loading="lazy" 
+                   onerror="handleImageFallback(this, '/machines/precor_discovery_triceps_extension.png')" 
+                 />
+
+          <!-- Muscle Badge -->
+          <span class="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900/90 text-slate-300 border border-slate-700/80 backdrop-blur-sm">
+            Tríceps
+          </span>
+        </div>
+
+        <!-- Brand & Line -->
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">
+            Precor
+          </span>
+          <span class="text-[11px] text-slate-400 font-medium">· Discovery Series</span>
+        </div>
+
+        <!-- Model Name -->
+        <h3 class="text-base font-bold text-white leading-snug mb-1">
+          Precor Discovery - Triceps Extension
+        </h3>
+
+        <!-- Canonical Exercise ID -->
+        <div class="text-[10px] font-mono text-cyan-400 mb-3 flex items-center gap-1">
+          <span class="text-slate-500">ID canónico:</span>
+          <code>triceps_extension</code>
+        </div>
+      </div>
+
+      <!-- Resistance Profile Section -->
+      <div class="pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-cyan-300">Ascendente · Foco Acortamiento</span>
+          <span class="text-slate-400 font-mono">25% / 35% / 40%</span>
+        </div>
+
+        <!-- Mini SVG Curve -->
+        <div class="w-full h-11 bg-slate-950/80 rounded-xl p-1 border border-slate-800/80">
+          <svg viewBox="0 0 100 40" class="w-full h-full overflow-visible">
+            <defs>
+              <linearGradient id="grad-precor_discovery_triceps_extension" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 10,24.333333333333332 Q 50,19.666666666666664 90,17.333333333333332"
+              fill="none"
+              stroke="url(#grad-precor_discovery_triceps_extension)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <circle cx="10" cy="24.333333333333332" r="3" fill="#06b6d4" />
+            <circle cx="50" cy="19.666666666666664" r="3" fill="#3b82f6" />
+            <circle cx="90" cy="17.333333333333332" r="3" fill="#8b5cf6" />
+          </svg>
+        </div>
+
+        <p class="text-[10px] text-slate-400 leading-tight">
+          Extensión de tríceps sentado con apoyo de brazos inclinado y tensión máxima en extensión.
+        </p>
+
+        <!-- Technical Footer -->
+        <div class="flex items-center justify-between text-[9px] text-slate-500 pt-1 font-mono">
+          <span>selectorized_stack</span>
+          <span>circular_arc</span>
+          <span>precor_discovery_triceps_extension</span>
         </div>
       </div>
     </article>

@@ -168,7 +168,7 @@ export const NAUTILUS_MACHINES: CatalogMachineEntry[] = [
     brand: 'Nautilus',
     line: 'Nitro Plus',
     modelName: 'Nautilus Nitro Plus - Biceps Curl',
-    canonicalExerciseType: 'biceps_curl_machine',
+    canonicalExerciseType: 'biceps_curl',
     muscleGroupLabel: 'Bíceps',
     profile: {
       loadType: 'selectorized_stack',
@@ -188,7 +188,7 @@ export const NAUTILUS_MACHINES: CatalogMachineEntry[] = [
     brand: 'Nautilus',
     line: 'Nitro Plus',
     modelName: 'Nautilus Nitro Plus - Triceps Extension',
-    canonicalExerciseType: 'triceps_press',
+    canonicalExerciseType: 'triceps_extension',
     muscleGroupLabel: 'Tríceps',
     profile: {
       loadType: 'selectorized_stack',
@@ -200,5 +200,125 @@ export const NAUTILUS_MACHINES: CatalogMachineEntry[] = [
       curveLabel: 'Ascendente · Foco Acortamiento'
     },
     imageUrl: '/machines/nautilus_nitro_triceps_extension.png'
+  },
+
+  // 11. Nautilus — Pec Fly
+  {
+    id: 'nautilus_nitro_pec_fly',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Pec Fly',
+    canonicalExerciseType: 'pec_deck',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Contractora de pectoral con transmisión por leva Nautilus para tensión constante hasta la aducción completa.'
+    },
+    imageUrl: '/machines/nautilus_nitro_pec_fly.png'
+  },
+
+  // 12. Nautilus — Leg Press
+  {
+    id: 'nautilus_nitro_leg_press',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Leg Press',
+    canonicalExerciseType: 'leg_press',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.40, mid: 0.40, shortened: 0.20 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Prensa horizontal selectorizada con sistema de cuatro barras y leva compensadora.'
+    },
+    imageUrl: '/machines/nautilus_nitro_leg_press.png'
+  },
+
+  // 13. Nautilus — Prone Leg Curl
+  {
+    id: 'nautilus_nitro_prone_leg_curl',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Prone Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Curl femoral prono con leva excéntrica que reduce la carga en el punto muerto superior.'
+    },
+    imageUrl: '/machines/nautilus_nitro_prone_leg_curl.png'
+  },
+
+  // 14. Nautilus — Abdominal Crunch
+  {
+    id: 'nautilus_nitro_abdominal_crunch',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Abdominal Crunch',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Abdominal Crunch clásico con agarre superior y leva de resistencia creciente en flexión espinal.'
+    },
+    imageUrl: '/machines/nautilus_nitro_abdominal_crunch.png'
+  },
+
+  // 15. Nautilus — Abductor
+  {
+    id: 'nautilus_nitro_abductor',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Abductor',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Abductores',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Máquina de abducción con ajuste de rango y leva progresiva para glúteo medio.'
+    },
+    imageUrl: '/machines/nautilus_nitro_abductor.png'
+  },
+
+  // 16. Nautilus — Adductor
+  {
+    id: 'nautilus_nitro_adductor',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Adductor',
+    canonicalExerciseType: 'adductor_machine',
+    muscleGroupLabel: 'Aductores',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.35, mid: 0.40, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Máquina de aducción con soporte femoral ergonómico y leva compensada.'
+    },
+    imageUrl: '/machines/nautilus_nitro_adductor.png'
   }
 ];

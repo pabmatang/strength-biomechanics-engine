@@ -3817,7 +3817,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                             <MessageSquare className="w-4 h-4 text-emerald-400" />
-                            Intervenciones del Coach IA ({validCues.length})
+                            Puntos Clave Detectados ({validCues.length})
                           </span>
                           <span className="text-[10px] font-mono text-slate-400">
                             Pines interactivos 0.5x
