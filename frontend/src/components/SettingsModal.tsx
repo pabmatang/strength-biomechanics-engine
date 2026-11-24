@@ -215,7 +215,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {['Technogym', 'Hammer Strength', 'Life Fitness', 'Matrix', 'Panatta', 'Eleiko'].map((brand) => {
+              {['Technogym', 'Hammer Strength', 'Life Fitness', 'Precor', 'Nautilus', 'Matrix', 'Panatta', 'Eleiko'].map((brand) => {
                 const isSelected = (settings.gym_brands || ['Technogym', 'Hammer Strength']).includes(brand);
                 return (
                   <button

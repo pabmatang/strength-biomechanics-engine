@@ -294,6 +294,7 @@ function generateCatalogHtml(embedImages = false): string {
           brandLower.includes('booty') ? 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30' :
           brandLower.includes('eleiko') ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
           brandLower.includes('titanium') ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+          brandLower.includes('precor') ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' :
           'bg-teal-500/15 text-teal-300 border-teal-500/30';
 
         const rawImg = m.imageUrl || '';

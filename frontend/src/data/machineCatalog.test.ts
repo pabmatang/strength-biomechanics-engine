@@ -34,6 +34,7 @@ const COMMERCIAL_BRAND_PREFIXES: Record<string, string | string[]> = {
   'Booty Builder': 'booty_',
   Cybex: 'cybex_',
   Nautilus: 'nautilus_',
+  Precor: 'precor_',
   'Titanium Strength': 'titanium_'
 };
 

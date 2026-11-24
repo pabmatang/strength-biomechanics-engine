@@ -84,19 +84,12 @@ def is_already_transparent(pil_img):
 
     return False
 
-def clean_interior_holes(pil_img, min_area=35, white_threshold=238, sat_threshold=12, file_name=""):
+def clean_interior_holes(pil_img, min_area=25, white_threshold=225, sat_threshold=18, file_name=""):
     """
-    Detecta componentes conexas internas de color blanco puro/casi blanco de estudio
-    atrapadas en marcos cerrados y las vuelve transparentes con un ligero suavizado (1px).
+    Detecta componentes conexas internas de color blanco/gris muy claro de fondo
+    (R>=225, G>=225, B>=225, max-min<=18) atrapadas en estructuras metálicas cerradas
+    y las vuelve transparentes (alpha=0), aplicando un defringe de 1px en el contorno.
     """
-    if HAS_REMBG:
-        try:
-            if REMBG_SESSION:
-                return rembg.remove(pil_img, session=REMBG_SESSION, alpha_matting=True, alpha_matting_erode_size=5, post_process_mask=True)
-            return rembg.remove(pil_img, alpha_matting=True)
-        except Exception:
-            pass
-
     rgba = pil_img.convert('RGBA')
     np_rgba = np.array(rgba)
     h, w = np_rgba.shape[:2]
@@ -110,7 +103,7 @@ def clean_interior_holes(pil_img, min_area=35, white_threshold=238, sat_threshol
     min_c = np.minimum(np.minimum(r, g), b)
     sat = max_c - min_c
 
-    # Candidato a hueco blanco atrapado: blanco/casi blanco de estudio, baja saturación, opaco
+    # Candidato a islote blanco interior: blanco/gris muy claro de fondo, baja saturación, opaco
     candidate_mask = (
         (r >= white_threshold) &
         (g >= white_threshold) &
@@ -132,11 +125,19 @@ def clean_interior_holes(pil_img, min_area=35, white_threshold=238, sat_threshol
     if holes_count == 0:
         return rgba
 
-    # Suavizado de 1 px en el borde para evitar dientes de sierra
-    blurred_hole = cv2.GaussianBlur(hole_mask, (3, 3), 0.8)
+    # Defringe de 1 px: dilatación suave del contorno para limpiar halos claros residuales
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    dilated_hole = cv2.dilate(hole_mask, kernel, iterations=1)
+    boundary_ring = (dilated_hole > 0) & (hole_mask == 0)
 
-    # Modulación de alfa: donde blurred_hole es 255 -> alfa=0; en el borde -> transición suave
-    new_a = np.clip(a.astype(float) * (1.0 - (blurred_hole.astype(float) / 255.0)), 0, 255).astype(np.uint8)
+    new_a = a.copy()
+    # Píxeles del hueco interior -> alpha = 0 (transparente)
+    new_a[hole_mask > 0] = 0
+
+    # Defringe en el contorno de 1 px: atenúa píxeles muy claros y poco saturados para evitar halo blanco sobre fondo oscuro
+    halo_boundary = boundary_ring & (r >= 210) & (g >= 210) & (b >= 210) & (sat <= sat_threshold + 4)
+    if np.any(halo_boundary):
+        new_a[halo_boundary] = np.clip(new_a[halo_boundary].astype(float) * 0.15, 0, 255).astype(np.uint8)
 
     # Comprobación de seguridad:
     orig_opaque = int(np.sum(a > 40))
@@ -145,9 +146,10 @@ def clean_interior_holes(pil_img, min_area=35, white_threshold=238, sat_threshol
     opaque_ratio = new_opaque / total_pixels
     removed_ratio = (orig_opaque - new_opaque) / max(1, orig_opaque)
 
-    # Umbrales con margen para estructuras huecas (racks) o siluetas estilizadas
-    max_removed = 0.60 if 'rack' in file_name.lower() else 0.55
-    min_opaque = 0.06 if 'seated_leg_curl' in file_name.lower() else 0.12
+    # Umbrales con margen para estructuras huecas (racks, jaulas multipower, bancas estilizadas)
+    is_hollow_structure = any(k in file_name.lower() for k in ['rack', 'smith', 'multipower', 'bench', 'curl', 'squat', 'pullover'])
+    max_removed = 0.65 if is_hollow_structure else 0.55
+    min_opaque = 0.03 if 'seated_leg_curl' in file_name.lower() else (0.08 if is_hollow_structure else 0.12)
 
     if opaque_ratio < min_opaque:
         print(f"[ALERTA SEGURIDAD] {file_name}: Limpieza abortada (píxeles opacos {opaque_ratio:.1%} < {min_opaque:.0%}).")
@@ -221,7 +223,7 @@ def remove_background_safe(pil_img, tolerance=24):
             rgba_arr = np.dstack([np_rgb, np.full((h, w), 255, dtype=np.uint8)])
             return Image.fromarray(rgba_arr, 'RGBA')
 
-def process_image(file_path, target_size=512, margin_pct=0.06, clean_holes=False):
+def process_image(file_path, target_size=512, margin_pct=0.06, clean_holes=True):
     try:
         with Image.open(file_path) as raw_img:
             img = raw_img.copy()
@@ -269,7 +271,8 @@ def process_image(file_path, target_size=512, margin_pct=0.06, clean_holes=False
     total_canvas_pixels = target_size * target_size
     opaque_ratio = opaque_pixels / total_canvas_pixels
 
-    min_allowed = 0.06 if 'seated_leg_curl' in file_name.lower() else 0.12
+    is_hollow_structure = any(k in file_name.lower() for k in ['rack', 'smith', 'multipower', 'bench', 'curl', 'squat', 'pullover'])
+    min_allowed = 0.03 if 'seated_leg_curl' in file_name.lower() else (0.08 if is_hollow_structure else 0.12)
     if opaque_ratio < min_allowed:
         print(f"[ALERTA SEGURIDAD] {file_name}: Píxeles opacos ({opaque_ratio:.1%}) < {min_allowed:.0%}. ¡Posible chasis comido! Abortando guardado.")
         return False, orig_size, 0
@@ -295,8 +298,11 @@ def main():
         print(f"Directory not found: {machines_dir}")
         sys.exit(1)
 
-    clean_holes_mode = False
+    clean_holes_mode = True
     args = sys.argv[1:]
+    if '--no-clean-holes' in args:
+        clean_holes_mode = False
+        args.remove('--no-clean-holes')
     if '--clean-holes' in args:
         clean_holes_mode = True
         args.remove('--clean-holes')

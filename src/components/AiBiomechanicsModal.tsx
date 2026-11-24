@@ -80,7 +80,7 @@ const MUSCLE_GROUPS: MuscleGroup[] = [
 ];
 
 const BRANDS: GymBrand[] = [
-  'Technogym', 'Hammer Strength', 'Life Fitness', 'Matrix', 'Panatta',
+  'Technogym', 'Hammer Strength', 'Life Fitness', 'Precor', 'Nautilus', 'Matrix', 'Panatta',
   'Gym80', 'Eleiko', 'Booty Builder', 'Concept2', 'General'
 ];
 

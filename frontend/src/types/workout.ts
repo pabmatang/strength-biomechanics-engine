@@ -38,6 +38,8 @@ export type GymBrand =
   | 'Technogym'
   | 'Hammer Strength'
   | 'Life Fitness'
+  | 'Precor'
+  | 'Nautilus'
   | 'Matrix'
   | 'Panatta'
   | 'Gym80'

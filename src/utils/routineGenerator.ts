@@ -10,7 +10,9 @@ export type MachineBrandFilter =
   | 'Nautilus'
   | 'Cybex'
   | 'Matrix'
-  | 'Gym80';
+  | 'Gym80'
+  | 'Life Fitness'
+  | 'Precor';
 
 export type ExperienceLevel = 'principiante' | 'intermedio' | 'avanzado';
 export type SplitDays = 2 | 3 | 4 | 5 | 6;

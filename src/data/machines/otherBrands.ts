@@ -1,5 +1,5 @@
 // ==========================================
-// CHΔNCE MACHINE CATALOG - OTRAS MARCAS COMERCIALES (BOOTY BUILDER, CYBEX, ELEIKO, GYM80, NAUTILUS)
+// CHΔNCE MACHINE CATALOG - OTRAS MARCAS COMERCIALES (BOOTY BUILDER, CYBEX, ELEIKO, GYM80)
 // ==========================================
 
 import { type CatalogMachineEntry } from '../machineCatalog';
@@ -134,43 +134,7 @@ export const OTHER_BRANDS_MACHINES: CatalogMachineEntry[] = [
     imageUrl: '/machines/gym80_pure_kraft_seated_calf.png'
   },
 
-  // 8. Nautilus — Nitro Chest Press
-  {
-    id: 'nautilus_nitro_chest_press',
-    brand: 'Nautilus',
-    line: 'Nitro Plus',
-    modelName: 'Nitro Chest Press',
-    canonicalExerciseType: 'chest_press_machine',
-    muscleGroupLabel: 'Pectoral',
-    profile: classifyMachineResistanceProfile({
-      loadType: 'selectorized_stack',
-      pivotBehavior: 'eccentric_cam_drop',
-      pathType: 'convergent',
-      machineBrandGuess: 'Nautilus',
-      machineModelGuess: 'Nitro Chest Press'
-    }),
-    imageUrl: '/machines/nautilus_nitro_chest_press.png'
-  },
-
-  // 9. Nautilus — Leg Extension (Leva Excéntrica)
-  {
-    id: 'nautilus_leg_extension',
-    brand: 'Nautilus',
-    line: 'Nitro Plus',
-    modelName: 'Leg Extension (Leva Excéntrica)',
-    canonicalExerciseType: 'leg_extension',
-    muscleGroupLabel: 'Cuádriceps',
-    profile: classifyMachineResistanceProfile({
-      loadType: 'selectorized_stack',
-      pivotBehavior: 'eccentric_cam_drop',
-      pathType: 'circular_arc',
-      machineBrandGuess: 'Nautilus',
-      machineModelGuess: 'Leg Extension (Leva Excéntrica)'
-    }),
-    imageUrl: '/machines/nautilus_leg_extension.png'
-  },
-
-  // 10. Cybex — Eagle NX Row
+  // 8. Cybex — Eagle NX Row
   {
     id: 'cybex_eagle_row',
     brand: 'Cybex',

@@ -37,6 +37,7 @@ export type MachineCatalogBrand =
   | 'Matrix'
   | 'Gym80'
   | 'Life Fitness'
+  | 'Precor'
   | 'Booty Builder'
   | 'Eleiko'
   | 'Estándar'

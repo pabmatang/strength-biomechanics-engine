@@ -43,7 +43,10 @@ const AVAILABLE_BRANDS: { brand: MachineBrandFilter; title: string; desc: string
   { brand: 'Hammer Strength', title: 'Hammer Strength Iso-Lateral', desc: 'Máquinas olímpicas divergentes de alta carga' },
   { brand: 'Matrix', title: 'Matrix Ultra & Magnum', desc: 'Torres selectorizadas y palancas convergentes/divergentes' },
   { brand: 'Panatta', title: 'Panatta FreeWeight / Monolith', desc: 'Biomecánica italiana con brazos de palanca circulares' },
-  { brand: 'Titanium Strength', title: 'Titanium Strength Black Series', desc: 'Maquinaria pesada comercial de palancas convergentes' }
+  { brand: 'Titanium Strength', title: 'Titanium Strength Black Series', desc: 'Maquinaria pesada comercial de palancas convergentes' },
+  { brand: 'Life Fitness', title: 'Life Fitness Insignia & Signature', desc: 'Torres selectorizadas biomecánicas de alta precisión y confort' },
+  { brand: 'Precor', title: 'Precor Discovery Series', desc: 'Palancas y poleas convergentes/divergentes con alineación escapular' },
+  { brand: 'Nautilus', title: 'Nautilus Nitro Plus', desc: 'Leva excéntrica biomecánica original con curvas de resistencia adaptadas' }
 ];
 
 export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = ({

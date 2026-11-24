@@ -161,7 +161,7 @@
       },
       "curveLabel": "Ascendente · Acortamiento Glúteo Medio"
     },
-    "imageUrl": "/machines/technogym_selection_abductor.png"
+    "imageUrl": "/machines/standard_abductor_machine.png"
   },
   {
     "id": "standard_adductor_machine",
@@ -183,7 +183,7 @@
       },
       "curveLabel": "Ascendente · Contracción Aductores"
     },
-    "imageUrl": "/machines/technogym_selection_adductor.png"
+    "imageUrl": "/machines/standard_adductor_machine.png"
   },
   {
     "id": "standard_leg_extension",
@@ -205,7 +205,7 @@
       },
       "curveLabel": "Ascendente · Bloqueo Cuádriceps"
     },
-    "imageUrl": "/machines/technogym_selection_leg_extension.png"
+    "imageUrl": "/machines/standard_leg_extension.png"
   },
   {
     "id": "standard_smith_machine",
@@ -227,7 +227,7 @@
       },
       "curveLabel": "Constante Lineal"
     },
-    "imageUrl": "/machines/technogym_multipower_smith.png"
+    "imageUrl": "/machines/standard_smith_machine.png"
   },
   {
     "id": "standard_leg_press_45",
@@ -249,7 +249,7 @@
       },
       "curveLabel": "Descendente · Foco Estiramiento"
     },
-    "imageUrl": "/machines/hammer_plate_loaded_leg_press_45.png"
+    "imageUrl": "/machines/standard_leg_press_45.png"
   },
   {
     "id": "standard_hack_squat",
@@ -271,7 +271,7 @@
       },
       "curveLabel": "Descendente · Foco Estiramiento"
     },
-    "imageUrl": "/machines/hammer_linear_hack_squat.png"
+    "imageUrl": "/machines/standard_hack_squat.png"
   },
   {
     "id": "standard_assisted_dip_chin",
@@ -293,7 +293,7 @@
       },
       "curveLabel": "Descendente · Máxima Asistencia en Estiramiento"
     },
-    "imageUrl": "/machines/technogym_selection_chin_dip.png"
+    "imageUrl": "/machines/standard_assisted_dip_chin.png"
   },
   {
     "id": "standard_lat_pulldown",
@@ -315,7 +315,7 @@
       },
       "curveLabel": "Descendente · Foco Estiramiento"
     },
-    "imageUrl": "/machines/technogym_selection_lat_machine.png"
+    "imageUrl": "/machines/standard_lat_pulldown.png"
   },
   {
     "id": "standard_seated_row",
@@ -337,7 +337,7 @@
       },
       "curveLabel": "Campana · Rango Medio"
     },
-    "imageUrl": "/machines/technogym_pure_row_dorian.png"
+    "imageUrl": "/machines/standard_seated_row.png"
   },
   {
     "id": "standard_standing_calf",
@@ -359,7 +359,7 @@
       },
       "curveLabel": "Descendente · Estiramiento Gastrocnemio"
     },
-    "imageUrl": "/machines/technogym_selection_standing_calf.png"
+    "imageUrl": "/machines/standard_standing_calf.png"
   },
   {
     "id": "standard_seated_calf",
@@ -381,7 +381,7 @@
       },
       "curveLabel": "Descendente · Foco Sóleo Estirado"
     },
-    "imageUrl": "/machines/technogym_pure_seated_calf.png"
+    "imageUrl": "/machines/standard_seated_calf.png"
   },
   {
     "id": "standard_hip_thrust_machine",
@@ -403,7 +403,7 @@
       },
       "curveLabel": "Ascendente Pico · Bloqueo Glúteo"
     },
-    "imageUrl": "/machines/technogym_pure_hip_thrust.png"
+    "imageUrl": "/machines/standard_hip_thrust_machine.png"
   },
   {
     "id": "standard_lateral_raise",
@@ -425,7 +425,7 @@
       },
       "curveLabel": "Ascendente · Acortamiento Deltoides"
     },
-    "imageUrl": "/machines/technogym_selection_lateral_raise.png"
+    "imageUrl": "/machines/standard_lateral_raise.png"
   },
   {
     "id": "standard_shoulder_press",
@@ -447,7 +447,7 @@
       },
       "curveLabel": "Ascendente · Bloqueo"
     },
-    "imageUrl": "/machines/technogym_selection_shoulder_press.png"
+    "imageUrl": "/machines/standard_shoulder_press.png"
   },
   {
     "id": "standard_seated_leg_curl",
@@ -469,7 +469,7 @@
       },
       "curveLabel": "Descendente · Foco Estiramiento"
     },
-    "imageUrl": "/machines/technogym_selection_leg_curl.png"
+    "imageUrl": "/machines/standard_seated_leg_curl.png"
   },
   {
     "id": "standard_lying_leg_curl",
@@ -491,7 +491,7 @@
       },
       "curveLabel": "Campana · Rango Medio 90°"
     },
-    "imageUrl": "/machines/technogym_selection_prone_leg_curl.png"
+    "imageUrl": "/machines/standard_lying_leg_curl.png"
   },
   {
     "id": "standard_pec_deck",
@@ -513,7 +513,7 @@
       },
       "curveLabel": "Campana · Pico a 90°"
     },
-    "imageUrl": "/machines/technogym_selection_pec_deck.png"
+    "imageUrl": "/machines/standard_pec_deck.png"
   },
   {
     "id": "standard_incline_press",
@@ -535,7 +535,7 @@
       },
       "curveLabel": "Ascendente · Convergente"
     },
-    "imageUrl": "/machines/technogym_pure_incline_chest.png"
+    "imageUrl": "/machines/standard_incline_press.png"
   },
   {
     "id": "standard_chest_press",
@@ -557,7 +557,7 @@
       },
       "curveLabel": "Uniforme · Tensión Constante"
     },
-    "imageUrl": "/machines/technogym_selection_chest_press.png"
+    "imageUrl": "/machines/standard_chest_press.png"
   },
   {
     "id": "gym80_pure_kraft_seated_calf",
@@ -1370,6 +1370,138 @@
     "imageUrl": "/machines/cardio_incline_treadmill.png"
   },
   {
+    "id": "lifefitness_insignia_leg_extension",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Leg Extension",
+    "canonicalExerciseType": "leg_extension",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Extensión de cuádriceps con rodillo autoajustable y leva optimizada para proteger el tendón rotuliano."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_leg_extension.png"
+  },
+  {
+    "id": "lifefitness_insignia_leg_press",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Leg Press",
+    "canonicalExerciseType": "leg_press",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.4,
+        "mid": 0.4,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Prensa de piernas horizontal asistida por levas con respaldo ergonómico de 4 posiciones."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_leg_press.png"
+  },
+  {
+    "id": "lifefitness_insignia_lat_pulldown",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Pulldown",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "divergent",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Jalón al pecho divergente independiente con agarres anatómicos ergonómicos."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_lat_pulldown.png"
+  },
+  {
+    "id": "lifefitness_insignia_seated_row",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Row",
+    "canonicalExerciseType": "seated_row",
+    "muscleGroupLabel": "Espalda Alta",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "divergent",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Remo sentado con apoyo torácico ajustable y agarres independientes multiposición."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_seated_row.png"
+  },
+  {
+    "id": "lifefitness_insignia_shoulder_press",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Shoulder Press",
+    "canonicalExerciseType": "shoulder_press_machine",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Press de hombros convergente con empuñaduras multidireccionales para un patrón natural de empuje vertical."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_shoulder_press.png"
+  },
+  {
+    "id": "lifefitness_insignia_seated_leg_curl",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Seated Leg Curl",
+    "canonicalExerciseType": "seated_leg_curl",
+    "muscleGroupLabel": "Isquiosurales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Curl femoral sentado con cojín fijador superior y leva excéntrica de máxima activación en flexión."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_seated_leg_curl.png"
+  },
+  {
     "id": "lifefitness_back_extension",
     "brand": "Life Fitness",
     "line": "Signature Series",
@@ -1392,6 +1524,50 @@
       "machineModelGuess": "Life Fitness Signature - Back Extension (Espalda Baja / Lumbares)"
     },
     "imageUrl": "/machines/lifefitness_back_extension.png"
+  },
+  {
+    "id": "lifefitness_insignia_chest_press",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Chest Press",
+    "canonicalExerciseType": "chest_press_machine",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Prensa de pecho Insignia con trayectoria convergente independiente y perfil biomecánico equilibrado."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_chest_press.png"
+  },
+  {
+    "id": "lifefitness_insignia_pectoral_fly",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Pectoral Fly / Rear Deltoid",
+    "canonicalExerciseType": "pec_deck",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Aperturas contractora con brazos articulados y doble rango de ajuste para tensión continua en aducción."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_pectoral_fly.png"
   },
   {
     "id": "lifefitness_insignia_triceps_extension",
@@ -1898,10 +2074,32 @@
     "imageUrl": "/machines/matrix_ultra_triceps_press.png"
   },
   {
+    "id": "nautilus_nitro_biceps_curl",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Biceps Curl",
+    "canonicalExerciseType": "biceps_curl_machine",
+    "muscleGroupLabel": "Bíceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Banco Scott integrado con eje de pivote alineado y leva excéntrica que iguala el brazo de momento flexor.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio"
+    },
+    "imageUrl": "/machines/nautilus_nitro_biceps_curl.png"
+  },
+  {
     "id": "nautilus_leg_extension",
     "brand": "Nautilus",
     "line": "Nitro Plus",
-    "modelName": "Leg Extension (Leva Excéntrica)",
+    "modelName": "Nautilus Nitro Plus - Leg Extension",
     "canonicalExerciseType": "leg_extension",
     "muscleGroupLabel": "Cuádriceps",
     "profile": {
@@ -1917,15 +2115,125 @@
       },
       "curveLabel": "Pico en Punto Medio · Campana",
       "machineBrandGuess": "Nautilus",
-      "machineModelGuess": "Leg Extension (Leva Excéntrica)"
+      "machineModelGuess": "Nautilus Nitro Plus - Leg Extension"
     },
     "imageUrl": "/machines/nautilus_leg_extension.png"
+  },
+  {
+    "id": "nautilus_nitro_pulldown",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Lat Pulldown",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "divergent",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Leva excéntrica Nautilus: optimiza el perfil de fuerza manteniendo tensión pico en la contracción dorsal.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento"
+    },
+    "imageUrl": "/machines/nautilus_nitro_pulldown.png"
+  },
+  {
+    "id": "nautilus_nitro_compound_row",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Compound Row",
+    "canonicalExerciseType": "seated_row",
+    "muscleGroupLabel": "Espalda Alta",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Remo compuesto con apoyo esternal y leva compensada para máxima retracción escapular.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento"
+    },
+    "imageUrl": "/machines/nautilus_nitro_compound_row.png"
+  },
+  {
+    "id": "nautilus_nitro_lateral_raise",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Lateral Raise",
+    "canonicalExerciseType": "lateral_raise",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Elevación lateral sentado con almohadillas en codos: aísla el deltoides medio sin interferencia de trapecios.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.5,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio"
+    },
+    "imageUrl": "/machines/nautilus_nitro_lateral_raise.png"
+  },
+  {
+    "id": "nautilus_nitro_overhead_press",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Overhead Press",
+    "canonicalExerciseType": "shoulder_press_machine",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Press militar guiado con agarre neutro y leva excéntrica que iguala la curva de fuerza del deltoides.",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio"
+    },
+    "imageUrl": "/machines/nautilus_nitro_overhead_press.png"
+  },
+  {
+    "id": "nautilus_nitro_seated_leg_curl",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Seated Leg Curl",
+    "canonicalExerciseType": "seated_leg_curl",
+    "muscleGroupLabel": "Isquiosurales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Flexión de rodilla sentado con cadera flexionada: máximo estiramiento proximal y pico de tensión en contracción.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento"
+    },
+    "imageUrl": "/machines/nautilus_nitro_seated_leg_curl.png"
   },
   {
     "id": "nautilus_nitro_chest_press",
     "brand": "Nautilus",
     "line": "Nitro Plus",
-    "modelName": "Nitro Chest Press",
+    "modelName": "Nautilus Nitro Plus - Chest Press",
     "canonicalExerciseType": "chest_press_machine",
     "muscleGroupLabel": "Pectoral",
     "profile": {
@@ -1941,9 +2249,53 @@
       },
       "curveLabel": "Pico en Punto Medio / Estiramiento (Convergente)",
       "machineBrandGuess": "Nautilus",
-      "machineModelGuess": "Nitro Chest Press"
+      "machineModelGuess": "Nautilus Nitro Plus - Chest Press"
     },
     "imageUrl": "/machines/nautilus_nitro_chest_press.png"
+  },
+  {
+    "id": "nautilus_nitro_incline_press",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Incline Press",
+    "canonicalExerciseType": "incline_press",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Press inclinado con trayectoria convergente y reducción de carga en bloqueo para protección articular.",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio"
+    },
+    "imageUrl": "/machines/nautilus_nitro_incline_press.png"
+  },
+  {
+    "id": "nautilus_nitro_triceps_extension",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Triceps Extension",
+    "canonicalExerciseType": "triceps_press",
+    "muscleGroupLabel": "Tríceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Extensión de tríceps sentado con apoyo de codos y leva excéntrica para máxima sobrecarga en bloqueo.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento"
+    },
+    "imageUrl": "/machines/nautilus_nitro_triceps_extension.png"
   },
   {
     "id": "panatta_monolith_standing_abductor",
@@ -2340,6 +2692,204 @@
       "machineModelGuess": "Panatta Monolith - Seated Triceps Dip (Fondos Guiados Convergentes)"
     },
     "imageUrl": "/machines/panatta_monolith_triceps_dip.png"
+  },
+  {
+    "id": "precor_discovery_leg_press",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Angled Leg Press 45° a Discos",
+    "canonicalExerciseType": "leg_press",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Foco Estiramiento",
+      "resistanceCurveDescription": "Prensa inclinada a 45° DPL0601 sobre rieles de precisión con sobrecarga continua en flexión profunda."
+    },
+    "imageUrl": "/machines/precor_discovery_leg_press.png"
+  },
+  {
+    "id": "precor_discovery_leg_extension",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Leg Extension",
+    "canonicalExerciseType": "leg_extension",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Extensión de piernas con leva excéntrica y rodillo autoalineable para tensión máxima en extensión completa."
+    },
+    "imageUrl": "/machines/precor_discovery_leg_extension.png"
+  },
+  {
+    "id": "precor_discovery_lat_pulldown",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Diverging Lat Pulldown",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "divergent",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Jalón dorsal divergente con movimiento independiente que optimiza la línea de tracción escapular."
+    },
+    "imageUrl": "/machines/precor_discovery_lat_pulldown.png"
+  },
+  {
+    "id": "precor_discovery_seated_row",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Seated Row",
+    "canonicalExerciseType": "seated_row",
+    "muscleGroupLabel": "Espalda Alta",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "divergent",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Remo sentado con apoyo torácico ajustable y agarres independientes para retracción escapular completa."
+    },
+    "imageUrl": "/machines/precor_discovery_seated_row.png"
+  },
+  {
+    "id": "precor_discovery_shoulder_press",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Converging Shoulder Press",
+    "canonicalExerciseType": "shoulder_press_machine",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Press de hombros convergente con empuje ergonómico y reducción de estrés acromial en rango superior."
+    },
+    "imageUrl": "/machines/precor_discovery_shoulder_press.png"
+  },
+  {
+    "id": "precor_discovery_seated_leg_curl",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Seated Leg Curl",
+    "canonicalExerciseType": "seated_leg_curl",
+    "muscleGroupLabel": "Isquiosurales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.35,
+        "shortened": 0.35
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Curl femoral sentado con ángulo de cadera preestablecido y leva excéntrica que mantiene tensión hasta la flexión total."
+    },
+    "imageUrl": "/machines/precor_discovery_seated_leg_curl.png"
+  },
+  {
+    "id": "precor_discovery_chest_press",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Converging Chest Press",
+    "canonicalExerciseType": "chest_press_machine",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Prensa pectoral convergente con brazos independientes y movimiento natural hacia la línea media."
+    },
+    "imageUrl": "/machines/precor_discovery_chest_press.png"
+  },
+  {
+    "id": "precor_discovery_incline_press",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Incline Press a Discos",
+    "canonicalExerciseType": "incline_press",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.45,
+        "shortened": 0.2
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Press inclinado a discos DPL0541 con palancas convergentes que protegen la articulación glenohumeral."
+    },
+    "imageUrl": "/machines/precor_discovery_incline_press.png"
+  },
+  {
+    "id": "precor_discovery_pec_fly",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Rear Delt / Pec Fly",
+    "canonicalExerciseType": "pec_deck",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Contractora dual para pectoral y deltoides posterior con brazos flotantes autoajustables."
+    },
+    "imageUrl": "/machines/precor_discovery_pec_fly.png"
   },
   {
     "id": "technogym_selection_abdominal_crunch",

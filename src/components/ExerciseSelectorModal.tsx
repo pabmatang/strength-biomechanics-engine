@@ -25,6 +25,8 @@ const BRANDS: { key: string; label: string }[] = [
   { key: 'Panatta', label: 'Panatta' },
   { key: 'Matrix', label: 'Matrix' },
   { key: 'Life Fitness', label: 'Life Fitness' },
+  { key: 'Precor', label: 'Precor' },
+  { key: 'Nautilus', label: 'Nautilus' },
   { key: 'Eleiko', label: 'Eleiko' },
   { key: 'General', label: 'Peso Libre / General' }
 ];

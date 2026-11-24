@@ -38,6 +38,8 @@ const BRAND_FILTERS: (string | 'Todas')[] = [
   'Panatta',
   'Titanium Strength',
   'Life Fitness',
+  'Precor',
+  'Nautilus',
   'Eleiko'
 ];
 
