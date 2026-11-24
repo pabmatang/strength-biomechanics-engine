@@ -5120,6 +5120,87 @@ def get_analyze_status(job_id: str):
         "error": job.get("error")
     }
 
+# ==============================================================================
+# CEREBRIUM CORTEX TOP-LEVEL FUNCTIONS FOR CHUNKED VIDEO UPLOAD
+# ==============================================================================
+
+def upload_init() -> dict:
+    """Cerebrium-compatible endpoint to initialize a chunked upload session."""
+    return post_upload_init()
+
+def upload_chunk(upload_id: str, chunk_base64: str) -> dict:
+    """
+    Cerebrium-compatible endpoint to append a base64-encoded 4 MB chunk
+    directly to the temp file on disk without holding the full video in RAM.
+    """
+    with UPLOADS_LOCK:
+        info = UPLOADS.get(upload_id)
+    if not info:
+        raise ValueError(f"Upload session not found or expired: {upload_id}")
+
+    raw_bytes = base64.b64decode(chunk_base64)
+    file_path = info["file_path"]
+    with open(file_path, "ab") as f:
+        f.write(raw_bytes)
+
+    with UPLOADS_LOCK:
+        info["total_bytes"] += len(raw_bytes)
+        info["updated_at"] = time.time()
+        total_bytes = info["total_bytes"]
+
+    return {"status": "ok", "bytes_received": len(raw_bytes), "total_bytes": total_bytes}
+
+def upload_complete(
+    upload_id: str,
+    exercise_type: str = "auto",
+    exercise_name: str = "",
+    target_muscle: str = "auto",
+    load_type: str = "auto",
+    is_manual_override: bool = False,
+    gemini_api_key: str = "",
+    start_time: float = 0.0,
+    end_time: Optional[float] = None,
+    weight_kg: Optional[float] = None,
+    target_reps: Optional[int] = None,
+    anthropometry: Optional[dict] = None,
+    run_vlm: bool = False
+) -> dict:
+    """
+    Cerebrium-compatible endpoint to finalize chunked upload and execute
+    the full biomechanics analysis directly from the assembled disk file.
+    """
+    with UPLOADS_LOCK:
+        info = UPLOADS.pop(upload_id, None)
+    if not info:
+        raise ValueError(f"Upload session not found or expired: {upload_id}")
+
+    file_path = info["file_path"]
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        raise ValueError("Uploaded video file is empty or missing on disk")
+
+    try:
+        return analyze(
+            video=file_path,
+            exercise_type=exercise_type,
+            exercise_name=exercise_name,
+            target_muscle=target_muscle,
+            load_type=load_type,
+            is_manual_override=is_manual_override,
+            gemini_api_key=gemini_api_key,
+            start_time=start_time,
+            end_time=end_time,
+            weight_kg=weight_kg,
+            target_reps=target_reps,
+            anthropometry=anthropometry,
+            run_vlm=run_vlm
+        )
+    finally:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)

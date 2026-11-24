@@ -60,16 +60,35 @@ function runCanvasCompression(
       }
     };
 
-    // Safety timeout: fast 8s timeout to avoid freezing the UI if canvas capture stalls
-    const timeoutDuration = 8_000;
-    const timeoutTimer = setTimeout(() => {
-      cleanup();
+    // Dynamic timeout proportional to clip duration (with 6s initial stall guard)
+    let timeoutTimer: ReturnType<typeof setTimeout>;
+    let stallTimer: ReturnType<typeof setInterval> | null = null;
+    const origCleanup = cleanup;
+    const fullCleanup = () => {
+      if (stallTimer) {
+        clearInterval(stallTimer);
+        stallTimer = null;
+      }
+      origCleanup();
+    };
+
+    const setSafetyTimeout = (ms: number) => {
+      clearTimeout(timeoutTimer);
+      timeoutTimer = setTimeout(() => {
+        fullCleanup();
+        resolve(null);
+      }, ms);
+    };
+
+    // Initial metadata load timeout (10s)
+    timeoutTimer = setTimeout(() => {
+      fullCleanup();
       resolve(null);
-    }, timeoutDuration);
+    }, 10_000);
 
     video.onerror = () => {
       clearTimeout(timeoutTimer);
-      cleanup();
+      fullCleanup();
       resolve(null);
     };
 
@@ -78,7 +97,7 @@ function runCanvasCompression(
         const duration = video.duration;
         if (!duration || !isFinite(duration) || duration <= 0) {
           clearTimeout(timeoutTimer);
-          cleanup();
+          fullCleanup();
           return resolve(null);
         }
 
@@ -93,6 +112,9 @@ function runCanvasCompression(
           startTime = 0.0;
           endTime = Math.min(duration, maxDurationSec);
         }
+
+        const clipDurationSec = Math.max(1, endTime - startTime);
+        setSafetyTimeout(Math.max(20_000, Math.ceil(clipDurationSec * 1500) + 15_000));
 
         // Calculate aspect-ratio bounds (must be even for H.264 / VP8 codecs)
         const srcW = video.videoWidth || 640;
@@ -116,7 +138,7 @@ function runCanvasCompression(
 
         if (!ctx || typeof canvas.captureStream !== 'function') {
           clearTimeout(timeoutTimer);
-          cleanup();
+          fullCleanup();
           return resolve(null);
         }
 
@@ -137,7 +159,7 @@ function runCanvasCompression(
             : new MediaRecorder(stream, { videoBitsPerSecond: bitrate });
         } catch {
           clearTimeout(timeoutTimer);
-          cleanup();
+          fullCleanup();
           return resolve(null);
         }
 
@@ -150,7 +172,7 @@ function runCanvasCompression(
 
         recorder.onstop = () => {
           clearTimeout(timeoutTimer);
-          cleanup();
+          fullCleanup();
           if (recordedChunks.length > 0) {
             const finalMime = recorder.mimeType || chosenMime || 'video/webm';
             const compressedBlob = new Blob(recordedChunks, { type: finalMime });
@@ -170,6 +192,20 @@ function runCanvasCompression(
         const startRecording = () => {
           if (cleanupDone || recorder.state === 'recording') return;
           recorder.start(100);
+
+          let lastVideoTime = video.currentTime;
+          let lastProgressAt = performance.now();
+          stallTimer = setInterval(() => {
+            if (cleanupDone) return;
+            if (Math.abs(video.currentTime - lastVideoTime) > 0.01) {
+              lastVideoTime = video.currentTime;
+              lastProgressAt = performance.now();
+            } else if (performance.now() - lastProgressAt > 6_000) {
+              clearTimeout(timeoutTimer);
+              fullCleanup();
+              resolve(null);
+            }
+          }, 1500);
 
           const frameIntervalMs = 1000 / targetFps;
           let lastFrameTime = performance.now();
@@ -216,7 +252,7 @@ function runCanvasCompression(
         }
       } catch {
         clearTimeout(timeoutTimer);
-        cleanup();
+        fullCleanup();
         resolve(null);
       }
     };

@@ -434,25 +434,45 @@ export async function analyzeVideoWithModal(
 
     if (videoBlob.size > CHUNK_THRESHOLD) {
       const apiBase = endpointUrl.replace(/\/analyze\/?$/, '');
-      const initUrl = `${apiBase}/analyze/upload/init`;
-      const chunkBaseUrl = `${apiBase}/analyze/upload/chunk`;
-      const completeUrl = `${apiBase}/analyze/upload/complete`;
+      const initUrl = isCerebrium ? `${apiBase}/upload_init` : `${apiBase}/analyze/upload/init`;
+      const chunkBaseUrl = isCerebrium ? `${apiBase}/upload_chunk` : `${apiBase}/analyze/upload/chunk`;
+      const completeUrl = isCerebrium ? `${apiBase}/upload_complete` : `${apiBase}/analyze/upload/complete`;
 
       options?.onProgress?.('Iniciando subida optimizada...', 5);
-      const initRes = await fetch(initUrl, {
+      let initRes = await fetch(initUrl, {
         method: 'POST',
         headers: {
           ...headers,
           'Content-Type': 'application/json'
         },
+        body: isCerebrium ? JSON.stringify({}) : undefined,
         signal: currentController.signal
       });
+
+      if ([502, 503, 504].includes(initRes.status) && !currentController.signal.aborted) {
+        await new Promise((res) => setTimeout(res, 1500));
+        initRes = await fetch(initUrl, {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+          },
+          body: isCerebrium ? JSON.stringify({}) : undefined,
+          signal: currentController.signal
+        });
+      }
 
       if (!initRes.ok) {
         throw new Error(`Error al inicializar sesión de subida por fragmentos (${initRes.status})`);
       }
 
-      const { upload_id } = await initRes.json();
+      const initJson = await initRes.json();
+      const initPayload = initJson.result || initJson.data || initJson;
+      const upload_id = initPayload.upload_id;
+      if (!upload_id) {
+        throw new Error('El servidor no devolvió un upload_id válido.');
+      }
+
       const totalBytes = videoBlob.size;
       let offset = 0;
 
@@ -465,15 +485,32 @@ export async function analyzeVideoWithModal(
         const displayPct = Math.round((offset / totalBytes) * 100);
         options?.onProgress?.(`Subiendo ${displayPct}%...`, pct);
 
-        const chunkRes = await fetch(`${chunkBaseUrl}/${upload_id}`, {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'Content-Type': 'application/octet-stream'
-          },
-          body: chunkBlob,
-          signal: currentController.signal
-        });
+        let chunkRes: Response;
+        if (isCerebrium) {
+          const chunkBase64 = await blobToBase64(chunkBlob);
+          chunkRes = await fetch(chunkBaseUrl, {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              upload_id,
+              chunk_base64: chunkBase64
+            }),
+            signal: currentController.signal
+          });
+        } else {
+          chunkRes = await fetch(`${chunkBaseUrl}/${upload_id}`, {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'Content-Type': 'application/octet-stream'
+            },
+            body: chunkBlob,
+            signal: currentController.signal
+          });
+        }
 
         if (!chunkRes.ok) {
           throw new Error(`Error al subir fragmento de vídeo (${chunkRes.status})`);
@@ -482,27 +519,31 @@ export async function analyzeVideoWithModal(
       }
 
       options?.onProgress?.('Optimizando vídeo en servidor...', 35);
-      response = await fetch(`${completeUrl}/${upload_id}`, {
+      const completeTargetUrl = isCerebrium ? completeUrl : `${completeUrl}/${upload_id}`;
+      const completeBody = {
+        ...(isCerebrium ? { upload_id } : {}),
+        exercise_type: String(config.exerciseType),
+        exercise_name: String(config.exerciseName || ''),
+        target_muscle: String(config.targetMuscle),
+        load_type: String(config.loadType),
+        is_manual_override: Boolean(config.isManualOverride),
+        gemini_api_key: geminiApiKey,
+        start_time: startTime,
+        end_time: endTime,
+        weight_kg: config.weightKg,
+        target_reps: config.targetReps,
+        anthropometry: config.anthropometry,
+        run_vlm: Boolean(config.runVlm)
+      };
+
+      response = await fetch(completeTargetUrl, {
         method: 'POST',
         headers: {
           ...headers,
           'Content-Type': 'application/json'
         },
         signal: currentController.signal,
-        body: JSON.stringify({
-          exercise_type: String(config.exerciseType),
-          exercise_name: String(config.exerciseName || ''),
-          target_muscle: String(config.targetMuscle),
-          load_type: String(config.loadType),
-          is_manual_override: Boolean(config.isManualOverride),
-          gemini_api_key: geminiApiKey,
-          start_time: startTime,
-          end_time: endTime,
-          weight_kg: config.weightKg,
-          target_reps: config.targetReps,
-          anthropometry: config.anthropometry,
-          run_vlm: Boolean(config.runVlm)
-        })
+        body: JSON.stringify(completeBody)
       });
     } else {
       let base64Data = '';
