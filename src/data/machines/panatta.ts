@@ -34,13 +34,15 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Panatta - Super High Row',
     canonicalExerciseType: 'seated_row',
     muscleGroupLabel: 'Espalda Alta',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'opens_to_horizontal_gain',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'divergent',
-      machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta - Super High Row'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Tracción alta convergente/divergente con palanca inclinada; máxima tensión en fase de estiramiento dorsal.',
+      curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
+      curveLabel: 'Descendente · Pico en Estiramiento'
+    },
     imageUrl: '/machines/panatta_super_high_row.png'
   },
 
@@ -115,7 +117,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Freeweight - Lying Leg Curl (Femoral Tumbado a Discos)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_freeweight_lying_leg_curl.png'
   },
 
   // 7. Panatta — Panatta Monolith - Standing Abductor (Abducción de Glúteo de Pie)
@@ -133,7 +135,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Monolith - Standing Abductor (Abducción de Glúteo de Pie)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_monolith_standing_abductor.png'
   },
 
   // 8. Panatta — Panatta Super Scott - Preacher Biceps Curl (Banco Scott a Discos)
@@ -151,7 +153,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Super Scott - Preacher Biceps Curl (Banco Scott a Discos)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_super_preacher_curl.png'
   },
 
   // 9. Panatta — Panatta Monolith - Seated Triceps Dip (Fondos Guiados Convergentes)
@@ -169,7 +171,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Monolith - Seated Triceps Dip (Fondos Guiados Convergentes)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_monolith_triceps_dip.png'
   },
 
   // 10. Panatta — Panatta Freeweight - Circular Glute Kickback (Patada de Glúteo a Discos)
@@ -187,7 +189,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Freeweight - Circular Glute Kickback (Patada de Glúteo a Discos)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_circular_glute_kickback.png'
   },
 
   // 11. Panatta — Panatta Freeweight - 45° Hyperextension / Roman Chair (Banco Lumbar y Glúteo)
@@ -207,7 +209,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.334, mid: 0.333, shortened: 0.333 },
       curveLabel: 'Perfil Uniforme'
     },
-    imageUrl: null
+    imageUrl: '/machines/panatta_45_hyperextension_bench.png'
   },
 
   // 12. Panatta — Panatta Freeweight - Super T-Bar Row Pectoral Support
@@ -225,25 +227,25 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Freeweight - Super T-Bar Row Pectoral Support'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_super_t_bar_row.png'
   },
 
-  // 13. Panatta — Panatta Freeweight - Super Rowing a Discos (Remo Sentado Convergente)
+  // 13. Panatta — Panatta Freeweight - Super Rowing a Discos (Remo Sentado Divergente)
   {
     id: 'panatta_super_rowing_plate',
     brand: 'Panatta',
     line: 'Super Freeweight HP',
-    modelName: 'Panatta Freeweight - Super Rowing a Discos (Remo Sentado Convergente)',
+    modelName: 'Panatta Freeweight - Super Rowing a Discos (Remo Sentado Divergente)',
     canonicalExerciseType: 'seated_row',
     muscleGroupLabel: 'Dorsales',
     profile: classifyMachineResistanceProfile({
       loadType: 'plate_loaded',
       pivotBehavior: 'opens_to_horizontal_gain',
-      pathType: 'convergent',
+      pathType: 'divergent',
       machineBrandGuess: 'Panatta',
-      machineModelGuess: 'Panatta Freeweight - Super Rowing a Discos (Remo Sentado Convergente)'
+      machineModelGuess: 'Panatta Freeweight - Super Rowing a Discos (Remo Sentado Divergente)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_super_rowing_plate.png'
   },
 
   // 14. Panatta — Panatta Freeweight - Belt Squat a Discos (Sentadilla con Cinturón)
@@ -263,7 +265,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/panatta_super_belt_squat.png'
   },
 
   // 15. Panatta — Panatta Super Freeweight - Pendulum Squat (Sentadilla Péndulo)
@@ -283,7 +285,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
       curveLabel: 'Descendente · Péndulo Profundo'
     },
-    imageUrl: null
+    imageUrl: '/machines/panatta_super_pendulum_squat.png'
   },
 
   // 16. Panatta — Panatta Freeweight - Super Pullover a Discos
@@ -301,7 +303,7 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Freeweight - Super Pullover a Discos'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_super_pullover_machine.png'
   },
 
   // 17. Panatta — Panatta Monolith - Standing Leg Curl Unilateral
@@ -319,6 +321,6 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Panatta',
       machineModelGuess: 'Panatta Monolith - Standing Leg Curl Unilateral'
     }),
-    imageUrl: null
+    imageUrl: '/machines/panatta_standing_unilateral_leg_curl.png'
   }
 ];

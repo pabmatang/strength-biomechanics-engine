@@ -68,13 +68,15 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
     modelName: 'Hammer Strength - Plate-Loaded Seated Calf (Gemelos Sentado a Discos)',
     canonicalExerciseType: 'calf_raise',
     muscleGroupLabel: 'Gemelos',
-    profile: classifyMachineResistanceProfile({
+    profile: {
       loadType: 'plate_loaded',
-      pivotBehavior: 'opens_to_horizontal_gain',
+      pivotBehavior: 'approaches_vertical_loss',
       pathType: 'linear_fixed',
-      machineBrandGuess: 'Hammer Strength',
-      machineModelGuess: 'Hammer Strength - Plate-Loaded Seated Calf (Gemelos Sentado a Discos)'
-    }),
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Palanca horizontal de gemelos sentado; máximo brazo de momento en dorsiflexión profunda aislando el sóleo.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Sóleo Estirado'
+    },
     imageUrl: '/machines/hammer_seated_calf_raise.png'
   },
 
@@ -173,7 +175,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
     id: 'hammer_iso_wide_chest',
     brand: 'Hammer Strength',
     line: 'Plate Loaded Iso-Lateral',
-    modelName: 'Iso-Lateral Horizontal Bench Press',
+    modelName: 'Hammer Strength - Iso-Lateral Horizontal Bench Press',
     canonicalExerciseType: 'chest_press_machine',
     muscleGroupLabel: 'Pectoral',
     profile: classifyMachineResistanceProfile({
@@ -547,7 +549,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Pico en Rango Medio'
     },
-    imageUrl: '/machines/hammer_select_pec_fly.jpg'
+    imageUrl: '/machines/hammer_select_pec_fly.png'
   },
 
   // 30. Hammer Strength — Hammer Strength Select - Seated Leg Curl
@@ -567,7 +569,7 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Sobrecarga en Estiramiento'
     },
-    imageUrl: '/machines/hammer_select_seated_leg_curl.jpg'
+    imageUrl: '/machines/hammer_select_seated_leg_curl.png'
   },
 
   // 31. Hammer Strength — Hammer Strength Select - Abdominal Crunch
@@ -587,6 +589,6 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
       curveLabel: 'Campana · Pico en Rango Medio'
     },
-    imageUrl: '/machines/hammer_select_ab_crunch.jpg'
+    imageUrl: '/machines/hammer_select_ab_crunch.png'
   }
 ];

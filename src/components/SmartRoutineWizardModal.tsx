@@ -41,12 +41,9 @@ interface SmartRoutineWizardModalProps {
 const AVAILABLE_BRANDS: { brand: MachineBrandFilter; title: string; desc: string }[] = [
   { brand: 'Technogym', title: 'Technogym Pure Strength', desc: 'Palancas de discos independientes y convergentes' },
   { brand: 'Hammer Strength', title: 'Hammer Strength Iso-Lateral', desc: 'Máquinas olímpicas divergentes de alta carga' },
-  { brand: 'Titanium Strength', title: 'Titanium Strength', desc: 'Maquinaria pesada comercial de palancas convergentes' },
+  { brand: 'Matrix', title: 'Matrix Ultra & Magnum', desc: 'Torres selectorizadas y palancas convergentes/divergentes' },
   { brand: 'Panatta', title: 'Panatta FreeWeight / Monolith', desc: 'Biomecánica italiana con brazos de palanca circulares' },
-  { brand: 'Nautilus', title: 'Nautilus Nitro', desc: 'Leva excéntrica para máxima curva de fuerza' },
-  { brand: 'Cybex', title: 'Cybex Eagle', desc: 'Doble eje articulado para articulaciones protegidas' },
-  { brand: 'Matrix', title: 'Matrix Ultra Converging', desc: 'Torres selectorizadas convergentes/divergentes' },
-  { brand: 'Gym80', title: 'Gym80 Sygnum', desc: 'Ingeniería alemana de acero pesado y tensión uniforme' }
+  { brand: 'Titanium Strength', title: 'Titanium Strength Black Series', desc: 'Maquinaria pesada comercial de palancas convergentes' }
 ];
 
 export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = ({

@@ -21,7 +21,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Versa - Calf Extension (Gemelos en Prensa de Placas)'
     }),
-    imageUrl: '/machines/matrix_calf_extension.jpg'
+    imageUrl: null
   },
 
   // 2. Matrix — Matrix Ultra - Converging Chest Press
@@ -39,7 +39,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Ultra Converging Chest Press'
     }),
-    imageUrl: '/machines/matrix_ultra_converging_chest.jpg'
+    imageUrl: '/machines/matrix_ultra_converging_chest.png'
   },
 
   // 3. Matrix — Matrix Ultra - Diverging Lat Pulldown
@@ -57,7 +57,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Ultra - Diverging Lat Pulldown'
     }),
-    imageUrl: '/machines/matrix_ultra_diverging_lat_pulldown.jpg'
+    imageUrl: '/machines/matrix_ultra_diverging_lat_pulldown.png'
   },
 
   // 4. Matrix — Matrix Ultra - Diverging Seated Row
@@ -75,7 +75,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Ultra - Diverging Seated Row'
     }),
-    imageUrl: '/machines/matrix_ultra_seated_row.jpg'
+    imageUrl: '/machines/matrix_ultra_seated_row.png'
   },
 
   // 5. Matrix — Matrix Ultra - Leg Extension
@@ -93,7 +93,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Ultra - Leg Extension'
     }),
-    imageUrl: '/machines/matrix_ultra_leg_extension.jpg'
+    imageUrl: '/machines/matrix_ultra_leg_extension.png'
   },
 
   // 6. Matrix — Matrix Ultra - Standing Glute & Abductor
@@ -111,7 +111,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Ultra - Standing Glute & Abductor'
     }),
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_standing_glute_kick.png'
   },
 
   // 7. Matrix — Matrix Ultra - Arm Biceps Curl (Palanca Guiada Independiente)
@@ -129,7 +129,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Ultra - Arm Biceps Curl (Palanca Guiada Independiente)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_arm_curl.png'
   },
 
   // 8. Matrix — Matrix Ultra - Lateral Raise (Deltoides Lateral Guiado en Torre)
@@ -165,7 +165,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       machineBrandGuess: 'Matrix',
       machineModelGuess: 'Matrix Ultra - Rotary Torso (Rotación de Torso y Oblicuos)'
     }),
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_rotary_torso.png'
   },
 
   // 10. Matrix — Matrix Ultra - Converging Shoulder Press
@@ -185,7 +185,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Convergente'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_converging_shoulder_press.png'
   },
 
   // 11. Matrix — Matrix Ultra - Pec Fly / Rear Delt
@@ -205,7 +205,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Pico a 90°'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_pec_fly.png'
   },
 
   // 12. Matrix — Matrix Ultra - Seated Leg Curl
@@ -225,7 +225,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_seated_leg_curl.png'
   },
 
   // 13. Matrix — Matrix Ultra - Prone Leg Curl
@@ -245,7 +245,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
       curveLabel: 'Campana · Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_prone_leg_curl.png'
   },
 
   // 14. Matrix — Matrix Ultra - Leg Press (Placas)
@@ -265,7 +265,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_leg_press.png'
   },
 
   // 15. Matrix — Matrix Ultra - Seated Triceps Press / Dip
@@ -285,7 +285,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.45, shortened: 0.30 },
       curveLabel: 'Campana · Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_triceps_press.png'
   },
 
   // 16. Matrix — Matrix Ultra - Abdominal Crunch
@@ -305,7 +305,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
       curveLabel: 'Campana · Rango Medio'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_abdominal_crunch.png'
   },
 
   // 17. Matrix — Matrix Ultra - Hip Abductor
@@ -325,7 +325,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente · Pico Acortamiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_hip_abductor.png'
   },
 
   // 18. Matrix — Matrix Ultra - Hip Adductor
@@ -345,7 +345,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Máxima Aducción'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_ultra_hip_adductor.png'
   },
 
   // 19. Matrix — Matrix Magnum - 45° Leg Press a Discos
@@ -365,7 +365,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_magnum_leg_press_45.png'
   },
 
   // 20. Matrix — Matrix Magnum - Hack Squat a Discos
@@ -385,7 +385,7 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente · Foco Estiramiento'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_magnum_hack_squat.png'
   },
 
   // 21. Matrix — Matrix Magnum - Converging Incline Press a Discos
@@ -405,6 +405,6 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente · Convergente'
     },
-    imageUrl: null
+    imageUrl: '/machines/matrix_magnum_incline_press.png'
   }
 ];

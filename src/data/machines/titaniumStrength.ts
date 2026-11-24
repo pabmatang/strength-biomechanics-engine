@@ -22,7 +22,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente Suavizado (Convergente)'
     },
-    imageUrl: '/machines/titanium_black_chest_press.jpg'
+    imageUrl: '/machines/titanium_black_chest_press.png'
   },
 
   // 2. Titanium Strength - Incline Chest Press a Discos
@@ -42,7 +42,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente Suavizado (Convergente)'
     },
-    imageUrl: '/machines/titanium_black_incline_press.jpg'
+    imageUrl: '/machines/titanium_black_incline_press.png'
   },
 
   // 3. Titanium Strength - Converging Shoulder Press a Discos
@@ -62,7 +62,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
       curveLabel: 'Ascendente Suavizado (Convergente)'
     },
-    imageUrl: '/machines/titanium_black_shoulder_press.jpg'
+    imageUrl: '/machines/titanium_black_shoulder_press.png'
   },
 
   // 4. Titanium Strength - Standing Lateral Raise a Discos
@@ -82,7 +82,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.15, mid: 0.35, shortened: 0.50 },
       curveLabel: 'Ascendente (Pico en Acortamiento)'
     },
-    imageUrl: '/machines/titanium_black_standing_lateral_raise.jpg'
+    imageUrl: '/machines/titanium_black_standing_lateral_raise.png'
   },
 
   // 5. Titanium Strength - Iso-Lateral Lat Pulldown a Discos
@@ -102,7 +102,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente (Pico en Estiramiento)'
     },
-    imageUrl: '/machines/titanium_black_lat_pulldown.jpg'
+    imageUrl: '/machines/titanium_black_lat_pulldown.png'
   },
 
   // 6. Titanium Strength - Iso-Lateral Low Row a Discos
@@ -122,7 +122,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente (Pico en Acortamiento)'
     },
-    imageUrl: '/machines/titanium_black_low_row.jpg'
+    imageUrl: '/machines/titanium_black_low_row.png'
   },
 
   // 7. Titanium Strength - Iso-Lateral High Row a Discos
@@ -142,7 +142,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
       curveLabel: 'Descendente (Pico en Estiramiento)'
     },
-    imageUrl: '/machines/titanium_black_high_row.jpg'
+    imageUrl: '/machines/titanium_black_high_row.png'
   },
 
   // 8. Titanium Strength - Chest Supported T-Bar Row
@@ -162,7 +162,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
       curveLabel: 'Descendente Acentuado (Pico en Estiramiento)'
     },
-    imageUrl: '/machines/titanium_black_t_bar_row.jpg'
+    imageUrl: '/machines/titanium_black_t_bar_row.png'
   },
 
   // 9. Titanium Strength - Pendulum Squat
@@ -182,7 +182,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.50, mid: 0.35, shortened: 0.15 },
       curveLabel: 'Descendente Acentuado (Pico en Estiramiento)'
     },
-    imageUrl: '/machines/titanium_black_pendulum_squat.jpg'
+    imageUrl: '/machines/titanium_black_pendulum_squat.png'
   },
 
   // 10. Titanium Strength - Linear Hack Squat 45°
@@ -202,7 +202,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente en Articulación / Lineal Fijo'
     },
-    imageUrl: '/machines/titanium_black_hack_squat.jpg'
+    imageUrl: '/machines/titanium_black_hack_squat.png'
   },
 
   // 11. Titanium Strength - 45° Linear Leg Press
@@ -222,7 +222,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
       curveLabel: 'Descendente en Articulación / Lineal Fijo'
     },
-    imageUrl: '/machines/titanium_black_leg_press_45.jpg'
+    imageUrl: '/machines/titanium_black_leg_press_45.png'
   },
 
   // 12. Titanium Strength - Iso-Lateral Leg Extension a Discos
@@ -242,7 +242,7 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
       curveLabel: 'Ascendente (Pico en Acortamiento)'
     },
-    imageUrl: '/machines/titanium_black_leg_extension.jpg'
+    imageUrl: '/machines/titanium_black_leg_extension.png'
   },
 
   // 13. Titanium Strength - Glute Builder / Hip Thrust a Discos
@@ -262,6 +262,6 @@ export const TITANIUM_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveWeights: { stretch: 0.15, mid: 0.35, shortened: 0.50 },
       curveLabel: 'Ascendente (Pico en Acortamiento)'
     },
-    imageUrl: '/machines/titanium_black_hip_thrust.jpg'
+    imageUrl: '/machines/titanium_black_hip_thrust.png'
   }
 ];

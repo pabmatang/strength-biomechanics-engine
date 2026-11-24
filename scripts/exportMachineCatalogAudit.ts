@@ -30,6 +30,25 @@ function checkImageExists(imageUrl?: string | null): boolean {
   return false;
 }
 
+function getImageDataUri(imageUrl?: string | null): string | null {
+  if (!imageUrl) return null;
+  const rel = imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl;
+  let full = path.join(publicDir, rel);
+  if (!fs.existsSync(full)) {
+    if (full.endsWith('.jpg') && fs.existsSync(full.slice(0, -4) + '.png')) full = full.slice(0, -4) + '.png';
+    else if (full.endsWith('.png') && fs.existsSync(full.slice(0, -4) + '.jpg')) full = full.slice(0, -4) + '.jpg';
+  }
+  if (!fs.existsSync(full)) return null;
+  try {
+    const ext = path.extname(full).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    const buf = fs.readFileSync(full);
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 // Sort: Brand -> Muscle Group -> Model Name
 const sortedMachines = [...MACHINE_CATALOG].sort((a, b) => {
   const brandCompare = a.brand.localeCompare(b.brand);
@@ -95,10 +114,15 @@ const mdPath = path.join(docsDir, 'CATALOGO_MAQUINAS_REVISION.md');
 fs.writeFileSync(mdPath, md, 'utf-8');
 console.log(`Saved Markdown audit to: ${mdPath}`);
 
+const jsonPath = path.join(docsDir, 'machines_audit.json');
+fs.writeFileSync(jsonPath, JSON.stringify(sortedMachines, null, 2), 'utf-8');
+console.log(`Saved JSON audit dump to: ${jsonPath}`);
+
 // ==========================================
-// 2. GENERATE catalogo_maquinas_revision.html
+// 2. GENERATE catalogo_maquinas_revision.html & portable.html
 // ==========================================
-const html = `<!DOCTYPE html>
+function generateCatalogHtml(embedImages = false): string {
+  return `<!DOCTYPE html>
 <html lang="es" class="dark">
 <head>
   <meta charset="UTF-8">
@@ -275,7 +299,8 @@ const html = `<!DOCTYPE html>
         const rawImg = m.imageUrl || '';
         const isRemote = rawImg.startsWith('http://') || rawImg.startsWith('https://');
         const localRelativeSrc = `../public${rawImg}`;
-        const primarySrc = isRemote ? rawImg : localRelativeSrc;
+        const dataUri = embedImages ? getImageDataUri(m.imageUrl) : null;
+        const primarySrc = embedImages ? (dataUri || '') : (isRemote ? rawImg : localRelativeSrc);
 
         return `
     <article
@@ -507,13 +532,21 @@ const html = `<!DOCTYPE html>
 </body>
 </html>
 `;
+}
 
+const standardHtml = generateCatalogHtml(false);
 const htmlPath = path.join(docsDir, 'catalogo_maquinas_revision.html');
-fs.writeFileSync(htmlPath, html, 'utf-8');
+fs.writeFileSync(htmlPath, standardHtml, 'utf-8');
 console.log(`Saved HTML visual catalog to: ${htmlPath}`);
 
 const publicHtmlPath = path.join(publicDir, 'catalogo_maquinas_revision.html');
-fs.writeFileSync(publicHtmlPath, html, 'utf-8');
+fs.writeFileSync(publicHtmlPath, standardHtml, 'utf-8');
 console.log(`Saved HTML visual catalog copy to: ${publicHtmlPath}`);
+
+// Portable HTML with base64 embedded images (Bloque 4)
+const portableHtml = generateCatalogHtml(true);
+const portableHtmlPath = path.join(docsDir, 'catalogo_maquinas_portable.html');
+fs.writeFileSync(portableHtmlPath, portableHtml, 'utf-8');
+console.log(`Saved PORTABLE HTML visual catalog (base64 embedded) to: ${portableHtmlPath}`);
 
 console.log(`Audit complete: ${totalMachines} machines processed.`);
