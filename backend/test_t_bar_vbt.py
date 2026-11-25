@@ -268,10 +268,67 @@ def test_t_bar_row_frontal_view_shoulder_elbow_height_4_reps():
         run_vlm=False,
     )
     assert result.get("total_reps") == 4, f"Expected 4 reps in frontal t_bar_row, got {result.get('total_reps')}"
-    assert len(result.get("alignment_frames", [])) == 2
+    af = result.get("alignment_frames", [])
+    assert len(af) == 2
+
+
+def test_t_bar_row_radiography_stretch_exceeds_peak_by_25deg():
+    """
+    Radiografía geometric invariant for pull (t_bar_row):
+    stretch frame elbow_deg >= peak contraction elbow_deg + 25 deg.
+    """
+    fps = 24.0
+    dt = 1.0 / fps
+    angles = [155.0] * 12
+    rep_tpl = [155.0 - 70.0 * (k / 14.0) for k in range(1, 15)] + [85.0 + 70.0 * (k / 16.0) for k in range(1, 17)]
+    angles += rep_tpl * 3 + [155.0] * 12
+    timestamps = [f * dt for f in range(len(angles))]
+    frames_keypoints = []
+    for el in angles:
+        sh_x, sh_y = 0.45, 0.35
+        frac = (155.0 - el) / 70.0
+        arm_rad = math.radians(85.0 - 45.0 * frac)
+        el_x = sh_x + 0.20 * math.cos(arm_rad)
+        el_y = sh_y + 0.20 * math.sin(arm_rad)
+        forearm_rad = math.radians((85.0 - 45.0 * frac) + 180.0 - el)
+        wr_x = el_x + 0.18 * math.cos(forearm_rad)
+        wr_y = el_y + 0.18 * math.sin(forearm_rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.95},
+            "left_elbow": {"x": el_x, "y": el_y, "score": 0.95},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.95},
+            "left_hip": {"x": 0.55, "y": 0.65, "score": 0.95},
+            "left_knee": {"x": 0.52, "y": 0.85, "score": 0.95},
+            "left_ankle": {"x": 0.50, "y": 0.95, "score": 0.95},
+            "left_ear": {"x": 0.42, "y": 0.32, "score": 0.95},
+            "right_shoulder": {"x": sh_x - 0.02, "y": sh_y, "score": 0.30},
+            "right_elbow": {"x": el_x - 0.02, "y": el_y, "score": 0.30},
+            "right_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.30},
+            "right_hip": {"x": 0.53, "y": 0.65, "score": 0.30},
+            "right_knee": {"x": 0.50, "y": 0.85, "score": 0.30},
+            "right_ankle": {"x": 0.48, "y": 0.95, "score": 0.30},
+            "right_ear": {"x": 0.40, "y": 0.32, "score": 0.30},
+            "nose": {"x": 0.41, "y": 0.35, "score": 0.90},
+        })
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="t_bar_row",
+        target_muscle="back",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    af = result.get("alignment_frames", [])
+    assert len(af) == 2
+    assert af[0]["metrics"]["elbow_deg"] >= af[1]["metrics"]["elbow_deg"] + 25.0, (
+        f"Pull keyframes failed 25° guard: stretch={af[0]['metrics']['elbow_deg']}°, peak={af[1]['metrics']['elbow_deg']}°"
+    )
 
 
 if __name__ == "__main__":
     test_t_bar_row_vbt_stability()
     test_t_bar_row_oblique_3_4_view_22deg_4_reps()
     test_t_bar_row_frontal_view_shoulder_elbow_height_4_reps()
+    test_t_bar_row_radiography_stretch_exceeds_peak_by_25deg()

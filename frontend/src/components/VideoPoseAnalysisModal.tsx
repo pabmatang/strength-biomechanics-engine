@@ -52,7 +52,7 @@ import {
 import { ResistanceCurveEditor } from './ResistanceCurveEditor';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 import { isSuperUserMode } from '../utils/superuserCurveStore';
-import { trimAndCompressVideo, computeSlidingTrimWindow } from '../utils/videoCompressor';
+import { trimAndCompressVideo, computeSlidingTrimWindow, clampPlayerTimeToTrim } from '../utils/videoCompressor';
 import {
   analyzeVideoWithModal,
   requestCoachReviewWithModal,
@@ -1095,7 +1095,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const handleCueClick = (cue: TimelineCue) => {
     setActiveTimelineCue(cue);
     if (videoElementRef.current) {
-      const targetTime = Math.max(0, cue.timestamp_sec);
+      const targetTime = clampPlayerTimeToTrim(trimStart + Math.max(0, cue.timestamp_sec), trimStart, trimEnd, true);
       safeSeekVideo(targetTime);
       handleSpeedChange(0.5);
       videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
@@ -1177,9 +1177,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     const rawMaxSeek = video.seekable && video.seekable.length > 0
       ? video.seekable.end(video.seekable.length - 1)
       : (video.duration || MAX_ANALYSIS_CLIP_SECONDS);
-    const maxSeek = Math.min(rawMaxSeek > 0 ? rawMaxSeek : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
+    const maxSeek = rawMaxSeek > 0 ? rawMaxSeek : MAX_ANALYSIS_CLIP_SECONDS;
     const safeFloor = Math.max(minSeek, 0.04);
-    const clamped = Math.max(safeFloor, Math.min(Math.max(safeFloor, maxSeek - 0.02), targetTime));
+    const boundedTarget = analysisData
+      ? clampPlayerTimeToTrim(targetTime, trimStart, trimEnd, true)
+      : targetTime;
+    const clamped = Math.max(safeFloor, Math.min(Math.max(safeFloor, maxSeek - 0.02), boundedTarget));
 
     lastSeekTargetRef.current = clamped;
     setVideoCurrentTime(clamped);
@@ -1200,7 +1203,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     } catch {
       pendingSeekTimeRef.current = clamped;
     }
-  }, []);
+  }, [analysisData, trimStart, trimEnd]);
   const smoothLineYRef = useRef<number | null>(null);
 
   // Cleanup on close
@@ -1649,16 +1652,15 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const range = { startTime: trimStart, endTime: trimEnd };
       let videoBlobToSend: Blob = file;
 
-      // Client-side trim + 2x downscale only for huge (>25 MB) files so 200-800 MB 4K60 clips shrink to ~2 MB in ~10s;
-      // <= 25 MB bypasses directly to Cerebrium GPU native ffmpeg trim.
-      let effectiveTrimRange = range;
+      // Client-side trim + downscale ONLY for huge (>25 MB) files at 1.0x real-time speed (no playbackRate > 1).
+      // The result player always keeps the original crisp File URL strictly bounded to [trimStart, trimEnd].
       if (file.size > 25 * 1024 * 1024) {
         setPipelineState('compressing');
         setPipelineMessage(`Optimizando vídeo (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
         const preparedBlob = await trimAndCompressVideo(file, trimStart, trimEnd, {
           maxWidth: 480,
-          targetFps: 15,
-          bitrate: 800_000,
+          targetFps: 24,
+          bitrate: 900_000,
           maxDurationSec: MAX_ANALYSIS_CLIP_SECONDS,
           onProgress: (pct) => {
             setPipelineProgress(Math.max(5, Math.min(35, Math.round(pct * 0.35))));
@@ -1666,21 +1668,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           }
         });
         videoBlobToSend = preparedBlob;
-        // Lock result player strictly to the trimmed Blob (0.0s -> trimmedDuration)
-        if (preparedBlob !== file) {
-          const trimmedDur = Math.max(0.5, Math.round((trimEnd - trimStart) * 10) / 10);
-          const trimmedUrl = URL.createObjectURL(preparedBlob);
-          setUploadedVideoUrl((prev) => {
-            if (prev && prev.startsWith('blob:')) {
-              try { URL.revokeObjectURL(prev); } catch {}
-            }
-            return trimmedUrl;
-          });
-          setTrimStart(0);
-          setTrimEnd(trimmedDur);
-          setVideoDuration(trimmedDur);
-          effectiveTrimRange = { startTime: 0, endTime: trimmedDur };
-        }
       }
       compressedBlobRef.current = videoBlobToSend;
       setPipelineProgress(45);
@@ -1702,13 +1689,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         exToSend,
         muscleToSend,
         loadToSend,
-        effectiveTrimRange,
+        range,
         exNameToSend,
         manualActive
       );
 
       if (videoElementRef.current) {
-        safeSeekVideo(effectiveTrimRange.startTime);
+        safeSeekVideo(trimStart);
         videoElementRef.current.playbackRate = 1.0;
         videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
       }
@@ -3196,8 +3183,14 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   }}
                   onTimeUpdate={(e) => {
                     const target = e.currentTarget;
-                    if (!target.paused && !target.seeking && trimEnd > trimStart && target.currentTime >= trimEnd) {
-                      safeSeekVideo(trimStart);
+                    if (analysisData && !target.seeking && trimEnd > trimStart) {
+                      if (target.currentTime < trimStart - 0.05) {
+                        safeSeekVideo(trimStart);
+                        return;
+                      }
+                      if (!target.paused && target.currentTime >= trimEnd) {
+                        safeSeekVideo(trimStart);
+                      }
                     }
                   }}
                   onSeeked={() => {
@@ -4478,7 +4471,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                               if (videoElementRef.current) {
                                 videoElementRef.current.pause();
                                 setIsVideoPlaying(false);
-                                safeSeekVideo(Math.max(0, af.timestamp_sec));
+                                safeSeekVideo(clampPlayerTimeToTrim(trimStart + Math.max(0, af.timestamp_sec), trimStart, trimEnd, true));
                               }
                             }}
                             className="text-left rounded-xl bg-slate-950/90 border border-slate-800 hover:border-cyan-500/50 transition overflow-hidden flex flex-col"
@@ -4541,13 +4534,28 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                                 </span>
                               </div>
                             )}
-                            <div className="p-2.5 space-y-1">
-                              <span className="text-[11px] font-bold text-white block">{af.title}</span>
-                              {af.notes && af.notes.map((note, nIdx) => (
-                                <p key={nIdx} className="text-[11px] text-slate-300 leading-snug">
-                                  • {note}
+                    <div className="p-2.5 space-y-1.5">
+                              <span className="text-[11px] font-bold text-white block">{af.label || af.title}</span>
+                              {(af.metrics || af.angles) && (
+                                <div className="flex flex-wrap gap-1">
+                                  {Object.entries(af.metrics || af.angles || {}).map(([mKey, mVal]) => (
+                                    <span key={mKey} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-300">
+                                      {mKey.replace(/_deg$/, '').replace(/_/g, ' ')}: {Math.round(Number(mVal))}°
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {af.clinical_note ? (
+                                <p className="text-[11px] text-slate-300 leading-snug">
+                                  • {af.clinical_note}
                                 </p>
-                              ))}
+                              ) : (
+                                af.notes && af.notes.map((note, nIdx) => (
+                                  <p key={nIdx} className="text-[11px] text-slate-300 leading-snug">
+                                    • {note}
+                                  </p>
+                                ))
+                              )}
                             </div>
                           </button>
                         );
@@ -4556,7 +4564,9 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                 )}
 
-                {/* CARD 1: Nivel de Estrés Articular */}
+                {/* CARD 1: Nivel de Estrés Articular (fallback cuando no hay alignment_frames) */}
+                {(!analysisData?.alignment_frames || analysisData.alignment_frames.length === 0) && (
+                <>
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
@@ -4626,6 +4636,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     })}
                   </div>
                 </div>
+                </>
+                )}
               </div>
             )}
 

@@ -815,8 +815,15 @@ def test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames():
     for item in af:
         assert 0.0 <= item["timestamp_sec"] <= clip_dur + 0.01
         assert item["status"] in ("optimal", "caution", "risk")
+        assert item.get("label")
+        assert item.get("clinical_note")
+        assert isinstance(item.get("metrics"), dict) and len(item["metrics"]) >= 1
         assert len(item.get("overlays", [])) >= 1
         assert len(item.get("notes", [])) >= 1
+    # Radiografía geometric invariant for push: lockout elbow_deg >= bottom elbow_deg + 35°
+    assert af[1]["metrics"]["elbow_deg"] >= af[0]["metrics"]["elbow_deg"] + 35.0, (
+        f"Inverted push keyframes: bottom={af[0]['metrics']['elbow_deg']}°, lockout={af[1]['metrics']['elbow_deg']}°"
+    )
 
 
 if __name__ == "__main__":

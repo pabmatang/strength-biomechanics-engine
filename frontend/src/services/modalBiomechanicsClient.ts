@@ -308,6 +308,7 @@ export interface AlignmentFrameOverlay {
 
 export interface AlignmentFrame {
   id: 'stretch' | 'contraction' | string;
+  label?: string;
   title: string;
   phase_label: string;
   frame_idx: number;
@@ -315,8 +316,10 @@ export interface AlignmentFrame {
   snapshot_b64?: string | null;
   joints?: Record<string, [number, number]>;
   status: 'optimal' | 'caution' | 'risk' | string;
+  metrics?: Record<string, number>;
   angles?: Record<string, number>;
   overlays?: AlignmentFrameOverlay[];
+  clinical_note?: string;
   notes?: string[];
 }
 
@@ -325,6 +328,8 @@ export interface PipelineTimings {
   ffmpeg_s: number;
   det_s: number;
   pose_s: number;
+  analysis_s?: number;
+  snapshots_s?: number;
   render_snapshots_s: number;
   total_s: number;
 }
@@ -613,7 +618,10 @@ export async function analyzeVideoWithModal(
         }
       }
 
-      options?.onProgress?.('Ejecutando RT-DETR + ViTPose en GPU...', 65);
+      options?.onProgress?.('Ejecutando YOLO11n + ViTPose en GPU...', 65);
+      const expectedDurationSec = (endTime !== undefined && endTime !== null && endTime > startTime)
+        ? Number((endTime - startTime).toFixed(3))
+        : undefined;
       const doFetch = async () => {
         if (isCerebrium) {
           return fetch(endpointUrl, {
@@ -630,6 +638,7 @@ export async function analyzeVideoWithModal(
               gemini_api_key: geminiApiKey,
               start_time: startTime,
               end_time: endTime,
+              expected_duration_sec: expectedDurationSec,
               speed_factor: speedFactor,
               weight_kg: config.weightKg,
               target_reps: config.targetReps,

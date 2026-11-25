@@ -40,20 +40,31 @@ import requests
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()}...")
 
-DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
+DET_MODEL_NAME = "yolo11n.pt"
+FALLBACK_DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
 POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 FALLBACK_POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 
 dtype = torch.float16 if device == "cuda" else torch.float32
 
 _t_model_load_start = time.time()
-print(f"[Cerebrium Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
-det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
-det_model = AutoModelForObjectDetection.from_pretrained(
-    DET_MODEL_NAME,
-    torch_dtype=dtype
-).to(device)
-det_model.eval()
+det_backend = "yolo11n"
+det_processor = None
+try:
+    from ultralytics import YOLO
+    print(f"[Cerebrium Startup] Loading YOLO11n ({DET_MODEL_NAME})...")
+    det_model = YOLO(DET_MODEL_NAME)
+    det_model.to(device)
+    print("[Cerebrium Startup] YOLO11n loaded successfully.")
+except Exception as e_yolo:
+    print(f"[Cerebrium Startup] YOLO11n unavailable ({e_yolo}). Falling back to RT-DETR ({FALLBACK_DET_MODEL_NAME})...")
+    det_backend = "rtdetr"
+    det_processor = AutoImageProcessor.from_pretrained(FALLBACK_DET_MODEL_NAME)
+    det_model = AutoModelForObjectDetection.from_pretrained(
+        FALLBACK_DET_MODEL_NAME,
+        torch_dtype=dtype
+    ).to(device)
+    det_model.eval()
 
 try:
     print(f"[Cerebrium Startup] Loading ViTPose ({POSE_MODEL_NAME})...")
@@ -74,9 +85,26 @@ except Exception as e_large:
     pose_model.eval()
     print("[Cerebrium Startup] ViTPose-Base-Simple loaded successfully as fallback.")
 
+if device == "cuda":
+    try:
+        _dummy_img = Image.fromarray(np.zeros((256, 192, 3), dtype=np.uint8))
+        if det_backend == "yolo11n" and callable(getattr(det_model, "predict", None)):
+            det_model.predict([np.zeros((256, 192, 3), dtype=np.uint8)], classes=[0], conf=0.2, half=True, verbose=False)
+        _wp_in = pose_processor(images=[_dummy_img], boxes=[[[0.0, 0.0, 192.0, 256.0]]], return_tensors="pt")
+        _p_dt = next(pose_model.parameters()).dtype
+        _wp_in = {k: (v.to(device=device, dtype=_p_dt) if torch.is_floating_point(v) else v.to(device=device)) for k, v in _wp_in.items()}
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.float16):
+            try:
+                pose_model(**_wp_in, dataset_index=torch.zeros(1, dtype=torch.long, device=device))
+            except (TypeError, ValueError):
+                pose_model(**_wp_in)
+        print("[Cerebrium Startup] GPU warmup completed.")
+    except Exception as e_warm:
+        print(f"[Cerebrium Startup] GPU warmup skipped: {e_warm}")
+
 MODEL_LOAD_S = round(time.time() - _t_model_load_start, 3)
 LAST_INFERENCE_TIMINGS = {"det_s": 0.0, "pose_s": 0.0}
-print(f"[Cerebrium Startup] 2D Neural Pipeline (RT-DETR + ViTPose) loaded in {MODEL_LOAD_S}s.")
+print(f"[Cerebrium Startup] 2D Neural Pipeline ({det_backend.upper()} + ViTPose-Base FP16) loaded in {MODEL_LOAD_S}s.")
 
 COCO_KEYPOINTS = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -1976,6 +2004,7 @@ def run_inference_batches(
 
     def _run_det_on_indices(idx_list: List[int]) -> None:
         det_bs = min(batch_size, 32)
+        use_yolo = (det_processor is None and callable(getattr(det_model, "predict", None)))
         for i in range(0, len(idx_list), det_bs):
             chunk_idxs = idx_list[i : i + det_bs]
             batch_rgb = [frames_rgb[k] for k in chunk_idxs]
@@ -1983,6 +2012,32 @@ def run_inference_batches(
                 batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
             else:
                 batch_crop = batch_rgb
+
+            if use_yolo:
+                yolo_res = det_model.predict(
+                    batch_crop,
+                    classes=[0],
+                    conf=0.20,
+                    half=(device == "cuda"),
+                    verbose=False,
+                )
+                for local_i, y_res in enumerate(yolo_res):
+                    f_idx = chunk_idxs[local_i]
+                    p_boxes = []
+                    if y_res is not None and y_res.boxes is not None and len(y_res.boxes) > 0:
+                        xyxy = y_res.boxes.xyxy.detach().cpu().numpy()
+                        confs = y_res.boxes.conf.detach().cpu().numpy()
+                        for idx in range(len(xyxy)):
+                            if float(confs[idx]) >= 0.20:
+                                b_cand = [float(v) for v in xyxy[idx].tolist()]
+                                box_cy_norm = ((b_cand[1] + b_cand[3]) / 2.0) / float(eff_h)
+                                box_h_norm = (b_cand[3] - b_cand[1]) / float(eff_h)
+                                if box_cy_norm < 0.32 and box_h_norm < 0.42:
+                                    continue
+                                p_boxes.append((b_cand, float(confs[idx])))
+                    sampled_detections[f_idx] = p_boxes
+                continue
+
             batch_pil = [Image.fromarray(f) for f in batch_crop]
 
             raw_det_inputs = det_processor(images=batch_pil, return_tensors="pt")
@@ -3974,19 +4029,60 @@ def process_kinematics(
     )
 
     # Extract 2 Key Static Snapshots (Max Stretch & Max Peak / Lockout) strictly inside a validated rep
-    rep_target = repetitions_summary[min(1, total_reps - 1)] if total_reps >= 1 else None
-    if rep_target:
-        if is_pattern_b and "valley_idx" in rep_target and "peak_idx" in rep_target:
-            # Push exercises: strictly use valley_frame (bottom) & peak_frame (lockout) of the representative rep
-            f_stretch = int(rep_target["valley_idx"])
-            f_peak = int(rep_target["peak_idx"])
-        elif is_pattern_b and int(rep_target.get("end_frame", 0)) > int(rep_target.get("start_frame", 0)):
-            sf_t = max(0, int(rep_target.get("start_frame", 0)))
-            ef_t = min(n_frames - 1, int(rep_target.get("end_frame", n_frames - 1)))
-            f_stretch, f_peak = extract_push_snapshot_frames(clean_el, sf_t, ef_t, n_frames)
-        else:
-            f_stretch = rep_target.get("bottom_frame", int(n_frames * 0.5))
-            f_peak = rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8))
+    # using dominant-side elbow angle (never inverted image Y coordinate).
+    f_stretch, f_peak = 0, max(0, n_frames - 1)
+    if total_reps >= 1:
+        rep_candidates = [repetitions_summary[len(repetitions_summary) // 2]] + list(repetitions_summary)
+        selected = False
+        if is_pattern_b:
+            best_pair = None
+            best_diff = -1.0
+            for cand_rep in rep_candidates:
+                sf_t = max(0, int(cand_rep.get("start_frame", 0)))
+                ef_t = min(n_frames - 1, int(cand_rep.get("end_frame", n_frames - 1)))
+                if ef_t <= sf_t:
+                    continue
+                seg_el = clean_el[sf_t : ef_t + 1]
+                f_bot = sf_t + int(np.argmin(seg_el))
+                f_top = sf_t + int(np.argmax(seg_el))
+                diff_el = float(clean_el[f_top] - clean_el[f_bot])
+                if diff_el >= 35.0:
+                    f_stretch, f_peak = f_bot, f_top
+                    selected = True
+                    break
+                if diff_el > best_diff:
+                    best_diff = diff_el
+                    best_pair = (f_bot, f_top)
+            if not selected and best_pair is not None:
+                f_stretch, f_peak = best_pair
+                selected = True
+        elif is_pattern_a:
+            best_pair = None
+            best_diff = -1.0
+            for cand_rep in rep_candidates:
+                sf_t = max(0, int(cand_rep.get("start_frame", 0)))
+                ef_t = min(n_frames - 1, int(cand_rep.get("end_frame", n_frames - 1)))
+                if ef_t <= sf_t:
+                    continue
+                seg_el = clean_el[sf_t : ef_t + 1]
+                f_ext = sf_t + int(np.argmax(seg_el))
+                f_con = sf_t + int(np.argmin(seg_el))
+                diff_el = float(clean_el[f_ext] - clean_el[f_con])
+                if diff_el >= 25.0:
+                    f_stretch, f_peak = f_ext, f_con
+                    selected = True
+                    break
+                if diff_el > best_diff:
+                    best_diff = diff_el
+                    best_pair = (f_ext, f_con)
+            if not selected and best_pair is not None:
+                f_stretch, f_peak = best_pair
+                selected = True
+
+        if not selected:
+            rep_target = repetitions_summary[len(repetitions_summary) // 2]
+            f_stretch = int(rep_target.get("bottom_frame", int(n_frames * 0.5)))
+            f_peak = int(rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8)))
     else:
         f_stretch = max(0, min(n_frames - 1, int(n_frames * 0.33)))
         f_peak = max(0, min(n_frames - 1, int(n_frames * 0.66)))
@@ -4008,7 +4104,9 @@ def process_kinematics(
         for c_name in canonical_joints_list if c_name in primary_joints
     }
 
-    def _build_alignment_frame(frame_id: str, title: str, phase_label: str, f_idx: int, snap_b64: Optional[str], j_map: Dict[str, List[float]], is_stretch_phase: bool) -> Dict[str, Any]:
+    eff_fps_dyn = (1.0 / max(1e-3, float(np.median(np.diff(timestamps))))) if len(timestamps) > 1 else 24.0
+
+    def _build_alignment_frame(frame_id: str, title: str, phase_label: str, f_idx: int, raw_snap_b64: Optional[str], j_map: Dict[str, List[float]], is_stretch_phase: bool) -> Dict[str, Any]:
         ts_sec = round(max(0.0, float(timestamps[f_idx] - timestamps[0])) if timestamps and f_idx < len(timestamps) else 0.0, 2)
         el_deg = round(float(clean_el[f_idx]), 1) if f_idx < len(clean_el) else 0.0
         hu_deg = round(float(clean_hu[f_idx]), 1) if f_idx < len(clean_hu) else 0.0
@@ -4075,17 +4173,38 @@ def process_kinematics(
             else:
                 notes.append(f"Alineación cadera-rodilla-tobillo estable (rodilla {kn_deg:.0f}°, cadera {hp_deg:.0f}°).")
 
+        # Draw crisp anatomical reference lines directly onto a copy of the upright frame
+        annotated_b64 = raw_snap_b64
+        if frames_rgb and f_idx < len(frames_rgb) and j_map and overlays:
+            canvas_rgb = frames_rgb[f_idx].copy()
+            ch, cw = canvas_rgb.shape[:2]
+            line_color = (239, 68, 68) if status == "risk" else ((245, 158, 11) if status == "caution" else (34, 211, 238))
+            thickness = max(2, int(round(min(ch, cw) / 180.0)))
+            for ov in overlays:
+                p1 = j_map.get(ov.get("from", ""))
+                p2 = j_map.get(ov.get("to", ""))
+                if p1 and p2:
+                    pt1 = (int(round(p1[0] * cw)), int(round(p1[1] * ch)))
+                    pt2 = (int(round(p2[0] * cw)), int(round(p2[1] * ch)))
+                    cv2.line(canvas_rgb, pt1, pt2, line_color, thickness, cv2.LINE_AA)
+                    cv2.circle(canvas_rgb, pt1, thickness + 2, (255, 255, 255), -1, cv2.LINE_AA)
+                    cv2.circle(canvas_rgb, pt2, thickness + 2, (255, 255, 255), -1, cv2.LINE_AA)
+            annotated_b64 = encode_snapshot_jpeg_b64(canvas_rgb, max_dim=480, quality=80) or raw_snap_b64
+
         return {
             "id": frame_id,
+            "label": title,
             "title": title,
             "phase_label": phase_label,
             "frame_idx": int(f_idx),
             "timestamp_sec": ts_sec,
-            "snapshot_b64": snap_b64,
+            "snapshot_b64": annotated_b64,
             "joints": j_map,
             "status": status,
+            "metrics": angles_dict,
             "angles": angles_dict,
             "overlays": overlays,
+            "clinical_note": notes[0] if notes else "",
             "notes": notes[:2],
         }
 
@@ -4882,7 +5001,7 @@ def process_kinematics(
     }
 
     return sanitize_for_json({
-        "fps": 15.0,
+        "fps": round(eff_fps_dyn, 2),
         "total_duration_sec": round(float(timestamps[-1] - timestamps[0]), 4) if len(timestamps) > 1 else 0.0,
         "duration": round(float(timestamps[-1] - timestamps[0]), 2) if timestamps else 0.0,
         "total_reps": total_reps,
@@ -5414,8 +5533,31 @@ def analyze(
     raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     raw_rot = get_video_rotation(raw_temp_path)
     t_ff_start = time.time()
-    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, target_fps=15, start_time=start_time, end_time=end_time)
+    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, target_fps=24, start_time=start_time, end_time=end_time)
     ffmpeg_s = round(time.time() - t_ff_start, 3)
+
+    # Verify with ffprobe that exported clip duration matches expected (end_time - start_time) within 0.35s
+    expected_dur = None
+    if end_time is not None and end_time > start_time:
+        expected_dur = float(end_time - start_time)
+    elif kwargs.get("expected_duration_sec"):
+        try:
+            expected_dur = float(kwargs.get("expected_duration_sec"))
+        except (ValueError, TypeError):
+            expected_dur = None
+    probe_dur = None
+    try:
+        import subprocess as _sp
+        _pr = _sp.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", temp_path],
+            capture_output=True, text=True, timeout=5
+        )
+        if _pr.returncode == 0 and _pr.stdout.strip():
+            probe_dur = float(_pr.stdout.strip())
+            if expected_dur is not None and abs(probe_dur - expected_dur) > 0.35:
+                print(f"[FFprobe Warning] Duration mismatch: probed={probe_dur:.2f}s vs expected={expected_dur:.2f}s")
+    except Exception:
+        pass
     # Delete raw 4K video immediately after transcoding to free disk/RAM before MediaPipe starts
     if temp_path != raw_temp_path and os.path.exists(raw_temp_path):
         try:
@@ -5427,8 +5569,8 @@ def analyze(
         sample_end = None if was_trimmed else end_time
         frames_rgb, timestamps, duration = sample_video_frames(
             temp_path,
-            target_fps=15.0,
-            max_frames=600,
+            target_fps=24.0,
+            max_frames=960,
             start_time=sample_start,
             end_time=sample_end
         )
@@ -5451,6 +5593,7 @@ def analyze(
         h, w = frames_rgb[0].shape[:2]
         raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=32)
         
+        t_kin_start = time.time()
         result = process_kinematics(
             raw_keypoints=raw_keypoints,
             timestamps=timestamps,
@@ -5472,20 +5615,25 @@ def analyze(
         )
         total_s = round(time.time() - t_analyze_start, 3)
         render_snapshots_s = float(result.pop("_render_snapshots_s", 0.0)) if isinstance(result, dict) else 0.0
+        analysis_s = round(max(0.0, (time.time() - t_kin_start) - render_snapshots_s), 3)
         timings_payload = {
             "model_load_s": MODEL_LOAD_S,
             "ffmpeg_s": ffmpeg_s,
             "det_s": LAST_INFERENCE_TIMINGS.get("det_s", 0.0),
             "pose_s": LAST_INFERENCE_TIMINGS.get("pose_s", 0.0),
+            "analysis_s": analysis_s,
+            "snapshots_s": render_snapshots_s,
             "render_snapshots_s": render_snapshots_s,
             "total_s": total_s,
         }
         if isinstance(result, dict):
             result["timings"] = timings_payload
+            if probe_dur is not None:
+                result["probed_duration_sec"] = round(probe_dur, 3)
         print(
             f"[Pipeline Timing] model_load_s={MODEL_LOAD_S}s ffmpeg_s={ffmpeg_s}s "
             f"det_s={timings_payload['det_s']}s pose_s={timings_payload['pose_s']}s "
-            f"render_snapshots_s={render_snapshots_s}s total_s={total_s}s"
+            f"analysis_s={analysis_s}s snapshots_s={render_snapshots_s}s total_s={total_s}s"
         )
         return sanitize_for_json(result)
     finally:

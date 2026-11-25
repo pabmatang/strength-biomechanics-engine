@@ -153,8 +153,8 @@ function runCanvasCompression(
         ];
         const chosenMime = preferredMimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 
-        const speedFactor = clipDurationSec >= 6 ? 2.5 : 1.0;
-        const stream = canvas.captureStream(Math.min(45, Math.ceil(targetFps * speedFactor)));
+        const speedFactor = 1.0;
+        const stream = canvas.captureStream(Math.min(30, Math.max(15, targetFps)));
         let recorder: MediaRecorder;
         try {
           recorder = chosenMime
@@ -185,7 +185,8 @@ function runCanvasCompression(
             const savingPct = Math.max(0, Math.round((1 - compressedBlob.size / file.size) * 100));
             console.info(`[Compressor] Original: ${origMb} MB -> Comprimido: ${compMb} MB (${savingPct}% ahorro, ${speedFactor}x) | Rango: ${startTime.toFixed(1)}s -> ${endTime.toFixed(1)}s`);
 
-            (compressedBlob as any).__speedFactor = speedFactor;
+            (compressedBlob as any).__speedFactor = 1.0;
+            (compressedBlob as any).__expectedDurationSec = clipDurationSec;
             (compressedBlob as any).__trimmedClientSide = true;
             resolve(compressedBlob);
           } else {
@@ -324,6 +325,21 @@ export async function prepareVideoForAnalysis(
   }
 
   return compressedBlob || file;
+}
+
+/**
+ * Pure helper to clamp player seek/playback strictly inside [trimStart, trimEnd].
+ */
+export function clampPlayerTimeToTrim(
+  targetTime: number,
+  trimStart: number,
+  trimEnd: number,
+  enforceBounds: boolean = true
+): number {
+  if (!enforceBounds || trimEnd <= trimStart) {
+    return Math.max(0, targetTime);
+  }
+  return Math.max(trimStart, Math.min(trimEnd - 0.02, targetTime));
 }
 
 /**
