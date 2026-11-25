@@ -329,6 +329,19 @@ export interface BiomechanicsAnalysisResponse {
   stimulus_and_specificity?: StimulusAndSpecificity;
   intensity_audit?: IntensityAudit;
   intensity_metrics?: IntensityMetrics;
+  avg_tempo?: {
+    eccentric_s: number;
+    pause_s: number;
+    concentric_s: number;
+    formatted: string;
+  };
+  active_window?: {
+    start_sec: number;
+    end_sec: number;
+  };
+  mean_eccentric_time_s?: number;
+  mean_pause_time_s?: number;
+  mean_concentric_time_s?: number;
   effective_muscle_weights?: Record<string, number>;
   vlm_analysis?: VlmAnalysis;
   vlm_used?: boolean;

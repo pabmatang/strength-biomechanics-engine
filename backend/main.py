@@ -2945,7 +2945,35 @@ def process_kinematics(
         all_smoothed=all_smoothed,
         is_upper_body=is_upper_body
     )
-    if is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
+    if is_pattern_a and (valid_end_idx - valid_start_idx + 1) >= 5:
+        # Combine dominant-side elbow angle with wrist-shoulder displacement along traction PCA axis
+        # so 3/4 oblique views (e.g. T-Bar Row) never lose reps due to perspective foreshortening.
+        wr_x = primary_joints["wrist"]["x"]
+        wr_y = primary_joints["wrist"]["y"]
+        sh_x = primary_joints["shoulder"]["x"]
+        sh_y = primary_joints["shoulder"]["y"]
+        rel_x = wr_x - sh_x
+        rel_y = wr_y - sh_y
+        rel_v_x = rel_x[valid_start_idx : valid_end_idx + 1]
+        rel_v_y = rel_y[valid_start_idx : valid_end_idx + 1]
+        if (np.ptp(rel_v_x) + np.ptp(rel_v_y)) > 0.015:
+            pts_v = np.column_stack([rel_v_x - np.mean(rel_v_x), rel_v_y - np.mean(rel_v_y)])
+            cov_a = np.cov(pts_v, rowvar=False)
+            eigvals_a, eigvecs_a = np.linalg.eigh(cov_a)
+            v_pull = eigvecs_a[:, int(np.argmax(eigvals_a))]
+            pts_all = np.column_stack([rel_x - np.mean(rel_v_x), rel_y - np.mean(rel_v_y)])
+            disp_pca_a = pts_all @ v_pull
+            if len(clean_el) > 1:
+                corr_a = np.corrcoef(disp_pca_a[valid_start_idx : valid_end_idx + 1], clean_el[valid_start_idx : valid_end_idx + 1])[0, 1]
+                if not np.isnan(corr_a) and corr_a < 0:
+                    disp_pca_a = -disp_pca_a
+            el_range_a = max(24.0, float(np.ptp(clean_el[valid_start_idx : valid_end_idx + 1])))
+            pca_range_a = max(1e-4, float(np.ptp(disp_pca_a[valid_start_idx : valid_end_idx + 1])))
+            disp_scaled_a = (disp_pca_a - np.median(disp_pca_a[valid_start_idx : valid_end_idx + 1])) / pca_range_a * el_range_a + np.median(clean_el[valid_start_idx : valid_end_idx + 1])
+            disp_smooth_a = apply_zero_phase_butterworth_continuous(disp_scaled_a, fs=15.0, cutoff=2.2)
+            clean_primary = 0.55 * clean_el + 0.45 * disp_smooth_a
+            clean_curve = -clean_primary.copy()
+    elif is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
         el_valid_raw = el_2d[valid_start_idx : valid_end_idx + 1]
         sg_win = min(9, len(el_valid_raw) if len(el_valid_raw) % 2 == 1 else len(el_valid_raw) - 1)
         if sg_win >= 5:
@@ -2957,22 +2985,24 @@ def process_kinematics(
         clean_curve = -clean_primary.copy()
 
     signal_range = float(np.max(clean_curve[valid_start_idx : valid_end_idx + 1]) - np.min(clean_curve[valid_start_idx : valid_end_idx + 1]))
-    t_min_bound = max(timestamps[valid_start_idx] + 0.25, timestamps[0] + 0.35) if timestamps else 0.35
-    t_max_bound = min(timestamps[valid_end_idx] - 0.20, timestamps[-1] - 0.25) if timestamps else 29.75
+    t_min_bound = max(timestamps[valid_start_idx] + 0.15, timestamps[0] + 0.25) if timestamps else 0.25
+    t_max_bound = min(timestamps[valid_end_idx] - 0.10, timestamps[-1] - 0.10) if timestamps else 29.90
 
     eff_fps = (1.0 / max(1e-3, float(np.median(np.diff(timestamps))))) if len(timestamps) > 1 else 15.0
-    min_rep_frames = max(4, int(round(0.9 * eff_fps)))
+    min_rep_frames = max(3, int(round((0.75 if is_pattern_a else 0.90) * eff_fps)))
 
     push_rep_windows: List[Tuple[int, int, int]] = []
     if is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
         el_seg = clean_el[valid_start_idx : valid_end_idx + 1]
         seg_range = float(np.max(el_seg) - np.min(el_seg))
-        push_prom = 30.0 if seg_range >= 45.0 else max(16.0, seg_range * 0.45)
+        push_prom = max(22.0, 0.35 * seg_range) if seg_range >= 35.0 else max(14.0, 0.40 * seg_range)
 
-        pk_rel, _ = scipy.signal.find_peaks(el_seg, prominence=push_prom, distance=min_rep_frames)
-        vl_rel, _ = scipy.signal.find_peaks(-el_seg, prominence=push_prom, distance=min_rep_frames)
-        peaks_g = [valid_start_idx + int(x) for x in pk_rel]
-        valleys_g = [valid_start_idx + int(x) for x in vl_rel]
+        pad_w = min(3, len(el_seg) - 1)
+        el_pad = np.pad(el_seg, pad_width=pad_w, mode='reflect') if pad_w >= 1 else el_seg
+        pk_rel_pad, _ = scipy.signal.find_peaks(el_pad, prominence=push_prom, distance=min_rep_frames)
+        vl_rel_pad, _ = scipy.signal.find_peaks(-el_pad, prominence=push_prom, distance=min_rep_frames)
+        peaks_g = sorted(set(valid_start_idx + max(0, min(len(el_seg) - 1, int(x) - pad_w)) for x in pk_rel_pad))
+        valleys_g = sorted(set(valid_start_idx + max(0, min(len(el_seg) - 1, int(x) - pad_w)) for x in vl_rel_pad))
 
         # Handle series starting at bottom (first movement is concentric push up to peaks_g[0])
         if len(peaks_g) >= 1:
@@ -2985,7 +3015,7 @@ def process_kinematics(
                     if float(clean_el[first_pk] - clean_el[v0_cand]) >= push_prom * 0.85:
                         valleys_g = [v0_cand] + valleys_g
 
-        # Handle series ending at lockout after the last valley
+        # Handle series ending at lockout after the last valley (even 0.15s before clip end)
         if len(valleys_g) >= 1:
             last_v = valleys_g[-1]
             has_post_peak = any(p > last_v for p in peaks_g)
@@ -2993,7 +3023,7 @@ def process_kinematics(
                 post_slice = clean_el[last_v : valid_end_idx + 1]
                 if len(post_slice) > 0:
                     p_end_cand = last_v + int(np.argmax(post_slice))
-                    if float(clean_el[p_end_cand] - clean_el[last_v]) >= push_prom * 0.85:
+                    if float(clean_el[p_end_cand] - clean_el[last_v]) >= push_prom * 0.65:
                         peaks_g.append(p_end_cand)
 
         # Pair each valley -> next peak (direction-agnostic: valley->peak or peak->valley->peak)
@@ -3026,32 +3056,37 @@ def process_kinematics(
         valid_peaks = [w[1] for w in push_rep_windows]
     else:
         valid_curve = clean_curve[valid_start_idx : valid_end_idx + 1]
+        ptp_range = float(np.max(valid_curve) - np.min(valid_curve)) if len(valid_curve) > 0 else 0.0
         p10 = float(np.percentile(valid_curve, 10))
         p90 = float(np.percentile(valid_curve, 90))
         eff_range = max(p90 - p10, 8.0)
 
         if is_pattern_a:
-            # Lower prominence (max 20.0) for back/diagonal views where perspective compresses angular range
-            target_prom = max(8.0, min(20.0, eff_range * 0.20))
+            # Adaptive prominence for traction (t_bar_row / seated_row / lat_pulldown) in 3/4 oblique views
+            target_prom = max(16.0, 0.32 * ptp_range) if ptp_range >= 24.0 else max(8.0, 0.32 * ptp_range)
         elif is_hip_thrust:
             target_prom = max(12.0, min(26.0, eff_range * 0.20))
         else:
             target_prom = max(10.0, min(20.0, eff_range * 0.20))
 
-        pks, _ = scipy.signal.find_peaks(
-            clean_curve,
+        pad_a = min(3, max(0, len(valid_curve) - 1))
+        padded_curve = np.pad(valid_curve, pad_width=pad_a, mode='reflect') if pad_a >= 1 else valid_curve
+        pks_rel, _ = scipy.signal.find_peaks(
+            padded_curve,
             prominence=target_prom,
             distance=min_rep_frames
         )
+        pks = sorted(set(valid_start_idx + max(0, min(len(valid_curve) - 1, int(x) - pad_a)) for x in pks_rel))
         in_bounds = [p for p in pks if t_min_bound <= timestamps[p] <= t_max_bound]
 
         # Fallback for subtle/slow executions
         if len(in_bounds) < 2 and eff_range >= 10.0:
-            pks_soft, _ = scipy.signal.find_peaks(
-                clean_curve,
-                prominence=max(7.0, target_prom * 0.60),
+            pks_soft_rel, _ = scipy.signal.find_peaks(
+                padded_curve,
+                prominence=max(7.0, target_prom * 0.55),
                 distance=min_rep_frames
             )
+            pks_soft = sorted(set(valid_start_idx + max(0, min(len(valid_curve) - 1, int(x) - pad_a)) for x in pks_soft_rel))
             in_bounds_soft = [p for p in pks_soft if t_min_bound <= timestamps[p] <= t_max_bound]
             if len(in_bounds_soft) > len(in_bounds):
                 in_bounds = in_bounds_soft
@@ -3246,10 +3281,9 @@ def process_kinematics(
         if is_pattern_b and i < len(push_rep_windows):
             start_frame, bottom_frame, end_frame = push_rep_windows[i]
         else:
-            # Start of rep
+            # Start of rep (strictly bounded inside [valid_start_idx .. p] so IDLE floor/setup never leaks into tempo)
             if i == 0:
-                # Search backwards to video onset to find true onset of movement
-                search_start = 0
+                search_start = valid_start_idx
                 left_search = clean_curve[search_start : p]
                 local_min_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
                 cand_start = search_start + local_min_offset
@@ -3262,11 +3296,11 @@ def process_kinematics(
             start_frame = cand_start
             for f_scan in range(cand_start, p):
                 if ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
-                    start_frame = max(0, f_scan - 1)
+                    start_frame = max(valid_start_idx, f_scan - 1)
                     break
 
             # End of rep
-            next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else n_frames - 1
+            next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else valid_end_idx
             right_search = clean_curve[p : next_bound + 1]
             end_offset = int(np.argmin(right_search)) if len(right_search) > 0 else 0
             end_frame = p + end_offset
@@ -4427,12 +4461,37 @@ def process_kinematics(
         assert 0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0, f"keypoint {j_name} must be in [0, 1], got {pt}"
     print(f"[Frames Schema Verification] len(frames)={len(frames_output)}, first keypoints verified within [0, 1].")
 
-    # Overall set summary
+    # Overall set summary & unified avg_tempo (strictly from validated reps, zero IDLE prep leak)
     total_reps = len(repetitions_summary)
     mean_rom = round(float(np.mean([r["rom_deg"] for r in repetitions_summary])), 1) if repetitions_summary else round(float(np.max(clean_primary) - np.min(clean_primary)), 1)
-    mean_ecc = round(float(np.mean([r["eccentric_sec"] for r in repetitions_summary])), 2) if repetitions_summary else 0.0
-    mean_pau = round(float(np.mean([r["pause_sec"] for r in repetitions_summary])), 2) if repetitions_summary else 0.0
-    mean_con = round(float(np.mean([r["concentric_sec"] for r in repetitions_summary])), 2) if repetitions_summary else 0.0
+    if repetitions_summary:
+        mean_ecc_1d = round(float(np.mean([float(r["eccentric_sec"]) for r in repetitions_summary])), 1)
+        mean_pau_1d = round(float(np.mean([float(r["pause_sec"]) for r in repetitions_summary])), 1)
+        mean_con_1d = round(float(np.mean([float(r["concentric_sec"]) for r in repetitions_summary])), 1)
+    else:
+        mean_ecc_1d, mean_pau_1d, mean_con_1d = 0.0, 0.0, 0.0
+
+    mean_ecc = mean_ecc_1d
+    mean_pau = mean_pau_1d
+    mean_con = mean_con_1d
+    avg_tempo = {
+        "eccentric_s": mean_ecc_1d,
+        "pause_s": mean_pau_1d,
+        "concentric_s": mean_con_1d,
+        "formatted": f"{mean_ecc_1d:.1f}s-{mean_pau_1d:.1f}s-{mean_con_1d:.1f}s"
+    }
+
+    total_dur_sec = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
+    if repetitions_summary:
+        raw_aw_start = max(0.0, float(repetitions_summary[0]["start_time"]) - 0.5)
+        raw_aw_end = min(total_dur_sec, float(repetitions_summary[-1]["end_time"]) + 0.5)
+    else:
+        raw_aw_start = float(timestamps[valid_start_idx]) if timestamps else 0.0
+        raw_aw_end = float(timestamps[valid_end_idx]) if timestamps else total_dur_sec
+    active_window = {
+        "start_sec": round(raw_aw_start, 2),
+        "end_sec": round(max(raw_aw_start + 0.5, raw_aw_end), 2) if total_dur_sec > 0.5 else round(raw_aw_end, 2)
+    }
 
     # ---------------------------------------------------------------------
     # Requirement 4: Effective Muscle Weights Calculation (Normalized to 1.0)
@@ -4530,6 +4589,8 @@ def process_kinematics(
         "mean_eccentric_time_s": mean_ecc,
         "mean_pause_time_s": mean_pau,
         "mean_concentric_time_s": mean_con,
+        "avg_tempo": avg_tempo,
+        "active_window": active_window,
         "intensity_metrics": intensity_metrics,
         "repetitions_summary": repetitions_summary,
         "rep_comparison": rep_comparison,

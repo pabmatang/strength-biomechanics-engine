@@ -453,8 +453,93 @@ def test_no_flatline_after_fast_transition_and_spike():
     assert res.get("total_reps", 0) == 4, f"Expected 4 reps (no flatline!), got {res.get('total_reps')}"
 
 
+def test_incline_press_4th_rep_at_clip_edge_and_avg_tempo_no_idle_leak():
+    """
+    4th slow rep ending 0.2s before clip end must be counted (4 reps total),
+    reflected in velocity_loss_pct & RIR, and avg_tempo must exclude prior IDLE setup time.
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    total_duration = 16.0
+    n_frames = int(total_duration * fps)  # 240 frames
+    timestamps = [f * dt for f in range(n_frames)]
+
+    angles = np.full(n_frames, 155.0)
+    # 5s IDLE floor/setup at start, then 4 reps:
+    # R1: t=5.0..7.0 (ecc 1.0, con 1.0)
+    # R2: t=7.2..9.3 (ecc 1.0, con 1.1)
+    # R3: t=9.5..12.1 (ecc 1.1, con 1.5)
+    # R4: t=12.3..15.8 (ecc 1.0, con 2.5 -> ends at 15.8s, 0.2s before 16.0s!)
+    reps_spec = [
+        (5.0, 6.0, 7.0),
+        (7.2, 8.2, 9.3),
+        (9.5, 10.6, 12.1),
+        (12.3, 13.3, 15.8),
+    ]
+    for t0, t_bot, t1 in reps_spec:
+        f0 = int(round(t0 * fps))
+        fb = int(round(t_bot * fps))
+        f1 = min(n_frames - 1, int(round(t1 * fps)))
+        for f in range(f0, fb + 1):
+            angles[f] = 155.0 - 90.0 * ((f - f0) / max(1, fb - f0))
+        for f in range(fb, f1 + 1):
+            angles[f] = 65.0 + 90.0 * ((f - fb) / max(1, f1 - fb))
+
+    frames_keypoints = []
+    L_forearm = 0.20
+    for f in range(n_frames):
+        t = timestamps[f]
+        sc = 0.15 if t < 4.5 else 0.92
+        sh_x, sh_y = 0.45, 0.40
+        el_x, el_y = 0.45, 0.60
+        rad = math.radians(angles[f])
+        wr_x = el_x + L_forearm * math.sin(rad)
+        wr_y = el_y - L_forearm * math.cos(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x - 0.02, "y": sh_y, "score": 0.15},
+            "left_elbow": {"x": el_x - 0.02, "y": el_y, "score": 0.15},
+            "left_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.15},
+            "left_hip": {"x": 0.53, "y": 0.65, "score": 0.15},
+            "left_knee": {"x": 0.50, "y": 0.85, "score": 0.15},
+            "left_ankle": {"x": 0.48, "y": 0.95, "score": 0.15},
+            "left_ear": {"x": 0.40, "y": 0.32, "score": 0.15},
+            "right_shoulder": {"x": sh_x, "y": sh_y, "score": sc},
+            "right_elbow": {"x": el_x, "y": el_y, "score": sc},
+            "right_wrist": {"x": wr_x, "y": wr_y, "score": sc},
+            "right_hip": {"x": 0.55, "y": 0.65, "score": sc},
+            "right_knee": {"x": 0.52, "y": 0.85, "score": sc},
+            "right_ankle": {"x": 0.50, "y": 0.95, "score": sc},
+            "right_ear": {"x": 0.42, "y": 0.32, "score": sc},
+            "nose": {"x": 0.41, "y": 0.35, "score": sc},
+        })
+
+    res = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        exercise_name="Incline Press",
+        target_muscle="chest",
+        load_type="plate_loaded",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert res.get("total_reps") == 4, f"Expected 4 reps (including edge rep), got {res.get('total_reps')}"
+    im = res.get("intensity_metrics", {})
+    assert float(im.get("velocity_loss_pct", 0.0)) >= 30.0, f"Expected >=30% velocity loss, got {im.get('velocity_loss_pct')}"
+    assert float(im.get("exact_rir", 4.0)) <= 2.0, f"Expected RIR <= 2, got {im.get('exact_rir')}"
+
+    avg_tempo = res.get("avg_tempo", {})
+    # 5s IDLE at start must NOT contaminate eccentric_s (~1.0s, never >= 2.0s)
+    assert avg_tempo.get("eccentric_s", 9.9) <= 1.6, f"IDLE leaked into avg_tempo: {avg_tempo}"
+    assert avg_tempo.get("formatted") == f"{res['mean_eccentric_time_s']:.1f}s-{res['mean_pause_time_s']:.1f}s-{res['mean_concentric_time_s']:.1f}s"
+    aw = res.get("active_window", {})
+    assert aw.get("start_sec", 0.0) >= 4.0, f"Expected active_window.start_sec >= 4.0, got {aw}"
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
     test_incline_press_lateral_floor_intro_bottom_start_5_reps_fatigue()
     test_no_flatline_after_fast_transition_and_spike()
+    test_incline_press_4th_rep_at_clip_edge_and_avg_tempo_no_idle_leak()

@@ -149,5 +149,74 @@ def test_t_bar_row_vbt_stability():
     assert exact_rir >= 3.0, f"Expected exact RIR >= 3.0, got {exact_rir}"
     print("TEST PASSED: t_bar_row VBT calculation is stable and robust against stretch pauses!")
 
+def test_t_bar_row_oblique_3_4_view_22deg_4_reps():
+    """
+    t_bar_row in 3/4 oblique view with compressed 22 deg elbow amplitude (4 quick reps):
+    must detect total_reps == 4 (not merge into 1 rep).
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    angles = [148.0] * 10
+    # 4 quick reps: ~15 frames (~1.0s) each, 148° -> 126° -> 148° (22° elbow amplitude)
+    rep_tpl = []
+    for k in range(1, 8):
+        rep_tpl.append(148.0 - 22.0 * (k / 7.0))
+    for k in range(1, 9):
+        rep_tpl.append(126.0 + 22.0 * (k / 8.0))
+    for _ in range(4):
+        angles.extend(rep_tpl)
+    angles.extend([148.0] * 10)
+
+    n_frames = len(angles)
+    timestamps = [f * dt for f in range(n_frames)]
+    frames_keypoints = []
+    L_arm = 0.20
+    L_forearm = 0.18
+
+    for f in range(n_frames):
+        elbow_target = angles[f]
+        sh_x, sh_y = 0.45, 0.35
+        frac = (148.0 - elbow_target) / 22.0
+        arm_angle_deg = 85.0 - 45.0 * frac
+        arm_rad = math.radians(arm_angle_deg)
+        el_x = sh_x + L_arm * math.cos(arm_rad)
+        el_y = sh_y + L_arm * math.sin(arm_rad)
+        forearm_angle_deg = arm_angle_deg + 180.0 - elbow_target
+        forearm_rad = math.radians(forearm_angle_deg)
+        wr_x = el_x + L_forearm * math.cos(forearm_rad)
+        wr_y = el_y + L_forearm * math.sin(forearm_rad)
+
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.94},
+            "left_elbow": {"x": el_x, "y": el_y, "score": 0.94},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.94},
+            "left_hip": {"x": 0.55, "y": 0.65, "score": 0.94},
+            "left_knee": {"x": 0.52, "y": 0.85, "score": 0.94},
+            "left_ankle": {"x": 0.50, "y": 0.95, "score": 0.94},
+            "left_ear": {"x": 0.42, "y": 0.32, "score": 0.94},
+            "right_shoulder": {"x": sh_x - 0.02, "y": sh_y, "score": 0.30},
+            "right_elbow": {"x": el_x - 0.02, "y": el_y, "score": 0.30},
+            "right_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.30},
+            "right_hip": {"x": 0.53, "y": 0.65, "score": 0.30},
+            "right_knee": {"x": 0.50, "y": 0.85, "score": 0.30},
+            "right_ankle": {"x": 0.48, "y": 0.95, "score": 0.30},
+            "right_ear": {"x": 0.40, "y": 0.32, "score": 0.30},
+            "nose": {"x": 0.41, "y": 0.35, "score": 0.90},
+        })
+
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="t_bar_row",
+        target_muscle="back",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert result.get("total_reps") == 4, f"Expected 4 reps in 3/4 t_bar_row, got {result.get('total_reps')}"
+
+
 if __name__ == "__main__":
     test_t_bar_row_vbt_stability()
+    test_t_bar_row_oblique_3_4_view_22deg_4_reps()

@@ -1060,6 +1060,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [trimStart, setTrimStart] = useState<number>(0);
   const [trimEnd, setTrimEnd] = useState<number>(15);
   const [showTrimmer, setShowTrimmer] = useState<boolean>(false);
+  const [hasSuggestedActiveWindow, setHasSuggestedActiveWindow] = useState<boolean>(false);
 
   // 4 Commercial Biomechanical Analysis Views
   const [activeView, setActiveView] = useState<AnalysisView>('velocity');
@@ -1271,6 +1272,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setRepCount(result.total_reps);
       setPipelineState('ready');
       setPipelineMessage('');
+
+      if (result.active_window && result.active_window.start_sec > 3.0 && (!range || range.startTime <= 0.1)) {
+        const awStart = Math.max(0, result.active_window.start_sec);
+        const awEnd = Math.max(awStart + 0.5, result.active_window.end_sec);
+        setTrimStart(awStart);
+        setTrimEnd(awEnd);
+        setHasSuggestedActiveWindow(true);
+      } else {
+        setHasSuggestedActiveWindow(false);
+      }
 
       const detectedName = result.vlm_analysis?.detected_exercise_name || (result as any).detected_exercise_type;
       if (detectedName && !manualActive && !catalogMachine && (!defaultExerciseId || defaultExerciseId === 'auto')) {
@@ -2712,22 +2723,28 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   })();
 
+  const unifiedTempoStr = useMemo(() => {
+    if (!analysisData || analysisData.total_reps <= 0) return '';
+    if (analysisData.avg_tempo?.formatted) return analysisData.avg_tempo.formatted;
+    if (
+      analysisData.mean_eccentric_time_s !== undefined &&
+      analysisData.mean_pause_time_s !== undefined &&
+      analysisData.mean_concentric_time_s !== undefined
+    ) {
+      return `${Number(analysisData.mean_eccentric_time_s).toFixed(1)}s-${Number(analysisData.mean_pause_time_s).toFixed(1)}s-${Number(analysisData.mean_concentric_time_s).toFixed(1)}s`;
+    }
+    const reps = analysisData.repetitions_summary || [];
+    if (reps.length === 0) return '';
+    const me = (reps.reduce((acc, r) => acc + (r.eccentric_sec ?? r.eccentric_time_s ?? 0), 0) / reps.length).toFixed(1);
+    const mp = (reps.reduce((acc, r) => acc + (r.pause_sec ?? r.pause_time_s ?? 0), 0) / reps.length).toFixed(1);
+    const mc = (reps.reduce((acc, r) => acc + (r.concentric_sec ?? r.concentric_time_s ?? 0), 0) / reps.length).toFixed(1);
+    return `${me}s-${mp}s-${mc}s`;
+  }, [analysisData]);
+
   // 1-line compact executive summary bar above the 4 tabs
   const executiveSummaryBar = useMemo(() => {
     if (!analysisData || analysisData.total_reps <= 0) return null;
-    const reps = analysisData.repetitions_summary || [];
-    let tempoStr = '';
-    if (reps.length > 0) {
-      const eccs = reps.map(r => r.eccentric_sec || r.eccentric_time_s || 0);
-      const pauses = reps.map(r => r.pause_sec || r.pause_time_s || 0);
-      const concs = reps.map(r => r.concentric_sec || r.concentric_time_s || 0);
-      const calcMed = (arr: number[]) => {
-        const s = [...arr].sort((a, b) => a - b);
-        const mid = Math.floor(s.length / 2);
-        return s.length % 2 !== 0 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-      };
-      tempoStr = `${calcMed(eccs).toFixed(1)}-${calcMed(pauses).toFixed(1)}-${calcMed(concs).toFixed(1)}s`;
-    }
+    const tempoStr = unifiedTempoStr;
 
     const rirVal = analysisData.intensity_audit?.rir_estimated ?? analysisData.intensity_metrics?.exact_rir ?? '2';
     const stim = analysisData.stimulus_and_specificity;
@@ -3222,15 +3239,30 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
               )}
 
               {/* HUD Telemetry Badges */}
-              {pipelineState === 'ready' && !activeTimelineCue && (
+              {pipelineState === 'ready' && !activeTimelineCue && (() => {
+                const lastRepEnd = analysisData?.repetitions_summary?.length
+                  ? analysisData.repetitions_summary[analysisData.repetitions_summary.length - 1].end_time
+                  : Infinity;
+                const relPlaybackSec = Math.max(0, videoCurrentTime - (trimStart || 0));
+                const isPostSet = Boolean(
+                  analysisData &&
+                  analysisData.total_reps > 0 &&
+                  (!currentFrame || currentFrame.rep_number === 0) &&
+                  (relPlaybackSec > lastRepEnd || (currentFrame?.timestamp_sec ?? 0) > lastRepEnd)
+                );
+                return (
                 <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-1.5 pointer-events-none z-10 max-w-[90%]">
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold shadow-md">
                     {analysisData && analysisData.total_reps > 0 && currentFrame && currentFrame.rep_number > 0
                       ? `REP #${currentFrame.rep_number}`
+                      : isPostSet
+                      ? 'FIN DE SERIE'
                       : 'PREPARACIÓN'}
                   </span>
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold shadow-md">
-                    {currentFrame?.phase || 'IDLE'}
+                    {isPostSet && (!currentFrame?.phase || currentFrame.phase === 'IDLE')
+                      ? 'FIN DE SERIE'
+                      : (currentFrame?.phase || 'IDLE')}
                   </span>
                   {activeView === 'velocity' ? (
                     <span className="px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold shadow-md">
@@ -3260,7 +3292,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </span>
                   )}
                 </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* Video Playback & Scrub Bar with Interactive Timeline Pins */}
@@ -3359,6 +3392,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     <Scissors className="w-3 h-3" />
                     <span>Recortar</span>
                   </button>
+                  {hasSuggestedActiveWindow && pipelineState === 'ready' && (
+                    <button
+                      type="button"
+                      onClick={handleStartAnalysis}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Re-analizar tramo activo</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3698,14 +3741,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Tempo Medio</span>
                       <span className="text-[10px] font-black text-purple-300 font-mono">
-                        {(() => {
-                          const reps = analysisData?.repetitions_summary || [];
-                          if (reps.length === 0) return '2.0-0.3-1.0';
-                          const me = (reps.reduce((acc, r) => acc + (r.eccentric_sec || 0), 0) / reps.length).toFixed(1);
-                          const mp = (reps.reduce((acc, r) => acc + (r.pause_sec || 0), 0) / reps.length).toFixed(1);
-                          const mc = (reps.reduce((acc, r) => acc + (r.concentric_sec || 0), 0) / reps.length).toFixed(1);
-                          return `${me}s-${mp}s-${mc}s`;
-                        })()}
+                        {unifiedTempoStr || '2.0s-0.3s-1.0s'}
                       </span>
                     </div>
                     <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800">
