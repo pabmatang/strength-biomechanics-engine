@@ -322,5 +322,149 @@ export const PANATTA_MACHINES: CatalogMachineEntry[] = [
       machineModelGuess: 'Panatta Monolith - Standing Leg Curl Unilateral'
     }),
     imageUrl: '/machines/panatta_standing_unilateral_leg_curl.png'
+  },
+
+  // 18. Panatta — Panatta FreeWeight Special - Super Vertical Chest Press (1FW036)
+  {
+    id: 'panatta_super_chest_press',
+    brand: 'Panatta',
+    line: 'Free Weight Special (1FW036)',
+    modelName: 'Panatta FreeWeight Special - Super Chest Press',
+    canonicalExerciseType: 'chest_press_machine',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta FreeWeight Special - Super Chest Press'
+    }),
+    imageUrl: '/machines/panatta_super_chest_press.png'
+  },
+
+  // 19. Panatta — Panatta FreeWeight Special - Super Lat Machine Convergent (1FW001)
+  {
+    id: 'panatta_super_lat_convergent',
+    brand: 'Panatta',
+    line: 'Free Weight Special (1FW001)',
+    modelName: 'Panatta FreeWeight Special - Super Lat Machine Convergent',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'divergent',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta FreeWeight Special - Super Lat Machine Convergent'
+    }),
+    imageUrl: '/machines/panatta_super_lat_convergent.png'
+  },
+
+  // 20. Panatta — Panatta FreeWeight Special - Lateral Deltoids (1FW027)
+  {
+    id: 'panatta_super_lateral_deltoid',
+    brand: 'Panatta',
+    line: 'Free Weight Special (1FW027)',
+    modelName: 'Panatta FreeWeight Special - Lateral Deltoid',
+    canonicalExerciseType: 'lateral_raise',
+    muscleGroupLabel: 'Hombros',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta FreeWeight Special - Lateral Deltoid'
+    }),
+    imageUrl: '/machines/panatta_super_lateral_deltoid.png'
+  },
+
+  // 21. Panatta — Panatta FreeWeight Special - Super Peck Back (1FW117)
+  {
+    id: 'panatta_super_pec_deck',
+    brand: 'Panatta',
+    line: 'Free Weight Special (1FW117)',
+    modelName: 'Panatta FreeWeight Special - Super Pec Deck / Peck Back',
+    canonicalExerciseType: 'pec_deck',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta FreeWeight Special - Super Pec Deck / Peck Back'
+    }),
+    imageUrl: '/machines/panatta_super_pec_deck.png'
+  },
+
+  // 22. Panatta — Panatta Monolith - Leg Extension (1MTH081)
+  {
+    id: 'panatta_monolith_leg_extension',
+    brand: 'Panatta',
+    line: 'Monolith Selection (1MTH081)',
+    modelName: 'Panatta Monolith - Leg Extension',
+    canonicalExerciseType: 'leg_extension',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta Monolith - Leg Extension'
+    }),
+    imageUrl: '/machines/panatta_monolith_leg_extension.png'
+  },
+
+  // 23. Panatta — Panatta Monolith - Seated Leg Curling (1MTH083)
+  {
+    id: 'panatta_monolith_seated_leg_curl',
+    brand: 'Panatta',
+    line: 'Monolith Selection (1MTH083)',
+    modelName: 'Panatta Monolith - Seated Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta Monolith - Seated Leg Curl'
+    }),
+    imageUrl: '/machines/panatta_monolith_seated_leg_curl.png'
+  },
+
+  // 24. Panatta — Panatta Monolith - Adductor Machine (1MTH087)
+  {
+    id: 'panatta_monolith_adductor',
+    brand: 'Panatta',
+    line: 'Monolith Selection (1MTH087)',
+    modelName: 'Panatta Monolith - Adductor',
+    canonicalExerciseType: 'adductor_machine',
+    muscleGroupLabel: 'Aductores',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta Monolith - Adductor'
+    }),
+    imageUrl: '/machines/panatta_monolith_adductor.png'
+  },
+
+  // 25. Panatta — Panatta FreeWeight Special - Super Standing Calf Hack (1FW092)
+  {
+    id: 'panatta_super_standing_calf',
+    brand: 'Panatta',
+    line: 'Free Weight Special (1FW092)',
+    modelName: 'Panatta FreeWeight Special - Super Standing Calf',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Panatta',
+      machineModelGuess: 'Panatta FreeWeight Special - Super Standing Calf'
+    }),
+    imageUrl: '/machines/panatta_super_standing_calf.png'
   }
 ];

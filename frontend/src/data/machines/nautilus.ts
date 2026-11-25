@@ -320,5 +320,105 @@ export const NAUTILUS_MACHINES: CatalogMachineEntry[] = [
       resistanceCurveDescription: 'Máquina de aducción con soporte femoral ergonómico y leva compensada.'
     },
     imageUrl: '/machines/nautilus_nitro_adductor.png'
+  },
+
+  // 17. Nautilus — Glute Drive (Hip Thrust)
+  {
+    id: 'nautilus_glute_drive',
+    brand: 'Nautilus',
+    line: 'Leverage',
+    modelName: 'Nautilus - Glute Drive (Hip Thrust)',
+    canonicalExerciseType: 'hip_thrust',
+    muscleGroupLabel: 'Glúteo',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Hip thrust guiado a discos con cinturón pélvico y banco pivotante para pico de tensión en extensión de cadera.'
+    },
+    imageUrl: '/machines/nautilus_glute_drive.png'
+  },
+
+  // 18. Nautilus Nitro Plus — Pullover
+  {
+    id: 'nautilus_nitro_pullover',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Pullover',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.35, mid: 0.40, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Pullover clásico Nautilus con arco de 250° y apoyo en codos que aísla el dorsal ancho sin fatiga de bíceps.'
+    },
+    imageUrl: '/machines/nautilus_nitro_pullover.png'
+  },
+
+  // 19. Nautilus Nitro Plus — Lower Back / Back Extension
+  {
+    id: 'nautilus_nitro_lower_back',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Lower Back / Back Extension',
+    canonicalExerciseType: 'back_extension',
+    muscleGroupLabel: 'Lumbares',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Extensión lumbar con mecanismo de cuatro barras que sigue el eje natural de la columna vertebral.'
+    },
+    imageUrl: '/machines/nautilus_nitro_lower_back.png'
+  },
+
+  // 20. Nautilus Nitro Plus — Rotary Torso
+  {
+    id: 'nautilus_nitro_rotary_torso',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Rotary Torso',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Rotación de torso sentado con estabilización superior patentada y leva de resistencia variable para oblicuos.'
+    },
+    imageUrl: '/machines/nautilus_nitro_rotary_torso.png'
+  },
+
+  // 21. Nautilus Nitro Plus — Standing Calf
+  {
+    id: 'nautilus_nitro_standing_calf',
+    brand: 'Nautilus',
+    line: 'Nitro Plus',
+    modelName: 'Nautilus Nitro Plus - Standing Calf',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
+      curveLabel: 'Descendente · Foco Estiramiento',
+      resistanceCurveDescription: 'Elevación de talones de pie con plataforma curva para máxima dorsiflexión y activación del gastrocnemio.'
+    },
+    imageUrl: '/machines/nautilus_nitro_standing_calf.png'
   }
 ];

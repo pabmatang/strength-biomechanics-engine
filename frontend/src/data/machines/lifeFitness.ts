@@ -378,5 +378,125 @@ export const LIFE_FITNESS_MACHINES: CatalogMachineEntry[] = [
       resistanceCurveDescription: 'Extensión de cadera unilateral de pie con apoyo pectoral para máxima contracción del glúteo mayor.'
     },
     imageUrl: '/machines/lifefitness_insignia_glute.png'
+  },
+
+  // 20. Life Fitness Insignia — Lateral Raise
+  {
+    id: 'lifefitness_insignia_lateral_raise',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Lateral Raise',
+    canonicalExerciseType: 'lateral_raise',
+    muscleGroupLabel: 'Hombros',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Elevaciones laterales en máquina con brazos articulados independientes y pivote alineado al hombro para aislar el deltoides medio.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_lateral_raise.png'
+  },
+
+  // 21. Life Fitness Insignia — Torso Rotation
+  {
+    id: 'lifefitness_insignia_torso_rotation',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Torso Rotation',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Rotación de torso selectorizada con fijación de rodillas y respaldo estabilizador para trabajar oblicuos internos y externos.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_torso_rotation.png'
+  },
+
+  // 22. Life Fitness Insignia — Assist Dip / Chin
+  {
+    id: 'lifefitness_insignia_assist_dip_chin',
+    brand: 'Life Fitness',
+    line: 'Insignia Series',
+    modelName: 'Life Fitness Insignia - Assist Dip / Chin',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'uniform',
+      curveWeights: { stretch: 0.334, mid: 0.333, shortened: 0.333 },
+      curveLabel: 'Uniforme · Asistencia Constante',
+      resistanceCurveDescription: 'Estación de dominadas y fondos asistidos por torre de placas con plataforma abatible y agarres multiposición.'
+    },
+    imageUrl: '/machines/lifefitness_insignia_assist_dip_chin.png'
+  },
+
+  // 23. Life Fitness Signature — Plate-Loaded Incline Press
+  {
+    id: 'lifefitness_signature_incline_press',
+    brand: 'Life Fitness',
+    line: 'Signature Series',
+    modelName: 'Life Fitness Signature - Plate-Loaded Incline Press',
+    canonicalExerciseType: 'incline_press',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Convergente',
+      resistanceCurveDescription: 'Press inclinado a discos con brazos convergentes independientes para enfatizar el haz clavicular del pectoral mayor.'
+    },
+    imageUrl: '/machines/lifefitness_signature_incline_press.png'
+  },
+
+  // 24. Life Fitness Signature — Plate-Loaded Linear Leg Press 45°
+  {
+    id: 'lifefitness_signature_leg_press_45',
+    brand: 'Life Fitness',
+    line: 'Signature Series',
+    modelName: 'Life Fitness Signature - Plate-Loaded Linear Leg Press 45°',
+    canonicalExerciseType: 'leg_press',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento',
+      resistanceCurveDescription: 'Prensa lineal a 45° a discos sobre carro de rodamientos lineales; máxima demanda en flexión profunda de rodilla y cadera.'
+    },
+    imageUrl: '/machines/lifefitness_signature_leg_press_45.png'
+  },
+
+  // 25. Life Fitness Signature — Dual Adjustable Pulley (CMDAP)
+  {
+    id: 'lifefitness_signature_dap',
+    brand: 'Life Fitness',
+    line: 'Signature Series',
+    modelName: 'Life Fitness Signature - Dual Adjustable Pulley (CMDAP)',
+    canonicalExerciseType: 'cable_crossover',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'uniform',
+      curveWeights: { stretch: 0.334, mid: 0.333, shortened: 0.333 },
+      curveLabel: 'Uniforme · Tensión Constante',
+      resistanceCurveDescription: 'Doble polea regulable en altura con relación de cable 4:1 para cruces, empujes y tracciones en cualquier plano.'
+    },
+    imageUrl: '/machines/lifefitness_signature_dap.png'
   }
 ];

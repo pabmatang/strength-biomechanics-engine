@@ -1095,7 +1095,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const handleCueClick = (cue: TimelineCue) => {
     setActiveTimelineCue(cue);
     if (videoElementRef.current) {
-      const targetTime = clampPlayerTimeToTrim(trimStart + Math.max(0, cue.timestamp_sec), trimStart, trimEnd, true);
+      const targetTime = clampPlayerTimeToTrim(trimStart + Math.max(0, cue.timestamp_sec - 1.0), trimStart, trimEnd, true);
       safeSeekVideo(targetTime);
       handleSpeedChange(0.5);
       videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
@@ -3036,7 +3036,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 items-start overflow-y-auto">
 
           {/* LEFT COLUMN: Video Viewport & Playback Bar */}
-          <div className="flex flex-col gap-2 min-w-0 lg:col-span-7">
+          <div className="flex flex-col gap-2 min-w-0 lg:col-span-7 lg:sticky lg:top-0 lg:self-start">
 
             {/* Video File Input Bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
@@ -3508,12 +3508,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     {analysisData && analysisData.total_reps > 0 && currentFrame && currentFrame.rep_number > 0
                       ? `REP #${currentFrame.rep_number}`
                       : isPostSet
-                      ? 'FIN DE SERIE'
+                      ? 'SERIE COMPLETADA'
                       : 'PREPARACIÓN'}
                   </span>
                   <span className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold shadow-md">
                     {isPostSet && (!currentFrame?.phase || currentFrame.phase === 'IDLE')
-                      ? 'FIN DE SERIE'
+                      ? `${analysisData?.total_reps ?? 0} REPS`
                       : (currentFrame?.phase || 'IDLE')}
                   </span>
                   {activeView === 'velocity' ? (
@@ -4079,11 +4079,12 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 {isSuperUser && analysisData?.timings && (
                   <div className="px-3 py-1.5 rounded-xl bg-slate-950/90 border border-cyan-500/30 text-[10px] font-mono text-cyan-200 flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="font-bold text-cyan-400">DEV GPU:</span>
-                    <span>total {analysisData.timings.total_s.toFixed(2)}s</span>
+                    {typeof analysisData.timings.compress_s === 'number' && <span>comp {analysisData.timings.compress_s.toFixed(2)}s</span>}
+                    {typeof analysisData.timings.upload_s === 'number' && <span>up {analysisData.timings.upload_s.toFixed(2)}s</span>}
                     <span>ffmpeg {analysisData.timings.ffmpeg_s.toFixed(2)}s</span>
                     <span>det {analysisData.timings.det_s.toFixed(2)}s</span>
                     <span>pose {analysisData.timings.pose_s.toFixed(2)}s</span>
-                    <span>snap {analysisData.timings.render_snapshots_s.toFixed(2)}s</span>
+                    <span>total {analysisData.timings.total_s.toFixed(2)}s</span>
                   </div>
                 )}
 
@@ -4386,32 +4387,53 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           <div
                             key={idx}
                             onClick={() => handleCueClick(cue)}
-                            className={`p-3 rounded-2xl border transition cursor-pointer space-y-1.5 ${
+                            className={`rounded-2xl border transition cursor-pointer overflow-hidden ${
                               isSelected
                                 ? 'bg-cyan-950/50 border-cyan-500/80 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-500/30'
                                 : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${isCritical ? 'bg-rose-500' : isWarning ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                                <span className="text-xs font-black text-white">{cue.badge}</span>
+                            {cue.snapshot_b64 && (
+                              <div className="relative w-full h-32 bg-black overflow-hidden">
+                                <img
+                                  src={`data:image/jpeg;base64,${cue.snapshot_b64}`}
+                                  alt={cue.badge}
+                                  className="w-full h-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/30" />
+                                <span className="absolute top-2 left-2 text-[10px] font-mono px-2 py-0.5 rounded-md bg-black/75 border border-slate-700 text-cyan-300 font-bold">
+                                  {cue.timestamp_sec.toFixed(1)}s
+                                </span>
+                                <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 text-[10px] font-black shadow-md">
+                                  <Play className="w-3 h-3 fill-current" />
+                                  <span>▶ Ver a 0.5x</span>
+                                </span>
                               </div>
-                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-cyan-300 font-bold">
-                                {cue.timestamp_sec.toFixed(1)}s
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-300 leading-relaxed">{cue.message}</p>
-                            <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-cyan-300">
-                              <span className="font-bold text-slate-400 block mb-0.5">🔧 Solución Técnica:</span>
-                              <span>{cue.technical_fix}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-[10px] text-cyan-400 font-bold pt-0.5">
-                              <span className="flex items-center gap-1">
-                                <Play className="w-3 h-3 fill-current" />
-                                <span>Ver a 0.5x cámara lenta</span>
-                              </span>
-                              <span className="text-slate-500 uppercase font-mono">{cue.affected_joint}</span>
+                            )}
+                            <div className="p-3 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${isCritical ? 'bg-rose-500' : isWarning ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                                  <span className="text-xs font-black text-white">{cue.badge}</span>
+                                </div>
+                                {!cue.snapshot_b64 && (
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-cyan-300 font-bold">
+                                    {cue.timestamp_sec.toFixed(1)}s
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-300 leading-relaxed">{cue.message}</p>
+                              <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-cyan-300">
+                                <span className="font-bold text-slate-400 block mb-0.5">🔧 Solución Técnica:</span>
+                                <span>{cue.technical_fix}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-cyan-400 font-bold pt-0.5">
+                                <span className="flex items-center gap-1">
+                                  <Play className="w-3 h-3 fill-current" />
+                                  <span>Ver a 0.5x cámara lenta</span>
+                                </span>
+                                <span className="text-slate-500 uppercase font-mono">{cue.affected_joint}</span>
+                              </div>
                             </div>
                           </div>
                         );

@@ -590,5 +590,167 @@ export const HAMMER_STRENGTH_MACHINES: CatalogMachineEntry[] = [
       curveLabel: 'Campana · Pico en Rango Medio'
     },
     imageUrl: '/machines/hammer_select_ab_crunch.png'
+  },
+
+  // 32. Hammer Strength — Hammer Strength Select - Hip Abduction
+  {
+    id: 'hammer_select_hip_abduction',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Hip Abduction',
+    canonicalExerciseType: 'abductor_machine',
+    muscleGroupLabel: 'Abductores',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Hip Abduction'
+    }),
+    imageUrl: '/machines/hammer_select_hip_abduction.png'
+  },
+
+  // 33. Hammer Strength — Hammer Strength Select - Hip Adduction
+  {
+    id: 'hammer_select_hip_adduction',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Hip Adduction',
+    canonicalExerciseType: 'adductor_machine',
+    muscleGroupLabel: 'Aductores',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Hip Adduction'
+    }),
+    imageUrl: '/machines/hammer_select_hip_adduction.png'
+  },
+
+  // 34. Hammer Strength — Hammer Strength Select - Chest Press
+  {
+    id: 'hammer_select_chest_press',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Chest Press',
+    canonicalExerciseType: 'chest_press_machine',
+    muscleGroupLabel: 'Pectoral',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'convergent',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Chest Press'
+    }),
+    imageUrl: '/machines/hammer_select_chest_press.png'
+  },
+
+  // 35. Hammer Strength — Hammer Strength Select - Lat Pulldown
+  {
+    id: 'hammer_select_lat_pulldown',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Lat Pulldown',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Lat Pulldown'
+    }),
+    imageUrl: '/machines/hammer_select_lat_pulldown.png'
+  },
+
+  // 36. Hammer Strength — Hammer Strength Select - Seated Row
+  {
+    id: 'hammer_select_seated_row',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Seated Row',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Seated Row'
+    }),
+    imageUrl: '/machines/hammer_select_seated_row.png'
+  },
+
+  // 37. Hammer Strength — Hammer Strength Select - Leg Extension
+  {
+    id: 'hammer_select_leg_extension',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Leg Extension',
+    canonicalExerciseType: 'leg_extension',
+    muscleGroupLabel: 'Cuádriceps',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Leg Extension'
+    }),
+    imageUrl: '/machines/hammer_select_leg_extension.png'
+  },
+
+  // 38. Hammer Strength — Hammer Strength Select - Prone Leg Curl
+  {
+    id: 'hammer_select_prone_leg_curl',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Prone Leg Curl',
+    canonicalExerciseType: 'seated_leg_curl',
+    muscleGroupLabel: 'Isquiosurales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Prone Leg Curl'
+    }),
+    imageUrl: '/machines/hammer_select_prone_leg_curl.png'
+  },
+
+  // 39. Hammer Strength — Hammer Strength Select - Assist Dip / Chin
+  {
+    id: 'hammer_select_assist_dip_chin',
+    brand: 'Hammer Strength',
+    line: 'Hammer Strength Select',
+    modelName: 'Hammer Strength Select - Assist Dip / Chin',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength Select - Assist Dip / Chin'
+    }),
+    imageUrl: '/machines/hammer_select_assist_dip_chin.png'
+  },
+
+  // 40. Hammer Strength — Hammer Strength - Plate-Loaded Pullover
+  {
+    id: 'hammer_plate_loaded_pullover',
+    brand: 'Hammer Strength',
+    line: 'Plate Loaded',
+    modelName: 'Hammer Strength - Plate-Loaded Pullover',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: classifyMachineResistanceProfile({
+      loadType: 'plate_loaded',
+      pivotBehavior: 'approaches_vertical_loss',
+      pathType: 'circular_arc',
+      machineBrandGuess: 'Hammer Strength',
+      machineModelGuess: 'Hammer Strength - Plate-Loaded Pullover'
+    }),
+    imageUrl: '/machines/hammer_plate_loaded_pullover.png'
   }
 ];

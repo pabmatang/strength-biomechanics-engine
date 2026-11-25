@@ -323,5 +323,145 @@ export const PRECOR_MACHINES: CatalogMachineEntry[] = [
       resistanceCurveDescription: 'Crunch abdominal con pivote anatómico lumbar para flexión torácica pura.'
     },
     imageUrl: '/machines/precor_discovery_abdominal_crunch.png'
+  },
+
+  // 17. Precor Discovery / Vitality — Lateral Raise
+  {
+    id: 'precor_discovery_lateral_raise',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery / Vitality - Lateral Raise',
+    canonicalExerciseType: 'lateral_raise',
+    muscleGroupLabel: 'Hombros',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.25, mid: 0.50, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Elevación lateral sentado con brazos independientes y leva excéntrica para aislamiento del deltoides medio.'
+    },
+    imageUrl: '/machines/precor_discovery_lateral_raise.png'
+  },
+
+  // 18. Precor Discovery — Glute Extension
+  {
+    id: 'precor_discovery_glute_extension',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Glute Extension',
+    canonicalExerciseType: 'glute_kickback',
+    muscleGroupLabel: 'Glúteo',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento',
+      resistanceCurveDescription: 'Extensión de glúteo de pie con brazo largo de movimiento para máxima extensión de cadera.'
+    },
+    imageUrl: '/machines/precor_discovery_glute_extension.png'
+  },
+
+  // 19. Precor Discovery — Back Extension
+  {
+    id: 'precor_discovery_back_extension',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Back Extension',
+    canonicalExerciseType: 'back_extension',
+    muscleGroupLabel: 'Lumbares',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Extensión lumbar sentado con respaldo contorneado y plataforma fija para estabilización pélvica.'
+    },
+    imageUrl: '/machines/precor_discovery_back_extension.png'
+  },
+
+  // 20. Precor Discovery — Rotary Torso
+  {
+    id: 'precor_discovery_rotary_torso',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Rotary Torso',
+    canonicalExerciseType: 'abdominal_crunch',
+    muscleGroupLabel: 'Abdomen',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Máximo Momento Medio',
+      resistanceCurveDescription: 'Rotación de torso sentado con estabilización de rodillas y ajuste bilateral para oblicuos.'
+    },
+    imageUrl: '/machines/precor_discovery_rotary_torso.png'
+  },
+
+  // 21. Precor Discovery — Dip / Chin Assist
+  {
+    id: 'precor_discovery_chin_dip_assist',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Dip / Chin Assist',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.35, mid: 0.35, shortened: 0.30 },
+      curveLabel: 'Plana · Asistencia Constante',
+      resistanceCurveDescription: 'Estación asistida de dominadas y fondos con contrapeso constante mediante columna selectorizada.'
+    },
+    imageUrl: '/machines/precor_discovery_chin_dip_assist.png'
+  },
+
+  // 22. Precor Discovery — Seated Calf Raise
+  {
+    id: 'precor_discovery_seated_calf',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery - Seated Calf Raise',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'stretched',
+      curveWeights: { stretch: 0.40, mid: 0.35, shortened: 0.25 },
+      curveLabel: 'Descendente · Foco Estiramiento',
+      resistanceCurveDescription: 'Extensión de gemelos sentado con plataforma curva y soporte lumbar para máxima flexión plantar.'
+    },
+    imageUrl: '/machines/precor_discovery_seated_calf.png'
+  },
+
+  // 23. Precor Discovery / FTS Glide — Dual Adjustable Pulley (DAP)
+  {
+    id: 'precor_discovery_dap',
+    brand: 'Precor',
+    line: 'Discovery Series',
+    modelName: 'Precor Discovery / FTS Glide - Dual Adjustable Pulley (DAP)',
+    canonicalExerciseType: 'cable_crossover',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'free_cable',
+      peakZone: 'mid',
+      curveWeights: { stretch: 0.33, mid: 0.34, shortened: 0.33 },
+      curveLabel: 'Plana · Tensión Constante de Polea',
+      resistanceCurveDescription: 'Doble polea ajustable funcional con recorrido fluido y tensión constante en cualquier ángulo de tracción o cruce.'
+    },
+    imageUrl: '/machines/precor_discovery_dap.png'
   }
 ];

@@ -406,5 +406,165 @@ export const MATRIX_MACHINES: CatalogMachineEntry[] = [
       curveLabel: 'Ascendente · Convergente'
     },
     imageUrl: '/machines/matrix_magnum_incline_press.png'
+  },
+
+  // 22. Matrix — Matrix Ultra - Glute (G7-S78)
+  {
+    id: 'matrix_ultra_glute',
+    brand: 'Matrix',
+    line: 'Ultra Series (G7-S78)',
+    modelName: 'Matrix Ultra - Glute (G7-S78)',
+    canonicalExerciseType: 'glute_kickback',
+    muscleGroupLabel: 'Glúteo',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Patada de glúteo de pie con plataforma antideslizante y brazo articulado; máxima contracción del glúteo mayor en extensión completa de cadera.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Foco Acortamiento'
+    },
+    imageUrl: '/machines/matrix_ultra_glute.png'
+  },
+
+  // 23. Matrix — Matrix Ultra - Back Extension (G7-S52)
+  {
+    id: 'matrix_ultra_back_extension',
+    brand: 'Matrix',
+    line: 'Ultra Series (G7-S52)',
+    modelName: 'Matrix Ultra - Back Extension (G7-S52)',
+    canonicalExerciseType: 'back_extension',
+    muscleGroupLabel: 'Lumbares',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'eccentric_cam_drop',
+      pathType: 'circular_arc',
+      peakZone: 'mid',
+      resistanceCurveDescription: 'Extensión lumbar guiada sentado con múltiples posiciones de inicio y apoyo pélvico fijo para aislar los erectores espinales.',
+      curveWeights: { stretch: 0.30, mid: 0.45, shortened: 0.25 },
+      curveLabel: 'Campana · Rango Medio'
+    },
+    imageUrl: '/machines/matrix_ultra_back_extension.png'
+  },
+
+  // 24. Matrix — Matrix Ultra - Dip / Chin Assist (G7-S60)
+  {
+    id: 'matrix_ultra_dip_chin_assist',
+    brand: 'Matrix',
+    line: 'Ultra Series (G7-S60)',
+    modelName: 'Matrix Ultra - Dip / Chin Assist (G7-S60)',
+    canonicalExerciseType: 'lat_pulldown',
+    muscleGroupLabel: 'Dorsales',
+    profile: {
+      loadType: 'selectorized_stack',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'linear_fixed',
+      peakZone: 'uniform',
+      resistanceCurveDescription: 'Estación asistida por contrapeso guiado para dominadas y fondos con agarres multiposición y plataforma abatible.',
+      curveWeights: { stretch: 0.334, mid: 0.333, shortened: 0.333 },
+      curveLabel: 'Uniforme · Asistencia Constante'
+    },
+    imageUrl: '/machines/matrix_ultra_dip_chin_assist.png'
+  },
+
+  // 25. Matrix — Matrix Magnum - Chest Press a Discos (MG-PL13)
+  {
+    id: 'matrix_magnum_chest_press',
+    brand: 'Matrix',
+    line: 'Magnum Series (MG-PL13)',
+    modelName: 'Matrix Magnum - Chest Press a Discos (MG-PL13)',
+    canonicalExerciseType: 'chest_press_machine',
+    muscleGroupLabel: 'Pectoral',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Press de pecho horizontal a discos con brazos convergentes independientes para una aducción pectoral completa.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Convergente'
+    },
+    imageUrl: '/machines/matrix_magnum_chest_press.png'
+  },
+
+  // 26. Matrix — Matrix Magnum - Shoulder Press a Discos (MG-PL23)
+  {
+    id: 'matrix_magnum_shoulder_press',
+    brand: 'Matrix',
+    line: 'Magnum Series (MG-PL23)',
+    modelName: 'Matrix Magnum - Shoulder Press a Discos (MG-PL23)',
+    canonicalExerciseType: 'shoulder_press_machine',
+    muscleGroupLabel: 'Hombros',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'convergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Press militar a discos con palancas convergentes independientes y agarres duales para optimizar el reclutamiento del deltoides anterior.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Convergente'
+    },
+    imageUrl: '/machines/matrix_magnum_shoulder_press.png'
+  },
+
+  // 27. Matrix — Matrix Magnum - Low Row a Discos (MG-PL34)
+  {
+    id: 'matrix_magnum_low_row',
+    brand: 'Matrix',
+    line: 'Magnum Series (MG-PL34)',
+    modelName: 'Matrix Magnum - Low Row a Discos (MG-PL34)',
+    canonicalExerciseType: 'seated_row',
+    muscleGroupLabel: 'Espalda Alta',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'divergent',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Remo bajo a discos con brazos divergentes independientes y apoyo pectoral regulable para máxima retracción escapular.',
+      curveWeights: { stretch: 0.25, mid: 0.35, shortened: 0.40 },
+      curveLabel: 'Ascendente · Divergente'
+    },
+    imageUrl: '/machines/matrix_magnum_low_row.png'
+  },
+
+  // 28. Matrix — Matrix Magnum - Glute Trainer / Hip Thrust (MG-PL78)
+  {
+    id: 'matrix_magnum_glute_trainer',
+    brand: 'Matrix',
+    line: 'Magnum Series (MG-PL78)',
+    modelName: 'Matrix Magnum - Glute Trainer / Hip Thrust (MG-PL78)',
+    canonicalExerciseType: 'hip_thrust',
+    muscleGroupLabel: 'Glúteo',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'opens_to_horizontal_gain',
+      pathType: 'circular_arc',
+      peakZone: 'shortened',
+      resistanceCurveDescription: 'Hip thrust guiado a discos con cinturón pélvico y respaldo basculante; máxima tensión mecánica en extensión completa de cadera.',
+      curveWeights: { stretch: 0.20, mid: 0.35, shortened: 0.45 },
+      curveLabel: 'Ascendente · Pico Acortamiento'
+    },
+    imageUrl: '/machines/matrix_magnum_glute_trainer.png'
+  },
+
+  // 29. Matrix — Matrix Magnum - Seated Calf a Discos (MG-PL77)
+  {
+    id: 'matrix_magnum_seated_calf',
+    brand: 'Matrix',
+    line: 'Magnum Series (MG-PL77)',
+    modelName: 'Matrix Magnum - Seated Calf a Discos (MG-PL77)',
+    canonicalExerciseType: 'calf_raise',
+    muscleGroupLabel: 'Gemelos',
+    profile: {
+      loadType: 'plate_loaded',
+      pivotBehavior: 'linear_neutral',
+      pathType: 'circular_arc',
+      peakZone: 'stretched',
+      resistanceCurveDescription: 'Elevación de talones sentado a discos con rodillas a 90° para carga directa sobre el sóleo y máxima dorsiflexión.',
+      curveWeights: { stretch: 0.45, mid: 0.35, shortened: 0.20 },
+      curveLabel: 'Descendente · Foco Estiramiento'
+    },
+    imageUrl: '/machines/matrix_magnum_seated_calf.png'
   }
 ];

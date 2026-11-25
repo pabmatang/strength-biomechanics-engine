@@ -24,7 +24,269 @@ export interface VideoCompressionOptions {
 }
 
 /**
- * Internal single-pass Canvas + MediaRecorder compressor.
+ * Minimal zero-dependency WebM (EBML + VP8) muxer for WebCodecs VideoEncoder chunks.
+ * Produces a valid seekable WebM Blob with exact millisecond PTS timestamps.
+ */
+function encodeEbmlVint(val: number): Uint8Array {
+  if (val < 0x7f) return new Uint8Array([0x80 | val]);
+  if (val < 0x3fff) return new Uint8Array([0x40 | (val >> 8), val & 0xff]);
+  if (val < 0x1fffff) return new Uint8Array([0x20 | (val >> 16), (val >> 8) & 0xff, val & 0xff]);
+  return new Uint8Array([0x10 | (val >> 24), (val >> 16) & 0xff, (val >> 8) & 0xff, val & 0xff]);
+}
+
+function ebmlEl(idBytes: number[], payload: Uint8Array): Uint8Array {
+  const vint = encodeEbmlVint(payload.length);
+  const out = new Uint8Array(idBytes.length + vint.length + payload.length);
+  out.set(idBytes, 0);
+  out.set(vint, idBytes.length);
+  out.set(payload, idBytes.length + vint.length);
+  return out;
+}
+
+function ebmlUint(idBytes: number[], val: number): Uint8Array {
+  const bytes: number[] = [];
+  let v = Math.max(0, Math.floor(val));
+  do {
+    bytes.unshift(v & 0xff);
+    v = Math.floor(v / 256);
+  } while (v > 0);
+  return ebmlEl(idBytes, new Uint8Array(bytes));
+}
+
+function ebmlStr(idBytes: number[], str: string): Uint8Array {
+  return ebmlEl(idBytes, new TextEncoder().encode(str));
+}
+
+function ebmlFloat64(idBytes: number[], val: number): Uint8Array {
+  const buf = new ArrayBuffer(8);
+  new DataView(buf).setFloat64(0, val, false);
+  return ebmlEl(idBytes, new Uint8Array(buf));
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((acc, p) => acc + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
+}
+
+function buildWebmFromVp8Chunks(
+  chunks: Array<{ data: Uint8Array; timestampMs: number; key: boolean }>,
+  width: number,
+  height: number,
+  durationMs: number
+): Blob {
+  const ebmlHeader = ebmlEl([0x1a, 0x45, 0xdf, 0xa3], concatBytes([
+    ebmlUint([0x42, 0x86], 1),
+    ebmlUint([0x42, 0xf7], 1),
+    ebmlUint([0x42, 0xf2], 4),
+    ebmlUint([0x42, 0xf3], 8),
+    ebmlStr([0x42, 0x82], 'webm'),
+    ebmlUint([0x42, 0x87], 2),
+    ebmlUint([0x42, 0x85], 2),
+  ]));
+
+  const segInfo = ebmlEl([0x15, 0x49, 0xa9, 0x66], concatBytes([
+    ebmlUint([0x2a, 0xd7, 0xb1], 1_000_000), // TimecodeScale = 1ms
+    ebmlStr([0x4d, 0x80], 'MIA-WebCodecs'),
+    ebmlStr([0x57, 0x41], 'MIA-WebCodecs'),
+    ebmlFloat64([0x44, 0x89], Math.max(1, durationMs)),
+  ]));
+
+  const videoInfo = ebmlEl([0xe0], concatBytes([
+    ebmlUint([0xb0], width),
+    ebmlUint([0xba], height),
+  ]));
+  const trackEntry = ebmlEl([0xae], concatBytes([
+    ebmlUint([0xd7], 1),
+    ebmlUint([0x73, 0xc5], 1),
+    ebmlUint([0x83], 1), // video
+    ebmlStr([0x86], 'V_VP8'),
+    videoInfo,
+  ]));
+  const tracks = ebmlEl([0x16, 0x54, 0xae, 0x6b], trackEntry);
+
+  const clusters: Uint8Array[] = [];
+  let clusterTimecode = 0;
+  let clusterBlocks: Uint8Array[] = [];
+
+  const flushCluster = () => {
+    if (clusterBlocks.length === 0) return;
+    clusters.push(ebmlEl([0x1f, 0x43, 0xb6, 0x75], concatBytes([
+      ebmlUint([0xe7], clusterTimecode),
+      ...clusterBlocks,
+    ])));
+    clusterBlocks = [];
+  };
+
+  for (const ch of chunks) {
+    if (clusterBlocks.length === 0 || (ch.key && ch.timestampMs - clusterTimecode >= 2000) || (ch.timestampMs - clusterTimecode >= 30000)) {
+      flushCluster();
+      clusterTimecode = Math.max(0, Math.round(ch.timestampMs));
+    }
+    const relMs = Math.max(-32768, Math.min(32767, Math.round(ch.timestampMs - clusterTimecode)));
+    const blockHeader = new Uint8Array([
+      0x81, // track 1 VINT
+      (relMs >> 8) & 0xff,
+      relMs & 0xff,
+      ch.key ? 0x80 : 0x00,
+    ]);
+    const simpleBlock = ebmlEl([0xa3], concatBytes([blockHeader, ch.data]));
+    clusterBlocks.push(simpleBlock);
+  }
+  flushCluster();
+
+  const segment = ebmlEl([0x18, 0x53, 0x80, 0x67], concatBytes([segInfo, tracks, ...clusters]));
+  return new Blob([concatBytes([ebmlHeader, segment]) as unknown as BlobPart], { type: 'video/webm;codecs=vp8' });
+}
+
+/**
+ * Hardware-accelerated WebCodecs VideoEncoder path (no 1x wall-clock wait).
+ * Steps through [startTime, endTime] at targetFps and encodes exact 1:1 PTS frames.
+ */
+async function runWebCodecsCompression(
+  file: File | Blob,
+  maxWidth: number,
+  targetFps: number,
+  bitrate: number,
+  maxDurationSec: number,
+  range?: VideoRange,
+  onProgress?: (pct: number) => void
+): Promise<Blob | null> {
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined' ||
+    typeof VideoEncoder !== 'function' ||
+    typeof VideoFrame !== 'function'
+  ) {
+    return null;
+  }
+
+  const tStart = performance.now();
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  const objectUrl = URL.createObjectURL(file);
+  video.src = objectUrl;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('metadata timeout')), 8000);
+      video.onloadedmetadata = () => { clearTimeout(timer); resolve(); };
+      video.onerror = () => { clearTimeout(timer); reject(new Error('video load error')); };
+    });
+
+    const nativeW = video.videoWidth || 640;
+    const nativeH = video.videoHeight || 480;
+    const rawDuration = video.duration || 0;
+    const scale = nativeW > maxWidth ? maxWidth / nativeW : 1;
+    let targetW = Math.round(nativeW * scale);
+    let targetH = Math.round(nativeH * scale);
+    targetW = targetW % 2 === 0 ? targetW : targetW - 1;
+    targetH = targetH % 2 === 0 ? targetH : targetH - 1;
+    if (targetW < 2 || targetH < 2) return null;
+
+    const support = await VideoEncoder.isConfigSupported({
+      codec: 'vp8',
+      width: targetW,
+      height: targetH,
+      bitrate,
+      framerate: targetFps,
+    });
+    if (!support.supported) return null;
+
+    const startTime = Math.max(0, range?.startTime ?? 0);
+    const requestedEnd = range?.endTime ?? Math.min(rawDuration, startTime + maxDurationSec);
+    const endTime = Math.min(rawDuration > 0 ? rawDuration : requestedEnd, startTime + maxDurationSec, requestedEnd);
+    const clipDurationSec = Math.max(0.5, endTime - startTime);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return null;
+
+    const encodedChunks: Array<{ data: Uint8Array; timestampMs: number; key: boolean }> = [];
+    let encoderError = false;
+    const encoder = new VideoEncoder({
+      output: (chunk) => {
+        const buf = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(buf);
+        encodedChunks.push({
+          data: buf,
+          timestampMs: chunk.timestamp / 1000,
+          key: chunk.type === 'key',
+        });
+      },
+      error: () => { encoderError = true; },
+    });
+
+    encoder.configure({
+      codec: 'vp8',
+      width: targetW,
+      height: targetH,
+      bitrate,
+      framerate: targetFps,
+    });
+
+    const stepSec = 1.0 / targetFps;
+    const totalSteps = Math.max(2, Math.floor(clipDurationSec * targetFps) + 1);
+    for (let idx = 0; idx < totalSteps; idx++) {
+      if (encoderError) break;
+      const relSec = Math.min(clipDurationSec, idx * stepSec);
+      const seekSec = Math.min(endTime, startTime + relSec);
+
+      await new Promise<void>((resolve) => {
+        if (Math.abs(video.currentTime - seekSec) < 0.008) {
+          resolve();
+          return;
+        }
+        const tSeek = setTimeout(() => { video.onseeked = null; resolve(); }, 1500);
+        video.onseeked = () => { clearTimeout(tSeek); video.onseeked = null; resolve(); };
+        video.currentTime = seekSec;
+      });
+
+      ctx.drawImage(video, 0, 0, targetW, targetH);
+      const frame = new VideoFrame(canvas, {
+        timestamp: Math.round(relSec * 1_000_000),
+        duration: Math.round(stepSec * 1_000_000),
+      });
+      encoder.encode(frame, { keyFrame: idx % Math.max(15, targetFps * 2) === 0 });
+      frame.close();
+
+      if (onProgress && idx % 5 === 0) {
+        onProgress(Math.min(98, Math.max(1, Math.round((idx / totalSteps) * 100))));
+      }
+    }
+
+    await encoder.flush();
+    encoder.close();
+    if (encoderError || encodedChunks.length < 2) return null;
+
+    const webmBlob = buildWebmFromVp8Chunks(encodedChunks, targetW, targetH, clipDurationSec * 1000);
+    const compressSec = Number(((performance.now() - tStart) / 1000).toFixed(3));
+    (webmBlob as any).__speedFactor = 1.0;
+    (webmBlob as any).__expectedDurationSec = clipDurationSec;
+    (webmBlob as any).__compressDurationSec = compressSec;
+    (webmBlob as any).__trimmedClientSide = true;
+    console.info(`[Compressor WebCodecs] ${encodedChunks.length} frames @ ${targetFps}fps en ${compressSec}s -> ${(webmBlob.size / (1024 * 1024)).toFixed(2)} MB`);
+    return webmBlob;
+  } catch {
+    return null;
+  } finally {
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/**
+ * Internal single-pass Canvas + MediaRecorder compressor (fallback).
  */
 function runCanvasCompression(
   file: File | Blob,
@@ -309,8 +571,12 @@ export async function prepareVideoForAnalysis(
     return file;
   }
 
-  // 1. Primary Compression Pass (480p / 15 FPS / 800 kbps) for huge files (> 25 MB)
-  let compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
+  // 1. Fast Hardware-Accelerated WebCodecs Pass (no 1x wall-clock wait), falling back to MediaRecorder
+  const tCompressStart = performance.now();
+  let compressedBlob = await runWebCodecsCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
+  if (!compressedBlob) {
+    compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
+  }
 
   // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if primary pass failed or result > 25 MB
   const maxSafeSizeBytes = 25 * 1024 * 1024;
@@ -318,10 +584,15 @@ export async function prepareVideoForAnalysis(
 
   if (needsEmergencyCompression && file.size > maxSafeSizeBytes) {
     console.warn(`[Compressor] Archivo > 25MB (${((compressedBlob?.size || file.size) / (1024 * 1024)).toFixed(1)}MB). Ejecutando compresión de emergencia 360p/12FPS...`);
-    const emergencyBlob = await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress);
+    const emergencyBlob = await runWebCodecsCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress)
+      || await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress);
     if (emergencyBlob) {
       compressedBlob = emergencyBlob;
     }
+  }
+
+  if (compressedBlob && !(compressedBlob as any).__compressDurationSec) {
+    (compressedBlob as any).__compressDurationSec = Number(((performance.now() - tCompressStart) / 1000).toFixed(3));
   }
 
   return compressedBlob || file;

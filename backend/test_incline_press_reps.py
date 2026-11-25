@@ -826,6 +826,73 @@ def test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames():
     )
 
 
+def test_hip_thrust_5_reps_alignment_and_key_moments():
+    """
+    Hip thrust with 5 clean hip angle oscillations (117 deg bottom <-> 174 deg lockout):
+    - total_reps == 5 (no premature FIN DE SERIE cut)
+    - alignment_frames[0] is at bottom (hip_deg <= 125) and alignment_frames[1] is at lockout (hip_deg >= 165)
+    - key_moments / timeline_cues all have 0.0 <= timestamp_sec <= clip_duration and snapshot_b64 when frames_rgb given
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    # 5 reps of ~2.4s each (18 frames up, 18 frames down)
+    rep_tpl = [117.0 + (174.0 - 117.0) * (k / 18.0) for k in range(1, 19)] + [174.0 - (174.0 - 117.0) * (k / 18.0) for k in range(1, 19)]
+    angles = [117.0] * 12 + rep_tpl * 5 + [117.0] * 12
+    n_frames = len(angles)
+    timestamps = [f * dt for f in range(n_frames)]
+
+    frames_keypoints = []
+    frames_rgb = [np.zeros((120, 90, 3), dtype=np.uint8) for _ in range(n_frames)]
+    for hip_ang in angles:
+        # Hip at (0.50, 0.65), knee fixed at (0.70, 0.65), ankle at (0.72, 0.90)
+        # Shoulder moves so angle(shoulder - hip - knee) == hip_ang
+        rad = math.radians(hip_ang)
+        hp_x, hp_y = 0.50, 0.65
+        kn_x, kn_y = 0.70, 0.65
+        ak_x, ak_y = 0.72, 0.90
+        sh_x = hp_x + 0.25 * math.cos(rad)
+        sh_y = hp_y - 0.25 * math.sin(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.95},
+            "left_elbow": {"x": sh_x, "y": sh_y + 0.12, "score": 0.95},
+            "left_wrist": {"x": sh_x + 0.08, "y": sh_y + 0.14, "score": 0.95},
+            "left_hip": {"x": hp_x, "y": hp_y, "score": 0.95},
+            "left_knee": {"x": kn_x, "y": kn_y, "score": 0.95},
+            "left_ankle": {"x": ak_x, "y": ak_y, "score": 0.95},
+            "left_ear": {"x": sh_x - 0.04, "y": sh_y - 0.06, "score": 0.95},
+            "right_shoulder": {"x": sh_x, "y": sh_y, "score": 0.30},
+            "right_elbow": {"x": sh_x, "y": sh_y + 0.12, "score": 0.30},
+            "right_wrist": {"x": sh_x + 0.08, "y": sh_y + 0.14, "score": 0.30},
+            "right_hip": {"x": hp_x, "y": hp_y, "score": 0.30},
+            "right_knee": {"x": kn_x, "y": kn_y, "score": 0.30},
+            "right_ankle": {"x": ak_x, "y": ak_y, "score": 0.30},
+            "right_ear": {"x": sh_x - 0.04, "y": sh_y - 0.06, "score": 0.30},
+            "nose": {"x": sh_x - 0.03, "y": sh_y - 0.04, "score": 0.90},
+        })
+
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="hip_thrust",
+        exercise_name="Hip Thrust en Máquina",
+        target_muscle="glutes",
+        load_type="machine",
+        img_w=90,
+        img_h=120,
+        frames_rgb=frames_rgb,
+        run_vlm=False,
+    )
+    assert result.get("total_reps") == 5, f"Expected 5 hip_thrust reps, got {result.get('total_reps')}"
+    af = result.get("alignment_frames", [])
+    assert len(af) == 2
+    assert af[0]["metrics"]["hip_deg"] <= 125.0, f"Expected bottom hip_deg <= 125°, got {af[0]['metrics']['hip_deg']}"
+    assert af[1]["metrics"]["hip_deg"] >= 165.0, f"Expected lockout hip_deg >= 165°, got {af[1]['metrics']['hip_deg']}"
+    clip_dur = result.get("total_duration_sec", timestamps[-1])
+    for km in result.get("key_moments", []):
+        assert 0.0 <= km["timestamp_sec"] <= clip_dur + 0.01
+        assert km.get("snapshot_b64")
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
@@ -836,3 +903,4 @@ if __name__ == "__main__":
     test_camera_stability_flags_25pct_scale_drift()
     test_rtdetr_strided_and_vitpose_batched_output_format()
     test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames()
+    test_hip_thrust_5_reps_alignment_and_key_moments()

@@ -137,6 +137,7 @@ export interface TimelineCue {
   message: string;
   technical_fix: string;
   affected_joint: 'elbow' | 'shoulder' | 'lumbar' | 'wrist' | 'knee' | 'hip' | string;
+  snapshot_b64?: string | null;
 }
 
 export interface AlignmentCheck {
@@ -325,6 +326,8 @@ export interface AlignmentFrame {
 
 export interface PipelineTimings {
   model_load_s: number;
+  compress_s?: number;
+  upload_s?: number;
   ffmpeg_s: number;
   det_s: number;
   pose_s: number;
@@ -480,6 +483,8 @@ export async function analyzeVideoWithModal(
   try {
     let response: Response;
 
+    const tUploadStart = performance.now();
+    const compressS = Number((videoBlob as any).__compressDurationSec || 0);
     const isTrimmedClient = Boolean((videoBlob as any).__trimmedClientSide);
     const speedFactor = Number((videoBlob as any).__speedFactor || 1.0);
     const startTime = isTrimmedClient
@@ -734,6 +739,12 @@ export async function analyzeVideoWithModal(
         throw new Error('La respuesta del microservicio no contiene el array de frames cinemáticos esperado.');
       }
 
+      const uploadS = Number(((performance.now() - tUploadStart) / 1000).toFixed(3));
+      if (completedData.timings) {
+        completedData.timings.compress_s = compressS;
+        completedData.timings.upload_s = uploadS;
+        console.info('[MIA Audit] Timings:', completedData.timings);
+      }
       analysisCache.set(cacheKey, completedData);
       return completedData;
     }
@@ -753,6 +764,12 @@ export async function analyzeVideoWithModal(
       throw new Error('La respuesta del microservicio no contiene el array de frames cinemáticos esperado.');
     }
 
+    const uploadS = Number(((performance.now() - tUploadStart) / 1000).toFixed(3));
+    if (data.timings) {
+      data.timings.compress_s = compressS;
+      data.timings.upload_s = uploadS;
+      console.info('[MIA Audit] Timings:', data.timings);
+    }
     analysisCache.set(cacheKey, data);
     return data;
   } catch (err: any) {

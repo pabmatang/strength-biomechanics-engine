@@ -3202,7 +3202,7 @@ def process_kinematics(
     t_max_bound = min(timestamps[valid_end_idx] - 0.10, timestamps[-1] - 0.10) if timestamps else 29.90
 
     eff_fps = (1.0 / max(1e-3, float(np.median(np.diff(timestamps))))) if len(timestamps) > 1 else 15.0
-    min_rep_frames = max(3, int(round((0.75 if is_pattern_a else 0.90) * eff_fps)))
+    min_rep_frames = max(3, int(round((0.75 if is_pattern_a else (0.85 if is_pattern_c else 0.90)) * eff_fps)))
 
     push_rep_windows: List[Tuple[int, int, int]] = []
     if is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
@@ -3277,8 +3277,9 @@ def process_kinematics(
         if is_pattern_a:
             # Adaptive prominence for traction (t_bar_row / seated_row / lat_pulldown) in 3/4 oblique views
             target_prom = max(16.0, 0.32 * ptp_range) if ptp_range >= 24.0 else max(8.0, 0.32 * ptp_range)
-        elif is_hip_thrust:
-            target_prom = max(12.0, min(26.0, eff_range * 0.20))
+        elif is_pattern_c:
+            # Hip Thrust / Hinge / Knee exercises: adaptive prominence >= 18 deg on 30% of range, >= 0.85s separation
+            target_prom = max(18.0, 0.30 * ptp_range) if ptp_range >= 25.0 else max(10.0, 0.35 * ptp_range)
         else:
             target_prom = max(10.0, min(20.0, eff_range * 0.20))
 
@@ -4080,9 +4081,34 @@ def process_kinematics(
                 selected = True
 
         if not selected:
-            rep_target = repetitions_summary[len(repetitions_summary) // 2]
-            f_stretch = int(rep_target.get("bottom_frame", int(n_frames * 0.5)))
-            f_peak = int(rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8)))
+            # Pattern C (hip_thrust, deadlift, squat, leg_press, leg_extension, seated_leg_curl):
+            # f_stretch = MIN primary angle (bottom/stretch), f_peak = MAX primary angle (lockout/top)
+            # with mandatory >= 25 deg guard so Alineación & Estímulo match real extrema.
+            best_pair_c = None
+            best_diff_c = -1.0
+            for cand_rep in rep_candidates:
+                sf_t = max(0, int(cand_rep.get("start_frame", 0)))
+                ef_t = min(n_frames - 1, int(cand_rep.get("end_frame", n_frames - 1)))
+                if ef_t <= sf_t:
+                    continue
+                seg_p = clean_primary[sf_t : ef_t + 1]
+                f_bot_c = sf_t + int(np.argmin(seg_p))
+                f_top_c = sf_t + int(np.argmax(seg_p))
+                diff_c = float(clean_primary[f_top_c] - clean_primary[f_bot_c])
+                if diff_c >= 25.0:
+                    f_stretch, f_peak = f_bot_c, f_top_c
+                    selected = True
+                    break
+                if diff_c > best_diff_c:
+                    best_diff_c = diff_c
+                    best_pair_c = (f_bot_c, f_top_c)
+            if not selected and best_pair_c is not None:
+                f_stretch, f_peak = best_pair_c
+                selected = True
+            if not selected:
+                rep_target = repetitions_summary[len(repetitions_summary) // 2]
+                f_stretch = int(rep_target.get("bottom_frame", int(n_frames * 0.5)))
+                f_peak = int(rep_target.get("end_frame" if is_pattern_b else "start_frame", int(n_frames * 0.8)))
     else:
         f_stretch = max(0, min(n_frames - 1, int(n_frames * 0.33)))
         f_peak = max(0, min(n_frames - 1, int(n_frames * 0.66)))
@@ -4947,22 +4973,36 @@ def process_kinematics(
     if tot_weight > 0:
         effective_muscle_weights = {k: round(v / tot_weight, 3) for k, v in effective_muscle_weights.items()}
 
-    # Strictly clamp all timeline_cues timestamps to [0.0, clip_duration]
+    # Strictly clamp all timeline_cues timestamps to [0.0, clip_duration] and extract frozen keyframes
     clip_duration = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
-    if vlm_result and isinstance(vlm_result.get("timeline_cues"), list) and clip_duration > 0.0:
+    if vlm_result and isinstance(vlm_result.get("timeline_cues"), list):
+        ts_arr = np.asarray(timestamps, dtype=np.float64) if timestamps else np.zeros(n_frames, dtype=np.float64)
+        crit_joint = "elbow" if is_upper_body else ("hip" if (is_hip_thrust or any(k in ex_lower for k in ("rdl", "deadlift", "back_extension", "glute"))) else "knee")
         for _cue in vlm_result["timeline_cues"]:
             try:
                 _ct = float(_cue.get("timestamp_sec", 0.0))
-                if _ct < 0.0 or _ct > clip_duration:
+                if clip_duration > 0.0 and (_ct < 0.0 or _ct > clip_duration):
                     _r_idx = int(_cue.get("rep_index") or 1)
                     if 1 <= _r_idx <= len(repetitions_summary):
                         _rep = repetitions_summary[_r_idx - 1]
                         _ct = float(_rep.get("inflection_time", _rep.get("end_time", 0.0)))
-                    _cue["timestamp_sec"] = round(max(0.0, min(clip_duration, _ct)), 2)
-                else:
-                    _cue["timestamp_sec"] = round(_ct, 2)
+                _ct_clamped = round(max(0.0, min(clip_duration, _ct)), 2) if clip_duration > 0.0 else 0.0
+                _cue["timestamp_sec"] = _ct_clamped
             except (ValueError, TypeError):
                 _cue["timestamp_sec"] = 0.0
+
+            if frames_rgb and len(frames_rgb) > 0 and len(ts_arr) > 0:
+                target_abs_t = float(ts_arr[0]) + float(_cue["timestamp_sec"])
+                f_cue = max(0, min(len(frames_rgb) - 1, int(np.argmin(np.abs(ts_arr - target_abs_t)))))
+                cue_img = frames_rgb[f_cue].copy()
+                if crit_joint in primary_joints and f_cue < len(primary_joints[crit_joint]["x"]):
+                    ch_c, cw_c = cue_img.shape[:2]
+                    jx_c = int(round(float(primary_joints[crit_joint]["x"][f_cue]) * cw_c))
+                    jy_c = int(round(float(primary_joints[crit_joint]["y"][f_cue]) * ch_c))
+                    rad_c = max(8, int(round(min(ch_c, cw_c) / 36.0)))
+                    cv2.circle(cue_img, (jx_c, jy_c), rad_c, (34, 211, 238), 2, cv2.LINE_AA)
+                    cv2.circle(cue_img, (jx_c, jy_c), 3, (255, 255, 255), -1, cv2.LINE_AA)
+                _cue["snapshot_b64"] = encode_snapshot_jpeg_b64(cue_img, max_dim=420, quality=76)
 
     # Camera stability & scale drift detection (torso when hips visible, else dominant shoulder-elbow segment)
     eval_start_f = int(repetitions_summary[0]["start_frame"]) if repetitions_summary else valid_start_idx
@@ -5036,6 +5076,7 @@ def process_kinematics(
         "alignment_frames": alignment_frames,
         "_render_snapshots_s": render_snapshots_s,
         "timeline_cues": vlm_result.get("timeline_cues", []) if vlm_result else [],
+        "key_moments": vlm_result.get("timeline_cues", []) if vlm_result else [],
         "alignment_and_discomfort": vlm_result.get("alignment_and_discomfort") if vlm_result else None,
         "stimulus_and_specificity": vlm_result.get("stimulus_and_specificity") if vlm_result else None,
         "intensity_audit": vlm_result.get("intensity_audit") if vlm_result else None,
@@ -5533,7 +5574,7 @@ def analyze(
     raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     raw_rot = get_video_rotation(raw_temp_path)
     t_ff_start = time.time()
-    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, target_fps=24, start_time=start_time, end_time=end_time)
+    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, target_fps=15, start_time=start_time, end_time=end_time)
     ffmpeg_s = round(time.time() - t_ff_start, 3)
 
     # Verify with ffprobe that exported clip duration matches expected (end_time - start_time) within 0.35s
@@ -5569,8 +5610,8 @@ def analyze(
         sample_end = None if was_trimmed else end_time
         frames_rgb, timestamps, duration = sample_video_frames(
             temp_path,
-            target_fps=24.0,
-            max_frames=960,
+            target_fps=15.0,
+            max_frames=600,
             start_time=sample_start,
             end_time=sample_end
         )

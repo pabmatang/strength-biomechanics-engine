@@ -630,6 +630,54 @@
     "imageUrl": "/machines/hammer_select_ab_crunch.png"
   },
   {
+    "id": "hammer_select_hip_abduction",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Hip Abduction",
+    "canonicalExerciseType": "abductor_machine",
+    "muscleGroupLabel": "Abductores",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Hip Abduction"
+    },
+    "imageUrl": "/machines/hammer_select_hip_abduction.png"
+  },
+  {
+    "id": "hammer_select_hip_adduction",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Hip Adduction",
+    "canonicalExerciseType": "adductor_machine",
+    "muscleGroupLabel": "Aductores",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Hip Adduction"
+    },
+    "imageUrl": "/machines/hammer_select_hip_adduction.png"
+  },
+  {
     "id": "hammer_seated_biceps_curl",
     "brand": "Hammer Strength",
     "line": "Plate Loaded",
@@ -788,6 +836,30 @@
     "imageUrl": "/machines/hammer_plate_loaded_v_squat.png"
   },
   {
+    "id": "hammer_select_leg_extension",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Leg Extension",
+    "canonicalExerciseType": "leg_extension",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Leg Extension"
+    },
+    "imageUrl": "/machines/hammer_select_leg_extension.png"
+  },
+  {
     "id": "hammer_iso_front_lat_pulldown",
     "brand": "Hammer Strength",
     "line": "Plate Loaded Iso-Lateral",
@@ -856,6 +928,78 @@
       "curveLabel": "Descendente · Pico en Estiramiento"
     },
     "imageUrl": "/machines/hammer_iso_wide_pulldown.png"
+  },
+  {
+    "id": "hammer_plate_loaded_pullover",
+    "brand": "Hammer Strength",
+    "line": "Plate Loaded",
+    "modelName": "Hammer Strength - Plate-Loaded Pullover",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "approaches_vertical_loss",
+      "pathType": "circular_arc",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "El brazo de palanca se aproxima a la vertical conforme avanza la concéntrica, reduciendo el brazo de momento en acortamiento.",
+      "curveWeights": {
+        "stretch": 0.55,
+        "mid": 0.3,
+        "shortened": 0.15
+      },
+      "curveLabel": "Pico en Estiramiento · Descendente",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength - Plate-Loaded Pullover"
+    },
+    "imageUrl": "/machines/hammer_plate_loaded_pullover.png"
+  },
+  {
+    "id": "hammer_select_assist_dip_chin",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Assist Dip / Chin",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "uniform",
+      "resistanceCurveDescription": "Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.",
+      "curveWeights": {
+        "stretch": 0.334,
+        "mid": 0.333,
+        "shortened": 0.333
+      },
+      "curveLabel": "Perfil Uniforme · Tensión Constante",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Assist Dip / Chin"
+    },
+    "imageUrl": "/machines/hammer_select_assist_dip_chin.png"
+  },
+  {
+    "id": "hammer_select_lat_pulldown",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Lat Pulldown",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "uniform",
+      "resistanceCurveDescription": "Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.",
+      "curveWeights": {
+        "stretch": 0.334,
+        "mid": 0.333,
+        "shortened": 0.333
+      },
+      "curveLabel": "Perfil Uniforme · Tensión Constante",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Lat Pulldown"
+    },
+    "imageUrl": "/machines/hammer_select_lat_pulldown.png"
   },
   {
     "id": "hammer_chest_supported_t_bar_row",
@@ -950,6 +1094,30 @@
       "machineModelGuess": "Hammer Strength - Iso-Lateral Low Row"
     },
     "imageUrl": "/machines/hammer_iso_low_row.png"
+  },
+  {
+    "id": "hammer_select_seated_row",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Seated Row",
+    "canonicalExerciseType": "seated_row",
+    "muscleGroupLabel": "Espalda Alta",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "linear_fixed",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Seated Row"
+    },
+    "imageUrl": "/machines/hammer_select_seated_row.png"
   },
   {
     "id": "hammer_seated_calf_raise",
@@ -1138,6 +1306,30 @@
     "imageUrl": "/machines/hammer_kneeling_leg_curl.png"
   },
   {
+    "id": "hammer_select_prone_leg_curl",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Prone Leg Curl",
+    "canonicalExerciseType": "seated_leg_curl",
+    "muscleGroupLabel": "Isquiosurales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Prone Leg Curl"
+    },
+    "imageUrl": "/machines/hammer_select_prone_leg_curl.png"
+  },
+  {
     "id": "hammer_select_seated_leg_curl",
     "brand": "Hammer Strength",
     "line": "Hammer Strength Select",
@@ -1278,6 +1470,30 @@
     "imageUrl": "/machines/hammer_iso_super_incline_press.png"
   },
   {
+    "id": "hammer_select_chest_press",
+    "brand": "Hammer Strength",
+    "line": "Hammer Strength Select",
+    "modelName": "Hammer Strength Select - Chest Press",
+    "canonicalExerciseType": "chest_press_machine",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "convergent",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva con perfil en campana modulada por trayectoria convergente que refuerza la elongación inicial.",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.55,
+        "shortened": 0.1
+      },
+      "curveLabel": "Pico en Punto Medio / Estiramiento (Convergente)",
+      "machineBrandGuess": "Hammer Strength",
+      "machineModelGuess": "Hammer Strength Select - Chest Press"
+    },
+    "imageUrl": "/machines/hammer_select_chest_press.png"
+  },
+  {
     "id": "hammer_select_pec_fly",
     "brand": "Hammer Strength",
     "line": "Hammer Strength Select",
@@ -1344,6 +1560,28 @@
       "resistanceCurveDescription": "Crunch abdominal selectorizado con punto de giro lumbar que aísla el recto abdominal sin flexor de cadera."
     },
     "imageUrl": "/machines/lifefitness_insignia_abdominal.png"
+  },
+  {
+    "id": "lifefitness_insignia_torso_rotation",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Torso Rotation",
+    "canonicalExerciseType": "abdominal_crunch",
+    "muscleGroupLabel": "Abdomen",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Rotación de torso selectorizada con fijación de rodillas y respaldo estabilizador para trabajar oblicuos internos y externos."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_torso_rotation.png"
   },
   {
     "id": "lifefitness_insignia_hip_abduction",
@@ -1502,6 +1740,50 @@
     "imageUrl": "/machines/lifefitness_insignia_leg_press.png"
   },
   {
+    "id": "lifefitness_signature_leg_press_45",
+    "brand": "Life Fitness",
+    "line": "Signature Series",
+    "modelName": "Life Fitness Signature - Plate-Loaded Linear Leg Press 45°",
+    "canonicalExerciseType": "leg_press",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Foco Estiramiento",
+      "resistanceCurveDescription": "Prensa lineal a 45° a discos sobre carro de rodamientos lineales; máxima demanda en flexión profunda de rodilla y cadera."
+    },
+    "imageUrl": "/machines/lifefitness_signature_leg_press_45.png"
+  },
+  {
+    "id": "lifefitness_insignia_assist_dip_chin",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Assist Dip / Chin",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "uniform",
+      "curveWeights": {
+        "stretch": 0.334,
+        "mid": 0.333,
+        "shortened": 0.333
+      },
+      "curveLabel": "Uniforme · Asistencia Constante",
+      "resistanceCurveDescription": "Estación de dominadas y fondos asistidos por torre de placas con plataforma abatible y agarres multiposición."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_assist_dip_chin.png"
+  },
+  {
     "id": "lifefitness_insignia_lat_pulldown",
     "brand": "Life Fitness",
     "line": "Insignia Series",
@@ -1588,6 +1870,28 @@
       "resistanceCurveDescription": "Extensión de cadera unilateral de pie con apoyo pectoral para máxima contracción del glúteo mayor."
     },
     "imageUrl": "/machines/lifefitness_insignia_glute.png"
+  },
+  {
+    "id": "lifefitness_insignia_lateral_raise",
+    "brand": "Life Fitness",
+    "line": "Insignia Series",
+    "modelName": "Life Fitness Insignia - Lateral Raise",
+    "canonicalExerciseType": "lateral_raise",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.2,
+        "mid": 0.35,
+        "shortened": 0.45
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Elevaciones laterales en máquina con brazos articulados independientes y pivote alineado al hombro para aislar el deltoides medio."
+    },
+    "imageUrl": "/machines/lifefitness_insignia_lateral_raise.png"
   },
   {
     "id": "lifefitness_insignia_shoulder_press",
@@ -1722,6 +2026,50 @@
       "resistanceCurveDescription": "Aperturas contractora con brazos articulados y doble rango de ajuste para tensión continua en aducción."
     },
     "imageUrl": "/machines/lifefitness_insignia_pectoral_fly.png"
+  },
+  {
+    "id": "lifefitness_signature_dap",
+    "brand": "Life Fitness",
+    "line": "Signature Series",
+    "modelName": "Life Fitness Signature - Dual Adjustable Pulley (CMDAP)",
+    "canonicalExerciseType": "cable_crossover",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "uniform",
+      "curveWeights": {
+        "stretch": 0.334,
+        "mid": 0.333,
+        "shortened": 0.333
+      },
+      "curveLabel": "Uniforme · Tensión Constante",
+      "resistanceCurveDescription": "Doble polea regulable en altura con relación de cable 4:1 para cruces, empujes y tracciones en cualquier plano."
+    },
+    "imageUrl": "/machines/lifefitness_signature_dap.png"
+  },
+  {
+    "id": "lifefitness_signature_incline_press",
+    "brand": "Life Fitness",
+    "line": "Signature Series",
+    "modelName": "Life Fitness Signature - Plate-Loaded Incline Press",
+    "canonicalExerciseType": "incline_press",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "convergent",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Convergente",
+      "resistanceCurveDescription": "Press inclinado a discos con brazos convergentes independientes para enfatizar el haz clavicular del pectoral mayor."
+    },
+    "imageUrl": "/machines/lifefitness_signature_incline_press.png"
   },
   {
     "id": "lifefitness_insignia_triceps_extension",
@@ -1952,6 +2300,28 @@
     "imageUrl": "/machines/matrix_ultra_leg_press.png"
   },
   {
+    "id": "matrix_ultra_dip_chin_assist",
+    "brand": "Matrix",
+    "line": "Ultra Series (G7-S60)",
+    "modelName": "Matrix Ultra - Dip / Chin Assist (G7-S60)",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "uniform",
+      "resistanceCurveDescription": "Estación asistida por contrapeso guiado para dominadas y fondos con agarres multiposición y plataforma abatible.",
+      "curveWeights": {
+        "stretch": 0.334,
+        "mid": 0.333,
+        "shortened": 0.333
+      },
+      "curveLabel": "Uniforme · Asistencia Constante"
+    },
+    "imageUrl": "/machines/matrix_ultra_dip_chin_assist.png"
+  },
+  {
     "id": "matrix_ultra_diverging_lat_pulldown",
     "brand": "Matrix",
     "line": "Ultra Series (G7-S33)",
@@ -1974,6 +2344,28 @@
       "machineModelGuess": "Matrix Ultra - Diverging Lat Pulldown"
     },
     "imageUrl": "/machines/matrix_ultra_diverging_lat_pulldown.png"
+  },
+  {
+    "id": "matrix_magnum_low_row",
+    "brand": "Matrix",
+    "line": "Magnum Series (MG-PL34)",
+    "modelName": "Matrix Magnum - Low Row a Discos (MG-PL34)",
+    "canonicalExerciseType": "seated_row",
+    "muscleGroupLabel": "Espalda Alta",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "divergent",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Remo bajo a discos con brazos divergentes independientes y apoyo pectoral regulable para máxima retracción escapular.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Divergente"
+    },
+    "imageUrl": "/machines/matrix_magnum_low_row.png"
   },
   {
     "id": "matrix_ultra_seated_row",
@@ -2000,6 +2392,28 @@
     "imageUrl": "/machines/matrix_ultra_seated_row.png"
   },
   {
+    "id": "matrix_magnum_seated_calf",
+    "brand": "Matrix",
+    "line": "Magnum Series (MG-PL77)",
+    "modelName": "Matrix Magnum - Seated Calf a Discos (MG-PL77)",
+    "canonicalExerciseType": "calf_raise",
+    "muscleGroupLabel": "Gemelos",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "circular_arc",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "Elevación de talones sentado a discos con rodillas a 90° para carga directa sobre el sóleo y máxima dorsiflexión.",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Foco Estiramiento"
+    },
+    "imageUrl": "/machines/matrix_magnum_seated_calf.png"
+  },
+  {
     "id": "matrix_versa_calf_extension",
     "brand": "Matrix",
     "line": "Versa Series",
@@ -2024,6 +2438,50 @@
     "imageUrl": "/machines/matrix_versa_calf_extension.png"
   },
   {
+    "id": "matrix_magnum_glute_trainer",
+    "brand": "Matrix",
+    "line": "Magnum Series (MG-PL78)",
+    "modelName": "Matrix Magnum - Glute Trainer / Hip Thrust (MG-PL78)",
+    "canonicalExerciseType": "hip_thrust",
+    "muscleGroupLabel": "Glúteo",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Hip thrust guiado a discos con cinturón pélvico y respaldo basculante; máxima tensión mecánica en extensión completa de cadera.",
+      "curveWeights": {
+        "stretch": 0.2,
+        "mid": 0.35,
+        "shortened": 0.45
+      },
+      "curveLabel": "Ascendente · Pico Acortamiento"
+    },
+    "imageUrl": "/machines/matrix_magnum_glute_trainer.png"
+  },
+  {
+    "id": "matrix_ultra_glute",
+    "brand": "Matrix",
+    "line": "Ultra Series (G7-S78)",
+    "modelName": "Matrix Ultra - Glute (G7-S78)",
+    "canonicalExerciseType": "glute_kickback",
+    "muscleGroupLabel": "Glúteo",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Patada de glúteo de pie con plataforma antideslizante y brazo articulado; máxima contracción del glúteo mayor en extensión completa de cadera.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento"
+    },
+    "imageUrl": "/machines/matrix_ultra_glute.png"
+  },
+  {
     "id": "matrix_ultra_standing_glute_kick",
     "brand": "Matrix",
     "line": "Ultra Series",
@@ -2046,6 +2504,28 @@
       "machineModelGuess": "Matrix Ultra - Standing Glute & Abductor"
     },
     "imageUrl": "/machines/matrix_ultra_standing_glute_kick.png"
+  },
+  {
+    "id": "matrix_magnum_shoulder_press",
+    "brand": "Matrix",
+    "line": "Magnum Series (MG-PL23)",
+    "modelName": "Matrix Magnum - Shoulder Press a Discos (MG-PL23)",
+    "canonicalExerciseType": "shoulder_press_machine",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "convergent",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Press militar a discos con palancas convergentes independientes y agarres duales para optimizar el reclutamiento del deltoides anterior.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Convergente"
+    },
+    "imageUrl": "/machines/matrix_magnum_shoulder_press.png"
   },
   {
     "id": "matrix_ultra_converging_shoulder_press",
@@ -2136,6 +2616,50 @@
       "curveLabel": "Descendente · Foco Estiramiento"
     },
     "imageUrl": "/machines/matrix_ultra_seated_leg_curl.png"
+  },
+  {
+    "id": "matrix_ultra_back_extension",
+    "brand": "Matrix",
+    "line": "Ultra Series (G7-S52)",
+    "modelName": "Matrix Ultra - Back Extension (G7-S52)",
+    "canonicalExerciseType": "back_extension",
+    "muscleGroupLabel": "Lumbares",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Extensión lumbar guiada sentado con múltiples posiciones de inicio y apoyo pélvico fijo para aislar los erectores espinales.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Rango Medio"
+    },
+    "imageUrl": "/machines/matrix_ultra_back_extension.png"
+  },
+  {
+    "id": "matrix_magnum_chest_press",
+    "brand": "Matrix",
+    "line": "Magnum Series (MG-PL13)",
+    "modelName": "Matrix Magnum - Chest Press a Discos (MG-PL13)",
+    "canonicalExerciseType": "chest_press_machine",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "convergent",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Press de pecho horizontal a discos con brazos convergentes independientes para una aducción pectoral completa.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Convergente"
+    },
+    "imageUrl": "/machines/matrix_magnum_chest_press.png"
   },
   {
     "id": "matrix_magnum_incline_press",
@@ -2248,6 +2772,28 @@
       "resistanceCurveDescription": "Abdominal Crunch clásico con agarre superior y leva de resistencia creciente en flexión espinal."
     },
     "imageUrl": "/machines/nautilus_nitro_abdominal_crunch.png"
+  },
+  {
+    "id": "nautilus_nitro_rotary_torso",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Rotary Torso",
+    "canonicalExerciseType": "abdominal_crunch",
+    "muscleGroupLabel": "Abdomen",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Rotación de torso sentado con estabilización superior patentada y leva de resistencia variable para oblicuos."
+    },
+    "imageUrl": "/machines/nautilus_nitro_rotary_torso.png"
   },
   {
     "id": "nautilus_nitro_abductor",
@@ -2384,6 +2930,28 @@
     "imageUrl": "/machines/nautilus_nitro_pulldown.png"
   },
   {
+    "id": "nautilus_nitro_pullover",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Pullover",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.4,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Pullover clásico Nautilus con arco de 250° y apoyo en codos que aísla el dorsal ancho sin fatiga de bíceps."
+    },
+    "imageUrl": "/machines/nautilus_nitro_pullover.png"
+  },
+  {
     "id": "nautilus_nitro_compound_row",
     "brand": "Nautilus",
     "line": "Nitro Plus",
@@ -2404,6 +2972,50 @@
       "curveLabel": "Ascendente · Foco Acortamiento"
     },
     "imageUrl": "/machines/nautilus_nitro_compound_row.png"
+  },
+  {
+    "id": "nautilus_nitro_standing_calf",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Standing Calf",
+    "canonicalExerciseType": "calf_raise",
+    "muscleGroupLabel": "Gemelos",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "curveWeights": {
+        "stretch": 0.4,
+        "mid": 0.35,
+        "shortened": 0.25
+      },
+      "curveLabel": "Descendente · Foco Estiramiento",
+      "resistanceCurveDescription": "Elevación de talones de pie con plataforma curva para máxima dorsiflexión y activación del gastrocnemio."
+    },
+    "imageUrl": "/machines/nautilus_nitro_standing_calf.png"
+  },
+  {
+    "id": "nautilus_glute_drive",
+    "brand": "Nautilus",
+    "line": "Leverage",
+    "modelName": "Nautilus - Glute Drive (Hip Thrust)",
+    "canonicalExerciseType": "hip_thrust",
+    "muscleGroupLabel": "Glúteo",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Hip thrust guiado a discos con cinturón pélvico y banco pivotante para pico de tensión en extensión de cadera."
+    },
+    "imageUrl": "/machines/nautilus_glute_drive.png"
   },
   {
     "id": "nautilus_nitro_lateral_raise",
@@ -2492,6 +3104,28 @@
       "curveLabel": "Ascendente · Foco Acortamiento"
     },
     "imageUrl": "/machines/nautilus_nitro_seated_leg_curl.png"
+  },
+  {
+    "id": "nautilus_nitro_lower_back",
+    "brand": "Nautilus",
+    "line": "Nitro Plus",
+    "modelName": "Nautilus Nitro Plus - Lower Back / Back Extension",
+    "canonicalExerciseType": "back_extension",
+    "muscleGroupLabel": "Lumbares",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Extensión lumbar con mecanismo de cuatro barras que sigue el eje natural de la columna vertebral."
+    },
+    "imageUrl": "/machines/nautilus_nitro_lower_back.png"
   },
   {
     "id": "nautilus_nitro_chest_press",
@@ -2608,6 +3242,30 @@
     "imageUrl": "/machines/panatta_monolith_standing_abductor.png"
   },
   {
+    "id": "panatta_monolith_adductor",
+    "brand": "Panatta",
+    "line": "Monolith Selection (1MTH087)",
+    "modelName": "Panatta Monolith - Adductor",
+    "canonicalExerciseType": "adductor_machine",
+    "muscleGroupLabel": "Aductores",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta Monolith - Adductor"
+    },
+    "imageUrl": "/machines/panatta_monolith_adductor.png"
+  },
+  {
     "id": "panatta_super_preacher_curl",
     "brand": "Panatta",
     "line": "Super Freeweight HP",
@@ -2698,6 +3356,30 @@
     "imageUrl": "/machines/panatta_super_belt_squat.png"
   },
   {
+    "id": "panatta_monolith_leg_extension",
+    "brand": "Panatta",
+    "line": "Monolith Selection (1MTH081)",
+    "modelName": "Panatta Monolith - Leg Extension",
+    "canonicalExerciseType": "leg_extension",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta Monolith - Leg Extension"
+    },
+    "imageUrl": "/machines/panatta_monolith_leg_extension.png"
+  },
+  {
     "id": "panatta_super_pendulum_squat",
     "brand": "Panatta",
     "line": "Super Freeweight HP",
@@ -2768,6 +3450,30 @@
     "imageUrl": "/machines/panatta_super_rowing_plate.png"
   },
   {
+    "id": "panatta_super_lat_convergent",
+    "brand": "Panatta",
+    "line": "Free Weight Special (1FW001)",
+    "modelName": "Panatta FreeWeight Special - Super Lat Machine Convergent",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "approaches_vertical_loss",
+      "pathType": "divergent",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "La palanca aligera el final del recorrido, pero la divergencia del agarre mantiene tensión en la zona media y de contracción.",
+      "curveWeights": {
+        "stretch": 0.5,
+        "mid": 0.3,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente suavizado (Divergente)",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta FreeWeight Special - Super Lat Machine Convergent"
+    },
+    "imageUrl": "/machines/panatta_super_lat_convergent.png"
+  },
+  {
     "id": "panatta_super_high_row",
     "brand": "Panatta",
     "line": "Free Weight Special (1FW003)",
@@ -2812,6 +3518,30 @@
       "machineModelGuess": "Panatta Freeweight - Super T-Bar Row Pectoral Support"
     },
     "imageUrl": "/machines/panatta_super_t_bar_row.png"
+  },
+  {
+    "id": "panatta_super_standing_calf",
+    "brand": "Panatta",
+    "line": "Free Weight Special (1FW092)",
+    "modelName": "Panatta FreeWeight Special - Super Standing Calf",
+    "canonicalExerciseType": "calf_raise",
+    "muscleGroupLabel": "Gemelos",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "uniform",
+      "resistanceCurveDescription": "Guiado lineal neutral: la aceleración de la masa y la gravedad mantienen una resistencia uniforme.",
+      "curveWeights": {
+        "stretch": 0.334,
+        "mid": 0.333,
+        "shortened": 0.333
+      },
+      "curveLabel": "Perfil Uniforme · Tensión Constante",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta FreeWeight Special - Super Standing Calf"
+    },
+    "imageUrl": "/machines/panatta_super_standing_calf.png"
   },
   {
     "id": "panatta_circular_glute_kickback",
@@ -2862,6 +3592,30 @@
     "imageUrl": "/machines/panatta_viking_press_calf.png"
   },
   {
+    "id": "panatta_super_lateral_deltoid",
+    "brand": "Panatta",
+    "line": "Free Weight Special (1FW027)",
+    "modelName": "Panatta FreeWeight Special - Lateral Deltoid",
+    "canonicalExerciseType": "lateral_raise",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "La palanca se abre perpendicular a la gravedad hacia la horizontal, maximizando el brazo de momento de la carga en contracción máxima.",
+      "curveWeights": {
+        "stretch": 0.15,
+        "mid": 0.35,
+        "shortened": 0.5
+      },
+      "curveLabel": "Pico en Acortamiento · Ascendente",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta FreeWeight Special - Lateral Deltoid"
+    },
+    "imageUrl": "/machines/panatta_super_lateral_deltoid.png"
+  },
+  {
     "id": "panatta_freeweight_lying_leg_curl",
     "brand": "Panatta",
     "line": "Freeweight HP (Carga de discos)",
@@ -2884,6 +3638,30 @@
       "machineModelGuess": "Panatta Freeweight - Lying Leg Curl (Femoral Tumbado a Discos)"
     },
     "imageUrl": "/machines/panatta_freeweight_lying_leg_curl.png"
+  },
+  {
+    "id": "panatta_monolith_seated_leg_curl",
+    "brand": "Panatta",
+    "line": "Monolith Selection (1MTH083)",
+    "modelName": "Panatta Monolith - Seated Leg Curl",
+    "canonicalExerciseType": "seated_leg_curl",
+    "muscleGroupLabel": "Isquiosurales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta Monolith - Seated Leg Curl"
+    },
+    "imageUrl": "/machines/panatta_monolith_seated_leg_curl.png"
   },
   {
     "id": "panatta_standing_unilateral_leg_curl",
@@ -2956,6 +3734,54 @@
     "imageUrl": "/machines/panatta_incline_chest.png"
   },
   {
+    "id": "panatta_super_chest_press",
+    "brand": "Panatta",
+    "line": "Free Weight Special (1FW036)",
+    "modelName": "Panatta FreeWeight Special - Super Chest Press",
+    "canonicalExerciseType": "chest_press_machine",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "convergent",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "La palanca tiende a cargar el acortamiento, pero la trayectoria convergente aumenta el brazo de momento en estiramiento y aplana la curva manteniendo el pico al final.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente suavizado · Convergente",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta FreeWeight Special - Super Chest Press"
+    },
+    "imageUrl": "/machines/panatta_super_chest_press.png"
+  },
+  {
+    "id": "panatta_super_pec_deck",
+    "brand": "Panatta",
+    "line": "Free Weight Special (1FW117)",
+    "modelName": "Panatta FreeWeight Special - Super Pec Deck / Peck Back",
+    "canonicalExerciseType": "pec_deck",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Leva excéntrica o doble pivote articulado con perfil en campana: mayor momento de fuerza en la zona media del recorrido.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.55,
+        "shortened": 0.2
+      },
+      "curveLabel": "Pico en Punto Medio · Campana",
+      "machineBrandGuess": "Panatta",
+      "machineModelGuess": "Panatta FreeWeight Special - Super Pec Deck / Peck Back"
+    },
+    "imageUrl": "/machines/panatta_super_pec_deck.png"
+  },
+  {
     "id": "panatta_monolith_triceps_dip",
     "brand": "Panatta",
     "line": "Monolith Selection",
@@ -3000,6 +3826,28 @@
       "resistanceCurveDescription": "Crunch abdominal con pivote anatómico lumbar para flexión torácica pura."
     },
     "imageUrl": "/machines/precor_discovery_abdominal_crunch.png"
+  },
+  {
+    "id": "precor_discovery_rotary_torso",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Rotary Torso",
+    "canonicalExerciseType": "abdominal_crunch",
+    "muscleGroupLabel": "Abdomen",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Rotación de torso sentado con estabilización de rodillas y ajuste bilateral para oblicuos."
+    },
+    "imageUrl": "/machines/precor_discovery_rotary_torso.png"
   },
   {
     "id": "precor_discovery_hip_abductor",
@@ -3134,6 +3982,28 @@
     "imageUrl": "/machines/precor_discovery_leg_extension.png"
   },
   {
+    "id": "precor_discovery_chin_dip_assist",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Dip / Chin Assist",
+    "canonicalExerciseType": "lat_pulldown",
+    "muscleGroupLabel": "Dorsales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.35,
+        "mid": 0.35,
+        "shortened": 0.3
+      },
+      "curveLabel": "Plana · Asistencia Constante",
+      "resistanceCurveDescription": "Estación asistida de dominadas y fondos con contrapeso constante mediante columna selectorizada."
+    },
+    "imageUrl": "/machines/precor_discovery_chin_dip_assist.png"
+  },
+  {
     "id": "precor_discovery_lat_pulldown",
     "brand": "Precor",
     "line": "Discovery Series",
@@ -3178,6 +4048,50 @@
     "imageUrl": "/machines/precor_discovery_seated_row.png"
   },
   {
+    "id": "precor_discovery_seated_calf",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Seated Calf Raise",
+    "canonicalExerciseType": "calf_raise",
+    "muscleGroupLabel": "Gemelos",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "curveWeights": {
+        "stretch": 0.4,
+        "mid": 0.35,
+        "shortened": 0.25
+      },
+      "curveLabel": "Descendente · Foco Estiramiento",
+      "resistanceCurveDescription": "Extensión de gemelos sentado con plataforma curva y soporte lumbar para máxima flexión plantar."
+    },
+    "imageUrl": "/machines/precor_discovery_seated_calf.png"
+  },
+  {
+    "id": "precor_discovery_glute_extension",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Glute Extension",
+    "canonicalExerciseType": "glute_kickback",
+    "muscleGroupLabel": "Glúteo",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "shortened",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.35,
+        "shortened": 0.4
+      },
+      "curveLabel": "Ascendente · Foco Acortamiento",
+      "resistanceCurveDescription": "Extensión de glúteo de pie con brazo largo de movimiento para máxima extensión de cadera."
+    },
+    "imageUrl": "/machines/precor_discovery_glute_extension.png"
+  },
+  {
     "id": "precor_discovery_shoulder_press",
     "brand": "Precor",
     "line": "Discovery Series",
@@ -3198,6 +4112,28 @@
       "resistanceCurveDescription": "Press de hombros convergente con empuje ergonómico y reducción de estrés acromial en rango superior."
     },
     "imageUrl": "/machines/precor_discovery_shoulder_press.png"
+  },
+  {
+    "id": "precor_discovery_lateral_raise",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery / Vitality - Lateral Raise",
+    "canonicalExerciseType": "lateral_raise",
+    "muscleGroupLabel": "Hombros",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.5,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Elevación lateral sentado con brazos independientes y leva excéntrica para aislamiento del deltoides medio."
+    },
+    "imageUrl": "/machines/precor_discovery_lateral_raise.png"
   },
   {
     "id": "precor_discovery_prone_leg_curl",
@@ -3242,6 +4178,28 @@
       "resistanceCurveDescription": "Curl femoral sentado con ángulo de cadera preestablecido y leva excéntrica que mantiene tensión hasta la flexión total."
     },
     "imageUrl": "/machines/precor_discovery_seated_leg_curl.png"
+  },
+  {
+    "id": "precor_discovery_back_extension",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery - Back Extension",
+    "canonicalExerciseType": "back_extension",
+    "muscleGroupLabel": "Lumbares",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Máximo Momento Medio",
+      "resistanceCurveDescription": "Extensión lumbar sentado con respaldo contorneado y plataforma fija para estabilización pélvica."
+    },
+    "imageUrl": "/machines/precor_discovery_back_extension.png"
   },
   {
     "id": "precor_discovery_chest_press",
@@ -3308,6 +4266,28 @@
       "resistanceCurveDescription": "Contractora dual para pectoral y deltoides posterior con brazos flotantes autoajustables."
     },
     "imageUrl": "/machines/precor_discovery_pec_fly.png"
+  },
+  {
+    "id": "precor_discovery_dap",
+    "brand": "Precor",
+    "line": "Discovery Series",
+    "modelName": "Precor Discovery / FTS Glide - Dual Adjustable Pulley (DAP)",
+    "canonicalExerciseType": "cable_crossover",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "cable_stack",
+      "pivotBehavior": "linear_neutral",
+      "pathType": "free_cable",
+      "peakZone": "mid",
+      "curveWeights": {
+        "stretch": 0.33,
+        "mid": 0.34,
+        "shortened": 0.33
+      },
+      "curveLabel": "Plana · Tensión Constante de Polea",
+      "resistanceCurveDescription": "Doble polea ajustable funcional con recorrido fluido y tensión constante en cualquier ángulo de tracción o cruce."
+    },
+    "imageUrl": "/machines/precor_discovery_dap.png"
   },
   {
     "id": "precor_discovery_triceps_extension",
@@ -4454,6 +5434,50 @@
     "imageUrl": "/machines/technogym_selection_seated_dip.png"
   },
   {
+    "id": "titanium_black_abductor_adductor",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Abductor / Adductor (Black Series)",
+    "canonicalExerciseType": "abductor_machine",
+    "muscleGroupLabel": "Abductores",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Estación dual selectorizada de abducción y aducción de cadera con leva optimizada para tensión uniforme en todo el arco.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.4,
+        "shortened": 0.3
+      },
+      "curveLabel": "Campana · Tensión Continua"
+    },
+    "imageUrl": "/machines/titanium_black_abductor_adductor.png"
+  },
+  {
+    "id": "titanium_black_biceps_curl",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Biceps Curl (Black Series)",
+    "canonicalExerciseType": "biceps_curl",
+    "muscleGroupLabel": "Bíceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Curl de bíceps en banco Scott a discos con palanca articulada; pico de torque en el rango medio de flexión del codo.",
+      "curveWeights": {
+        "stretch": 0.25,
+        "mid": 0.45,
+        "shortened": 0.3
+      },
+      "curveLabel": "Campana · Pico en Rango Medio"
+    },
+    "imageUrl": "/machines/titanium_black_biceps_curl.png"
+  },
+  {
     "id": "titanium_black_leg_press_45",
     "brand": "Titanium Strength",
     "line": "Black Series",
@@ -4474,6 +5498,28 @@
       "curveLabel": "Descendente en Articulación / Lineal Fijo"
     },
     "imageUrl": "/machines/titanium_black_leg_press_45.png"
+  },
+  {
+    "id": "titanium_black_belt_squat",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Belt Squat (Black Series)",
+    "canonicalExerciseType": "squat",
+    "muscleGroupLabel": "Cuádriceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "approaches_vertical_loss",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "Sentadilla con cinturón a discos sin carga axial espinal; máxima demanda sobre cuádriceps y glúteos en flexión profunda.",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Foco Estiramiento"
+    },
+    "imageUrl": "/machines/titanium_black_belt_squat.png"
   },
   {
     "id": "titanium_black_leg_extension",
@@ -4630,6 +5676,28 @@
     "imageUrl": "/machines/titanium_black_high_row.png"
   },
   {
+    "id": "titanium_black_seated_calf",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Seated Calf (Black Series)",
+    "canonicalExerciseType": "calf_raise",
+    "muscleGroupLabel": "Gemelos",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "approaches_vertical_loss",
+      "pathType": "linear_fixed",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "Elevación de talones sentado a discos con rodilla a 90°; máximo brazo de momento en dorsiflexión profunda aislando el sóleo.",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Foco Sóleo Estirado"
+    },
+    "imageUrl": "/machines/titanium_black_seated_calf.png"
+  },
+  {
     "id": "titanium_black_hip_thrust",
     "brand": "Titanium Strength",
     "line": "Black Series",
@@ -4696,6 +5764,28 @@
     "imageUrl": "/machines/titanium_black_standing_lateral_raise.png"
   },
   {
+    "id": "titanium_black_seated_leg_curl",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Seated Leg Curl (Black Series)",
+    "canonicalExerciseType": "seated_leg_curl",
+    "muscleGroupLabel": "Isquiosurales",
+    "profile": {
+      "loadType": "selectorized_stack",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "stretched",
+      "resistanceCurveDescription": "Torre de placas con leva excéntrica para curl femoral; máxima demanda en estiramiento inicial de la cadena posterior.",
+      "curveWeights": {
+        "stretch": 0.45,
+        "mid": 0.35,
+        "shortened": 0.2
+      },
+      "curveLabel": "Descendente · Sobrecarga en Estiramiento"
+    },
+    "imageUrl": "/machines/titanium_black_seated_leg_curl.png"
+  },
+  {
     "id": "titanium_black_chest_press",
     "brand": "Titanium Strength",
     "line": "Black Series",
@@ -4738,5 +5828,49 @@
       "curveLabel": "Ascendente Suavizado (Convergente)"
     },
     "imageUrl": "/machines/titanium_black_incline_press.png"
+  },
+  {
+    "id": "titanium_black_pec_fly",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Pec Fly (Black Series)",
+    "canonicalExerciseType": "pec_deck",
+    "muscleGroupLabel": "Pectoral",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "eccentric_cam_drop",
+      "pathType": "circular_arc",
+      "peakZone": "mid",
+      "resistanceCurveDescription": "Aperturas en máquina a discos con brazos convergentes; resistencia centrada en el rango medio de aducción horizontal pectoral.",
+      "curveWeights": {
+        "stretch": 0.3,
+        "mid": 0.45,
+        "shortened": 0.25
+      },
+      "curveLabel": "Campana · Pico en Rango Medio"
+    },
+    "imageUrl": "/machines/titanium_black_pec_fly.png"
+  },
+  {
+    "id": "titanium_black_triceps_dip",
+    "brand": "Titanium Strength",
+    "line": "Black Series",
+    "modelName": "Titanium Strength - Triceps Dip (Black Series)",
+    "canonicalExerciseType": "triceps_extension",
+    "muscleGroupLabel": "Tríceps",
+    "profile": {
+      "loadType": "plate_loaded",
+      "pivotBehavior": "opens_to_horizontal_gain",
+      "pathType": "linear_fixed",
+      "peakZone": "shortened",
+      "resistanceCurveDescription": "Fondos sentado en palanca a discos; incrementa el brazo de momento hacia la extensión completa del codo enfatizando el tríceps.",
+      "curveWeights": {
+        "stretch": 0.2,
+        "mid": 0.35,
+        "shortened": 0.45
+      },
+      "curveLabel": "Ascendente (Pico en Acortamiento)"
+    },
+    "imageUrl": "/machines/titanium_black_triceps_dip.png"
   }
 ]
