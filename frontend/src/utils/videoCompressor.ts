@@ -292,7 +292,7 @@ export async function prepareVideoForAnalysis(
     maxWidth = 420,
     targetFps = 15,
     bitrate = 600_000,
-    maxDurationSec = 30.0,
+    maxDurationSec = 40.0,
     range,
     onProgress
   } = options;
@@ -324,6 +324,42 @@ export async function prepareVideoForAnalysis(
   }
 
   return compressedBlob || file;
+}
+
+/**
+ * Pure helper for sliding-window trim range calculation (mouse & touch).
+ * Preserves window duration `span` within [0, totalDuration] up to `maxWindowSec`.
+ */
+export function computeSlidingTrimWindow(
+  anchorSec: number,
+  spanSec: number,
+  totalDuration: number,
+  maxWindowSec: number = 40.0
+): { start: number; end: number } {
+  const safeTotal = Math.max(0.5, totalDuration);
+  const clampedSpan = Math.max(0.5, Math.min(spanSec, maxWindowSec, safeTotal));
+  const rawStart = Math.max(0, Math.min(safeTotal - clampedSpan, anchorSec));
+  const start = Math.round(rawStart * 10) / 10;
+  const end = Math.min(safeTotal, Math.round((start + clampedSpan) * 10) / 10);
+  return { start, end };
+}
+
+/**
+ * Encapsulated trim + compression entry point.
+ * Keeps a clean seam to plug in a native Capacitor MediaCodec / AVAssetExportSession
+ * trimmer later without modifying callers.
+ */
+export async function trimAndCompressVideo(
+  file: File,
+  startSec: number,
+  endSec: number,
+  options: Omit<VideoCompressionOptions, 'range'> = {}
+): Promise<Blob> {
+  return prepareVideoForAnalysis(file, {
+    ...options,
+    maxDurationSec: options.maxDurationSec ?? 40.0,
+    range: { startTime: Math.max(0, startSec), endTime: Math.max(startSec + 0.5, endSec) },
+  });
 }
 
 /**

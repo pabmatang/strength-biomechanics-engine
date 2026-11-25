@@ -18,6 +18,7 @@ import io
 import tempfile
 import math
 import re
+import time
 from typing import Dict, List, Any, Optional, Tuple
 import json
 import urllib.request
@@ -40,11 +41,12 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[Cerebrium Startup] Initializing Biomechanics Engine on {device.upper()}...")
 
 DET_MODEL_NAME = "PekingU/rtdetr_r50vd_coco_o365"
-POSE_MODEL_NAME = "usyd-community/vitpose-plus-large"
+POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 FALLBACK_POSE_MODEL_NAME = "usyd-community/vitpose-base-simple"
 
 dtype = torch.float16 if device == "cuda" else torch.float32
 
+_t_model_load_start = time.time()
 print(f"[Cerebrium Startup] Loading RT-DETR ({DET_MODEL_NAME})...")
 det_processor = AutoImageProcessor.from_pretrained(DET_MODEL_NAME)
 det_model = AutoModelForObjectDetection.from_pretrained(
@@ -54,16 +56,16 @@ det_model = AutoModelForObjectDetection.from_pretrained(
 det_model.eval()
 
 try:
-    print(f"[Cerebrium Startup] Loading ViTPose-Plus-Large ({POSE_MODEL_NAME})...")
+    print(f"[Cerebrium Startup] Loading ViTPose ({POSE_MODEL_NAME})...")
     pose_processor = AutoImageProcessor.from_pretrained(POSE_MODEL_NAME)
     pose_model = VitPoseForPoseEstimation.from_pretrained(
         POSE_MODEL_NAME,
         torch_dtype=dtype
     ).to(device)
     pose_model.eval()
-    print("[Cerebrium Startup] ViTPose-Plus-Large loaded successfully.")
+    print(f"[Cerebrium Startup] {POSE_MODEL_NAME} loaded successfully.")
 except Exception as e_large:
-    print(f"[Cerebrium Startup] ViTPose-Plus-Large failed ({e_large}). Falling back to {FALLBACK_POSE_MODEL_NAME}...")
+    print(f"[Cerebrium Startup] {POSE_MODEL_NAME} failed ({e_large}). Falling back to {FALLBACK_POSE_MODEL_NAME}...")
     pose_processor = AutoImageProcessor.from_pretrained(FALLBACK_POSE_MODEL_NAME)
     pose_model = VitPoseForPoseEstimation.from_pretrained(
         FALLBACK_POSE_MODEL_NAME,
@@ -72,7 +74,9 @@ except Exception as e_large:
     pose_model.eval()
     print("[Cerebrium Startup] ViTPose-Base-Simple loaded successfully as fallback.")
 
-print("[Cerebrium Startup] 2D Neural Pipeline (RT-DETR + ViTPose) successfully loaded into VRAM.")
+MODEL_LOAD_S = round(time.time() - _t_model_load_start, 3)
+LAST_INFERENCE_TIMINGS = {"det_s": 0.0, "pose_s": 0.0}
+print(f"[Cerebrium Startup] 2D Neural Pipeline (RT-DETR + ViTPose) loaded in {MODEL_LOAD_S}s.")
 
 COCO_KEYPOINTS = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -423,7 +427,8 @@ def compute_valid_frame_bounds(
     max_cam_jump: float = 0.08,
     all_smoothed: Optional[Dict[str, Dict[str, np.ndarray]]] = None,
     is_upper_body: bool = True,
-    min_hip_vis: float = 0.45
+    min_hip_vis: float = 0.45,
+    is_seated_exercise: bool = False
 ) -> Tuple[int, int]:
     """
     Trims leading and trailing frames where dominant-side visibility
@@ -486,6 +491,37 @@ def compute_valid_frame_bounds(
         cam_stable = np.hypot(dx, dy) <= max_cam_jump
 
     valid_mask = (vis_scores >= min_vis) & (hip_vis >= min_hip_vis) & cam_stable
+
+    if is_seated_exercise and np.any(valid_mask):
+        if all_smoothed is not None and "left_hip" in all_smoothed and "right_hip" in all_smoothed:
+            hip_y = 0.5 * (
+                np.asarray(all_smoothed["left_hip"]["y"], dtype=np.float64) +
+                np.asarray(all_smoothed["right_hip"]["y"], dtype=np.float64)
+            )
+        elif "hip" in primary_joints:
+            hip_y = np.asarray(primary_joints["hip"]["y"], dtype=np.float64)
+        else:
+            hip_y = None
+
+        standing_mask = np.zeros(n, dtype=bool)
+        if hip_y is not None and np.sum(valid_mask) >= 5:
+            seated_ref_hip_y = float(np.percentile(hip_y[valid_mask], 75))
+            standing_mask |= (hip_y < (seated_ref_hip_y - 0.14))
+
+        if is_upper_body and all(k in primary_joints for k in ("hip", "knee", "ankle")):
+            kn_vis = np.asarray(primary_joints["knee"].get("score", np.zeros(n)), dtype=np.float64)
+            kn_ang = np.empty(n, dtype=np.float64)
+            for idx in range(n):
+                kn_ang[idx] = calculate_angle_2d(
+                    {"x": float(primary_joints["hip"]["x"][idx]), "y": float(primary_joints["hip"]["y"][idx])},
+                    {"x": float(primary_joints["knee"]["x"][idx]), "y": float(primary_joints["knee"]["y"][idx])},
+                    {"x": float(primary_joints["ankle"]["x"][idx]), "y": float(primary_joints["ankle"]["y"][idx])},
+                )
+            standing_mask |= ((kn_vis >= 0.45) & (kn_ang > 145.0))
+
+        seated_candidate_mask = valid_mask & (~standing_mask)
+        if int(np.sum(seated_candidate_mask)) >= max(5, int(n * 0.15)):
+            valid_mask = seated_candidate_mask
 
     # Find longest contiguous valid segment (allowing tiny 2-frame single-frame glitches)
     best_start, best_end = 0, n - 1
@@ -1955,7 +1991,7 @@ def run_inference_batches(
                 k: (v.to(device=device, dtype=det_dtype) if torch.is_floating_point(v) else v.to(device=device))
                 for k, v in raw_det_inputs.items()
             }
-            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
+            with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
                 det_outputs = det_model(**det_inputs)
 
             target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), dtype=torch.float32, device=device)
@@ -2183,7 +2219,7 @@ def run_inference_batches(
         num_boxes = pose_inputs["pixel_values"].shape[0]
         dataset_index = torch.zeros(num_boxes, dtype=torch.long, device=device)
         
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
             try:
                 pose_outputs = pose_model(**pose_inputs, dataset_index=dataset_index)
             except (TypeError, ValueError):
@@ -2224,6 +2260,8 @@ def run_inference_batches(
             all_raw_keypoints.append(frame_kps)
 
     pose_s = round(time.time() - t_pose_start, 3)
+    LAST_INFERENCE_TIMINGS["det_s"] = det_s
+    LAST_INFERENCE_TIMINGS["pose_s"] = pose_s
     print(f"[Pipeline Timing] frames={n_frames} det_s={det_s}s pose_s={pose_s}s")
     return all_raw_keypoints, all_boxes
 
@@ -3004,23 +3042,39 @@ def process_kinematics(
             clean_curve = -clean_primary.copy()
 
     # 5. Peak-Trough Repetition Detection (after auto-trimming unstable/no-person frames)
+    is_seated_exercise = any(
+        k in ex_lower for k in (
+            "incline_press", "chest_press", "shoulder_press",
+            "leg_extension", "seated_leg_curl", "pec_deck",
+            "seated_row", "lat_pulldown", "biceps_curl"
+        )
+    )
     valid_start_idx, valid_end_idx = compute_valid_frame_bounds(
         primary_joints,
         timestamps,
         all_smoothed=all_smoothed,
-        is_upper_body=is_upper_body
+        is_upper_body=is_upper_body,
+        is_seated_exercise=is_seated_exercise
     )
     if is_pattern_a and (valid_end_idx - valid_start_idx + 1) >= 5:
-        # Combine dominant-side elbow angle with wrist-shoulder displacement along traction PCA axis
-        # so 3/4 oblique views (e.g. T-Bar Row) never lose reps due to perspective foreshortening.
-        wr_x = primary_joints["wrist"]["x"]
-        wr_y = primary_joints["wrist"]["y"]
-        sh_x = primary_joints["shoulder"]["x"]
-        sh_y = primary_joints["shoulder"]["y"]
+        # Evaluate 3 smoothed candidate signals on the dominant side:
+        # 1) 2D elbow angle, 2) PCA projection of (wrist - shoulder),
+        # 3) relative vertical elbow-shoulder height (shoulder_y - elbow_y) / arm_length
+        # Automatically pick the signal with the most coherent periodic cycles (>=30% range, >=0.75s).
+        wr_x = np.asarray(primary_joints["wrist"]["x"], dtype=np.float64)
+        wr_y = np.asarray(primary_joints["wrist"]["y"], dtype=np.float64)
+        sh_x = np.asarray(primary_joints["shoulder"]["x"], dtype=np.float64)
+        sh_y = np.asarray(primary_joints["shoulder"]["y"], dtype=np.float64)
+        el_x = np.asarray(primary_joints["elbow"]["x"], dtype=np.float64)
+        el_y = np.asarray(primary_joints["elbow"]["y"], dtype=np.float64)
+        v_slice = slice(valid_start_idx, valid_end_idx + 1)
         rel_x = wr_x - sh_x
         rel_y = wr_y - sh_y
-        rel_v_x = rel_x[valid_start_idx : valid_end_idx + 1]
-        rel_v_y = rel_y[valid_start_idx : valid_end_idx + 1]
+        rel_v_x = rel_x[v_slice]
+        rel_v_y = rel_y[v_slice]
+
+        candidates: List[Tuple[str, np.ndarray]] = [("elbow_angle", clean_el.copy())]
+
         if (np.ptp(rel_v_x) + np.ptp(rel_v_y)) > 0.015:
             pts_v = np.column_stack([rel_v_x - np.mean(rel_v_x), rel_v_y - np.mean(rel_v_y)])
             cov_a = np.cov(pts_v, rowvar=False)
@@ -3028,16 +3082,55 @@ def process_kinematics(
             v_pull = eigvecs_a[:, int(np.argmax(eigvals_a))]
             pts_all = np.column_stack([rel_x - np.mean(rel_v_x), rel_y - np.mean(rel_v_y)])
             disp_pca_a = pts_all @ v_pull
-            if len(clean_el) > 1:
-                corr_a = np.corrcoef(disp_pca_a[valid_start_idx : valid_end_idx + 1], clean_el[valid_start_idx : valid_end_idx + 1])[0, 1]
+            if len(clean_el) > 1 and np.ptp(clean_el[v_slice]) >= 8.0:
+                corr_a = np.corrcoef(disp_pca_a[v_slice], clean_el[v_slice])[0, 1]
                 if not np.isnan(corr_a) and corr_a < 0:
                     disp_pca_a = -disp_pca_a
-            el_range_a = max(24.0, float(np.ptp(clean_el[valid_start_idx : valid_end_idx + 1])))
-            pca_range_a = max(1e-4, float(np.ptp(disp_pca_a[valid_start_idx : valid_end_idx + 1])))
-            disp_scaled_a = (disp_pca_a - np.median(disp_pca_a[valid_start_idx : valid_end_idx + 1])) / pca_range_a * el_range_a + np.median(clean_el[valid_start_idx : valid_end_idx + 1])
+            el_range_a = max(24.0, float(np.ptp(clean_el[v_slice])))
+            pca_range_a = max(1e-4, float(np.ptp(disp_pca_a[v_slice])))
+            disp_scaled_a = (disp_pca_a - np.median(disp_pca_a[v_slice])) / pca_range_a * el_range_a + np.median(clean_el[v_slice])
             disp_smooth_a = apply_zero_phase_butterworth_continuous(disp_scaled_a, fs=15.0, cutoff=2.2)
-            clean_primary = 0.55 * clean_el + 0.45 * disp_smooth_a
-            clean_curve = -clean_primary.copy()
+            candidates.append(("pca_wrist_shoulder", disp_smooth_a))
+            if float(np.ptp(clean_el[v_slice])) >= 18.0:
+                candidates.append(("blend_elbow_pca", 0.55 * clean_el + 0.45 * disp_smooth_a))
+
+        arm_len = max(0.05, float(np.median(np.hypot(sh_x[v_slice] - el_x[v_slice], sh_y[v_slice] - el_y[v_slice]))))
+        # In image coords (y downward), pulling elbow up increases (shoulder_y - elbow_y);
+        # negate so contraction = trough (matching elbow_angle convention where clean_curve = -clean_primary).
+        vert_rel = -(sh_y - el_y) / arm_len
+        if np.ptp(vert_rel[v_slice]) > 0.04:
+            if len(clean_el) > 1 and np.ptp(clean_el[v_slice]) >= 12.0:
+                corr_v = np.corrcoef(vert_rel[v_slice], clean_el[v_slice])[0, 1]
+                if not np.isnan(corr_v) and corr_v < 0:
+                    vert_rel = -vert_rel
+            vert_range = max(1e-4, float(np.ptp(vert_rel[v_slice])))
+            el_range_v = max(28.0, float(np.ptp(clean_el[v_slice])))
+            vert_scaled = (vert_rel - np.median(vert_rel[v_slice])) / vert_range * el_range_v + np.median(clean_el[v_slice])
+            vert_smooth = apply_zero_phase_butterworth_continuous(vert_scaled, fs=15.0, cutoff=2.2)
+            candidates.append(("vert_shoulder_elbow", vert_smooth))
+
+        best_sig = candidates[0][1]
+        best_score = (-1, -1.0)
+        min_dist_frames = max(3, int(round(0.75 * 15.0)))
+        for cand_name, cand_sig in candidates:
+            seg = cand_sig[v_slice]
+            seg_ptp = float(np.ptp(seg))
+            if seg_ptp < 8.0:
+                continue
+            prom = max(0.30 * seg_ptp, 4.0)
+            p_pos, _ = scipy.signal.find_peaks(-seg, prominence=prom, distance=min_dist_frames)
+            p_neg, _ = scipy.signal.find_peaks(seg, prominence=prom, distance=min_dist_frames)
+            n_cycles = min(len(p_pos), max(len(p_neg), len(p_pos))) if len(p_pos) > 0 else 0
+            diff_mad = float(np.median(np.abs(np.diff(seg)))) if len(seg) > 2 else 1.0
+            snr = seg_ptp / max(0.05, diff_mad)
+            bonus = 100.0 if cand_name == "blend_elbow_pca" and float(np.ptp(clean_el[v_slice])) >= 18.0 else 0.0
+            score = (int(n_cycles), round(snr + bonus, 3))
+            if score > best_score:
+                best_score = score
+                best_sig = cand_sig
+
+        clean_primary = best_sig
+        clean_curve = -clean_primary.copy()
     elif is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
         el_valid_raw = el_2d[valid_start_idx : valid_end_idx + 1]
         sg_win = min(9, len(el_valid_raw) if len(el_valid_raw) % 2 == 1 else len(el_valid_raw) - 1)
@@ -3901,6 +3994,7 @@ def process_kinematics(
     f_stretch = max(0, min(n_frames - 1, f_stretch))
     f_peak = max(0, min(n_frames - 1, f_peak))
 
+    t_render_start = time.time()
     snapshot_stretch_b64 = encode_snapshot_jpeg_b64(frames_rgb[f_stretch], max_dim=480, quality=80) if frames_rgb and f_stretch < len(frames_rgb) else None
     snapshot_peak_b64 = encode_snapshot_jpeg_b64(frames_rgb[f_peak], max_dim=480, quality=80) if frames_rgb and f_peak < len(frames_rgb) else None
 
@@ -3913,6 +4007,109 @@ def process_kinematics(
         c_name: [round(float(primary_joints[c_name]["x"][f_peak]), 4), round(float(primary_joints[c_name]["y"][f_peak]), 4)]
         for c_name in canonical_joints_list if c_name in primary_joints
     }
+
+    def _build_alignment_frame(frame_id: str, title: str, phase_label: str, f_idx: int, snap_b64: Optional[str], j_map: Dict[str, List[float]], is_stretch_phase: bool) -> Dict[str, Any]:
+        ts_sec = round(max(0.0, float(timestamps[f_idx] - timestamps[0])) if timestamps and f_idx < len(timestamps) else 0.0, 2)
+        el_deg = round(float(clean_el[f_idx]), 1) if f_idx < len(clean_el) else 0.0
+        hu_deg = round(float(clean_hu[f_idx]), 1) if f_idx < len(clean_hu) else 0.0
+        torso_deg = round(float(clean_torso[f_idx]), 1) if f_idx < len(clean_torso) else 0.0
+        kn_deg = round(float(clean_kn[f_idx]), 1) if f_idx < len(clean_kn) else 0.0
+        hp_deg = round(float(clean_hp[f_idx]), 1) if f_idx < len(clean_hp) else 0.0
+
+        status = "optimal"
+        notes: List[str] = []
+        overlays: List[Dict[str, Any]] = []
+        angles_dict: Dict[str, float] = {}
+
+        if is_pattern_b:
+            angles_dict = {"elbow_deg": el_deg, "shoulder_abduction_deg": hu_deg}
+            overlays = [
+                {"from": "shoulder", "to": "elbow", "label": f"Hombro {hu_deg:.0f}°"},
+                {"from": "elbow", "to": "wrist", "label": f"Codo {el_deg:.0f}°"},
+                {"from": "shoulder", "to": "hip"},
+            ]
+            if is_stretch_phase:
+                if hu_deg > 80.0:
+                    status = "risk"
+                    notes.append(f"Abducción de hombro elevada ({hu_deg:.0f}°): riesgo de pinzamiento subacromial.")
+                    notes.append("Mete ligeramente los codos (~45-60°) para proteger el manguito rotador.")
+                elif hu_deg > 70.0:
+                    status = "caution"
+                    notes.append(f"Abducción algo abierta ({hu_deg:.0f}°): cierra el ángulo braquial a ~45-60°.")
+                else:
+                    notes.append(f"Abducción humeral segura ({hu_deg:.0f}°) en máxima tensión.")
+                    notes.append(f"Flexión de codo en estiramiento ({el_deg:.0f}°) dentro de rango óptimo.")
+            else:
+                if el_deg > 172.0:
+                    status = "caution"
+                    notes.append(f"Bloqueo articular completo ({el_deg:.0f}°): mantén una micro-flexión para sostener la tensión.")
+                else:
+                    notes.append(f"Extensión controlada ({el_deg:.0f}°) sin hiperextensión de codo.")
+        elif is_pattern_a:
+            angles_dict = {"torso_lean_deg": torso_deg, "elbow_deg": el_deg}
+            overlays = [
+                {"from": "ear", "to": "shoulder"},
+                {"from": "shoulder", "to": "hip", "label": f"Torso {torso_deg:.0f}°"},
+                {"from": "shoulder", "to": "elbow"},
+                {"from": "elbow", "to": "wrist", "label": f"Codo {el_deg:.0f}°"},
+            ]
+            if is_seated_exercise and torso_deg > 35.0:
+                status = "caution"
+                notes.append(f"Inclinación de torso elevada ({torso_deg:.0f}°): evita compensar con impulso lumbar.")
+            elif torso_deg > 62.0:
+                status = "caution"
+                notes.append(f"Ángulo de torso muy horizontal ({torso_deg:.0f}°): vigila la estabilidad lumbar.")
+            else:
+                notes.append(f"Columna neutra y torso estable ({torso_deg:.0f}°).")
+                notes.append(f"Ángulo de codo ({el_deg:.0f}°) alineado con la línea de tracción.")
+        else:
+            angles_dict = {"knee_deg": kn_deg, "hip_deg": hp_deg}
+            overlays = [
+                {"from": "shoulder", "to": "hip", "label": f"Cadera {hp_deg:.0f}°"},
+                {"from": "hip", "to": "knee", "label": f"Rodilla {kn_deg:.0f}°"},
+                {"from": "knee", "to": "ankle"},
+            ]
+            if not is_stretch_phase and kn_deg > 174.0:
+                status = "caution"
+                notes.append(f"Bloqueo casi total de rodilla ({kn_deg:.0f}°): evita hiperextender bajo carga.")
+            else:
+                notes.append(f"Alineación cadera-rodilla-tobillo estable (rodilla {kn_deg:.0f}°, cadera {hp_deg:.0f}°).")
+
+        return {
+            "id": frame_id,
+            "title": title,
+            "phase_label": phase_label,
+            "frame_idx": int(f_idx),
+            "timestamp_sec": ts_sec,
+            "snapshot_b64": snap_b64,
+            "joints": j_map,
+            "status": status,
+            "angles": angles_dict,
+            "overlays": overlays,
+            "notes": notes[:2],
+        }
+
+    alignment_frames = [
+        _build_alignment_frame(
+            "stretch",
+            "1. Punto de Máxima Tensión / Estiramiento",
+            "Máxima Tensión",
+            f_stretch,
+            snapshot_stretch_b64,
+            joints_stretch,
+            True,
+        ),
+        _build_alignment_frame(
+            "contraction",
+            "2. Punto de Contracción / Bloqueo",
+            "Contracción / Bloqueo",
+            f_peak,
+            snapshot_peak_b64,
+            joints_peak,
+            False,
+        ),
+    ]
+    render_snapshots_s = round(time.time() - t_render_start, 3)
 
     # 8.5 Layer 2: Multimodal Biomechanical Brain (Gemini Flash Video or Clinical Deterministic Audit)
     vlm_result = None
@@ -4717,6 +4914,8 @@ def process_kinematics(
         "snapshot_peak_b64": snapshot_peak_b64,
         "joints_stretch": joints_stretch,
         "joints_peak": joints_peak,
+        "alignment_frames": alignment_frames,
+        "_render_snapshots_s": render_snapshots_s,
         "timeline_cues": vlm_result.get("timeline_cues", []) if vlm_result else [],
         "alignment_and_discomfort": vlm_result.get("alignment_and_discomfort") if vlm_result else None,
         "stimulus_and_specificity": vlm_result.get("stimulus_and_specificity") if vlm_result else None,
@@ -5229,7 +5428,7 @@ def analyze(
         frames_rgb, timestamps, duration = sample_video_frames(
             temp_path,
             target_fps=15.0,
-            max_frames=450,
+            max_frames=600,
             start_time=sample_start,
             end_time=sample_end
         )
@@ -5272,7 +5471,22 @@ def analyze(
             run_vlm=run_vlm
         )
         total_s = round(time.time() - t_analyze_start, 3)
-        print(f"[Pipeline Timing] ffmpeg_s={ffmpeg_s}s total_s={total_s}s")
+        render_snapshots_s = float(result.pop("_render_snapshots_s", 0.0)) if isinstance(result, dict) else 0.0
+        timings_payload = {
+            "model_load_s": MODEL_LOAD_S,
+            "ffmpeg_s": ffmpeg_s,
+            "det_s": LAST_INFERENCE_TIMINGS.get("det_s", 0.0),
+            "pose_s": LAST_INFERENCE_TIMINGS.get("pose_s", 0.0),
+            "render_snapshots_s": render_snapshots_s,
+            "total_s": total_s,
+        }
+        if isinstance(result, dict):
+            result["timings"] = timings_payload
+        print(
+            f"[Pipeline Timing] model_load_s={MODEL_LOAD_S}s ffmpeg_s={ffmpeg_s}s "
+            f"det_s={timings_payload['det_s']}s pose_s={timings_payload['pose_s']}s "
+            f"render_snapshots_s={render_snapshots_s}s total_s={total_s}s"
+        )
         return sanitize_for_json(result)
     finally:
         for p in set([raw_temp_path, temp_path]):

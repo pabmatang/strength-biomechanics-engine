@@ -300,6 +300,35 @@ export interface VlmAnalysis {
   };
 }
 
+export interface AlignmentFrameOverlay {
+  from: string;
+  to: string;
+  label?: string;
+}
+
+export interface AlignmentFrame {
+  id: 'stretch' | 'contraction' | string;
+  title: string;
+  phase_label: string;
+  frame_idx: number;
+  timestamp_sec: number;
+  snapshot_b64?: string | null;
+  joints?: Record<string, [number, number]>;
+  status: 'optimal' | 'caution' | 'risk' | string;
+  angles?: Record<string, number>;
+  overlays?: AlignmentFrameOverlay[];
+  notes?: string[];
+}
+
+export interface PipelineTimings {
+  model_load_s: number;
+  ffmpeg_s: number;
+  det_s: number;
+  pose_s: number;
+  render_snapshots_s: number;
+  total_s: number;
+}
+
 export interface BiomechanicsAnalysisResponse {
   fps: number;
   duration: number;
@@ -334,6 +363,8 @@ export interface BiomechanicsAnalysisResponse {
   snapshot_peak_b64?: string | null;
   joints_stretch?: Record<string, [number, number]>;
   joints_peak?: Record<string, [number, number]>;
+  alignment_frames?: AlignmentFrame[];
+  timings?: PipelineTimings;
   timeline_cues?: TimelineCue[];
   alignment_and_discomfort?: AlignmentAndDiscomfort;
   stimulus_and_specificity?: StimulusAndSpecificity;

@@ -744,6 +744,81 @@ def test_rtdetr_strided_and_vitpose_batched_output_format():
         assert 0.0 <= fk["left_shoulder"]["y"] <= 1.0
 
 
+def test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames():
+    """
+    8s standing intro (high hip_y=0.40, extended knee_angle~170 deg) followed by
+    4 seated incline_press reps (hip_y=0.65, knee_angle~90 deg).
+    Verifies standing frames are excluded from active reps and alignment_frames has 2 valid keyframes.
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    standing_frames = int(8.0 * fps)  # 120 frames
+    rep_tpl = []
+    for k in range(1, 16):
+        rep_tpl.append(150.0 - 95.0 * (k / 15.0))
+    for k in range(1, 16):
+        rep_tpl.append(55.0 + 95.0 * (k / 15.0))
+    seated_angles = [150.0] * 10 + rep_tpl * 4 + [150.0] * 10
+    n_frames = standing_frames + len(seated_angles)
+    timestamps = [f * dt for f in range(n_frames)]
+
+    frames_keypoints = []
+    L_forearm = 0.18
+    for f in range(n_frames):
+        is_standing = f < standing_frames
+        el_ang = 165.0 if is_standing else seated_angles[f - standing_frames]
+        sh_x, sh_y = (0.48, 0.22) if is_standing else (0.45, 0.40)
+        hp_x, hp_y = (0.48, 0.42) if is_standing else (0.55, 0.65)
+        kn_x, kn_y = (0.48, 0.68) if is_standing else (0.52, 0.85)
+        ak_x, ak_y = (0.50, 0.94) if is_standing else (0.50, 0.95)
+        el_x, el_y = (0.48, 0.38) if is_standing else (0.45, 0.60)
+        rad = math.radians(el_ang)
+        wr_x = el_x + L_forearm * math.sin(rad)
+        wr_y = el_y - L_forearm * math.cos(rad)
+
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.95},
+            "left_elbow": {"x": el_x, "y": el_y, "score": 0.95},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.95},
+            "left_hip": {"x": hp_x, "y": hp_y, "score": 0.95},
+            "left_knee": {"x": kn_x, "y": kn_y, "score": 0.95},
+            "left_ankle": {"x": ak_x, "y": ak_y, "score": 0.95},
+            "left_ear": {"x": sh_x - 0.02, "y": sh_y - 0.08, "score": 0.95},
+            "right_shoulder": {"x": sh_x - 0.02, "y": sh_y, "score": 0.30},
+            "right_elbow": {"x": el_x - 0.02, "y": el_y, "score": 0.30},
+            "right_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.30},
+            "right_hip": {"x": hp_x - 0.02, "y": hp_y, "score": 0.30},
+            "right_knee": {"x": kn_x - 0.02, "y": kn_y, "score": 0.30},
+            "right_ankle": {"x": ak_x - 0.02, "y": ak_y, "score": 0.30},
+            "right_ear": {"x": sh_x - 0.04, "y": sh_y - 0.08, "score": 0.30},
+            "nose": {"x": sh_x - 0.02, "y": sh_y - 0.05, "score": 0.90},
+        })
+
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        exercise_name="Incline Press Sentado con Intro de Pie",
+        target_muscle="chest",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert result.get("total_reps") == 4, f"Expected 4 seated reps, got {result.get('total_reps')}"
+    reps = result.get("repetitions_summary", [])
+    assert reps[0]["start_time"] >= 7.5, f"Standing intro leaked into Rep 1 at {reps[0]['start_time']}s"
+
+    clip_dur = result.get("total_duration_sec", timestamps[-1])
+    af = result.get("alignment_frames", [])
+    assert len(af) == 2, f"Expected 2 alignment_frames, got {len(af)}"
+    for item in af:
+        assert 0.0 <= item["timestamp_sec"] <= clip_dur + 0.01
+        assert item["status"] in ("optimal", "caution", "risk")
+        assert len(item.get("overlays", [])) >= 1
+        assert len(item.get("notes", [])) >= 1
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
@@ -753,3 +828,4 @@ if __name__ == "__main__":
     test_trimmed_timestamps_within_clip_bounds()
     test_camera_stability_flags_25pct_scale_drift()
     test_rtdetr_strided_and_vitpose_batched_output_format()
+    test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames()

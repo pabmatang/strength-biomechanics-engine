@@ -15,7 +15,7 @@ region = "us-east-1"
 [cerebrium.scaling]
 min_replicas = 0
 max_replicas = 1
-cooldown = 45
+cooldown = 300
 response_timeout = 120
 
 [cerebrium.dependencies.pip]

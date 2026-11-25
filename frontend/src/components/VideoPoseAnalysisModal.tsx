@@ -52,7 +52,7 @@ import {
 import { ResistanceCurveEditor } from './ResistanceCurveEditor';
 import { type MachineResistanceProfile } from '../utils/machinePhysicsEngine';
 import { isSuperUserMode } from '../utils/superuserCurveStore';
-import { prepareVideoForAnalysis } from '../utils/videoCompressor';
+import { trimAndCompressVideo, computeSlidingTrimWindow } from '../utils/videoCompressor';
 import {
   analyzeVideoWithModal,
   requestCoachReviewWithModal,
@@ -80,7 +80,7 @@ import {
 import { sendVideoTelemetry, TelemetryAnalysisResponse, VideoTelemetryPayload } from '../utils/api';
 import { ErrorBoundary } from './ErrorBoundary';
 
-export const MAX_ANALYSIS_CLIP_SECONDS = 30.0;
+export const MAX_ANALYSIS_CLIP_SECONDS = 40.0;
 
 /**
  * 7-stimulating-reps window model for effective hypertrophy volume.
@@ -1063,7 +1063,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [hasSuggestedActiveWindow, setHasSuggestedActiveWindow] = useState<boolean>(false);
   const [filmstripFrames, setFilmstripFrames] = useState<string[]>([]);
   const filmstripTrackRef = useRef<HTMLDivElement | null>(null);
-  const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
+  const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | 'window' | null>(null);
+  const dragWindowOffsetRef = useRef<number>(0);
 
   // Parallel Micro Check-In (Bloque 2)
   const [pipelineProgress, setPipelineProgress] = useState<number>(0);
@@ -1561,10 +1562,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     };
   }, [uploadedVideoUrl, videoDuration]);
 
-  // Real-time scrubbing for WhatsApp-style filmstrip drag handles (mouse + touch)
+  // Real-time scrubbing for WhatsApp-style filmstrip drag handles & sliding window (mouse + touch)
   useEffect(() => {
     if (!draggingHandle) return;
-    const totalDur = videoDuration > 0 ? videoDuration : 30;
+    const totalDur = videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS;
     const updateFromClientX = (clientX: number) => {
       const track = filmstripTrackRef.current;
       if (!track) return;
@@ -1573,14 +1574,25 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const t = Math.round(frac * totalDur * 10) / 10;
       if (draggingHandle === 'start') {
         const clamped = Math.max(0, Math.min(trimEnd - 0.5, t));
-        const finalStart = (trimEnd - clamped) > 30 ? Math.max(0, trimEnd - 30) : clamped;
+        const finalStart = (trimEnd - clamped) > MAX_ANALYSIS_CLIP_SECONDS
+          ? Math.max(0, trimEnd - MAX_ANALYSIS_CLIP_SECONDS)
+          : clamped;
         setTrimStart(finalStart);
         safeSeekVideo(finalStart);
-      } else {
+      } else if (draggingHandle === 'end') {
         const clamped = Math.min(totalDur, Math.max(trimStart + 0.5, t));
-        const finalEnd = (clamped - trimStart) > 30 ? Math.min(totalDur, trimStart + 30) : clamped;
+        const finalEnd = (clamped - trimStart) > MAX_ANALYSIS_CLIP_SECONDS
+          ? Math.min(totalDur, trimStart + MAX_ANALYSIS_CLIP_SECONDS)
+          : clamped;
         setTrimEnd(finalEnd);
         safeSeekVideo(finalEnd);
+      } else if (draggingHandle === 'window') {
+        const span = Math.max(0.5, trimEnd - trimStart);
+        const anchor = t - dragWindowOffsetRef.current;
+        const { start, end } = computeSlidingTrimWindow(anchor, span, totalDur, MAX_ANALYSIS_CLIP_SECONDS);
+        setTrimStart(start);
+        setTrimEnd(end);
+        safeSeekVideo(start);
       }
     };
     const onMouseMove = (e: MouseEvent) => updateFromClientX(e.clientX);
@@ -1639,20 +1651,36 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
       // Client-side trim + 2x downscale only for huge (>25 MB) files so 200-800 MB 4K60 clips shrink to ~2 MB in ~10s;
       // <= 25 MB bypasses directly to Cerebrium GPU native ffmpeg trim.
+      let effectiveTrimRange = range;
       if (file.size > 25 * 1024 * 1024) {
         setPipelineState('compressing');
         setPipelineMessage(`Optimizando vídeo (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
-        const preparedBlob = await prepareVideoForAnalysis(file, {
-          range,
+        const preparedBlob = await trimAndCompressVideo(file, trimStart, trimEnd, {
           maxWidth: 480,
           targetFps: 15,
           bitrate: 800_000,
+          maxDurationSec: MAX_ANALYSIS_CLIP_SECONDS,
           onProgress: (pct) => {
             setPipelineProgress(Math.max(5, Math.min(35, Math.round(pct * 0.35))));
             setPipelineMessage(`Comprimiendo tramo en tu dispositivo (${pct}%)...`);
           }
         });
         videoBlobToSend = preparedBlob;
+        // Lock result player strictly to the trimmed Blob (0.0s -> trimmedDuration)
+        if (preparedBlob !== file) {
+          const trimmedDur = Math.max(0.5, Math.round((trimEnd - trimStart) * 10) / 10);
+          const trimmedUrl = URL.createObjectURL(preparedBlob);
+          setUploadedVideoUrl((prev) => {
+            if (prev && prev.startsWith('blob:')) {
+              try { URL.revokeObjectURL(prev); } catch {}
+            }
+            return trimmedUrl;
+          });
+          setTrimStart(0);
+          setTrimEnd(trimmedDur);
+          setVideoDuration(trimmedDur);
+          effectiveTrimRange = { startTime: 0, endTime: trimmedDur };
+        }
       }
       compressedBlobRef.current = videoBlobToSend;
       setPipelineProgress(45);
@@ -1674,13 +1702,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         exToSend,
         muscleToSend,
         loadToSend,
-        range,
+        effectiveTrimRange,
         exNameToSend,
         manualActive
       );
 
       if (videoElementRef.current) {
-        safeSeekVideo(trimStart);
+        safeSeekVideo(effectiveTrimRange.startTime);
         videoElementRef.current.playbackRate = 1.0;
         videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
       }
@@ -3162,7 +3190,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       return;
                     }
                     setTrimStart(0);
-                    const end = Math.min(dur, 30);
+                    const end = Math.min(dur, MAX_ANALYSIS_CLIP_SECONDS);
                     setTrimEnd(end);
                     // Mobile-first: Trimmer permanece cerrado por defecto
                   }}
@@ -3539,7 +3567,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       {(trimEnd - trimStart).toFixed(1)}s seleccionados
                     </span>
                     <span className="text-slate-400 font-mono">
-                      {trimStart.toFixed(1)}s – {trimEnd.toFixed(1)}s (Máx 30s)
+                      {trimStart.toFixed(1)}s – {trimEnd.toFixed(1)}s (Máx 40s)
                     </span>
                   </div>
 
@@ -3577,9 +3605,32 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                       style={{ width: `${100 - rightPct}%` }}
                     />
 
-                    {/* Active Selection Window Border */}
+                    {/* Draggable Active Selection Window (slides full range preserving duration) */}
                     <div
-                      className="absolute inset-y-0 border-y-2 border-cyan-400 pointer-events-none"
+                      role="region"
+                      aria-label="Deslizar ventana de recorte"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        const track = filmstripTrackRef.current;
+                        if (track) {
+                          const rect = track.getBoundingClientRect();
+                          const totalDur = videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS;
+                          const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+                          dragWindowOffsetRef.current = Math.max(0, frac * totalDur - trimStart);
+                        }
+                        setDraggingHandle('window');
+                      }}
+                      onTouchStart={(e) => {
+                        const track = filmstripTrackRef.current;
+                        if (track && e.touches[0]) {
+                          const rect = track.getBoundingClientRect();
+                          const totalDur = videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS;
+                          const frac = Math.max(0, Math.min(1, (e.touches[0].clientX - rect.left) / Math.max(1, rect.width)));
+                          dragWindowOffsetRef.current = Math.max(0, frac * totalDur - trimStart);
+                        }
+                        setDraggingHandle('window');
+                      }}
+                      className="absolute inset-y-0 border-y-2 border-cyan-400 bg-cyan-400/10 cursor-grab active:cursor-grabbing z-[5]"
                       style={{ left: `${leftPct}%`, width: `${rightPct - leftPct}%` }}
                     />
 
@@ -3747,11 +3798,11 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                      (trimEnd - trimStart) <= 30
+                      (trimEnd - trimStart) <= MAX_ANALYSIS_CLIP_SECONDS
                         ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
                         : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
                     }`}>
-                      Ventana: {(trimEnd - trimStart).toFixed(1)}s (Máx 30s)
+                      Ventana: {(trimEnd - trimStart).toFixed(1)}s (Máx 40s)
                     </span>
                     <button
                       type="button"
@@ -4031,6 +4082,18 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* ============================================================== */}
             {activeView === 'velocity' && (
               <>
+                {/* Superuser / Dev-only GPU Pipeline Timings */}
+                {isSuperUser && analysisData?.timings && (
+                  <div className="px-3 py-1.5 rounded-xl bg-slate-950/90 border border-cyan-500/30 text-[10px] font-mono text-cyan-200 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="font-bold text-cyan-400">DEV GPU:</span>
+                    <span>total {analysisData.timings.total_s.toFixed(2)}s</span>
+                    <span>ffmpeg {analysisData.timings.ffmpeg_s.toFixed(2)}s</span>
+                    <span>det {analysisData.timings.det_s.toFixed(2)}s</span>
+                    <span>pose {analysisData.timings.pose_s.toFixed(2)}s</span>
+                    <span>snap {analysisData.timings.render_snapshots_s.toFixed(2)}s</span>
+                  </div>
+                )}
+
                 {/* Camera Stability Warning Banner (Bloque 4.2) */}
                 {analysisData?.camera_stability && analysisData.camera_stability.stable === false && (
                   <div className="p-3 rounded-2xl bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs flex items-start gap-2.5">
@@ -4385,6 +4448,114 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     </p>
                   </div>
                 )}
+                {/* CARD 0: Fotogramas Clave de Alineación (Repetición Representativa) */}
+                {analysisData?.alignment_frames && analysisData.alignment_frames.length > 0 && (
+                  <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                        Alineación por Fotogramas Clave
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        Toca para inspeccionar
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {analysisData.alignment_frames.map((af) => {
+                        const badgeCls =
+                          af.status === 'risk'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : af.status === 'caution'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+                        const badgeLabel =
+                          af.status === 'risk' ? 'Riesgo' : af.status === 'caution' ? 'Precaución' : 'Óptima';
+                        return (
+                          <button
+                            key={af.id}
+                            type="button"
+                            onClick={() => {
+                              if (videoElementRef.current) {
+                                videoElementRef.current.pause();
+                                setIsVideoPlaying(false);
+                                safeSeekVideo(Math.max(0, af.timestamp_sec));
+                              }
+                            }}
+                            className="text-left rounded-xl bg-slate-950/90 border border-slate-800 hover:border-cyan-500/50 transition overflow-hidden flex flex-col"
+                          >
+                            {af.snapshot_b64 && (
+                              <div className="relative w-full aspect-[4/3] bg-black overflow-hidden">
+                                <img
+                                  src={`data:image/jpeg;base64,${af.snapshot_b64}`}
+                                  alt={af.title}
+                                  className="w-full h-full object-contain"
+                                />
+                                {af.joints && af.overlays && af.overlays.length > 0 && (
+                                  <svg
+                                    viewBox="0 0 100 100"
+                                    preserveAspectRatio="none"
+                                    className="absolute inset-0 w-full h-full pointer-events-none"
+                                  >
+                                    {af.overlays.map((ov, oIdx) => {
+                                      const p1 = af.joints?.[ov.from];
+                                      const p2 = af.joints?.[ov.to];
+                                      if (!p1 || !p2) return null;
+                                      const x1 = p1[0] * 100;
+                                      const y1 = p1[1] * 100;
+                                      const x2 = p2[0] * 100;
+                                      const y2 = p2[1] * 100;
+                                      return (
+                                        <g key={oIdx}>
+                                          <line
+                                            x1={x1}
+                                            y1={y1}
+                                            x2={x2}
+                                            y2={y2}
+                                            stroke="#22d3ee"
+                                            strokeWidth="1.4"
+                                            strokeLinecap="round"
+                                          />
+                                          {ov.label && (
+                                            <text
+                                              x={(x1 + x2) / 2}
+                                              y={(y1 + y2) / 2 - 1.5}
+                                              fill="#f8fafc"
+                                              fontSize="4.2"
+                                              fontWeight="bold"
+                                              textAnchor="middle"
+                                              style={{ paintOrder: 'stroke', stroke: '#020617', strokeWidth: '1.2px' }}
+                                            >
+                                              {ov.label}
+                                            </text>
+                                          )}
+                                        </g>
+                                      );
+                                    })}
+                                  </svg>
+                                )}
+                                <span className={`absolute top-2 right-2 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${badgeCls}`}>
+                                  {badgeLabel}
+                                </span>
+                                <span className="absolute bottom-2 left-2 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/75 text-cyan-300">
+                                  {af.timestamp_sec.toFixed(1)}s
+                                </span>
+                              </div>
+                            )}
+                            <div className="p-2.5 space-y-1">
+                              <span className="text-[11px] font-bold text-white block">{af.title}</span>
+                              {af.notes && af.notes.map((note, nIdx) => (
+                                <p key={nIdx} className="text-[11px] text-slate-300 leading-snug">
+                                  • {note}
+                                </p>
+                              ))}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* CARD 1: Nivel de Estrés Articular */}
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">

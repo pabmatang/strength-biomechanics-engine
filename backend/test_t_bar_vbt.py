@@ -217,6 +217,61 @@ def test_t_bar_row_oblique_3_4_view_22deg_4_reps():
     assert result.get("total_reps") == 4, f"Expected 4 reps in 3/4 t_bar_row, got {result.get('total_reps')}"
 
 
+def test_t_bar_row_frontal_view_shoulder_elbow_height_4_reps():
+    """
+    Frontal t_bar_row where 2D elbow angle changes < 10 deg, while relative vertical
+    height (shoulder_y - elbow_y) / arm_length oscillates across 4 clean reps.
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    # Cycle parameter u in [0, 1] (0=bottom/stretch, 1=top/contraction)
+    u_tpl = [k / 10.0 for k in range(1, 11)] + [1.0 - (k / 10.0) for k in range(1, 11)]
+    u_vals = [0.0] * 12 + u_tpl * 4 + [0.0] * 12
+    n_frames = len(u_vals)
+    timestamps = [f * dt for f in range(n_frames)]
+
+    frames_keypoints = []
+    for u in u_vals:
+        sh_x, sh_y = 0.45, 0.35
+        # Elbow moves vertically upward as user pulls (el_y goes from 0.56 down to 0.36)
+        # while forearm stays nearly aligned so 2D elbow angle stays ~145-151 deg (<10 deg delta)
+        el_x = 0.36 - 0.02 * u
+        el_y = 0.56 - 0.20 * u
+        wr_x = 0.43 - 0.01 * u
+        wr_y = el_y + 0.14
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.94},
+            "left_elbow": {"x": el_x, "y": el_y, "score": 0.94},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.94},
+            "left_hip": {"x": 0.48, "y": 0.65, "score": 0.94},
+            "left_knee": {"x": 0.48, "y": 0.84, "score": 0.94},
+            "left_ankle": {"x": 0.48, "y": 0.95, "score": 0.94},
+            "left_ear": {"x": 0.46, "y": 0.25, "score": 0.94},
+            "right_shoulder": {"x": 0.55, "y": sh_y, "score": 0.35},
+            "right_elbow": {"x": 0.64, "y": el_y, "score": 0.35},
+            "right_wrist": {"x": 0.57, "y": wr_y, "score": 0.35},
+            "right_hip": {"x": 0.52, "y": 0.65, "score": 0.35},
+            "right_knee": {"x": 0.52, "y": 0.84, "score": 0.35},
+            "right_ankle": {"x": 0.52, "y": 0.95, "score": 0.35},
+            "right_ear": {"x": 0.54, "y": 0.25, "score": 0.35},
+            "nose": {"x": 0.50, "y": 0.27, "score": 0.90},
+        })
+
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="t_bar_row",
+        target_muscle="back",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert result.get("total_reps") == 4, f"Expected 4 reps in frontal t_bar_row, got {result.get('total_reps')}"
+    assert len(result.get("alignment_frames", [])) == 2
+
+
 if __name__ == "__main__":
     test_t_bar_row_vbt_stability()
     test_t_bar_row_oblique_3_4_view_22deg_4_reps()
+    test_t_bar_row_frontal_view_shoulder_elbow_height_4_reps()
