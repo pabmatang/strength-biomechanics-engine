@@ -1061,6 +1061,22 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [trimEnd, setTrimEnd] = useState<number>(15);
   const [showTrimmer, setShowTrimmer] = useState<boolean>(false);
   const [hasSuggestedActiveWindow, setHasSuggestedActiveWindow] = useState<boolean>(false);
+  const [filmstripFrames, setFilmstripFrames] = useState<string[]>([]);
+  const filmstripTrackRef = useRef<HTMLDivElement | null>(null);
+  const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
+
+  // Parallel Micro Check-In (Bloque 2)
+  const [pipelineProgress, setPipelineProgress] = useState<number>(0);
+  const [checkInStep, setCheckInStep] = useState<0 | 1 | 2>(0);
+  const [perceivedRir, setPerceivedRir] = useState<number | null>(null);
+  const [perceivedRirLabel, setPerceivedRirLabel] = useState<string | null>(null);
+  const [perceivedFocus, setPerceivedFocus] = useState<'Músculo objetivo' | 'Brazos / Sinergistas' | 'Molestia articular' | null>(null);
+  const [backendReadyWhileCheckIn, setBackendReadyWhileCheckIn] = useState<boolean>(false);
+  const pendingAnalysisResultRef = useRef<BiomechanicsAnalysisResponse | null>(null);
+  const checkInStepRef = useRef<0 | 1 | 2>(0);
+  useEffect(() => {
+    checkInStepRef.current = checkInStep;
+  }, [checkInStep]);
 
   // 4 Commercial Biomechanical Analysis Views
   const [activeView, setActiveView] = useState<AnalysisView>('velocity');
@@ -1258,6 +1274,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const result = await analyzeVideoWithModal(blob, config, fileId, {
         range,
         onProgress: (stage, progress) => {
+          setPipelineProgress(progress);
           setPipelineMessage(`${stage} (${progress}%)`);
         }
       });
@@ -1267,32 +1284,46 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
           console.warn("[MIA Audit] VLM Error Detail:", result.vlm_error);
         }
       }
-      setAnalysisData(result);
-      setShowExerciseConfigEdit(false);
-      setRepCount(result.total_reps);
-      setPipelineState('ready');
-      setPipelineMessage('');
 
-      if (result.active_window && result.active_window.start_sec > 3.0 && (!range || range.startTime <= 0.1)) {
-        const awStart = Math.max(0, result.active_window.start_sec);
-        const awEnd = Math.max(awStart + 0.5, result.active_window.end_sec);
-        setTrimStart(awStart);
-        setTrimEnd(awEnd);
-        setHasSuggestedActiveWindow(true);
-      } else {
-        setHasSuggestedActiveWindow(false);
-      }
+      const applyFinalResult = (resData: BiomechanicsAnalysisResponse) => {
+        setAnalysisData(resData);
+        setShowExerciseConfigEdit(false);
+        setRepCount(resData.total_reps);
+        setPipelineState('ready');
+        setPipelineMessage('');
+        setPipelineProgress(100);
+        setBackendReadyWhileCheckIn(false);
+        pendingAnalysisResultRef.current = null;
 
-      const detectedName = result.vlm_analysis?.detected_exercise_name || (result as any).detected_exercise_type;
-      if (detectedName && !manualActive && !catalogMachine && (!defaultExerciseId || defaultExerciseId === 'auto')) {
-        const detected = resolveExercise('', detectedName);
-        if (detected) {
-          setSelectedExerciseId(detected.id);
-          setTargetMuscle(detected.targetMuscle);
-          setLoadType(detected.loadType);
-          const grp = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === detected.id));
-          if (grp) setSelectedMuscleGroupId(grp.id);
+        if (resData.active_window && resData.active_window.start_sec > 3.0 && (!range || range.startTime <= 0.1)) {
+          const awStart = Math.max(0, resData.active_window.start_sec);
+          const awEnd = Math.max(awStart + 0.5, resData.active_window.end_sec);
+          setTrimStart(awStart);
+          setTrimEnd(awEnd);
+          setHasSuggestedActiveWindow(true);
+        } else {
+          setHasSuggestedActiveWindow(false);
         }
+
+        const detectedName = resData.vlm_analysis?.detected_exercise_name || (resData as any).detected_exercise_type;
+        if (detectedName && !manualActive && !catalogMachine && (!defaultExerciseId || defaultExerciseId === 'auto')) {
+          const detected = resolveExercise('', detectedName);
+          if (detected) {
+            setSelectedExerciseId(detected.id);
+            setTargetMuscle(detected.targetMuscle);
+            setLoadType(detected.loadType);
+            const grp = MUSCLE_GROUPS.find(g => g.exercises.some(e => e.id === detected.id));
+            if (grp) setSelectedMuscleGroupId(grp.id);
+          }
+        }
+      };
+
+      if (checkInStepRef.current < 2) {
+        pendingAnalysisResultRef.current = result;
+        setBackendReadyWhileCheckIn(true);
+        setPipelineProgress(100);
+      } else {
+        applyFinalResult(result);
       }
 
       // Persist session to local history for zero-storage ghost comparison
@@ -1443,38 +1474,155 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
     const fileId = `${file.name}_${file.size}_${file.lastModified}`;
     fileCacheIdRef.current = fileId;
+    setFilmstripFrames([]);
+    setCheckInStep(0);
+    setPerceivedRir(null);
+    setPerceivedRirLabel(null);
+    setPerceivedFocus(null);
+    setBackendReadyWhileCheckIn(false);
+    pendingAnalysisResultRef.current = null;
+    setPipelineProgress(0);
   };
 
-  // Launch Analysis on the chosen trimmed range
+  // Extract 7 quick thumbnails for WhatsApp-style filmstrip trimmer
+  useEffect(() => {
+    if (!uploadedVideoUrl || videoDuration <= 0.3) return;
+    let cancelled = false;
+    const tempVid = document.createElement('video');
+    tempVid.muted = true;
+    tempVid.playsInline = true;
+    tempVid.preload = 'auto';
+    tempVid.src = uploadedVideoUrl;
+
+    const extract = async () => {
+      await new Promise<void>((res) => {
+        if (tempVid.readyState >= 1) return res();
+        tempVid.onloadedmetadata = () => res();
+        tempVid.onerror = () => res();
+      });
+      if (cancelled || !tempVid.videoWidth || !tempVid.videoHeight) return;
+
+      const count = 7;
+      const canvas = document.createElement('canvas');
+      const thumbH = 64;
+      const thumbW = Math.max(36, Math.round((tempVid.videoWidth / tempVid.videoHeight) * thumbH));
+      canvas.width = thumbW;
+      canvas.height = thumbH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const thumbs: string[] = [];
+      for (let i = 0; i < count; i++) {
+        if (cancelled) return;
+        const t = Math.min(Math.max(0.05, (i / (count - 1)) * Math.max(0.1, videoDuration - 0.1)), videoDuration - 0.05);
+        await new Promise<void>((res) => {
+          const timer = window.setTimeout(res, 400);
+          tempVid.onseeked = () => {
+            window.clearTimeout(timer);
+            res();
+          };
+          try {
+            tempVid.currentTime = t;
+          } catch {
+            window.clearTimeout(timer);
+            res();
+          }
+        });
+        try {
+          ctx.drawImage(tempVid, 0, 0, thumbW, thumbH);
+          thumbs.push(canvas.toDataURL('image/jpeg', 0.6));
+        } catch {
+          // ignore tainted/decode glitches
+        }
+      }
+      if (!cancelled && thumbs.length > 0) {
+        setFilmstripFrames(thumbs);
+      }
+      tempVid.removeAttribute('src');
+    };
+
+    extract();
+    return () => {
+      cancelled = true;
+      tempVid.removeAttribute('src');
+    };
+  }, [uploadedVideoUrl, videoDuration]);
+
+  // Real-time scrubbing for WhatsApp-style filmstrip drag handles (mouse + touch)
+  useEffect(() => {
+    if (!draggingHandle) return;
+    const totalDur = videoDuration > 0 ? videoDuration : 30;
+    const updateFromClientX = (clientX: number) => {
+      const track = filmstripTrackRef.current;
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      const t = Math.round(frac * totalDur * 10) / 10;
+      if (draggingHandle === 'start') {
+        const clamped = Math.max(0, Math.min(trimEnd - 0.5, t));
+        const finalStart = (trimEnd - clamped) > 30 ? Math.max(0, trimEnd - 30) : clamped;
+        setTrimStart(finalStart);
+        safeSeekVideo(finalStart);
+      } else {
+        const clamped = Math.min(totalDur, Math.max(trimStart + 0.5, t));
+        const finalEnd = (clamped - trimStart) > 30 ? Math.min(totalDur, trimStart + 30) : clamped;
+        setTrimEnd(finalEnd);
+        safeSeekVideo(finalEnd);
+      }
+    };
+    const onMouseMove = (e: MouseEvent) => updateFromClientX(e.clientX);
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches[0]) updateFromClientX(e.touches[0].clientX);
+    };
+    const onEnd = () => setDraggingHandle(null);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchend', onEnd);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchend', onEnd);
+    };
+  }, [draggingHandle, videoDuration, trimStart, trimEnd, safeSeekVideo]);
+
+  const finishCheckInAndShowResults = useCallback(() => {
+    setCheckInStep(2);
+    checkInStepRef.current = 2;
+    if (pendingAnalysisResultRef.current) {
+      const resData = pendingAnalysisResultRef.current;
+      pendingAnalysisResultRef.current = null;
+      setAnalysisData(resData);
+      setShowExerciseConfigEdit(false);
+      setRepCount(resData.total_reps);
+      setPipelineState('ready');
+      setPipelineMessage('');
+      setBackendReadyWhileCheckIn(false);
+      if (resData.active_window && resData.active_window.start_sec > 3.0) {
+        setTrimStart(Math.max(0, resData.active_window.start_sec));
+        setTrimEnd(Math.max(resData.active_window.start_sec + 0.5, resData.active_window.end_sec));
+        setHasSuggestedActiveWindow(true);
+      }
+    }
+  }, []);
+
+  // Launch Analysis on the chosen trimmed range (fast server-side ffmpeg trim, no slow browser re-encode)
   const handleStartAnalysis = async () => {
     if (!uploadedFileRef.current) return;
     try {
-      setPipelineState('compressing');
-      setPipelineMessage(`Preparando tramo (${trimStart.toFixed(1)}s - ${trimEnd.toFixed(1)}s)...`);
+      setCheckInStep(0);
+      checkInStepRef.current = 0;
+      setBackendReadyWhileCheckIn(false);
+      pendingAnalysisResultRef.current = null;
+      setPipelineProgress(5);
+      setPipelineState('analyzing');
+      setPipelineMessage(`Subiendo tramo (${trimStart.toFixed(1)}s - ${trimEnd.toFixed(1)}s)...`);
 
       const file = uploadedFileRef.current;
       const fileId = fileCacheIdRef.current || `${file.name}_${file.size}_${file.lastModified}`;
-
       const range = { startTime: trimStart, endTime: trimEnd };
-      let videoBlobToSend: Blob = file;
-
-      // Direct dispatch for videos <= 25 MB to avoid slow canvas re-recording (GPU handles trimming directly)
-      if (file.size > 25 * 1024 * 1024) {
-        setPipelineMessage(`Optimizando vídeo (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
-        const preparedBlob = await prepareVideoForAnalysis(file, {
-          range,
-          maxWidth: 480,
-          targetFps: 15,
-          bitrate: 800_000,
-          onProgress: (pct) => {
-            setPipelineMessage(`Comprimiendo vídeo en tu dispositivo (${pct}%)...`);
-          }
-        });
-        videoBlobToSend = preparedBlob;
-      } else {
-        videoBlobToSend = file;
-      }
-      compressedBlobRef.current = videoBlobToSend;
+      compressedBlobRef.current = file;
 
       const manualActive = catalogMachine ? true : (isManualOverrideRef.current || isManualOverride);
       const exToSend = catalogMachine
@@ -1487,7 +1635,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const loadToSend = catalogMachine ? 'machine' : (manualActive ? activeExercise.loadType : 'auto');
 
       await runPipelineAnalysis(
-        videoBlobToSend,
+        file,
         fileId,
         exToSend,
         muscleToSend,
@@ -3050,12 +3198,107 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               )}
 
-              {/* Loading State Overlay */}
+              {/* Loading / Parallel Micro Check-In Overlay (Bloque 2) */}
               {(pipelineState === 'compressing' || pipelineState === 'analyzing') && (
-                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
-                  <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
-                  <p className="text-sm font-bold text-slate-200">{pipelineMessage}</p>
-                  <span className="text-xs text-slate-400">Zero cold-start • RT-DETR + ViTPose 2D + SciPy (Cerebrium T4 GPU)</span>
+                <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col justify-between p-4 z-20">
+                  {/* Discrete Header Progress Bar */}
+                  <div className="w-full space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-cyan-300 font-bold flex items-center gap-1.5">
+                        {backendReadyWhileCheckIn ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                        )}
+                        <span>
+                          {backendReadyWhileCheckIn
+                            ? 'Análisis biomecánico listo'
+                            : `Procesando biomecánica... ${pipelineProgress}%`}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={finishCheckInAndShowResults}
+                        className="text-[11px] font-bold text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800/90 border border-slate-700 transition"
+                      >
+                        {backendReadyWhileCheckIn ? 'Ver resultados' : 'Saltar'}
+                      </button>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          backendReadyWhileCheckIn ? 'bg-emerald-400' : 'bg-gradient-to-r from-cyan-500 to-blue-500'
+                        }`}
+                        style={{ width: `${Math.max(8, Math.min(100, backendReadyWhileCheckIn ? 100 : pipelineProgress))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2 One-Tap Micro Questions */}
+                  {checkInStep === 0 ? (
+                    <div className="my-auto flex flex-col items-center gap-3 text-center max-w-md mx-auto w-full">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 bg-cyan-950/70 px-2.5 py-0.5 rounded-full border border-cyan-500/30">
+                        Check-in rápido · 1 / 2
+                      </span>
+                      <h4 className="text-sm sm:text-base font-black text-white">
+                        ¿Qué RIR has sentido en esta serie?
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full">
+                        {[
+                          { label: 'RIR 0 (Al fallo)', val: 0 },
+                          { label: 'RIR 1–2 (Cerca del fallo)', val: 1.5 },
+                          { label: 'RIR 3+ (Sobraba margen)', val: 3.5 }
+                        ].map((opt) => (
+                          <button
+                            key={opt.label}
+                            type="button"
+                            onClick={() => {
+                              setPerceivedRir(opt.val);
+                              setPerceivedRirLabel(opt.label);
+                              setCheckInStep(1);
+                              checkInStepRef.current = 1;
+                            }}
+                            className="py-3 px-3 rounded-xl bg-slate-900/95 hover:bg-cyan-600/20 border border-slate-700 hover:border-cyan-400 text-xs font-bold text-slate-100 transition active:scale-95"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : checkInStep === 1 ? (
+                    <div className="my-auto flex flex-col items-center gap-3 text-center max-w-md mx-auto w-full">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-purple-300 bg-purple-950/70 px-2.5 py-0.5 rounded-full border border-purple-500/30">
+                        Check-in rápido · 2 / 2
+                      </span>
+                      <h4 className="text-sm sm:text-base font-black text-white">
+                        ¿Dónde has notado más el trabajo?
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full">
+                        {(['Músculo objetivo', 'Brazos / Sinergistas', 'Molestia articular'] as const).map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => {
+                              setPerceivedFocus(opt);
+                              finishCheckInAndShowResults();
+                            }}
+                            className="py-3 px-3 rounded-xl bg-slate-900/95 hover:bg-purple-600/20 border border-slate-700 hover:border-purple-400 text-xs font-bold text-slate-100 transition active:scale-95"
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="my-auto flex flex-col items-center gap-2 text-center">
+                      <Loader2 className="w-7 h-7 text-cyan-400 animate-spin" />
+                      <p className="text-xs font-bold text-slate-200">{pipelineMessage || 'Finalizando análisis biomecánico...'}</p>
+                    </div>
+                  )}
+
+                  <div className="text-center text-[10px] text-slate-400">
+                    RT-DETR (stride 5) + ViTPose 2D (15 fps) · Cerebrium T4 GPU
+                  </div>
                 </div>
               )}
 
@@ -3103,62 +3346,27 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 </div>
               )}
 
-              {/* Ready to Analyze Overlay / Call to Action */}
+              {/* Compact Top Machine / Exercise Tag on Sharp Video (Bloque 1: zero blur, video 100% protagonist) */}
               {uploadedVideoUrl && pipelineState === 'idle' && !analysisData && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
-                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shadow-lg shadow-cyan-500/20">
-                    <Sliders className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-1 max-w-sm">
-                    <p className="text-sm font-black text-white">Recorte Previo y Configuración</p>
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      Ajusta los deslizadores de inicio ({trimStart.toFixed(1)}s) y fin ({trimEnd.toFixed(1)}s) para delimitar la serie de trabajo. Elige el ejercicio o déjalo en auto-detección y pulsa iniciar.
-                    </p>
-                  </div>
+                <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-2 z-20 pointer-events-none">
                   {Boolean((catalogMachine || effectiveCatalogMachine || (defaultExerciseId && defaultExerciseId !== 'auto'))) && !showExercisePickerInOverlay ? (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 w-full max-w-md bg-slate-900/95 border border-cyan-500/40 rounded-xl px-3.5 py-2.5 shadow-xl">
-                      <div className="flex items-center gap-2.5 min-w-0 text-left w-full sm:w-auto">
-                        <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center shrink-0">
-                          <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
-                              Ejercicio Vinculado
-                            </span>
-                            {catalogMachine?.muscleGroupLabel && (
-                              <span className="text-[9px] font-medium text-slate-400">
-                                · {catalogMachine.muscleGroupLabel}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs font-black text-white truncate">
-                            {catalogMachine
-                              ? formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName)
-                              : (defaultExerciseName || activeExercise.name)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0 pt-1 sm:pt-0 border-t border-slate-800 sm:border-0">
-                        <button
-                          type="button"
-                          onClick={() => setShowExercisePickerInOverlay(true)}
-                          className="text-[11px] font-semibold text-slate-400 hover:text-cyan-300 underline px-1 py-1 transition"
-                        >
-                          Cambiar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleStartAnalysis}
-                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5 text-cyan-200" />
-                          <span>Iniciar Análisis</span>
-                        </button>
-                      </div>
+                    <div className="pointer-events-auto flex items-center gap-2 bg-slate-950/85 border border-cyan-500/40 rounded-xl px-3 py-1.5 shadow-lg max-w-full">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span className="text-[11px] font-bold text-white truncate">
+                        {catalogMachine
+                          ? formatMachineBrandAndModel(catalogMachine.brand, catalogMachine.modelName)
+                          : (defaultExerciseName || activeExercise.name)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowExercisePickerInOverlay(true)}
+                        className="text-[10px] font-semibold text-cyan-300 hover:text-white underline shrink-0"
+                      >
+                        Cambiar
+                      </button>
                     </div>
                   ) : (
-                    <div className="flex flex-col sm:flex-row items-center gap-2 w-full max-w-md">
+                    <div className="pointer-events-auto max-w-xs">
                       <select
                         value={isManualOverride ? selectedExerciseId : 'auto'}
                         onChange={(e) => {
@@ -3169,12 +3377,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                             setSelectedExerciseId('auto');
                           } else {
                             const item = ALL_EXERCISES.find(x => x.id === val);
-                            if (item) {
-                              handleExerciseSelect(item);
-                            }
+                            if (item) handleExerciseSelect(item);
                           }
                         }}
-                        className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs font-semibold focus:outline-none focus:border-cyan-400 shadow-md truncate"
+                        className="bg-slate-950/90 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 text-[11px] font-semibold focus:outline-none focus:border-cyan-400 shadow-lg"
                       >
                         <option value="auto">Auto-detectar ejercicio con IA</option>
                         {MUSCLE_GROUPS.map((group) => (
@@ -3187,15 +3393,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           </optgroup>
                         ))}
                       </select>
-
-                      <button
-                        type="button"
-                        onClick={handleStartAnalysis}
-                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
-                      >
-                        <RefreshCw className="w-4 h-4 text-cyan-200" />
-                        <span>Iniciar Análisis</span>
-                      </button>
                     </div>
                   )}
                 </div>
@@ -3295,6 +3492,106 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                 );
               })()}
             </div>
+
+            {/* WhatsApp-Style Visual Filmstrip Trimmer (Pre-analysis step) */}
+            {uploadedVideoUrl && pipelineState === 'idle' && !analysisData && (() => {
+              const totalDur = videoDuration > 0 ? videoDuration : 30;
+              const leftPct = Math.max(0, Math.min(100, (trimStart / totalDur) * 100));
+              const rightPct = Math.max(leftPct + 2, Math.min(100, (trimEnd / totalDur) * 100));
+              return (
+                <div className="p-3 bg-slate-900/95 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-mono font-bold text-cyan-300 bg-cyan-950/70 border border-cyan-500/30 px-2.5 py-0.5 rounded-full">
+                      {(trimEnd - trimStart).toFixed(1)}s seleccionados
+                    </span>
+                    <span className="text-slate-400 font-mono">
+                      {trimStart.toFixed(1)}s – {trimEnd.toFixed(1)}s (Máx 30s)
+                    </span>
+                  </div>
+
+                  {/* Interactive Filmstrip Track */}
+                  <div
+                    ref={filmstripTrackRef}
+                    className="relative h-14 rounded-xl overflow-hidden bg-slate-950 border border-slate-700/80 select-none touch-none"
+                  >
+                    <div className="absolute inset-0 grid grid-cols-7">
+                      {filmstripFrames.length > 0
+                        ? filmstripFrames.map((src, idx) => (
+                            <img
+                              key={idx}
+                              src={src}
+                              alt=""
+                              draggable={false}
+                              className="w-full h-full object-cover pointer-events-none"
+                            />
+                          ))
+                        : Array.from({ length: 7 }).map((_, idx) => (
+                            <div
+                              key={idx}
+                              className="w-full h-full bg-gradient-to-b from-slate-800 to-slate-900 border-r border-slate-800/60"
+                            />
+                          ))}
+                    </div>
+
+                    {/* Dimmed outside selection */}
+                    <div
+                      className="absolute inset-y-0 left-0 bg-black/65 pointer-events-none"
+                      style={{ width: `${leftPct}%` }}
+                    />
+                    <div
+                      className="absolute inset-y-0 right-0 bg-black/65 pointer-events-none"
+                      style={{ width: `${100 - rightPct}%` }}
+                    />
+
+                    {/* Active Selection Window Border */}
+                    <div
+                      className="absolute inset-y-0 border-y-2 border-cyan-400 pointer-events-none"
+                      style={{ left: `${leftPct}%`, width: `${rightPct - leftPct}%` }}
+                    />
+
+                    {/* Start Drag Handle */}
+                    <div
+                      role="slider"
+                      aria-label="Inicio del recorte"
+                      aria-valuemin={0}
+                      aria-valuemax={trimEnd}
+                      aria-valuenow={trimStart}
+                      onMouseDown={(e) => { e.preventDefault(); setDraggingHandle('start'); }}
+                      onTouchStart={() => setDraggingHandle('start')}
+                      style={{ left: `${leftPct}%` }}
+                      className="absolute inset-y-0 -translate-x-1/2 w-5 bg-cyan-400 hover:bg-cyan-300 cursor-ew-resize flex items-center justify-center shadow-lg z-10 rounded-l-md"
+                    >
+                      <div className="w-0.5 h-6 bg-slate-950 rounded-full" />
+                    </div>
+
+                    {/* End Drag Handle */}
+                    <div
+                      role="slider"
+                      aria-label="Fin del recorte"
+                      aria-valuemin={trimStart}
+                      aria-valuemax={totalDur}
+                      aria-valuenow={trimEnd}
+                      onMouseDown={(e) => { e.preventDefault(); setDraggingHandle('end'); }}
+                      onTouchStart={() => setDraggingHandle('end')}
+                      style={{ left: `${rightPct}%` }}
+                      className="absolute inset-y-0 -translate-x-1/2 w-5 bg-cyan-400 hover:bg-cyan-300 cursor-ew-resize flex items-center justify-center shadow-lg z-10 rounded-r-md"
+                    >
+                      <div className="w-0.5 h-6 bg-slate-950 rounded-full" />
+                    </div>
+                  </div>
+
+                  {/* Single Primary CTA */}
+                  <button
+                    type="button"
+                    onClick={handleStartAnalysis}
+                    className="w-full py-2.5 px-5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/30 transition active:scale-[0.99]"
+                  >
+                    <Sparkles className="w-4 h-4 text-cyan-200" />
+                    <span>Analizar serie</span>
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Video Playback & Scrub Bar with Interactive Timeline Pins */}
             <div className="flex flex-col gap-1 p-2 bg-slate-900/80 rounded-2xl border border-slate-800">
@@ -3700,6 +3997,45 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* ============================================================== */}
             {activeView === 'velocity' && (
               <>
+                {/* Camera Stability Warning Banner (Bloque 4.2) */}
+                {analysisData?.camera_stability && analysisData.camera_stability.stable === false && (
+                  <div className="p-3 rounded-2xl bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-black block">
+                        Cámara en movimiento detectada (deriva {analysisData.camera_stability.scale_drift_pct}%)
+                      </span>
+                      <span className="text-[11px] text-amber-200/85">
+                        Los datos de velocidad y RIR pueden estar alterados. Apoya el móvil en un punto fijo para máxima precisión.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Perceived vs Real VBT RIR Comparison (Bloque 2) */}
+                {perceivedRir !== null && analysisData && (() => {
+                  const realRir = Number(analysisData.intensity_metrics?.exact_rir ?? analysisData.intensity_audit?.rir_estimated ?? 2);
+                  const diff = Math.abs(perceivedRir - realRir);
+                  const isAccurate = diff < 2.0;
+                  return (
+                    <div className={`p-3 rounded-2xl border text-xs flex items-center justify-between gap-2 ${
+                      isAccurate
+                        ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                        : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                    }`}>
+                      <div>
+                        <span className="text-[10px] font-mono uppercase tracking-wider opacity-80 block">
+                          RIR Percibido vs. RIR Real (VBT)
+                        </span>
+                        <span className="font-bold">
+                          Sentiste {perceivedRirLabel} · VBT estima RIR {realRir.toFixed(0)} —{' '}
+                          {isAccurate ? 'Calibración precisa' : `Desviación de ${diff.toFixed(1)} pts`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* CARD 1: Auditoría de Intensidad y Fatiga */}
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
                   <div className="flex items-center justify-between">
@@ -4002,6 +4338,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
             {/* ============================================================== */}
             {activeView === 'alignment' && (
               <div className="space-y-3">
+                {/* Contextual Micro Check-In Sensation Feedback (Bloque 2) */}
+                {(perceivedFocus === 'Brazos / Sinergistas' || perceivedFocus === 'Molestia articular') && (
+                  <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/40 text-xs space-y-1">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-purple-300 font-bold block">
+                      Tu Sensación vs. Biomecánica Medida ({perceivedFocus})
+                    </span>
+                    <p className="text-slate-200 leading-relaxed">
+                      {perceivedFocus === 'Brazos / Sinergistas'
+                        ? `Notaste carga extra en brazos/sinergistas. Revisa el reparto de palanca en la Radiografía y el ángulo de codo (${Math.round(currentFrame?.angles?.elbow ?? 90)}°) para alinear la línea de fuerza con el músculo objetivo.`
+                        : `Reportaste molestia articular. Verifica los ángulos mínimos en codo (${Math.round(currentFrame?.angles?.elbow ?? 90)}°) y hombro (${Math.round(currentFrame?.angles?.shoulder ?? 45)}°) y limita ligeramente el estiramiento terminal si hay pinzamiento.`}
+                    </p>
+                  </div>
+                )}
                 {/* CARD 1: Nivel de Estrés Articular */}
                 <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">

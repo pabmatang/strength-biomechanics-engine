@@ -537,9 +537,219 @@ def test_incline_press_4th_rep_at_clip_edge_and_avg_tempo_no_idle_leak():
     assert aw.get("start_sec", 0.0) >= 4.0, f"Expected active_window.start_sec >= 4.0, got {aw}"
 
 
+def test_trimmed_timestamps_within_clip_bounds():
+    """
+    With start_sec=9.0 and end_sec=30.0 (21.0s clip), all returned events
+    (frames, repetitions_summary, active_window, deterministic timeline_cues)
+    must strictly satisfy 0.0 <= t <= 21.0.
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    n_frames = int(21.0 * fps)
+    # Simulate raw unshifted timestamps [9.0 .. 30.0] passed to process_kinematics
+    timestamps = [9.0 + f * dt for f in range(n_frames)]
+
+    angles = np.full(n_frames, 155.0)
+    for rep_i in range(3):
+        f0 = 15 + rep_i * 75
+        fb = f0 + 30
+        f1 = f0 + 60
+        for f in range(f0, fb + 1):
+            angles[f] = 155.0 - 90.0 * ((f - f0) / 30.0)
+        for f in range(fb, f1 + 1):
+            angles[f] = 65.0 + 90.0 * ((f - fb) / 30.0)
+
+    frames_keypoints = []
+    for f in range(n_frames):
+        rad = math.radians(angles[f])
+        wr_x = 0.45 + 0.20 * math.sin(rad)
+        wr_y = 0.60 - 0.20 * math.cos(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": 0.45, "y": 0.40, "score": 0.92},
+            "left_elbow": {"x": 0.45, "y": 0.60, "score": 0.92},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.92},
+            "left_hip": {"x": 0.55, "y": 0.65, "score": 0.92},
+            "left_knee": {"x": 0.52, "y": 0.85, "score": 0.92},
+            "left_ankle": {"x": 0.50, "y": 0.95, "score": 0.92},
+            "left_ear": {"x": 0.42, "y": 0.32, "score": 0.92},
+            "right_shoulder": {"x": 0.43, "y": 0.40, "score": 0.20},
+            "right_elbow": {"x": 0.43, "y": 0.60, "score": 0.20},
+            "right_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.20},
+            "right_hip": {"x": 0.53, "y": 0.65, "score": 0.20},
+            "right_knee": {"x": 0.50, "y": 0.85, "score": 0.20},
+            "right_ankle": {"x": 0.48, "y": 0.95, "score": 0.20},
+            "right_ear": {"x": 0.40, "y": 0.32, "score": 0.20},
+            "nose": {"x": 0.41, "y": 0.35, "score": 0.90},
+        })
+
+    res = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        target_muscle="chest",
+        load_type="plate_loaded",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    clip_dur = 21.0
+    for fo in res.get("frames", []):
+        assert 0.0 <= fo["timestamp_sec"] <= clip_dur
+    for r in res.get("repetitions_summary", []):
+        assert 0.0 <= r["start_time"] <= clip_dur
+        assert 0.0 <= r["inflection_time"] <= clip_dur
+        assert 0.0 <= r["end_time"] <= clip_dur
+        if r.get("sticking_point_sec") is not None:
+            assert 0.0 <= r["sticking_point_sec"] <= clip_dur
+    aw = res.get("active_window", {})
+    assert 0.0 <= aw.get("start_sec", 0.0) <= clip_dur
+    assert 0.0 <= aw.get("end_sec", 0.0) <= clip_dur
+
+
+def test_camera_stability_flags_25pct_scale_drift():
+    """
+    A progressive 25% increase in apparent skeleton scale (handheld zoom/approach)
+    must flag camera_stability['stable'] == False and scale_drift_pct > 18.0.
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    n_frames = 150
+    timestamps = [f * dt for f in range(n_frames)]
+    frames_keypoints = []
+    for f in range(n_frames):
+        scale = 1.0 + 0.38 * (f / max(1, n_frames - 1))  # >25% scale growth across working reps
+        sh_x, sh_y = 0.45, 0.40
+        el_y = sh_y + 0.18 * scale
+        hp_x = sh_x + 0.10 * scale
+        hp_y = sh_y + 0.25 * scale
+        ang = 110.0 + 40.0 * math.sin(2.0 * math.pi * f / 35.0)
+        rad = math.radians(ang)
+        wr_x = sh_x + 0.16 * scale * math.sin(rad)
+        wr_y = el_y - 0.16 * scale * math.cos(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.92},
+            "left_elbow": {"x": sh_x, "y": el_y, "score": 0.92},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.92},
+            "left_hip": {"x": hp_x, "y": hp_y, "score": 0.92},
+            "left_knee": {"x": 0.52, "y": 0.85, "score": 0.92},
+            "left_ankle": {"x": 0.50, "y": 0.95, "score": 0.92},
+            "left_ear": {"x": 0.42, "y": 0.32, "score": 0.92},
+            "right_shoulder": {"x": 0.43, "y": sh_y, "score": 0.20},
+            "right_elbow": {"x": 0.43, "y": el_y, "score": 0.20},
+            "right_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.20},
+            "right_hip": {"x": 0.53, "y": hp_y, "score": 0.20},
+            "right_knee": {"x": 0.50, "y": 0.85, "score": 0.20},
+            "right_ankle": {"x": 0.48, "y": 0.95, "score": 0.20},
+            "right_ear": {"x": 0.40, "y": 0.32, "score": 0.20},
+            "nose": {"x": 0.41, "y": 0.35, "score": 0.90},
+        })
+
+    res = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        target_muscle="chest",
+        load_type="plate_loaded",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    cs = res.get("camera_stability", {})
+    assert cs.get("stable") is False, f"Expected unstable camera, got {cs}"
+    assert float(cs.get("scale_drift_pct", 0.0)) > 18.0
+
+
+def test_rtdetr_strided_and_vitpose_batched_output_format():
+    """
+    RT-DETR strided (1 of every 5 frames) + ViTPose batched inference must return
+    the exact same length (n_frames) and COCO keypoint dict schema as frame-by-frame.
+    """
+    import main as backend_main
+
+    n_frames = 13
+    frames_rgb = [np.full((240, 180, 3), 128, dtype=np.uint8) for _ in range(n_frames)]
+
+    det_call_batch_sizes = []
+
+    class FakeTensor:
+        def __init__(self, shape):
+            self.shape = shape
+
+        def to(self, *args, **kwargs):
+            return self
+
+    class FakeDetProcessor:
+        def __call__(self, images, return_tensors="pt"):
+            det_call_batch_sizes.append(len(images))
+            return {"pixel_values": FakeTensor((len(images), 3, 240, 180))}
+
+        def post_process_object_detection(self, outputs, target_sizes, threshold=0.2):
+            bs = len(target_sizes) if hasattr(target_sizes, "__len__") else 1
+            return [
+                {
+                    "boxes": np.array([[20.0, 40.0, 150.0, 220.0]], dtype=np.float32),
+                    "scores": np.array([0.95], dtype=np.float32),
+                    "labels": np.array([0], dtype=np.int64),
+                }
+                for _ in range(bs)
+            ]
+
+    class FakeDetModel:
+        def parameters(self):
+            yield MagicMock(dtype=np.float32)
+
+        def __call__(self, **kwargs):
+            return MagicMock(logits=None, pred_boxes=None)
+
+    class FakePoseProcessor:
+        def __call__(self, images, boxes, return_tensors="pt"):
+            return {"pixel_values": FakeTensor((len(images), 3, 256, 192))}
+
+        def post_process_pose_estimation(self, outputs, boxes, **kwargs):
+            bs = len(boxes)
+            kps = np.tile(np.array([[90.0, 120.0]], dtype=np.float32), (17, 1))
+            scs = np.full(17, 0.90, dtype=np.float32)
+            return [[{"keypoints": kps, "scores": scs}] for _ in range(bs)]
+
+    class FakePoseModel:
+        def parameters(self):
+            yield MagicMock(dtype=np.float32)
+
+        def __call__(self, **kwargs):
+            return MagicMock(heatmaps=None)
+
+    orig_det_p, orig_det_m = getattr(backend_main, "det_processor", None), getattr(backend_main, "det_model", None)
+    orig_pose_p, orig_pose_m = getattr(backend_main, "pose_processor", None), getattr(backend_main, "pose_model", None)
+    orig_device = getattr(backend_main, "device", "cpu")
+    try:
+        backend_main.det_processor = FakeDetProcessor()
+        backend_main.det_model = FakeDetModel()
+        backend_main.pose_processor = FakePoseProcessor()
+        backend_main.pose_model = FakePoseModel()
+        backend_main.device = "cpu"
+
+        raw_kps, boxes = backend_main.run_inference_batches(frames_rgb, batch_size=32)
+    finally:
+        backend_main.det_processor, backend_main.det_model = orig_det_p, orig_det_m
+        backend_main.pose_processor, backend_main.pose_model = orig_pose_p, orig_pose_m
+        backend_main.device = orig_device
+
+    assert len(raw_kps) == n_frames
+    assert len(boxes) == n_frames
+    # Stride=5 on 13 frames -> sampled indices [0, 5, 10, 12] = 4 frames (< 13)
+    assert sum(det_call_batch_sizes) < n_frames
+    for fk in raw_kps:
+        assert "left_shoulder" in fk and "right_wrist" in fk
+        assert 0.0 <= fk["left_shoulder"]["x"] <= 1.0
+        assert 0.0 <= fk["left_shoulder"]["y"] <= 1.0
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
     test_incline_press_lateral_floor_intro_bottom_start_5_reps_fatigue()
     test_no_flatline_after_fast_transition_and_spike()
     test_incline_press_4th_rep_at_clip_edge_and_avg_tempo_no_idle_leak()
+    test_trimmed_timestamps_within_clip_bounds()
+    test_camera_stability_flags_25pct_scale_drift()
+    test_rtdetr_strided_and_vitpose_batched_output_format()

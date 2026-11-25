@@ -265,6 +265,11 @@ export interface VlmAnalysis {
   target_muscle?: string;
   load_type?: string;
   camera_plane?: string;
+  camera_stability?: {
+    stable: boolean;
+    scale_drift_pct: number;
+    reference_segment?: string;
+  };
   visual_anchors?: VlmVisualAnchors;
   active_working_side?: 'left' | 'right';
   is_bilateral_visible?: boolean;
@@ -302,6 +307,11 @@ export interface BiomechanicsAnalysisResponse {
   total_reps: number;
   locked_side: 'left' | 'right';
   camera_plane?: string;
+  camera_stability?: {
+    stable: boolean;
+    scale_drift_pct: number;
+    reference_segment?: string;
+  };
   moment_arms_2d_valid?: boolean;
   debug_pose_audit?: {
     camera_plane: string;

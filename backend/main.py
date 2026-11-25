@@ -1651,7 +1651,7 @@ def apply_rotation_to_frame(frame_rgb: np.ndarray, rotation: int) -> np.ndarray:
 def optimize_video_with_ffmpeg(
     input_path: str,
     max_h: int = 480,
-    target_fps: int = 20,
+    target_fps: int = 15,
     start_time: float = 0.0,
     end_time: Optional[float] = None
 ) -> Tuple[str, bool]:
@@ -1824,7 +1824,7 @@ def sample_video_frames(
                             if video_rot != 0:
                                 img = apply_rotation_to_frame(img, video_rot)
                             frames_rgb.append(img)
-                            timestamps.append(target_timestamps[target_idx])
+                            timestamps.append(max(0.0, target_timestamps[target_idx] - actual_start))
                             target_idx += 1
                             if target_idx >= len(target_timestamps):
                                 break
@@ -1908,16 +1908,17 @@ def detect_content_bbox(frame: np.ndarray, threshold: int = 15) -> Tuple[int, in
 
 def run_inference_batches(
     frames_rgb: List[np.ndarray],
-    batch_size: int = 64
+    batch_size: int = 32
 ) -> Tuple[List[Dict[str, Dict[str, float]]], List[Dict[str, float]]]:
     """
     Batched neural inference across video frames with RT-DETR and ViTPose.
-    - RT-DETR athlete detection: Sampled 1 of every 3 frames with piecewise linear
-      interpolation of bounding boxes across intermediate frames (reducing detector load by 66%).
+    - RT-DETR athlete detection: Strided 1 of every 5 frames with +15% box expansion
+      and linear interpolation across intermediate frames (immediate re-detect on drop).
     - Strict athlete isolation against background gym users on sampled frames.
     - Moving average smoothing (window = 5) on bounding box coordinates (x1, y1, x2, y2).
-    - ViTPose inference: Full batch across all frames (batch_size = 64, fp16).
+    - ViTPose inference: Full batch across all frames (batch_size = 32, fp16).
     """
+    t_det_start = time.time()
     n_frames = len(frames_rgb)
     all_raw_keypoints = []
     all_boxes = []
@@ -1931,50 +1932,108 @@ def run_inference_batches(
     eff_h, eff_w = (crop_h, crop_w) if has_crop else (h, w)
     
     # ---------------------------------------------------------------------
-    # Pass 1: RT-DETR Athlete Detection across ALL frames (FP16 batched)
+    # Pass 1: Strided RT-DETR Athlete Detection (1 of every 5 frames, FP16 batched)
     # ---------------------------------------------------------------------
-    all_frame_detections = []  # candidate person boxes per frame
-    for i in range(0, n_frames, batch_size):
-        batch_rgb = frames_rgb[i : i + batch_size]
-        if has_crop:
-            batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
-        else:
-            batch_crop = batch_rgb
-        batch_pil = [Image.fromarray(f) for f in batch_crop]
-        
-        raw_det_inputs = det_processor(images=batch_pil, return_tensors="pt")
-        det_dtype = next(det_model.parameters()).dtype
-        det_inputs = {
-            k: (v.to(device=device, dtype=det_dtype) if torch.is_floating_point(v) else v.to(device=device))
-            for k, v in raw_det_inputs.items()
-        }
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
-            det_outputs = det_model(**det_inputs)
-            
-        target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), dtype=torch.float32, device=device)
-        if hasattr(det_outputs, "logits") and det_outputs.logits is not None:
-            det_outputs.logits = det_outputs.logits.to(torch.float32)
-        if hasattr(det_outputs, "pred_boxes") and det_outputs.pred_boxes is not None:
-            det_outputs.pred_boxes = det_outputs.pred_boxes.to(torch.float32)
+    det_stride = 5
+    sampled_indices = sorted(set(list(range(0, n_frames, det_stride)) + ([n_frames - 1] if n_frames > 1 else [])))
+    sampled_detections: Dict[int, List[Tuple[List[float], float]]] = {}
 
-        det_results = det_processor.post_process_object_detection(
-            det_outputs, target_sizes=target_sizes, threshold=0.20
-        )
-        for d_res in det_results:
-            boxes = d_res["boxes"].detach().cpu().numpy()
-            scores = d_res["scores"].detach().cpu().numpy()
-            labels = d_res["labels"].detach().cpu().numpy()
-            p_boxes = []
-            for idx, l in enumerate(labels):
-                if l == 0 and scores[idx] >= 0.20:
-                    b_cand = boxes[idx].tolist()
-                    box_cy_norm = ((b_cand[1] + b_cand[3]) / 2.0) / float(eff_h)
-                    box_h_norm = (b_cand[3] - b_cand[1]) / float(eff_h)
-                    # Discard static boxes in the upper 32% of the frame (posters/murals on gym walls)
-                    if box_cy_norm < 0.32 and box_h_norm < 0.42:
-                        continue
-                    p_boxes.append((b_cand, float(scores[idx])))
-            all_frame_detections.append(p_boxes)
+    def _run_det_on_indices(idx_list: List[int]) -> None:
+        det_bs = min(batch_size, 32)
+        for i in range(0, len(idx_list), det_bs):
+            chunk_idxs = idx_list[i : i + det_bs]
+            batch_rgb = [frames_rgb[k] for k in chunk_idxs]
+            if has_crop:
+                batch_crop = [f[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w] for f in batch_rgb]
+            else:
+                batch_crop = batch_rgb
+            batch_pil = [Image.fromarray(f) for f in batch_crop]
+
+            raw_det_inputs = det_processor(images=batch_pil, return_tensors="pt")
+            det_dtype = next(det_model.parameters()).dtype
+            det_inputs = {
+                k: (v.to(device=device, dtype=det_dtype) if torch.is_floating_point(v) else v.to(device=device))
+                for k, v in raw_det_inputs.items()
+            }
+            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device == "cuda")):
+                det_outputs = det_model(**det_inputs)
+
+            target_sizes = torch.tensor([[eff_h, eff_w]] * len(batch_pil), dtype=torch.float32, device=device)
+            if hasattr(det_outputs, "logits") and det_outputs.logits is not None:
+                det_outputs.logits = det_outputs.logits.to(torch.float32)
+            if hasattr(det_outputs, "pred_boxes") and det_outputs.pred_boxes is not None:
+                det_outputs.pred_boxes = det_outputs.pred_boxes.to(torch.float32)
+
+            det_results = det_processor.post_process_object_detection(
+                det_outputs, target_sizes=target_sizes, threshold=0.20
+            )
+            for local_i, d_res in enumerate(det_results):
+                f_idx = chunk_idxs[local_i]
+                boxes = d_res["boxes"].detach().cpu().numpy()
+                scores = d_res["scores"].detach().cpu().numpy()
+                labels = d_res["labels"].detach().cpu().numpy()
+                p_boxes = []
+                for idx, l in enumerate(labels):
+                    if l == 0 and scores[idx] >= 0.20:
+                        b_cand = boxes[idx].tolist()
+                        box_cy_norm = ((b_cand[1] + b_cand[3]) / 2.0) / float(eff_h)
+                        box_h_norm = (b_cand[3] - b_cand[1]) / float(eff_h)
+                        # Discard static boxes in the upper 32% of the frame (posters/murals on gym walls)
+                        if box_cy_norm < 0.32 and box_h_norm < 0.42:
+                            continue
+                        p_boxes.append((b_cand, float(scores[idx])))
+                sampled_detections[f_idx] = p_boxes
+
+    _run_det_on_indices(sampled_indices)
+
+    # Immediate re-detection fallback on neighbor frames if any sampled frame lost confidence
+    retry_indices = [
+        min(n_frames - 1, idx + 1)
+        for idx in sampled_indices
+        if not sampled_detections.get(idx) and (idx + 1) < n_frames and (idx + 1) not in sampled_detections
+    ]
+    if retry_indices:
+        _run_det_on_indices(sorted(set(retry_indices)))
+
+    # Interpolate +15% expanded boxes onto intermediate frames so every frame has candidate boxes
+    def _expand_box_15pct(box: List[float]) -> List[float]:
+        bw = box[2] - box[0]
+        bh = box[3] - box[1]
+        dx = 0.075 * bw
+        dy = 0.075 * bh
+        return [
+            max(0.0, box[0] - dx),
+            max(0.0, box[1] - dy),
+            min(float(eff_w), box[2] + dx),
+            min(float(eff_h), box[3] + dy),
+        ]
+
+    sorted_keys = sorted(k for k, v in sampled_detections.items() if len(v) > 0)
+    all_frame_detections = []
+    for f_idx in range(n_frames):
+        if f_idx in sampled_detections and len(sampled_detections[f_idx]) > 0:
+            all_frame_detections.append(sampled_detections[f_idx])
+        elif not sorted_keys:
+            all_frame_detections.append([])
+        else:
+            # Find nearest prior and next sampled keys
+            prev_k = max([k for k in sorted_keys if k <= f_idx], default=sorted_keys[0])
+            next_k = min([k for k in sorted_keys if k >= f_idx], default=sorted_keys[-1])
+            if prev_k == next_k:
+                cands = [(_expand_box_15pct(b), sc) for b, sc in sampled_detections[prev_k]]
+            else:
+                alpha = float(f_idx - prev_k) / float(next_k - prev_k)
+                b_prev = max(sampled_detections[prev_k], key=lambda x: x[1])[0]
+                b_next = max(sampled_detections[next_k], key=lambda x: x[1])[0]
+                interp_b = [
+                    b_prev[c] * (1.0 - alpha) + b_next[c] * alpha
+                    for c in range(4)
+                ]
+                cands = [(_expand_box_15pct(interp_b), 0.75)]
+            all_frame_detections.append(cands)
+
+    det_s = round(time.time() - t_det_start, 3)
+    t_pose_start = time.time()
 
     # ---------------------------------------------------------------------
     # Pass 2: Strict Temporal Athlete Tracking across ALL frames
@@ -2163,7 +2222,9 @@ def run_inference_batches(
                     "score": score
                 }
             all_raw_keypoints.append(frame_kps)
-            
+
+    pose_s = round(time.time() - t_pose_start, 3)
+    print(f"[Pipeline Timing] frames={n_frames} det_s={det_s}s pose_s={pose_s}s")
     return all_raw_keypoints, all_boxes
 
 # ---------------------------------------------------------------------------
@@ -2312,6 +2373,10 @@ def process_kinematics(
     n_frames = len(raw_keypoints)
     if n_frames == 0:
         return sanitize_for_json({"fps": 15.0, "duration": 0.0, "total_reps": 0, "repetitions_summary": [], "frames": []})
+
+    if timestamps and len(timestamps) > 0 and float(timestamps[0]) > 0.01:
+        _t0_norm = float(timestamps[0])
+        timestamps = [max(0.0, float(t) - _t0_norm) for t in timestamps]
 
     vlm_used = False
     vlm_error = None
@@ -4566,6 +4631,59 @@ def process_kinematics(
     if tot_weight > 0:
         effective_muscle_weights = {k: round(v / tot_weight, 3) for k, v in effective_muscle_weights.items()}
 
+    # Strictly clamp all timeline_cues timestamps to [0.0, clip_duration]
+    clip_duration = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
+    if vlm_result and isinstance(vlm_result.get("timeline_cues"), list) and clip_duration > 0.0:
+        for _cue in vlm_result["timeline_cues"]:
+            try:
+                _ct = float(_cue.get("timestamp_sec", 0.0))
+                if _ct < 0.0 or _ct > clip_duration:
+                    _r_idx = int(_cue.get("rep_index") or 1)
+                    if 1 <= _r_idx <= len(repetitions_summary):
+                        _rep = repetitions_summary[_r_idx - 1]
+                        _ct = float(_rep.get("inflection_time", _rep.get("end_time", 0.0)))
+                    _cue["timestamp_sec"] = round(max(0.0, min(clip_duration, _ct)), 2)
+                else:
+                    _cue["timestamp_sec"] = round(_ct, 2)
+            except (ValueError, TypeError):
+                _cue["timestamp_sec"] = 0.0
+
+    # Camera stability & scale drift detection (torso when hips visible, else dominant shoulder-elbow segment)
+    eval_start_f = int(repetitions_summary[0]["start_frame"]) if repetitions_summary else valid_start_idx
+    eval_end_f = int(repetitions_summary[-1]["end_frame"]) if repetitions_summary else valid_end_idx
+    eval_start_f = max(0, min(n_frames - 1, eval_start_f))
+    eval_end_f = max(eval_start_f, min(n_frames - 1, eval_end_f))
+    eval_slice = slice(eval_start_f, eval_end_f + 1)
+
+    sh_x_e = np.asarray(primary_joints["shoulder"]["x"][eval_slice], dtype=np.float64)
+    sh_y_e = np.asarray(primary_joints["shoulder"]["y"][eval_slice], dtype=np.float64)
+    el_x_e = np.asarray(primary_joints["elbow"]["x"][eval_slice], dtype=np.float64)
+    el_y_e = np.asarray(primary_joints["elbow"]["y"][eval_slice], dtype=np.float64)
+    hp_x_e = np.asarray(primary_joints["hip"]["x"][eval_slice], dtype=np.float64)
+    hp_y_e = np.asarray(primary_joints["hip"]["y"][eval_slice], dtype=np.float64)
+    hip_vis_e = np.asarray(_hip_vis[eval_slice], dtype=np.float64)
+
+    arm_seg = np.hypot(sh_x_e - el_x_e, sh_y_e - el_y_e)
+    torso_seg = np.hypot(sh_x_e - hp_x_e, sh_y_e - hp_y_e)
+    use_torso = bool(len(hip_vis_e) > 0 and float(np.median(hip_vis_e)) >= 0.45 and float(np.median(torso_seg)) >= 0.06)
+    ref_seg = torso_seg if use_torso else arm_seg
+
+    scale_drift_pct = 0.0
+    if len(ref_seg) >= 4 and float(np.median(ref_seg)) > 1e-4:
+        q_len = max(2, len(ref_seg) // 4)
+        s_start = float(np.median(ref_seg[:q_len]))
+        s_end = float(np.median(ref_seg[-q_len:]))
+        s_med = float(np.median(ref_seg))
+        drift_end = abs(s_end - s_start) / max(1e-4, s_start)
+        drift_iqr = (float(np.percentile(ref_seg, 90)) - float(np.percentile(ref_seg, 10))) / max(1e-4, s_med)
+        scale_drift_pct = round(max(drift_end, drift_iqr) * 100.0, 1)
+
+    camera_stability = {
+        "stable": bool(scale_drift_pct <= 18.0),
+        "scale_drift_pct": scale_drift_pct,
+        "reference_segment": "torso" if use_torso else "upper_arm"
+    }
+
     return sanitize_for_json({
         "fps": 15.0,
         "total_duration_sec": round(float(timestamps[-1] - timestamps[0]), 4) if len(timestamps) > 1 else 0.0,
@@ -4573,6 +4691,7 @@ def process_kinematics(
         "total_reps": total_reps,
         "locked_side": locked_side,
         "camera_plane": camera_plane,
+        "camera_stability": camera_stability,
         "moment_arms_2d_valid": bool(moment_arms_2d_valid),
         "debug_pose_audit": debug_pose_audit,
         "hide_torso_line": bool(hide_torso_line),
@@ -5092,9 +5211,12 @@ def analyze(
     except (ValueError, TypeError):
         end_time = None
 
+    t_analyze_start = time.time()
     raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     raw_rot = get_video_rotation(raw_temp_path)
-    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, start_time=start_time, end_time=end_time)
+    t_ff_start = time.time()
+    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, target_fps=15, start_time=start_time, end_time=end_time)
+    ffmpeg_s = round(time.time() - t_ff_start, 3)
     # Delete raw 4K video immediately after transcoding to free disk/RAM before MediaPipe starts
     if temp_path != raw_temp_path and os.path.exists(raw_temp_path):
         try:
@@ -5128,7 +5250,7 @@ def analyze(
             frames_rgb = [cv2.rotate(f, rot_code) for f in frames_rgb]
 
         h, w = frames_rgb[0].shape[:2]
-        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=64)
+        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=32)
         
         result = process_kinematics(
             raw_keypoints=raw_keypoints,
@@ -5149,6 +5271,8 @@ def analyze(
             video_path=temp_path,
             run_vlm=run_vlm
         )
+        total_s = round(time.time() - t_analyze_start, 3)
+        print(f"[Pipeline Timing] ffmpeg_s={ffmpeg_s}s total_s={total_s}s")
         return sanitize_for_json(result)
     finally:
         for p in set([raw_temp_path, temp_path]):
