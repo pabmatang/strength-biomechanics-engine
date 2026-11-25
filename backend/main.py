@@ -485,12 +485,10 @@ def compute_valid_frame_bounds(
             vis_left = np.mean(np.vstack([
                 np.asarray(all_smoothed["left_hip"]["score"], dtype=np.float64),
                 np.asarray(all_smoothed["left_knee"]["score"], dtype=np.float64),
-                np.asarray(all_smoothed["left_ankle"]["score"], dtype=np.float64),
             ]), axis=0)
             vis_right = np.mean(np.vstack([
                 np.asarray(all_smoothed["right_hip"]["score"], dtype=np.float64),
                 np.asarray(all_smoothed["right_knee"]["score"], dtype=np.float64),
-                np.asarray(all_smoothed["right_ankle"]["score"], dtype=np.float64),
             ]), axis=0)
         vis_scores = np.maximum(vis_left, vis_right)
         hip_vis = np.maximum(
@@ -3563,7 +3561,23 @@ def process_kinematics(
         stationary_frames = sum(1 for f in range(window_start, window_end + 1) if ang_vel[f] < 15.0)
         pause_time_s = round(float(stationary_frames / 15.0), 2)
 
-        raw_conc_vel = float(delta_angle_conc / max(concentric_time_s, 0.1))
+        if is_hip_thrust:
+            # Hip thrust velocity from vertical pelvis/hip displacement normalized by femur length (hip-knee)
+            femur_len = max(
+                0.05,
+                float(np.median(np.hypot(
+                    np.asarray(primary_joints["hip"]["x"][start_frame : end_frame + 1], dtype=np.float64) -
+                    np.asarray(primary_joints["knee"]["x"][start_frame : end_frame + 1], dtype=np.float64),
+                    np.asarray(primary_joints["hip"]["y"][start_frame : end_frame + 1], dtype=np.float64) -
+                    np.asarray(primary_joints["knee"]["y"][start_frame : end_frame + 1], dtype=np.float64),
+                )))
+            )
+            hip_y_seg = np.asarray(primary_joints["hip"]["y"][start_frame : bottom_frame + 1], dtype=np.float64)
+            hip_disp_norm = float(np.max(hip_y_seg) - np.min(hip_y_seg)) / femur_len if len(hip_y_seg) > 1 else 0.0
+            hip_vel_deg_eq = (hip_disp_norm / max(concentric_time_s, 0.1)) * 90.0
+            raw_conc_vel = 0.55 * float(delta_angle_conc / max(concentric_time_s, 0.1)) + 0.45 * hip_vel_deg_eq
+        else:
+            raw_conc_vel = float(delta_angle_conc / max(concentric_time_s, 0.1))
         # Bug 5 Fix: Clamp realistic concentric velocity between 25 deg/s and 140 deg/s
         concentric_velocity_deg_s = round(float(np.clip(raw_conc_vel, 25.0, 140.0)), 1)
 
@@ -4132,6 +4146,32 @@ def process_kinematics(
 
     eff_fps_dyn = (1.0 / max(1e-3, float(np.median(np.diff(timestamps))))) if len(timestamps) > 1 else 24.0
 
+    # Frontal close-grip / forearm inward detection for pushing exercises (incline_press, chest_press_machine, bench_press, shoulder_press_machine)
+    is_narrow_grip = False
+    grip_ratio_val = None
+    forearm_inward_val = None
+    if is_pattern_b and all_smoothed is not None and all(k in all_smoothed for k in ("left_shoulder", "right_shoulder", "left_wrist", "right_wrist", "left_elbow", "right_elbow")):
+        s_l = all_smoothed["left_shoulder"]
+        s_r = all_smoothed["right_shoulder"]
+        w_l = all_smoothed["left_wrist"]
+        w_r = all_smoothed["right_wrist"]
+        e_l = all_smoothed["left_elbow"]
+        e_r = all_smoothed["right_elbow"]
+        min_vis_fg = min(
+            float(s_l["score"][f_stretch]),
+            float(s_r["score"][f_stretch]),
+            float(w_l["score"][f_stretch]),
+            float(w_r["score"][f_stretch]),
+        )
+        sh_span = abs(float(s_l["x"][f_stretch]) - float(s_r["x"][f_stretch]))
+        if min_vis_fg >= 0.65 and sh_span >= 0.14:
+            wr_span = abs(float(w_l["x"][f_stretch]) - float(w_r["x"][f_stretch]))
+            el_span = abs(float(e_l["x"][f_stretch]) - float(e_r["x"][f_stretch]))
+            grip_ratio_val = round(wr_span / sh_span, 3)
+            forearm_inward_val = round((el_span - wr_span) / sh_span, 3)
+            if grip_ratio_val < 1.10 or forearm_inward_val > 0.12:
+                is_narrow_grip = True
+
     def _build_alignment_frame(frame_id: str, title: str, phase_label: str, f_idx: int, raw_snap_b64: Optional[str], j_map: Dict[str, List[float]], is_stretch_phase: bool) -> Dict[str, Any]:
         ts_sec = round(max(0.0, float(timestamps[f_idx] - timestamps[0])) if timestamps and f_idx < len(timestamps) else 0.0, 2)
         el_deg = round(float(clean_el[f_idx]), 1) if f_idx < len(clean_el) else 0.0
@@ -4147,12 +4187,19 @@ def process_kinematics(
 
         if is_pattern_b:
             angles_dict = {"elbow_deg": el_deg, "shoulder_abduction_deg": hu_deg}
+            if grip_ratio_val is not None:
+                angles_dict["grip_ratio"] = grip_ratio_val
+            if forearm_inward_val is not None:
+                angles_dict["forearm_inward"] = forearm_inward_val
             overlays = [
                 {"from": "shoulder", "to": "elbow", "label": f"Hombro {hu_deg:.0f}°"},
                 {"from": "elbow", "to": "wrist", "label": f"Codo {el_deg:.0f}°"},
                 {"from": "shoulder", "to": "hip"},
             ]
-            if is_stretch_phase:
+            if is_stretch_phase and is_narrow_grip:
+                status = "caution"
+                notes.append("Agarre estrecho detectado (antebrazos inclinados hacia dentro): aumenta la flexión de codo y desplaza parte de la carga del pectoral hacia el tríceps. Prueba a abrir ligeramente el agarre si buscas máximo estímulo pectoral.")
+            elif is_stretch_phase:
                 if hu_deg > 80.0:
                     status = "risk"
                     notes.append(f"Abducción de hombro elevada ({hu_deg:.0f}°): riesgo de pinzamiento subacromial.")
@@ -4973,8 +5020,26 @@ def process_kinematics(
     if tot_weight > 0:
         effective_muscle_weights = {k: round(v / tot_weight, 3) for k, v in effective_muscle_weights.items()}
 
-    # Strictly clamp all timeline_cues timestamps to [0.0, clip_duration] and extract frozen keyframes
+    # Frontal close-grip triceps shift (+15% to triceps, -15% from chest)
+    if is_narrow_grip and "triceps" in effective_muscle_weights and "chest" in effective_muscle_weights:
+        shift = min(0.15, max(0.0, effective_muscle_weights["chest"] - 0.15))
+        effective_muscle_weights["triceps"] = round(effective_muscle_weights["triceps"] + shift, 3)
+        effective_muscle_weights["chest"] = round(effective_muscle_weights["chest"] - shift, 3)
+        tot_w2 = sum(effective_muscle_weights.values())
+        if tot_w2 > 0:
+            effective_muscle_weights = {k: round(v / tot_w2, 3) for k, v in effective_muscle_weights.items()}
+        if vlm_result and isinstance(vlm_result.get("torque_split"), dict):
+            ts_v = vlm_result["torque_split"]
+            p_pct = float(ts_v.get("primary_pct", 70.0))
+            s_pct = float(ts_v.get("secondary_pct", 30.0))
+            ts_v["primary_pct"] = round(max(20.0, p_pct - shift * 100.0), 1)
+            ts_v["secondary_pct"] = round(min(80.0, s_pct + shift * 100.0), 1)
+
+    # Strictly clamp all timeline_cues timestamps to [min_cue_t, clip_duration] and extract frozen keyframes
     clip_duration = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
+    min_cue_t = (float(repetitions_summary[0].get("start_time", 0.0)) + 0.5) if len(repetitions_summary) > 0 else 0.0
+    if clip_duration > 0.0:
+        min_cue_t = min(min_cue_t, clip_duration)
     if vlm_result and isinstance(vlm_result.get("timeline_cues"), list):
         ts_arr = np.asarray(timestamps, dtype=np.float64) if timestamps else np.zeros(n_frames, dtype=np.float64)
         crit_joint = "elbow" if is_upper_body else ("hip" if (is_hip_thrust or any(k in ex_lower for k in ("rdl", "deadlift", "back_extension", "glute"))) else "knee")
@@ -4986,10 +5051,11 @@ def process_kinematics(
                     if 1 <= _r_idx <= len(repetitions_summary):
                         _rep = repetitions_summary[_r_idx - 1]
                         _ct = float(_rep.get("inflection_time", _rep.get("end_time", 0.0)))
-                _ct_clamped = round(max(0.0, min(clip_duration, _ct)), 2) if clip_duration > 0.0 else 0.0
+                floor_t = 0.0 if _cue.get("badge") == "Posición Inicial" else min_cue_t
+                _ct_clamped = round(max(floor_t, min(clip_duration, _ct)), 2) if clip_duration > 0.0 else 0.0
                 _cue["timestamp_sec"] = _ct_clamped
             except (ValueError, TypeError):
-                _cue["timestamp_sec"] = 0.0
+                _cue["timestamp_sec"] = round(min_cue_t, 2)
 
             if frames_rgb and len(frames_rgb) > 0 and len(ts_arr) > 0:
                 target_abs_t = float(ts_arr[0]) + float(_cue["timestamp_sec"])
@@ -5632,7 +5698,7 @@ def analyze(
             frames_rgb = [cv2.rotate(f, rot_code) for f in frames_rgb]
 
         h, w = frames_rgb[0].shape[:2]
-        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=32)
+        raw_keypoints, athlete_boxes = run_inference_batches(frames_rgb, batch_size=16)
         
         t_kin_start = time.time()
         result = process_kinematics(

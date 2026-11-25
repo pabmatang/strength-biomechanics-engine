@@ -1262,7 +1262,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   ) => {
     try {
       setPipelineState('analyzing');
-      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (RT-DETR + ViTPose 2D + SciPy)...');
+      setPipelineMessage('Procesando cinemática clínica en GPU Serverless (YOLO11n + ViTPose-Base FP16)...');
 
       const manualActive = typeof isManual === 'boolean' ? isManual : isManualOverrideRef.current;
 
@@ -2378,7 +2378,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       exerciseId: activeExercise.id,
       exerciseName: activeExercise.name,
       videoDurationSeconds: analysisData.duration,
-      hardwareModel: 'Cerebrium Serverless T4 GPU (RT-DETR + ViTPose 2D + SciPy)',
+      hardwareModel: 'Cerebrium Serverless T4 GPU (YOLO11n + ViTPose-Base FP16)',
       metrics: {
         totalRepsCounted: analysisData.total_reps,
         validRepsCount: analysisData.total_reps,
@@ -3352,7 +3352,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   )}
 
                   <div className="text-center text-[10px] text-slate-400">
-                    RT-DETR (stride 5) + ViTPose 2D (15 fps) · Cerebrium T4 GPU
+                    YOLO11n (stride 5) + ViTPose-Base FP16 (15 fps) · Cerebrium T4 GPU
                   </div>
                 </div>
               )}
@@ -4394,13 +4394,13 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                             }`}
                           >
                             {cue.snapshot_b64 && (
-                              <div className="relative w-full h-32 bg-black overflow-hidden">
+                              <div className="relative w-full h-40 bg-slate-950 overflow-hidden flex items-center justify-center">
                                 <img
                                   src={`data:image/jpeg;base64,${cue.snapshot_b64}`}
                                   alt={cue.badge}
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full object-contain"
                                 />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/30" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/25 pointer-events-none" />
                                 <span className="absolute top-2 left-2 text-[10px] font-mono px-2 py-0.5 rounded-md bg-black/75 border border-slate-700 text-cyan-300 font-bold">
                                   {cue.timestamp_sec.toFixed(1)}s
                                 </span>

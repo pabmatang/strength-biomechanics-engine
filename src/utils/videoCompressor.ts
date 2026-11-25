@@ -9,6 +9,9 @@
  * - Fast bypass if original video already weighs < 1.2 MB and duration <= 30s.
  */
 
+import * as MP4Box from 'mp4box';
+import { Muxer as Mp4Muxer, ArrayBufferTarget } from 'mp4-muxer';
+
 export interface VideoRange {
   startTime: number;
   endTime: number;
@@ -571,24 +574,259 @@ export async function prepareVideoForAnalysis(
     return file;
   }
 
-  // 1. Fast Hardware-Accelerated WebCodecs Pass (no 1x wall-clock wait), falling back to MediaRecorder
-  const tCompressStart = performance.now();
-  let compressedBlob = await runWebCodecsCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
-  if (!compressedBlob) {
-    compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
+/**
+ * Zero-seek sequential MP4Box + WebCodecs (VideoDecoder -> 15fps -> VideoEncoder H.264 -> mp4-muxer)
+ * with a strict 10-second watchdog. Aborts cleanly if codec (e.g. HEVC) is unsupported or slow.
+ */
+async function runMp4BoxWebCodecsCompression(
+  file: File | Blob,
+  maxWidth: number,
+  targetFps: number,
+  bitrate: number,
+  maxDurationSec: number,
+  range?: VideoRange,
+  onProgress?: (pct: number) => void,
+  watchdogMs: number = 10_000
+): Promise<Blob | null> {
+  if (
+    typeof window === 'undefined' ||
+    typeof VideoDecoder !== 'function' ||
+    typeof VideoEncoder !== 'function' ||
+    typeof VideoFrame !== 'function'
+  ) {
+    return null;
   }
 
-  // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if primary pass failed or result > 25 MB
-  const maxSafeSizeBytes = 25 * 1024 * 1024;
-  const needsEmergencyCompression = !compressedBlob || (compressedBlob.size > maxSafeSizeBytes);
+  const tStart = performance.now();
+  let aborted = false;
+  let decoder: VideoDecoder | null = null;
+  let encoder: VideoEncoder | null = null;
+  let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
-  if (needsEmergencyCompression && file.size > maxSafeSizeBytes) {
-    console.warn(`[Compressor] Archivo > 25MB (${((compressedBlob?.size || file.size) / (1024 * 1024)).toFixed(1)}MB). Ejecutando compresión de emergencia 360p/12FPS...`);
-    const emergencyBlob = await runWebCodecsCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress)
-      || await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress);
-    if (emergencyBlob) {
-      compressedBlob = emergencyBlob;
-    }
+  const cleanupCodecs = () => {
+    if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
+    try { if (decoder && decoder.state !== 'closed') decoder.close(); } catch {}
+    try { if (encoder && encoder.state !== 'closed') encoder.close(); } catch {}
+  };
+
+  try {
+    const workPromise = (async (): Promise<Blob | null> => {
+      const startTime = Math.max(0, range?.startTime ?? 0);
+      const endTime = Math.max(startTime + 0.5, range?.endTime ?? (startTime + maxDurationSec));
+      const clipDurationSec = Math.min(maxDurationSec, endTime - startTime);
+      const clampedEnd = startTime + clipDurationSec;
+
+      const mp4boxfile = (MP4Box as any).createFile();
+      let videoTrack: any = null;
+      let description: Uint8Array | undefined;
+
+      const readyTrack = await new Promise<any>((resolve) => {
+        mp4boxfile.onReady = (info: any) => {
+          const vt = info?.videoTracks?.[0];
+          resolve(vt || null);
+        };
+        mp4boxfile.onError = () => resolve(null);
+
+        // Read first 4 MB to parse moov/track metadata
+        const headSlice = file.slice(0, Math.min(file.size, 4 * 1024 * 1024));
+        headSlice.arrayBuffer().then((buf) => {
+          if (aborted) return;
+          (buf as any).fileStart = 0;
+          mp4boxfile.appendBuffer(buf);
+          // If moov is at the end of file, read tail 4 MB
+          if (!videoTrack && file.size > 4 * 1024 * 1024) {
+            const tailStart = Math.max(4 * 1024 * 1024, file.size - 4 * 1024 * 1024);
+            file.slice(tailStart).arrayBuffer().then((tbuf) => {
+              if (aborted) return;
+              (tbuf as any).fileStart = tailStart;
+              mp4boxfile.appendBuffer(tbuf);
+            }).catch(() => resolve(null));
+          }
+        }).catch(() => resolve(null));
+        setTimeout(() => resolve(null), 2500);
+      });
+
+      videoTrack = readyTrack;
+      if (!videoTrack || aborted) return null;
+
+      // Extract avcC / hvcC description box if available
+      try {
+        const trak = mp4boxfile.getTrackById(videoTrack.id);
+        for (const entry of trak?.mdia?.minf?.stbl?.stsd?.entries || []) {
+          const box = entry.avcC || entry.hvcC || entry.vpcC;
+          if (box && (MP4Box as any).DataStream) {
+            const ds = new (MP4Box as any).DataStream(undefined, 0, (MP4Box as any).DataStream.BIG_ENDIAN);
+            box.write(ds);
+            description = new Uint8Array(ds.buffer, 8);
+            break;
+          }
+        }
+      } catch {}
+
+      const decConfig: VideoDecoderConfig = {
+        codec: videoTrack.codec,
+        codedWidth: videoTrack.video?.width,
+        codedHeight: videoTrack.video?.height,
+        description,
+      };
+      const decSupport = await VideoDecoder.isConfigSupported(decConfig);
+      if (!decSupport.supported || aborted) return null;
+
+      const nativeW = videoTrack.video?.width || 640;
+      const nativeH = videoTrack.video?.height || 480;
+      const scale = nativeW > maxWidth ? maxWidth / nativeW : 1;
+      let targetW = Math.round(nativeW * scale);
+      let targetH = Math.round(nativeH * scale);
+      targetW = targetW % 2 === 0 ? targetW : targetW - 1;
+      targetH = targetH % 2 === 0 ? targetH : targetH - 1;
+      if (targetW < 2 || targetH < 2) return null;
+
+      const encConfig: VideoEncoderConfig = {
+        codec: 'avc1.42001f',
+        width: targetW,
+        height: targetH,
+        bitrate,
+        framerate: targetFps,
+      };
+      const encSupport = await VideoEncoder.isConfigSupported(encConfig);
+      if (!encSupport.supported || aborted) return null;
+
+      const muxer = new Mp4Muxer({
+        target: new ArrayBufferTarget(),
+        video: { codec: 'avc', width: targetW, height: targetH },
+        fastStart: 'in-memory',
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return null;
+
+      let encodedCount = 0;
+      let nextSampleTargetUs = 0;
+      const stepUs = Math.round(1_000_000 / targetFps);
+      const startUs = Math.round(startTime * 1_000_000);
+      const endUs = Math.round(clampedEnd * 1_000_000);
+
+      encoder = new VideoEncoder({
+        output: (chunk, meta) => {
+          muxer.addVideoChunk(chunk, meta);
+          encodedCount++;
+        },
+        error: () => { aborted = true; },
+      });
+      encoder.configure(encConfig);
+
+      decoder = new VideoDecoder({
+        output: (frame) => {
+          try {
+            if (aborted) { frame.close(); return; }
+            const tsUs = frame.timestamp;
+            if (tsUs >= startUs && tsUs <= endUs) {
+              const relUs = tsUs - startUs;
+              if (relUs >= nextSampleTargetUs) {
+                ctx.drawImage(frame, 0, 0, targetW, targetH);
+                const outFrame = new VideoFrame(canvas, {
+                  timestamp: nextSampleTargetUs,
+                  duration: stepUs,
+                });
+                encoder?.encode(outFrame, { keyFrame: encodedCount % (targetFps * 2) === 0 });
+                outFrame.close();
+                nextSampleTargetUs += stepUs;
+                if (onProgress && clipDurationSec > 0) {
+                  const pct = Math.min(98, Math.max(5, Math.round((relUs / (clipDurationSec * 1_000_000)) * 100)));
+                  onProgress(pct);
+                }
+              }
+            }
+          } finally {
+            frame.close();
+          }
+        },
+        error: () => { aborted = true; },
+      });
+      decoder.configure(decConfig);
+
+      await new Promise<void>((resolve) => {
+        mp4boxfile.onSamples = (_id: number, _user: any, samples: any[]) => {
+          if (aborted) { resolve(); return; }
+          for (const s of samples) {
+            const sTsUs = Math.round((s.cts / s.timescale) * 1_000_000);
+            if (sTsUs > endUs + 500_000) break;
+            if (sTsUs >= Math.max(0, startUs - 2_000_000)) {
+              try {
+                decoder?.decode(new EncodedVideoChunk({
+                  type: s.is_sync ? 'key' : 'delta',
+                  timestamp: sTsUs,
+                  duration: Math.round((s.duration / s.timescale) * 1_000_000),
+                  data: s.data,
+                }));
+              } catch {}
+            }
+          }
+        };
+        mp4boxfile.setExtractionOptions(videoTrack.id, null, { nbSamples: 60 });
+        mp4boxfile.start();
+
+        // Stream 4 MB chunks sequentially
+        (async () => {
+          const chunkSize = 4 * 1024 * 1024;
+          for (let off = 0; off < file.size && !aborted; off += chunkSize) {
+            const slice = file.slice(off, Math.min(file.size, off + chunkSize));
+            const buf = await slice.arrayBuffer();
+            if (aborted) break;
+            (buf as any).fileStart = off;
+            mp4boxfile.appendBuffer(buf);
+          }
+          mp4boxfile.flush();
+          resolve();
+        })().catch(() => resolve());
+      });
+
+      if (aborted) return null;
+      await decoder.flush();
+      await encoder.flush();
+      muxer.finalize();
+
+      if (encodedCount < 2) return null;
+      const outBuf = (muxer.target as ArrayBufferTarget).buffer;
+      const outBlob = new Blob([outBuf], { type: 'video/mp4' });
+      const compressSec = Number(((performance.now() - tStart) / 1000).toFixed(3));
+      (outBlob as any).__speedFactor = 1.0;
+      (outBlob as any).__expectedDurationSec = clipDurationSec;
+      (outBlob as any).__compressDurationSec = compressSec;
+      (outBlob as any).__trimmedClientSide = true;
+      console.info(`[Compressor MP4Box+WebCodecs] ${encodedCount} frames @ ${targetFps}fps en ${compressSec}s -> ${(outBlob.size / (1024 * 1024)).toFixed(2)} MB`);
+      return outBlob;
+    })();
+
+    const watchdogPromise = new Promise<null>((resolve) => {
+      watchdogTimer = setTimeout(() => {
+        aborted = true;
+        console.warn(`[Compressor Watchdog] Superados ${watchdogMs / 1000}s; abortando compresión local y usando subida directa con recorte en servidor.`);
+        resolve(null);
+      }, watchdogMs);
+    });
+
+    return await Promise.race([workPromise, watchdogPromise]);
+  } catch {
+    return null;
+  } finally {
+    aborted = true;
+    cleanupCodecs();
+  }
+}
+
+  // 1. Fast Sequential MP4Box + WebCodecs Pass (strict 10s watchdog; no <video> seek loops)
+  const tCompressStart = performance.now();
+  let compressedBlob = await runMp4BoxWebCodecsCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress, 10_000);
+  if (!compressedBlob) {
+    // If MP4Box+WebCodecs aborted or codec unsupported (e.g. HEVC), skip slow 110s <video> seek compression
+    // and return original file so server ffmpeg trims ultra-fast with -ss/-t -preset ultrafast.
+    console.info('[Compressor] Fallback rápido: enviando archivo original para recorte directo con ffmpeg en GPU.');
+    (file as any).__compressDurationSec = Number(((performance.now() - tCompressStart) / 1000).toFixed(3));
+    return file;
   }
 
   if (compressedBlob && !(compressedBlob as any).__compressDurationSec) {

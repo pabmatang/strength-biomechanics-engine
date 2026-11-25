@@ -893,6 +893,114 @@ def test_hip_thrust_5_reps_alignment_and_key_moments():
         assert km.get("snapshot_b64")
 
 
+def test_frontal_incline_press_close_grip_triceps_shift():
+    """
+    Frontal incline_press with grip_ratio = 0.85 (< 1.10):
+    - alignment_frames[0] marks status == 'caution' with narrow-grip clinical note
+    - effective_muscle_weights shifts +15% toward triceps
+    - alignment_frames and Estímulo share identical stretch/peak timestamps
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    rep_tpl = [155.0 - 95.0 * (k / 15.0) for k in range(1, 16)] + [60.0 + 95.0 * (k / 15.0) for k in range(1, 16)]
+    angles = [155.0] * 10 + rep_tpl * 3 + [155.0] * 10
+    n_frames = len(angles)
+    timestamps = [f * dt for f in range(n_frames)]
+    frames_keypoints = []
+    L_forearm = 0.18
+    for el_ang in angles:
+        # Frontal shoulders: span = 0.28 (>= 0.14)
+        sh_lx, sh_rx, sh_y = 0.36, 0.64, 0.35
+        # Elbows wider than wrists: span = 0.36
+        el_lx, el_rx, el_y = 0.32, 0.68, 0.52
+        # Close grip wrists: span = 0.85 * 0.28 = 0.238 (grip_ratio = 0.85 < 1.10)
+        # Keep planar elbow angle on dominant left side oscillating 60..155 deg
+        rad = math.radians(el_ang)
+        wr_lx = 0.50 - 0.119
+        wr_rx = 0.50 + 0.119
+        wr_ly = el_y - L_forearm * math.cos(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_lx, "y": sh_y, "score": 0.95},
+            "right_shoulder": {"x": sh_rx, "y": sh_y, "score": 0.95},
+            "left_elbow": {"x": el_lx, "y": el_y, "score": 0.95},
+            "right_elbow": {"x": el_rx, "y": el_y, "score": 0.95},
+            "left_wrist": {"x": wr_lx, "y": wr_ly, "score": 0.95},
+            "right_wrist": {"x": wr_rx, "y": wr_ly, "score": 0.95},
+            "left_hip": {"x": 0.42, "y": 0.68, "score": 0.95},
+            "right_hip": {"x": 0.58, "y": 0.68, "score": 0.95},
+            "left_knee": {"x": 0.42, "y": 0.86, "score": 0.95},
+            "right_knee": {"x": 0.58, "y": 0.86, "score": 0.95},
+            "left_ankle": {"x": 0.42, "y": 0.95, "score": 0.95},
+            "right_ankle": {"x": 0.58, "y": 0.95, "score": 0.95},
+            "left_ear": {"x": 0.45, "y": 0.25, "score": 0.95},
+            "right_ear": {"x": 0.55, "y": 0.25, "score": 0.95},
+            "nose": {"x": 0.50, "y": 0.27, "score": 0.95},
+        })
+
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        target_muscle="chest",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    af = result.get("alignment_frames", [])
+    assert len(af) == 2
+    assert af[0]["status"] == "caution"
+    assert "Agarre estrecho" in af[0]["clinical_note"]
+    assert result["effective_muscle_weights"]["triceps"] >= 0.40
+
+
+def test_hip_thrust_lateral_5_cycles_115_to_174_with_occluded_ankle():
+    """
+    Lateral hip_thrust with 5 hip cycles (115 deg <-> 174 deg) and occluded ankle (score=0.15):
+    must detect total_reps == 5 (never 0).
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    rep_tpl = [115.0 + 59.0 * (k / 18.0) for k in range(1, 19)] + [174.0 - 59.0 * (k / 18.0) for k in range(1, 19)]
+    angles = [115.0] * 12 + rep_tpl * 5 + [115.0] * 12
+    timestamps = [f * dt for f in range(len(angles))]
+    frames_keypoints = []
+    for hip_ang in angles:
+        rad = math.radians(hip_ang)
+        hp_x, hp_y = 0.50, 0.65
+        kn_x, kn_y = 0.70, 0.65
+        sh_x = hp_x + 0.25 * math.cos(rad)
+        sh_y = hp_y - 0.25 * math.sin(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.95},
+            "left_elbow": {"x": sh_x, "y": sh_y + 0.12, "score": 0.95},
+            "left_wrist": {"x": sh_x + 0.08, "y": sh_y + 0.14, "score": 0.95},
+            "left_hip": {"x": hp_x, "y": hp_y, "score": 0.95},
+            "left_knee": {"x": kn_x, "y": kn_y, "score": 0.95},
+            "left_ankle": {"x": 0.72, "y": 0.90, "score": 0.15},
+            "left_ear": {"x": sh_x - 0.04, "y": sh_y - 0.06, "score": 0.95},
+            "right_shoulder": {"x": sh_x, "y": sh_y, "score": 0.20},
+            "right_elbow": {"x": sh_x, "y": sh_y + 0.12, "score": 0.20},
+            "right_wrist": {"x": sh_x + 0.08, "y": sh_y + 0.14, "score": 0.20},
+            "right_hip": {"x": hp_x, "y": hp_y, "score": 0.20},
+            "right_knee": {"x": kn_x, "y": kn_y, "score": 0.20},
+            "right_ankle": {"x": 0.72, "y": 0.90, "score": 0.10},
+            "right_ear": {"x": sh_x - 0.04, "y": sh_y - 0.06, "score": 0.20},
+            "nose": {"x": sh_x - 0.03, "y": sh_y - 0.04, "score": 0.90},
+        })
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="hip_thrust",
+        target_muscle="glutes",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert result.get("total_reps") == 5
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
@@ -904,3 +1012,5 @@ if __name__ == "__main__":
     test_rtdetr_strided_and_vitpose_batched_output_format()
     test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames()
     test_hip_thrust_5_reps_alignment_and_key_moments()
+    test_frontal_incline_press_close_grip_triceps_shift()
+    test_hip_thrust_lateral_5_cycles_115_to_174_with_occluded_ankle()

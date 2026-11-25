@@ -328,12 +328,14 @@ export interface PipelineTimings {
   model_load_s: number;
   compress_s?: number;
   upload_s?: number;
+  cold_start_or_queue_s?: number;
   ffmpeg_s: number;
   det_s: number;
   pose_s: number;
   analysis_s?: number;
   snapshots_s?: number;
   render_snapshots_s: number;
+  total_gpu_s?: number;
   total_s: number;
 }
 
@@ -743,7 +745,9 @@ export async function analyzeVideoWithModal(
       if (completedData.timings) {
         completedData.timings.compress_s = compressS;
         completedData.timings.upload_s = uploadS;
-        console.info('[MIA Audit] Timings:', completedData.timings);
+        completedData.timings.total_gpu_s = completedData.timings.total_s;
+        completedData.timings.cold_start_or_queue_s = Number(Math.max(0, uploadS - completedData.timings.total_s).toFixed(3));
+        console.info('[MIA Timings]', completedData.timings);
       }
       analysisCache.set(cacheKey, completedData);
       return completedData;
@@ -768,7 +772,9 @@ export async function analyzeVideoWithModal(
     if (data.timings) {
       data.timings.compress_s = compressS;
       data.timings.upload_s = uploadS;
-      console.info('[MIA Audit] Timings:', data.timings);
+      data.timings.total_gpu_s = data.timings.total_s;
+      data.timings.cold_start_or_queue_s = Number(Math.max(0, uploadS - data.timings.total_s).toFixed(3));
+      console.info('[MIA Timings]', data.timings);
     }
     analysisCache.set(cacheKey, data);
     return data;
