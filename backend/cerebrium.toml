@@ -21,7 +21,7 @@ response_timeout = 120
 [cerebrium.dependencies.apt]
 ffmpeg = "latest"
 libgl1 = "latest"
-libglib2.0-0 = "latest"
+"libglib2.0-0" = "latest"
 libxcb1 = "latest"
 
 [cerebrium.dependencies.pip]
