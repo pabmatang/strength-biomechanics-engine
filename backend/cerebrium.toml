@@ -18,6 +18,12 @@ max_replicas = 1
 cooldown = 300
 response_timeout = 120
 
+[cerebrium.dependencies.apt]
+ffmpeg = "latest"
+libgl1 = "latest"
+libglib2.0-0 = "latest"
+libxcb1 = "latest"
+
 [cerebrium.dependencies.pip]
 torch = ">=2.2.0"
 torchvision = ">=0.17.0"
