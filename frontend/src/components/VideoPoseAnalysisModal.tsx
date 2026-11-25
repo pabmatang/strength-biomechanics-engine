@@ -1616,6 +1616,10 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     }
 
     ctx.save();
+    if ((frame as any).pose_visible === false || frame.phase === 'SCENE_CUT') {
+      ctx.restore();
+      return;
+    }
 
     const px = (normX: number) => offsetX + normX * drawW;
     const py = (normY: number) => offsetY + normY * drawH;

@@ -243,6 +243,130 @@ def test_incline_press_4_reps_elbow_angle_55_to_150():
         assert r["rom_deg"] >= 35.0, f"La Rep #{r['rep_number']} tiene ROM {r['rom_deg']}° < 35°"
         assert abs(r["rom_deg"] - 95.0) <= 15.0, f"La Rep #{r['rep_number']} debería rondar 95° ROM, dio {r['rom_deg']}°"
 
+def test_incline_press_lateral_floor_intro_bottom_start_5_reps_fatigue():
+    """
+    4s iniciales con visibilidad baja (suelo) + 25s de plano lateral donde el lado izquierdo
+    tiene visibilidad 0.15 (ocluido) y el derecho 0.92, realizando 5 repeticiones empezando
+    desde abajo (60° -> 155° -> 60°) con fatiga progresiva (concéntrica de 1.1s en R1 a 3.2s en R5).
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    total_duration = 29.0
+    n_frames = int(total_duration * fps)  # 435 frames
+    timestamps = [f * dt for f in range(n_frames)]
+
+    # Build angle trajectory starting from bottom (60°) at t = 4.0s (frame 60)
+    angles = np.full(n_frames, 60.0)
+    # 5 reps: R1..R5 with concentric durations 1.1s, 1.4s, 1.8s, 2.4s, 3.2s and ~1.5s eccentric
+    con_durs = [1.1, 1.4, 1.8, 2.4, 3.2]
+    ecc_dur = 1.5
+    cur_t = 4.2  # start pushing up at t=4.2s
+    for idx_r, con_d in enumerate(con_durs):
+        t_con_start = cur_t
+        t_con_end = cur_t + con_d
+        f0 = int(round(t_con_start * fps))
+        f1 = min(n_frames - 1, int(round(t_con_end * fps)))
+        for f in range(f0, f1 + 1):
+            frac = (f - f0) / max(1, f1 - f0)
+            angles[f] = 60.0 + (155.0 - 60.0) * frac
+
+        # Hold briefly at lockout (0.3s)
+        f_hold_end = min(n_frames - 1, f1 + int(round(0.3 * fps)))
+        angles[f1 : f_hold_end + 1] = 155.0
+
+        # Eccentric descent back to 60° (except after R5, where it holds or descends partially)
+        t_ecc_start = f_hold_end * dt
+        t_ecc_end = t_ecc_start + ecc_dur
+        fe0 = f_hold_end
+        fe1 = min(n_frames - 1, int(round(t_ecc_end * fps)))
+        for f in range(fe0, fe1 + 1):
+            frac = (f - fe0) / max(1, fe1 - fe0)
+            angles[f] = 155.0 - (155.0 - 60.0) * frac
+
+        cur_t = fe1 * dt + 0.3
+
+    frames_keypoints = []
+    L_forearm = 0.18
+    for f in range(n_frames):
+        t = timestamps[f]
+        is_floor = t < 4.0
+        el_ang = angles[f]
+        sh_x, sh_y = 0.45, 0.40
+        hp_x, hp_y = 0.55, 0.65
+        kn_x, kn_y = 0.52, 0.85
+        ak_x, ak_y = 0.50, 0.95
+        el_x, el_y = 0.45, 0.60
+
+        rad = math.radians(el_ang)
+        wr_x = el_x + L_forearm * math.sin(rad)
+        wr_y = el_y - L_forearm * math.cos(rad)
+
+        right_score = 0.12 if is_floor else 0.92
+        left_score = 0.12 if is_floor else 0.15
+
+        frame_kp = {
+            "left_shoulder": {"x": sh_x - 0.02, "y": sh_y, "score": left_score},
+            "left_elbow": {"x": el_x - 0.02, "y": el_y, "score": left_score},
+            "left_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": left_score},
+            "left_hip": {"x": hp_x - 0.02, "y": hp_y, "score": left_score},
+            "left_knee": {"x": kn_x - 0.02, "y": kn_y, "score": left_score},
+            "left_ankle": {"x": ak_x - 0.02, "y": ak_y, "score": left_score},
+            "left_ear": {"x": 0.40, "y": 0.32, "score": left_score},
+
+            "right_shoulder": {"x": sh_x, "y": sh_y, "score": right_score},
+            "right_elbow": {"x": el_x, "y": el_y, "score": right_score},
+            "right_wrist": {"x": wr_x, "y": wr_y, "score": right_score},
+            "right_hip": {"x": hp_x, "y": hp_y, "score": right_score},
+            "right_knee": {"x": kn_x, "y": kn_y, "score": right_score},
+            "right_ankle": {"x": ak_x, "y": ak_y, "score": right_score},
+            "right_ear": {"x": 0.42, "y": 0.32, "score": right_score},
+            "nose": {"x": 0.41, "y": 0.35, "score": right_score},
+        }
+        frames_keypoints.append(frame_kp)
+
+    result = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        exercise_name="Technogym Pure Strength - Incline Chest Press",
+        target_muscle="chest",
+        load_type="plate_loaded",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+
+    total_reps = result.get("total_reps", 0)
+    intensity = result.get("intensity_metrics", {})
+    vel_loss = float(intensity.get("velocity_loss_pct", 0.0))
+    exact_rir = float(intensity.get("exact_rir", 4.0))
+    rep_vels = intensity.get("rep_velocities", [])
+    frames_out = result.get("frames", [])
+
+    assert total_reps == 5, f"Expected 5 reps, got {total_reps}"
+    assert len(rep_vels) == 5, f"Expected 5 rep_velocities, got {len(rep_vels)}"
+    assert vel_loss >= 30.0, f"Expected velocity_loss_pct >= 30%, got {vel_loss}%"
+    assert exact_rir <= 2.0, f"Expected RIR <= 2, got {exact_rir}"
+
+    # Floor intro frames (t < 3.8s) must not draw ghost skeleton and must be IDLE
+    for fo in frames_out:
+        if fo["timestamp_sec"] < 3.8:
+            assert fo.get("pose_visible") is False
+            assert fo.get("phase") == "IDLE"
+
+    # Radiografía snapshots must be inside a real rep with >= 60 deg elbow delta
+    reps = result.get("repetitions_summary", [])
+    rep_target = reps[min(1, len(reps) - 1)]
+    bottom_f = int(rep_target["valley_idx"])
+    lockout_f = int(rep_target["peak_idx"])
+    el_bottom = float(frames_out[bottom_f]["angles"]["elbow"])
+    el_lockout = float(frames_out[lockout_f]["angles"]["elbow"])
+    assert (el_lockout - el_bottom) >= 60.0, (
+        f"Expected elbow_angle[lockout] - elbow_angle[bottom] >= 60°, got {el_lockout - el_bottom:.1f}°"
+    )
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
+    test_incline_press_lateral_floor_intro_bottom_start_5_reps_fatigue()

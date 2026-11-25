@@ -419,26 +419,61 @@ def clean_gemini_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
 def compute_valid_frame_bounds(
     primary_joints: Dict[str, Dict[str, np.ndarray]],
     timestamps: List[float],
-    min_vis: float = 0.65,
-    max_cam_jump: float = 0.08
+    min_vis: float = 0.60,
+    max_cam_jump: float = 0.08,
+    all_smoothed: Optional[Dict[str, Dict[str, np.ndarray]]] = None,
+    is_upper_body: bool = True,
+    min_hip_vis: float = 0.45
 ) -> Tuple[int, int]:
     """
-    Trims leading and trailing frames where key landmark visibility (shoulder, elbow,
-    wrist, hip) is < min_vis or where global camera motion exceeds max_cam_jump.
+    Trims leading and trailing frames where dominant-side visibility
+    (max(vis_left, vis_right) < min_vis), torso/hip visibility (< min_hip_vis),
+    or global camera motion (> max_cam_jump) indicates floor/setup frames.
+    Never averages an occluded far side with the camera-facing side.
     Returns (valid_start_idx, valid_end_idx) inclusive.
     """
     n = len(timestamps)
     if n < 5:
         return 0, max(0, n - 1)
 
-    key_names = [k for k in ("shoulder", "elbow", "wrist", "hip") if k in primary_joints]
-    vis_scores = np.ones(n, dtype=np.float64)
-    if key_names:
-        stacked = np.vstack([
-            np.asarray(primary_joints[k].get("score", np.ones(n)), dtype=np.float64)
-            for k in key_names
-        ])
-        vis_scores = np.mean(stacked, axis=0)
+    if all_smoothed is not None:
+        if is_upper_body:
+            vis_left = np.mean(np.vstack([
+                np.asarray(all_smoothed["left_shoulder"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["left_elbow"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["left_wrist"]["score"], dtype=np.float64),
+            ]), axis=0)
+            vis_right = np.mean(np.vstack([
+                np.asarray(all_smoothed["right_shoulder"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["right_elbow"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["right_wrist"]["score"], dtype=np.float64),
+            ]), axis=0)
+        else:
+            vis_left = np.mean(np.vstack([
+                np.asarray(all_smoothed["left_hip"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["left_knee"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["left_ankle"]["score"], dtype=np.float64),
+            ]), axis=0)
+            vis_right = np.mean(np.vstack([
+                np.asarray(all_smoothed["right_hip"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["right_knee"]["score"], dtype=np.float64),
+                np.asarray(all_smoothed["right_ankle"]["score"], dtype=np.float64),
+            ]), axis=0)
+        vis_scores = np.maximum(vis_left, vis_right)
+        hip_vis = np.maximum(
+            np.asarray(all_smoothed["left_hip"]["score"], dtype=np.float64),
+            np.asarray(all_smoothed["right_hip"]["score"], dtype=np.float64),
+        )
+    else:
+        key_names = [k for k in ("shoulder", "elbow", "wrist") if k in primary_joints]
+        vis_scores = np.ones(n, dtype=np.float64)
+        if key_names:
+            stacked = np.vstack([
+                np.asarray(primary_joints[k].get("score", np.ones(n)), dtype=np.float64)
+                for k in key_names
+            ])
+            vis_scores = np.mean(stacked, axis=0)
+        hip_vis = np.asarray(primary_joints["hip"].get("score", np.ones(n)), dtype=np.float64) if "hip" in primary_joints else np.ones(n, dtype=np.float64)
 
     # Detect sudden global camera jumps via frame-to-frame shift of torso anchor (shoulder + hip)
     cam_stable = np.ones(n, dtype=bool)
@@ -450,7 +485,7 @@ def compute_valid_frame_bounds(
         dy = np.abs(np.diff(ay, prepend=ay[0]))
         cam_stable = np.hypot(dx, dy) <= max_cam_jump
 
-    valid_mask = (vis_scores >= min_vis) & cam_stable
+    valid_mask = (vis_scores >= min_vis) & (hip_vis >= min_hip_vis) & cam_stable
 
     # Find longest contiguous valid segment (allowing tiny 2-frame single-frame glitches)
     best_start, best_end = 0, n - 1
@@ -2551,11 +2586,38 @@ def process_kinematics(
     hide_torso_line = False
 
     if is_upper_body:
+        _vis_l = np.mean(np.vstack([
+            all_smoothed["left_shoulder"]["score"],
+            all_smoothed["left_elbow"]["score"],
+            all_smoothed["left_wrist"]["score"],
+        ]), axis=0)
+        _vis_r = np.mean(np.vstack([
+            all_smoothed["right_shoulder"]["score"],
+            all_smoothed["right_elbow"]["score"],
+            all_smoothed["right_wrist"]["score"],
+        ]), axis=0)
+    else:
+        _vis_l = np.mean(np.vstack([
+            all_smoothed["left_hip"]["score"],
+            all_smoothed["left_knee"]["score"],
+            all_smoothed["left_ankle"]["score"],
+        ]), axis=0)
+        _vis_r = np.mean(np.vstack([
+            all_smoothed["right_hip"]["score"],
+            all_smoothed["right_knee"]["score"],
+            all_smoothed["right_ankle"]["score"],
+        ]), axis=0)
+    _dom_vis = np.maximum(_vis_l, _vis_r)
+    _hip_vis = np.maximum(all_smoothed["left_hip"]["score"], all_smoothed["right_hip"]["score"])
+    valid_vis_mask = (_dom_vis >= 0.60) & (_hip_vis >= 0.45)
+    vis_idx = np.where(valid_vis_mask)[0] if np.any(valid_vis_mask) else np.arange(n_frames)
+
+    if is_upper_body:
         left_elbow_angles = l_el_angles
         right_elbow_angles = r_el_angles
 
-        left_rom = left_el_rom
-        right_rom = right_el_rom
+        left_rom = float(np.percentile(left_elbow_angles[vis_idx], 90) - np.percentile(left_elbow_angles[vis_idx], 10))
+        right_rom = float(np.percentile(right_elbow_angles[vis_idx], 90) - np.percentile(right_elbow_angles[vis_idx], 10))
 
         l_sh_x, l_sh_y = all_smoothed["left_shoulder"]["x"], all_smoothed["left_shoulder"]["y"]
         l_el_x, l_el_y = all_smoothed["left_elbow"]["x"], all_smoothed["left_elbow"]["y"]
@@ -2564,19 +2626,11 @@ def process_kinematics(
         r_el_x, r_el_y = all_smoothed["right_elbow"]["x"], all_smoothed["right_elbow"]["y"]
         r_wr_x, r_wr_y = all_smoothed["right_wrist"]["x"], all_smoothed["right_wrist"]["y"]
 
-        left_len = float(np.median(np.hypot(l_sh_x - l_el_x, l_sh_y - l_el_y) + np.hypot(l_el_x - l_wr_x, l_el_y - l_wr_y)))
-        right_len = float(np.median(np.hypot(r_sh_x - r_el_x, r_sh_y - r_el_y) + np.hypot(r_el_x - r_wr_x, r_el_y - r_wr_y)))
+        left_len = float(np.median(np.hypot(l_sh_x[vis_idx] - l_el_x[vis_idx], l_sh_y[vis_idx] - l_el_y[vis_idx]) + np.hypot(l_el_x[vis_idx] - l_wr_x[vis_idx], l_el_y[vis_idx] - l_wr_y[vis_idx])))
+        right_len = float(np.median(np.hypot(r_sh_x[vis_idx] - r_el_x[vis_idx], r_sh_y[vis_idx] - r_el_y[vis_idx]) + np.hypot(r_el_x[vis_idx] - r_wr_x[vis_idx], r_el_y[vis_idx] - r_wr_y[vis_idx])))
 
-        left_conf = float(np.mean(np.concatenate([
-            all_smoothed["left_shoulder"]["score"],
-            all_smoothed["left_elbow"]["score"],
-            all_smoothed["left_wrist"]["score"]
-        ])))
-        right_conf = float(np.mean(np.concatenate([
-            all_smoothed["right_shoulder"]["score"],
-            all_smoothed["right_elbow"]["score"],
-            all_smoothed["right_wrist"]["score"]
-        ])))
+        left_conf = float(np.mean(_vis_l[vis_idx]))
+        right_conf = float(np.mean(_vis_r[vis_idx]))
 
         left_pen = 1.0
         right_pen = 1.0
@@ -2879,79 +2933,154 @@ def process_kinematics(
             clean_curve = -clean_primary.copy()
 
     # 5. Peak-Trough Repetition Detection (after auto-trimming unstable/no-person frames)
-    valid_start_idx, valid_end_idx = compute_valid_frame_bounds(primary_joints, timestamps)
+    valid_start_idx, valid_end_idx = compute_valid_frame_bounds(
+        primary_joints,
+        timestamps,
+        all_smoothed=all_smoothed,
+        is_upper_body=is_upper_body
+    )
+    if is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
+        el_valid_raw = el_2d[valid_start_idx : valid_end_idx + 1]
+        sg_win = min(9, len(el_valid_raw) if len(el_valid_raw) % 2 == 1 else len(el_valid_raw) - 1)
+        if sg_win >= 5:
+            el_valid_smooth = scipy.signal.savgol_filter(el_valid_raw, window_length=sg_win, polyorder=2)
+        else:
+            el_valid_smooth = el_valid_raw.copy()
+        clean_el[valid_start_idx : valid_end_idx + 1] = el_valid_smooth
+        clean_primary = clean_el.copy()
+        clean_curve = -clean_primary.copy()
+
     signal_range = float(np.max(clean_curve[valid_start_idx : valid_end_idx + 1]) - np.min(clean_curve[valid_start_idx : valid_end_idx + 1]))
     t_min_bound = max(timestamps[valid_start_idx] + 0.25, timestamps[0] + 0.35) if timestamps else 0.35
     t_max_bound = min(timestamps[valid_end_idx] - 0.20, timestamps[-1] - 0.25) if timestamps else 29.75
 
-    min_rep_frames = max(12, int(15.0 * 0.85))
+    eff_fps = (1.0 / max(1e-3, float(np.median(np.diff(timestamps))))) if len(timestamps) > 1 else 15.0
+    min_rep_frames = max(4, int(round(0.9 * eff_fps)))
 
-    valid_curve = clean_curve[valid_start_idx : valid_end_idx + 1]
-    p10 = float(np.percentile(valid_curve, 10))
-    p90 = float(np.percentile(valid_curve, 90))
-    eff_range = max(p90 - p10, 8.0)
+    push_rep_windows: List[Tuple[int, int, int]] = []
+    if is_pattern_b and (valid_end_idx - valid_start_idx + 1) >= 5:
+        el_seg = clean_el[valid_start_idx : valid_end_idx + 1]
+        seg_range = float(np.max(el_seg) - np.min(el_seg))
+        push_prom = 30.0 if seg_range >= 45.0 else max(16.0, seg_range * 0.45)
 
-    if is_pattern_a:
-        # Lower prominence (max 20.0) for back/diagonal views where perspective compresses angular range
-        target_prom = max(8.0, min(20.0, eff_range * 0.20))
-    elif is_pattern_b:
-        target_prom = max(8.0, min(18.0, eff_range * 0.16))
-    elif is_hip_thrust:
-        target_prom = max(12.0, min(26.0, eff_range * 0.20))
+        pk_rel, _ = scipy.signal.find_peaks(el_seg, prominence=push_prom, distance=min_rep_frames)
+        vl_rel, _ = scipy.signal.find_peaks(-el_seg, prominence=push_prom, distance=min_rep_frames)
+        peaks_g = [valid_start_idx + int(x) for x in pk_rel]
+        valleys_g = [valid_start_idx + int(x) for x in vl_rel]
+
+        # Handle series starting at bottom (first movement is concentric push up to peaks_g[0])
+        if len(peaks_g) >= 1:
+            first_pk = peaks_g[0]
+            has_pre_valley = any(v < first_pk for v in valleys_g)
+            if not has_pre_valley:
+                pre_slice = clean_el[valid_start_idx : first_pk + 1]
+                if len(pre_slice) > 0:
+                    v0_cand = valid_start_idx + int(np.argmin(pre_slice))
+                    if float(clean_el[first_pk] - clean_el[v0_cand]) >= push_prom * 0.85:
+                        valleys_g = [v0_cand] + valleys_g
+
+        # Handle series ending at lockout after the last valley
+        if len(valleys_g) >= 1:
+            last_v = valleys_g[-1]
+            has_post_peak = any(p > last_v for p in peaks_g)
+            if not has_post_peak:
+                post_slice = clean_el[last_v : valid_end_idx + 1]
+                if len(post_slice) > 0:
+                    p_end_cand = last_v + int(np.argmax(post_slice))
+                    if float(clean_el[p_end_cand] - clean_el[last_v]) >= push_prom * 0.85:
+                        peaks_g.append(p_end_cand)
+
+        # Pair each valley -> next peak (direction-agnostic: valley->peak or peak->valley->peak)
+        prev_peak_end = valid_start_idx
+        for idx_v, v_f in enumerate(valleys_g):
+            cand_peaks = [p for p in peaks_g if p > v_f and (timestamps[p] - timestamps[v_f]) >= 0.20]
+            if not cand_peaks:
+                continue
+            p_f = cand_peaks[0]
+            if float(clean_el[p_f] - clean_el[v_f]) < 25.0:
+                continue
+            if idx_v == 0:
+                # If user started at lockout before v_f, start at descent onset; if started at bottom, start at v_f
+                pre_max = float(np.max(clean_el[valid_start_idx : v_f + 1]))
+                if pre_max - float(clean_el[v_f]) >= 20.0:
+                    onset_f = valid_start_idx
+                    init_top = pre_max
+                    for f_scan in range(valid_start_idx, v_f):
+                        if init_top - float(clean_el[f_scan]) >= 5.0:
+                            onset_f = max(valid_start_idx, f_scan - 1)
+                            break
+                    sf_rep = onset_f
+                else:
+                    sf_rep = v_f
+            else:
+                sf_rep = max(prev_peak_end, valid_start_idx)
+            push_rep_windows.append((sf_rep, v_f, p_f))
+            prev_peak_end = p_f
+
+        valid_peaks = [w[1] for w in push_rep_windows]
     else:
-        target_prom = max(10.0, min(20.0, eff_range * 0.20))
+        valid_curve = clean_curve[valid_start_idx : valid_end_idx + 1]
+        p10 = float(np.percentile(valid_curve, 10))
+        p90 = float(np.percentile(valid_curve, 90))
+        eff_range = max(p90 - p10, 8.0)
 
-    pks, _ = scipy.signal.find_peaks(
-        clean_curve,
-        prominence=target_prom,
-        distance=min_rep_frames
-    )
-    in_bounds = [p for p in pks if t_min_bound <= timestamps[p] <= t_max_bound]
+        if is_pattern_a:
+            # Lower prominence (max 20.0) for back/diagonal views where perspective compresses angular range
+            target_prom = max(8.0, min(20.0, eff_range * 0.20))
+        elif is_hip_thrust:
+            target_prom = max(12.0, min(26.0, eff_range * 0.20))
+        else:
+            target_prom = max(10.0, min(20.0, eff_range * 0.20))
 
-    # Fallback for subtle/slow executions
-    if len(in_bounds) < 2 and eff_range >= 10.0:
-        pks_soft, _ = scipy.signal.find_peaks(
+        pks, _ = scipy.signal.find_peaks(
             clean_curve,
-            prominence=max(7.0, target_prom * 0.60),
+            prominence=target_prom,
             distance=min_rep_frames
         )
-        in_bounds_soft = [p for p in pks_soft if t_min_bound <= timestamps[p] <= t_max_bound]
-        if len(in_bounds_soft) > len(in_bounds):
-            in_bounds = in_bounds_soft
+        in_bounds = [p for p in pks if t_min_bound <= timestamps[p] <= t_max_bound]
 
-    filtered_peaks = []
-    for idx_p, p in enumerate(in_bounds):
-        if idx_p == 0:
-            filtered_peaks.append(p)
-        else:
-            prev_p = filtered_peaks[-1]
-            if is_pattern_b or is_pattern_a:
-                # Lockout check: between two press/row valleys, check extension with perspective-safe threshold
-                crest_val = float(np.max(clean_primary[prev_p : p + 1]))
-                if crest_val < min(85.0, clean_primary[prev_p] + 8.0):
-                    # Incomplete extension, sticking point or pause: merge and keep the deeper inflection point
-                    if clean_primary[p] < clean_primary[prev_p]:
-                        filtered_peaks[-1] = p
-                    continue
+        # Fallback for subtle/slow executions
+        if len(in_bounds) < 2 and eff_range >= 10.0:
+            pks_soft, _ = scipy.signal.find_peaks(
+                clean_curve,
+                prominence=max(7.0, target_prom * 0.60),
+                distance=min_rep_frames
+            )
+            in_bounds_soft = [p for p in pks_soft if t_min_bound <= timestamps[p] <= t_max_bound]
+            if len(in_bounds_soft) > len(in_bounds):
+                in_bounds = in_bounds_soft
 
-            valley_val = float(np.min(clean_curve[prev_p : p + 1]))
-            dip_from_prev = clean_curve[prev_p] - valley_val
-            dip_from_curr = clean_curve[p] - valley_val
-            min_dip_required = max(3.5, target_prom * 0.40)
-            if dip_from_prev >= min_dip_required and dip_from_curr >= min_dip_required:
+        filtered_peaks = []
+        for idx_p, p in enumerate(in_bounds):
+            if idx_p == 0:
                 filtered_peaks.append(p)
             else:
-                if clean_curve[p] > clean_curve[prev_p]:
-                    filtered_peaks[-1] = p
+                prev_p = filtered_peaks[-1]
+                if is_pattern_a:
+                    crest_val = float(np.max(clean_primary[prev_p : p + 1]))
+                    if crest_val < min(85.0, clean_primary[prev_p] + 8.0):
+                        if clean_primary[p] < clean_primary[prev_p]:
+                            filtered_peaks[-1] = p
+                        continue
 
-    valid_peaks = filtered_peaks
+                valley_val = float(np.min(clean_curve[prev_p : p + 1]))
+                dip_from_prev = clean_curve[prev_p] - valley_val
+                dip_from_curr = clean_curve[p] - valley_val
+                min_dip_required = max(3.5, target_prom * 0.40)
+                if dip_from_prev >= min_dip_required and dip_from_curr >= min_dip_required:
+                    filtered_peaks.append(p)
+                else:
+                    if clean_curve[p] > clean_curve[prev_p]:
+                        filtered_peaks[-1] = p
 
-    if len(valid_peaks) == 0 and signal_range >= 10.0:
-        margin = max(2, int(n_frames * 0.08))
-        if n_frames - margin > margin:
-            sub = clean_curve[margin : n_frames - margin]
-            if len(sub) > 0:
-                valid_peaks = [margin + int(np.argmax(sub))]
+        valid_peaks = filtered_peaks
+
+        if len(valid_peaks) == 0 and signal_range >= 10.0:
+            margin = max(2, int(n_frames * 0.08))
+            if n_frames - margin > margin:
+                sub = clean_curve[margin : n_frames - margin]
+                if len(sub) > 0:
+                    valid_peaks = [margin + int(np.argmax(sub))]
 
     # Angular velocity signal (deg/s)
     if len(clean_primary) > 1 and len(timestamps) > 1:
@@ -3107,46 +3236,40 @@ def process_kinematics(
 
     for i, p in enumerate(valid_peaks):
         rep_idx = i + 1
-        
-        # Start of rep
-        if i == 0:
-            # Search backwards to video onset to find true onset of movement
-            search_start = 0
-            left_search = clean_curve[search_start : p]
-            local_min_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
-            cand_start = search_start + local_min_offset
-        else:
-            prev_bound = valid_peaks[i - 1]
-            left_search = clean_curve[prev_bound : p]
-            start_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
-            cand_start = prev_bound + start_offset
 
-        # Refine onset: find where angular velocity rises above 5.0 deg/s or displacement occurs moving towards p
-        # (Detects first eccentric/concentric phase at t=0.5s - 1.5s without getting stuck in IDLE)
-        start_frame = cand_start
-        if i == 0 and is_pattern_b:
-            init_ang = clean_primary[0]
-            for f_scan in range(0, p):
-                if abs(clean_primary[f_scan] - init_ang) >= 20.0 or ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
-                    start_frame = max(0, f_scan - 1)
-                    break
+        if is_pattern_b and i < len(push_rep_windows):
+            start_frame, bottom_frame, end_frame = push_rep_windows[i]
         else:
+            # Start of rep
+            if i == 0:
+                # Search backwards to video onset to find true onset of movement
+                search_start = 0
+                left_search = clean_curve[search_start : p]
+                local_min_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
+                cand_start = search_start + local_min_offset
+            else:
+                prev_bound = valid_peaks[i - 1]
+                left_search = clean_curve[prev_bound : p]
+                start_offset = int(np.argmin(left_search)) if len(left_search) > 0 else 0
+                cand_start = prev_bound + start_offset
+
+            start_frame = cand_start
             for f_scan in range(cand_start, p):
                 if ang_vel[f_scan] >= 5.0 or abs(clean_primary[f_scan] - clean_primary[cand_start]) >= 3.0:
                     start_frame = max(0, f_scan - 1)
                     break
-        
-        # End of rep
-        next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else n_frames - 1
-        right_search = clean_curve[p : next_bound + 1]
-        end_offset = int(np.argmin(right_search)) if len(right_search) > 0 else 0
-        end_frame = p + end_offset
+
+            # End of rep
+            next_bound = valid_peaks[i + 1] if i < len(valid_peaks) - 1 else n_frames - 1
+            right_search = clean_curve[p : next_bound + 1]
+            end_offset = int(np.argmin(right_search)) if len(right_search) > 0 else 0
+            end_frame = p + end_offset
+            bottom_frame = p
 
         # Reject reps spanning a camera scene cut
         if any(is_scene_cut[f] for f in range(start_frame, min(end_frame + 1, n_frames))):
             continue
 
-        bottom_frame = p
         t_start = timestamps[start_frame]
         t_inflect = timestamps[bottom_frame]
         t_end = timestamps[end_frame]
@@ -3422,7 +3545,10 @@ def process_kinematics(
             smooth_lx[con_end] * img_w - smooth_lx[con_start] * img_w,
             smooth_ly[con_end] * img_h - smooth_ly[con_start] * img_h
         ))
-        mean_con_vel = round(float(con_disp_px / max(concentric_time_s, 0.20)), 1)
+        if con_disp_px < 5.0 and delta_angle_conc >= 10.0:
+            mean_con_vel = round(float(delta_angle_conc / max(concentric_time_s, 0.20)), 1)
+        else:
+            mean_con_vel = round(float(con_disp_px / max(concentric_time_s, 0.20)), 1)
 
         # Filtrar picos de velocidad ignorando los primeros 0.4s del vídeo para evitar saltos iniciales
         valid_peak_frames = [f for f in range(idx_low, idx_high + 1) if (timestamps[f] - timestamps[0]) >= 0.4]
@@ -3649,13 +3775,16 @@ def process_kinematics(
         weight_kg=weight_kg
     )
 
-    # Extract 2 Key Static Snapshots (Max Stretch & Max Peak / Lockout)
+    # Extract 2 Key Static Snapshots (Max Stretch & Max Peak / Lockout) strictly inside a validated rep
     rep_target = repetitions_summary[min(1, total_reps - 1)] if total_reps >= 1 else None
     if rep_target:
-        sf_t = max(0, int(rep_target.get("start_frame", 0)))
-        ef_t = min(n_frames - 1, int(rep_target.get("end_frame", n_frames - 1)))
-        if is_pattern_b and ef_t > sf_t:
-            # Push exercises: Bottom = min elbow angle, Lockout = max elbow angle (extended arms)
+        if is_pattern_b and "valley_idx" in rep_target and "peak_idx" in rep_target:
+            # Push exercises: strictly use valley_frame (bottom) & peak_frame (lockout) of the representative rep
+            f_stretch = int(rep_target["valley_idx"])
+            f_peak = int(rep_target["peak_idx"])
+        elif is_pattern_b and int(rep_target.get("end_frame", 0)) > int(rep_target.get("start_frame", 0)):
+            sf_t = max(0, int(rep_target.get("start_frame", 0)))
+            ef_t = min(n_frames - 1, int(rep_target.get("end_frame", n_frames - 1)))
             f_stretch, f_peak = extract_push_snapshot_frames(clean_el, sf_t, ef_t, n_frames)
         else:
             f_stretch = rep_target.get("bottom_frame", int(n_frames * 0.5))
@@ -4130,6 +4259,7 @@ def process_kinematics(
         frames_output.append({
             "timestamp_sec": round(float(timestamps[f]), 4),
             "phase": phase,
+            "pose_visible": bool(valid_vis_mask[f]),
             "rep_index": int(rep_num),
             "body_region": "upper" if is_upper_body else "lower",
             "load_point": [round(float(smooth_lx[f]), 4), round(float(smooth_ly[f]), 4)],
