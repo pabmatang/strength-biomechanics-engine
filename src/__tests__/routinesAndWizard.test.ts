@@ -1164,7 +1164,7 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
     it('respects priorityOrder tie-breakers, interleaves antagonists (#1 <-> #2), and places maintenance finishers last', () => {
       const routines = generateEngineRoutines({
         experienceLevel: 'intermedio',
-        daysPerWeek: 4,
+        daysPerWeek: 3,
         durationMinutes: 75,
         baseEquipment: ['free_weight', 'cable', 'generic_machine'],
         machineBrands: ['Technogym', 'Hammer Strength'],
@@ -1183,13 +1183,18 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
           abdominals: 2
         },
         priorityOrder: [
+          'hamstrings', 'quadriceps', 'glutes',
           'chest', 'lats', 'upper_back', 'shoulders', 'biceps', 'triceps',
-          'hamstrings', 'quadriceps', 'glutes', 'calves', 'adductors', 'abdominals'
+          'calves', 'adductors', 'abdominals'
         ]
       });
 
-      // Lower day: hamstrings (#1) opens and interleaves with quadriceps (#2), finishers at the very end
-      const lowerA = routines[1];
+      // Leg day: hamstrings (#1) opens and interleaves with quadriceps (#2), finishers at the very end
+      const lowerA = routines.find(r =>
+        r.exercises.some(e => e.muscle_group === 'hamstrings') &&
+        r.exercises.some(e => e.muscle_group === 'quadriceps')
+      )!;
+      expect(lowerA).toBeDefined();
       expect(lowerA.exercises[0].muscle_group).toBe('hamstrings');
       expect(lowerA.exercises[1].muscle_group).toBe('quadriceps');
 
@@ -1238,21 +1243,148 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
         }
       });
 
-      const lowerA = routines[1];
-      const hasLegExt = lowerA.exercises.some(e =>
+      const legDays = routines.filter(r => r.exercises.some(e => e.muscle_group === 'quadriceps'));
+      const hasLegExt = legDays.some(d => d.exercises.some(e =>
         e.exercise_template_id.includes('leg_extension') || e.title.toLowerCase().includes('leg extension')
-      );
+      ));
       expect(hasLegExt).toBe(true);
 
       // Differentiated rep ranges
       const allEx = routines.flatMap(r => r.exercises);
       const calfEx = allEx.find(e => e.muscle_group === 'calves');
       const absEx = allEx.find(e => e.muscle_group === 'abdominals');
-      const compoundChest = routines[0].exercises.find(e => e.muscle_group === 'chest');
+      const compoundChest = allEx.find(e => e.muscle_group === 'chest');
 
       expect(calfEx?.sets[0].reps).toBeGreaterThanOrEqual(12);
       expect(absEx?.sets[0].reps).toBeGreaterThanOrEqual(12);
       expect(compoundChest?.sets[0].reps).toBeLessThanOrEqual(10);
+    });
+
+    it('balances asymmetric 78-torso / 30-legs volume across 3, 4 and 5 days (spread <= 4 sets, no day > 30 sets for 4-5d)', () => {
+      const volume = {
+        chest: 14,
+        lats: 14,
+        upper_back: 12,
+        shoulders: 12,
+        biceps: 12,
+        triceps: 10,
+        abdominals: 4, // total torso = 78
+        quadriceps: 10,
+        hamstrings: 8,
+        glutes: 8,
+        calves: 2,
+        adductors: 2 // total legs = 30
+      };
+
+      for (const days of [3, 4, 5] as const) {
+        const routines = generateEngineRoutines({
+          experienceLevel: 'intermedio',
+          daysPerWeek: days,
+          durationMinutes: 75,
+          baseEquipment: ['cable', 'generic_machine'],
+          machineBrands: ['Technogym'],
+          targetWeeklyVolume: volume
+        });
+
+        const dayTotals = routines.map(r => r.exercises.reduce((acc, e) => acc + e.sets.length, 0));
+        const spread = Math.max(...dayTotals) - Math.min(...dayTotals);
+        expect(spread).toBeLessThanOrEqual(4);
+        if (days >= 4) {
+          dayTotals.forEach(t => expect(t).toBeLessThanOrEqual(30));
+        }
+      }
+    });
+
+    it('enforces non-interference (no heavy triceps before chest day, no triceps before shoulder press)', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 75,
+        baseEquipment: ['free_weight', 'cable', 'generic_machine'],
+        machineBrands: ['Technogym'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 10,
+          upper_back: 8,
+          shoulders: 10,
+          biceps: 8,
+          triceps: 10,
+          quadriceps: 10,
+          hamstrings: 8,
+          glutes: 8,
+          calves: 2,
+          adductors: 2,
+          abdominals: 2
+        },
+        priorityOrder: ['chest', 'lats', 'triceps', 'shoulders', 'upper_back', 'biceps', 'quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abdominals']
+      });
+
+      // No heavy triceps (>= 4 sets) on day d immediately before chest on day d+1
+      for (let d = 0; d < routines.length - 1; d++) {
+        const tricepsSetsToday = routines[d].exercises
+          .filter(e => e.muscle_group === 'triceps')
+          .reduce((acc, e) => acc + e.sets.length, 0);
+        const hasChestTomorrow = routines[d + 1].exercises.some(e => e.muscle_group === 'chest');
+        if (tricepsSetsToday >= 4) {
+          expect(hasChestTomorrow).toBe(false);
+        }
+      }
+
+      // Within same day, triceps never precedes chest or shoulder press
+      routines.forEach(r => {
+        const firstTricepsIdx = r.exercises.findIndex(e => e.muscle_group === 'triceps');
+        const lastPushIdx = r.exercises.reduce((acc, e, idx) =>
+          (e.muscle_group === 'chest' || e.muscle_group === 'shoulders') ? idx : acc, -1);
+        if (firstTricepsIdx !== -1 && lastPushIdx !== -1) {
+          expect(firstTricepsIdx).toBeGreaterThan(lastPushIdx);
+        }
+      });
+    });
+
+    it('enforces mandatory leg curl, avoids ankle cable extension, blocks double flat press, varies rep_range, and prevents brand leaks', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 75,
+        baseEquipment: ['cable'],
+        machineBrands: ['Technogym'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 10,
+          upper_back: 8,
+          shoulders: 8,
+          biceps: 8,
+          triceps: 8,
+          quadriceps: 10,
+          hamstrings: 8,
+          glutes: 8,
+          calves: 2,
+          adductors: 2,
+          abdominals: 2
+        }
+      });
+
+      const allEx = routines.flatMap(r => r.exercises);
+
+      // 1. At least 1 leg curl when hamstrings > 0
+      const hasLegCurl = allEx.some(e =>
+        e.muscle_group === 'hamstrings' && (e.exercise_template_id.includes('leg_curl') || e.title.toLowerCase().includes('curl'))
+      );
+      expect(hasLegCurl).toBe(true);
+
+      // 2. Zero ankle cable leg extension when Technogym Leg Extension is available
+      const hasAnkleExt = allEx.some(e => e.exercise_template_id === 'cable_leg_extension');
+      expect(hasAnkleExt).toBe(false);
+
+      // 3. Zero unselected brands (Eleiko, Matrix) when only cable + Technogym selected
+      allEx.forEach(e => {
+        expect(e.brand).not.toBe('Eleiko');
+        expect(e.brand).not.toBe('Matrix');
+      });
+
+      // 4. Varied rep_range values (not all 8-12)
+      const uniqueRepRanges = new Set(allEx.map(e => e.rep_range || e.target_rep_range));
+      expect(uniqueRepRanges.size).toBeGreaterThanOrEqual(3);
     });
   });
 });

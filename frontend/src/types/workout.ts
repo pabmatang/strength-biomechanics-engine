@@ -66,7 +66,8 @@ export interface WorkoutSet {
   weight_kg: number;
   reps: number;
   rpe?: number | null;
-  target_rep_range?: string; // e.g. "8-12", "6-8", "10-12"
+  target_rep_range?: string;
+  rep_range?: string; // e.g. "8-12", "6-8", "10-12"
   // Cardio and endurance specific metrics
   duration_seconds?: number | null;
   distance_km?: number | null;
@@ -114,6 +115,7 @@ export interface ExerciseTemplate {
   resistance_profile?: ResistanceProfile;
   grips?: GripOption[];
   target_rep_range?: string;
+  rep_range?: string;
   catalog_machine_id?: string;
 }
 
@@ -130,6 +132,7 @@ export interface WorkoutExercise {
   gif_url?: string;
   sets: WorkoutSet[];
   target_rep_range?: string;
+  rep_range?: string;
   selected_grip?: string;
   catalog_machine_id?: string;
 }

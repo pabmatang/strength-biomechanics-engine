@@ -271,11 +271,11 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 </div>
                 <div className="grid grid-cols-5 gap-1.5">
                   {[
-                    { days: 2, label: '2 días', sub: 'Full Body' },
-                    { days: 3, label: '3 días', sub: 'Push/Pull/Legs' },
-                    { days: 4, label: '4 días', sub: 'Torso/Pierna' },
-                    { days: 5, label: '5 días', sub: 'PPL + Foco' },
-                    { days: 6, label: '6 días', sub: 'PPL x 2' }
+                    { days: 2, label: '2 días', sub: 'Full Body Equilibrado' },
+                    { days: 3, label: '3 días', sub: 'Híbrido Equilibrado' },
+                    { days: 4, label: '4 días', sub: 'Híbrido Frecuencia 2' },
+                    { days: 5, label: '5 días', sub: 'Híbrido + Foco' },
+                    { days: 6, label: '6 días', sub: 'Alta Frecuencia' }
                   ].map(opt => (
                     <button
                       key={opt.days}
@@ -875,18 +875,20 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                               <span className="uppercase text-[9px] font-mono font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.2 rounded">
                                 {ex.equipment_category}
                               </span>
-                              {ex.brand && (
-                                <span className="text-slate-400 truncate">
-                                  {ex.brand}
-                                </span>
-                              )}
+                              {ex.equipment_category === 'cable' && (!ex.brand || ex.brand === 'General') ? (
+                                <span className="text-slate-400 truncate">Poleas</span>
+                              ) : ex.brand ? (
+                                <span className="text-slate-400 truncate">{ex.brand}</span>
+                              ) : null}
                             </div>
                           </div>
                         </div>
 
                         <div className="text-right flex-shrink-0 font-mono">
                           <span className="font-bold text-blue-400">{ex.sets.length} series</span>
-                          <div className="text-[10px] text-slate-400">× 8-12 reps</div>
+                          <div className="text-[10px] text-slate-400">
+                            × {(ex as any).rep_range || (ex.sets[0]?.reps ? `${Math.max(6, ex.sets[0].reps - 2)}-${ex.sets[0].reps + 2}` : '8-12')} reps
+                          </div>
                         </div>
                       </div>
                     ))}
