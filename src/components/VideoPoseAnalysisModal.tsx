@@ -1412,8 +1412,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
 
       // Direct dispatch for videos <= 25 MB to avoid slow canvas re-recording (GPU handles trimming directly)
       if (file.size > 25 * 1024 * 1024) {
-        setPipelineMessage(`Optimizando y preparando vídeo (${(file.size / (1024 * 1024)).toFixed(1)}MB)...`);
-        const preparedBlob = await prepareVideoForAnalysis(file, { range, maxWidth: 480, targetFps: 15, bitrate: 800_000 });
+        setPipelineMessage(`Optimizando vídeo (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
+        const preparedBlob = await prepareVideoForAnalysis(file, {
+          range,
+          maxWidth: 480,
+          targetFps: 15,
+          bitrate: 800_000,
+          onProgress: (pct) => {
+            setPipelineMessage(`Comprimiendo vídeo en tu dispositivo (${pct}%)...`);
+          }
+        });
         videoBlobToSend = preparedBlob;
       } else {
         videoBlobToSend = file;

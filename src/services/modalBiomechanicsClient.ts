@@ -421,12 +421,14 @@ export async function analyzeVideoWithModal(
   try {
     let response: Response;
 
-    const startTime = typeof range?.startTime === 'number' && !isNaN(range.startTime)
-      ? Number(range.startTime.toFixed(2))
-      : 0.0;
-    const endTime = typeof range?.endTime === 'number' && !isNaN(range.endTime) && range.endTime > startTime
-      ? Number(range.endTime.toFixed(2))
-      : null;
+    const isTrimmedClient = Boolean((videoBlob as any).__trimmedClientSide);
+    const speedFactor = Number((videoBlob as any).__speedFactor || 1.0);
+    const startTime = isTrimmedClient
+      ? 0.0
+      : (typeof range?.startTime === 'number' && !isNaN(range.startTime) ? Number(range.startTime.toFixed(2)) : 0.0);
+    const endTime = isTrimmedClient
+      ? null
+      : (typeof range?.endTime === 'number' && !isNaN(range.endTime) && range.endTime > startTime ? Number(range.endTime.toFixed(2)) : null);
 
     const geminiApiKey = config.geminiApiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
     const CHUNK_THRESHOLD = 8 * 1024 * 1024; // 8 MB
@@ -529,6 +531,7 @@ export async function analyzeVideoWithModal(
         gemini_api_key: geminiApiKey,
         start_time: startTime,
         end_time: endTime,
+        speed_factor: speedFactor,
         weight_kg: config.weightKg,
         target_reps: config.targetReps,
         anthropometry: config.anthropometry,
@@ -571,6 +574,7 @@ export async function analyzeVideoWithModal(
               gemini_api_key: geminiApiKey,
               start_time: startTime,
               end_time: endTime,
+              speed_factor: speedFactor,
               weight_kg: config.weightKg,
               target_reps: config.targetReps,
               anthropometry: config.anthropometry,

@@ -20,6 +20,7 @@ export interface VideoCompressionOptions {
   bitrate?: number;
   maxDurationSec?: number;
   range?: VideoRange;
+  onProgress?: (pct: number) => void;
 }
 
 /**
@@ -31,7 +32,8 @@ function runCanvasCompression(
   targetFps: number,
   bitrate: number,
   maxDurationSec: number,
-  range?: VideoRange
+  range?: VideoRange,
+  onProgress?: (pct: number) => void
 ): Promise<Blob | null> {
   if (typeof window === 'undefined' || typeof document === 'undefined' || typeof MediaRecorder === 'undefined') {
     return Promise.resolve(null);
@@ -80,11 +82,11 @@ function runCanvasCompression(
       }, ms);
     };
 
-    // Initial metadata load timeout (10s)
+    // Initial metadata load timeout (15s for large 4K60 MOVs)
     timeoutTimer = setTimeout(() => {
       fullCleanup();
       resolve(null);
-    }, 10_000);
+    }, 15_000);
 
     video.onerror = () => {
       clearTimeout(timeoutTimer);
@@ -151,7 +153,8 @@ function runCanvasCompression(
         ];
         const chosenMime = preferredMimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 
-        const stream = canvas.captureStream(targetFps);
+        const stream = canvas.captureStream(Math.min(30, targetFps * (clipDurationSec >= 6 ? 2 : 1)));
+        const speedFactor = clipDurationSec >= 6 ? 2.0 : 1.0;
         let recorder: MediaRecorder;
         try {
           recorder = chosenMime
@@ -180,8 +183,10 @@ function runCanvasCompression(
             const origMb = (file.size / (1024 * 1024)).toFixed(2);
             const compMb = (compressedBlob.size / (1024 * 1024)).toFixed(2);
             const savingPct = Math.max(0, Math.round((1 - compressedBlob.size / file.size) * 100));
-            console.info(`[Compressor] Original: ${origMb} MB -> Comprimido: ${compMb} MB (${savingPct}% ahorro) | Rango: ${startTime.toFixed(1)}s -> ${endTime.toFixed(1)}s`);
+            console.info(`[Compressor] Original: ${origMb} MB -> Comprimido: ${compMb} MB (${savingPct}% ahorro, ${speedFactor}x) | Rango: ${startTime.toFixed(1)}s -> ${endTime.toFixed(1)}s`);
 
+            (compressedBlob as any).__speedFactor = speedFactor;
+            (compressedBlob as any).__trimmedClientSide = true;
             resolve(compressedBlob);
           } else {
             resolve(null);
@@ -200,14 +205,19 @@ function runCanvasCompression(
             if (Math.abs(video.currentTime - lastVideoTime) > 0.01) {
               lastVideoTime = video.currentTime;
               lastProgressAt = performance.now();
-            } else if (performance.now() - lastProgressAt > 6_000) {
+              if (onProgress && clipDurationSec > 0) {
+                const pct = Math.min(99, Math.max(1, Math.round(((video.currentTime - startTime) / clipDurationSec) * 100)));
+                onProgress(pct);
+              }
+            } else if (performance.now() - lastProgressAt > 12_000) {
               clearTimeout(timeoutTimer);
               fullCleanup();
               resolve(null);
             }
-          }, 1500);
+          }, 1000);
 
-          const frameIntervalMs = 1000 / targetFps;
+          const effectiveFps = targetFps * speedFactor;
+          const frameIntervalMs = 1000 / effectiveFps;
           let lastFrameTime = performance.now();
 
           const renderLoop = () => {
@@ -229,6 +239,7 @@ function runCanvasCompression(
             requestAnimationFrame(renderLoop);
           };
 
+          video.playbackRate = speedFactor;
           video.play()
             .then(() => {
               requestAnimationFrame(renderLoop);
@@ -282,7 +293,8 @@ export async function prepareVideoForAnalysis(
     targetFps = 15,
     bitrate = 600_000,
     maxDurationSec = 30.0,
-    range
+    range,
+    onProgress
   } = options;
 
   // Fallback for non-browser / test / SSR environments
@@ -297,7 +309,7 @@ export async function prepareVideoForAnalysis(
   }
 
   // 1. Primary Compression Pass (480p / 15 FPS / 800 kbps) for huge files (> 25 MB)
-  let compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range);
+  let compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
 
   // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if primary pass failed or result > 25 MB
   const maxSafeSizeBytes = 25 * 1024 * 1024;
@@ -305,7 +317,7 @@ export async function prepareVideoForAnalysis(
 
   if (needsEmergencyCompression && file.size > maxSafeSizeBytes) {
     console.warn(`[Compressor] Archivo > 25MB (${((compressedBlob?.size || file.size) / (1024 * 1024)).toFixed(1)}MB). Ejecutando compresión de emergencia 360p/12FPS...`);
-    const emergencyBlob = await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range);
+    const emergencyBlob = await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress);
     if (emergencyBlob) {
       compressedBlob = emergencyBlob;
     }

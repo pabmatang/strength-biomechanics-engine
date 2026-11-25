@@ -1613,14 +1613,21 @@ def apply_rotation_to_frame(frame_rgb: np.ndarray, rotation: int) -> np.ndarray:
         return cv2.rotate(frame_rgb, cv2.ROTATE_90_COUNTERCLOCKWISE)
     return frame_rgb
 
-def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: int = 20) -> str:
+def optimize_video_with_ffmpeg(
+    input_path: str,
+    max_h: int = 480,
+    target_fps: int = 20,
+    start_time: float = 0.0,
+    end_time: Optional[float] = None
+) -> Tuple[str, bool]:
     """
     Normalizes/downscales video using ffmpeg ultra-fast mode with minimal RAM.
     Auto-rotates to visual upright, transposes pixels, and clears rotation tags so rotate=0.
-    Returns path to optimized temporary mp4.
+    Uses fast input-seeking (-ss / -t before -i) so huge 4K60 files don't decode unused frames.
+    Returns (path_to_optimized_mp4, was_trimmed_by_ffmpeg).
     """
     if not os.path.exists(input_path):
-        return input_path
+        return input_path, False
 
     import subprocess, shutil, tempfile
     ffmpeg_bin = None
@@ -1634,13 +1641,13 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
         ffmpeg_bin = shutil.which("ffmpeg")
 
     if not ffmpeg_bin:
-        return input_path
-    
+        return input_path, False
+
     raw_rot = get_video_rotation(input_path)
-    
+
     fd, out_path = tempfile.mkstemp(suffix="_opt.mp4")
     os.close(fd)
-    
+
     # Construct video filter guaranteeing physical upright orientation
     if raw_rot == 90:
         vf = f"transpose=1,scale=-2:{max_h},fps={target_fps}"
@@ -1650,10 +1657,17 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
         vf = f"hflip,vflip,scale=-2:{max_h},fps={target_fps}"
     else:
         vf = f"scale=-2:{max_h},fps={target_fps}"
-        
+
+    seek_args: List[str] = []
+    if start_time > 0.05:
+        seek_args.extend(["-ss", f"{start_time:.2f}"])
+    if end_time is not None and end_time > start_time:
+        seek_args.extend(["-t", f"{(end_time - start_time):.2f}"])
+
     cmd = [
         ffmpeg_bin, "-y",
-        "-threads", "1",
+        "-threads", "2",
+        *seek_args,
         "-i", input_path,
         "-vf", vf,
         "-metadata:s:v", "rotate=0",
@@ -1665,7 +1679,7 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
         out_path
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         if res.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
             # Verify output dimensions
             cap = cv2.VideoCapture(out_path)
@@ -1680,35 +1694,36 @@ def optimize_video_with_ffmpeg(input_path: str, max_h: int = 480, target_fps: in
                     os.close(fd2)
                     vf_fix = f"transpose=1,scale=-2:{max_h},fps={target_fps}" if raw_rot == 90 else f"transpose=2,scale=-2:{max_h},fps={target_fps}"
                     cmd2 = [
-                        ffmpeg_bin, "-y", "-threads", "1",
+                        ffmpeg_bin, "-y", "-threads", "2",
+                        *seek_args,
                         "-i", input_path, "-vf", vf_fix,
                         "-metadata:s:v", "rotate=0", "-metadata:s:v:0", "rotate=0",
                         "-preset", "ultrafast", "-c:v", "libx264", "-crf", "28", "-an",
                         out_path2
                     ]
-                    res2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=45)
+                    res2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=90)
                     if res2.returncode == 0 and os.path.exists(out_path2) and os.path.getsize(out_path2) > 1000:
                         try:
                             os.unlink(out_path)
                         except OSError:
                             pass
-                        return out_path2
+                        return out_path2, bool(seek_args)
                     else:
                         if os.path.exists(out_path2):
                             try:
                                 os.unlink(out_path2)
                             except OSError:
                                 pass
-            return out_path
+            return out_path, bool(seek_args)
     except Exception as e:
         print(f"[FFmpeg Opt] Warning: {e}")
-        
+
     if os.path.exists(out_path):
         try:
             os.unlink(out_path)
         except OSError:
             pass
-    return input_path
+    return input_path, False
 
 def sample_video_frames(
     video_path: str,
@@ -4882,7 +4897,7 @@ def analyze(
 
     raw_temp_path = _extract_video_to_tempfile(video_base64=video_base64, video_url=video_url, video=video)
     raw_rot = get_video_rotation(raw_temp_path)
-    temp_path = optimize_video_with_ffmpeg(raw_temp_path)
+    temp_path, was_trimmed = optimize_video_with_ffmpeg(raw_temp_path, start_time=start_time, end_time=end_time)
     # Delete raw 4K video immediately after transcoding to free disk/RAM before MediaPipe starts
     if temp_path != raw_temp_path and os.path.exists(raw_temp_path):
         try:
@@ -4890,13 +4905,22 @@ def analyze(
         except Exception as e:
             print(f"[Analyze Cleanup] Warning deleting raw video: {e}")
     try:
+        sample_start = 0.0 if was_trimmed else start_time
+        sample_end = None if was_trimmed else end_time
         frames_rgb, timestamps, duration = sample_video_frames(
             temp_path,
             target_fps=15.0,
             max_frames=450,
-            start_time=start_time,
-            end_time=end_time
+            start_time=sample_start,
+            end_time=sample_end
         )
+        try:
+            speed_factor = float(kwargs.get("speed_factor") or 1.0)
+        except (ValueError, TypeError):
+            speed_factor = 1.0
+        if speed_factor > 1.01 and timestamps:
+            timestamps = [t * speed_factor for t in timestamps]
+            duration = duration * speed_factor
         if not frames_rgb:
             raise ValueError("Failed to decode frames from input video.")
             
