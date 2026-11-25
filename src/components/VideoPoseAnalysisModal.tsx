@@ -1622,7 +1622,26 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const file = uploadedFileRef.current;
       const fileId = fileCacheIdRef.current || `${file.name}_${file.size}_${file.lastModified}`;
       const range = { startTime: trimStart, endTime: trimEnd };
-      compressedBlobRef.current = file;
+      let videoBlobToSend: Blob = file;
+
+      // Client-side trim + 2x downscale only for huge (>25 MB) files so 200-800 MB 4K60 clips shrink to ~2 MB in ~10s;
+      // <= 25 MB bypasses directly to Cerebrium GPU native ffmpeg trim.
+      if (file.size > 25 * 1024 * 1024) {
+        setPipelineState('compressing');
+        setPipelineMessage(`Optimizando vídeo (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
+        const preparedBlob = await prepareVideoForAnalysis(file, {
+          range,
+          maxWidth: 480,
+          targetFps: 15,
+          bitrate: 800_000,
+          onProgress: (pct) => {
+            setPipelineProgress(Math.max(5, Math.min(35, Math.round(pct * 0.35))));
+            setPipelineMessage(`Comprimiendo tramo en tu dispositivo (${pct}%)...`);
+          }
+        });
+        videoBlobToSend = preparedBlob;
+      }
+      compressedBlobRef.current = videoBlobToSend;
 
       const manualActive = catalogMachine ? true : (isManualOverrideRef.current || isManualOverride);
       const exToSend = catalogMachine
@@ -1635,7 +1654,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       const loadToSend = catalogMachine ? 'machine' : (manualActive ? activeExercise.loadType : 'auto');
 
       await runPipelineAnalysis(
-        file,
+        videoBlobToSend,
         fileId,
         exToSend,
         muscleToSend,

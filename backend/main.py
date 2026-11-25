@@ -5660,7 +5660,8 @@ def upload_complete(
             weight_kg=weight_kg,
             target_reps=target_reps,
             anthropometry=anthropometry,
-            run_vlm=run_vlm
+            run_vlm=run_vlm,
+            **kwargs
         )
     finally:
         if os.path.exists(file_path):
