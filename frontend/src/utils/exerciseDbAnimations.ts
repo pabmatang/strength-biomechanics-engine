@@ -3209,22 +3209,8 @@ export const CABLE_EXERCISES_DB: ExerciseTemplate[] = [
     exercise_type: 'weight_reps',
     description: 'Elevación lateral unilateral en polea baja que ofrece un perfil de resistencia superior a las mancuernas al mantener tensión en los primeros grados de abducción.',
     setup_tips: ["Coloca la polea a la altura del tobillo o la rodilla", "Cruza el cable por detrás o delante del cuerpo y eleva el brazo en el plano escapular (30° adelantado)", "Lleva la mano hasta la altura del hombro sin encoger el cuello"],
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/cable-lateral-raise.gif',
+    image_url: '/machines/cable_lateral_raise.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/delts/cable-lateral-raise.gif'
-  },
-  {
-    id: 'cable_bicep_curl_standing',
-    title: 'Curl de Bíceps en Polea Baja (Cable Bicep Curl)',
-    brand: 'General',
-    model_series: 'Cable ExerciseDB',
-    muscle_group: 'biceps',
-    other_muscles: ["forearms"],
-    equipment_category: 'cable',
-    exercise_type: 'weight_reps',
-    description: 'Flexión de codos en polea baja con barra recta o EZ para tensión constante desde el inicio del recorrido.',
-    setup_tips: ["Mantén los hombros relajados y los codos fijos a ambos lados del torso", "Flexiona los brazos contrayendo los bíceps en el punto máximo de acortamiento", "Baja en 2-3 segundos manteniendo tensión en los tendones distales"],
-    image_url: '',
-    gif_url: ''
   },
   {
     id: 'cable_kneeling_crunch_core',

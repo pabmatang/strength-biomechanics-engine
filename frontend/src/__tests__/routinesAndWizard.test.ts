@@ -1386,5 +1386,74 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
       const uniqueRepRanges = new Set(allEx.map(e => e.rep_range || e.target_rep_range));
       expect(uniqueRepRanges.size).toBeGreaterThanOrEqual(3);
     });
+
+    it('pairs lats + upper_back on same days, enforces 48h rest for arms, blocks pre-fatigue, enforces Leg Extension >= 6 sets, and prevents double flat chest press', () => {
+      const routines = generateEngineRoutines({
+        experienceLevel: 'intermedio',
+        daysPerWeek: 4,
+        durationMinutes: 90,
+        baseEquipment: ['cable', 'generic_machine'],
+        machineBrands: ['Technogym'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 10,
+          upper_back: 10,
+          shoulders: 8,
+          biceps: 8,
+          triceps: 8,
+          quadriceps: 6,
+          hamstrings: 8,
+          glutes: 6,
+          calves: 4,
+          adductors: 4,
+          abdominals: 4
+        }
+      });
+
+      expect(routines.length).toBe(4);
+
+      // 1. Lats and upper_back must appear on the EXACT same days
+      const latsDays = routines.map((r, i) => r.exercises.some(e => e.muscle_group === 'lats') ? i : -1).filter(i => i !== -1);
+      const upperBackDays = routines.map((r, i) => r.exercises.some(e => e.muscle_group === 'upper_back') ? i : -1).filter(i => i !== -1);
+      expect(latsDays).toEqual(upperBackDays);
+
+      // 2. Strict 48h rule for ALL muscles (no consecutive days for biceps, triceps, chest, lats, etc.)
+      for (let d = 0; d < routines.length - 1; d++) {
+        const musclesToday = new Set(routines[d].exercises.map(e => e.muscle_group));
+        const musclesTomorrow = new Set(routines[d + 1].exercises.map(e => e.muscle_group));
+        expect(musclesToday.has('triceps') && musclesTomorrow.has('triceps')).toBe(false);
+        expect(musclesToday.has('biceps') && musclesTomorrow.has('biceps')).toBe(false);
+        expect(musclesToday.has('chest') && musclesTomorrow.has('chest')).toBe(false);
+        expect(musclesToday.has('lats') && musclesTomorrow.has('lats')).toBe(false);
+
+        // 3. Synergist pre-fatigue guard: NO biceps day before back, NO triceps day before chest
+        const hasBackTomorrow = musclesTomorrow.has('lats') || musclesTomorrow.has('upper_back');
+        if (hasBackTomorrow) {
+          expect(musclesToday.has('biceps')).toBe(false);
+        }
+        if (musclesTomorrow.has('chest')) {
+          expect(musclesToday.has('triceps')).toBe(false);
+        }
+      }
+
+      // 4. Mandatory Leg Extension when quadriceps >= 6 sets/wk
+      const allEx = routines.flatMap(r => r.exercises);
+      const hasLegExtension = allEx.some(e =>
+        e.muscle_group === 'quadriceps' &&
+        (e.exercise_template_id.includes('leg_extension') || e.title.toLowerCase().includes('leg extension'))
+      );
+      expect(hasLegExtension).toBe(true);
+
+      // 5. Never two flat chest press machines in the same day
+      routines.forEach(r => {
+        const flatPresses = r.exercises.filter(e => {
+          if (e.muscle_group !== 'chest') return false;
+          const t = e.title.toLowerCase();
+          const id = e.exercise_template_id.toLowerCase();
+          return !t.includes('incline') && !t.includes('inclinad') && !t.includes('pec') && !t.includes('fly') && !t.includes('cruce') && !id.includes('incline') && !id.includes('pec');
+        });
+        expect(flatPresses.length).toBeLessThanOrEqual(1);
+      });
+    });
   });
 });

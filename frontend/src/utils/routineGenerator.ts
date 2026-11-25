@@ -417,25 +417,32 @@ function allocateBalancedSessions(
 
   const targetSetsPerDay = totalWeeklySets / daysPerWeek;
 
-  // Placement order:
-  // 1. Lower heavy (quadriceps, hamstrings, glutes)
-  // 2. Upper heavy compounds (chest, lats, upper_back, shoulders)
-  // 3. Arms (triceps, biceps)
-  // 4. Finishers / Maintenance (<= 4 sets or calves/adductors/abdominals)
+  const hasBothBack = activeMuscles.includes('lats') && activeMuscles.includes('upper_back');
+
+  // Placement order (Longest Processing Time bin-packing):
+  // 1. All primary compounds (lower + upper) sorted by effective block volume descending
+  // 2. Arms (triceps, biceps) placed around chest/back without pre-fatigue
+  // 3. Finishers / Maintenance (<= 4 sets or calves/adductors/abdominals)
   const getTier = (m: string): number => {
     const v = targetWeeklyVolume[m] || 0;
-    if (FINISHER_MUSCLES.has(m) || v <= 4) return 4;
-    if (m === 'quadriceps' || m === 'hamstrings' || m === 'glutes') return 1;
-    if (m === 'chest' || m === 'lats' || m === 'upper_back' || m === 'shoulders') return 2;
-    return 3;
+    if (FINISHER_MUSCLES.has(m) || v <= 4) return 3;
+    if (m === 'biceps' || m === 'triceps') return 2;
+    return 1;
+  };
+
+  const getEffectiveVolume = (m: string): number => {
+    if (hasBothBack && (m === 'lats' || m === 'upper_back')) {
+      return (targetWeeklyVolume['lats'] || 0) + (targetWeeklyVolume['upper_back'] || 0);
+    }
+    return targetWeeklyVolume[m] || 0;
   };
 
   const sortedMuscles = [...activeMuscles].sort((a, b) => {
     const ta = getTier(a);
     const tb = getTier(b);
     if (ta !== tb) return ta - tb;
-    const va = targetWeeklyVolume[a] || 0;
-    const vb = targetWeeklyVolume[b] || 0;
+    const va = getEffectiveVolume(a);
+    const vb = getEffectiveVolume(b);
     if (va !== vb) return vb - va;
     const pa = priorities.indexOf(a);
     const pb = priorities.indexOf(b);
@@ -460,11 +467,7 @@ function allocateBalancedSessions(
     return res;
   };
 
-  for (const m of sortedMuscles) {
-    const totalSets = targetWeeklyVolume[m] || 0;
-    if (totalSets <= 0) continue;
-
-    // Frequency by weekly volume & intra-session junk volume cap (<= 9-10 direct sets/day)
+  const computeFreq = (totalSets: number): number => {
     let freq = 1;
     if (totalSets <= 4) {
       freq = 1;
@@ -476,6 +479,92 @@ function allocateBalancedSessions(
     while (freq < daysPerWeek && Math.ceil(totalSets / freq) > 10) {
       freq++;
     }
+    return freq;
+  };
+
+  let backPairPlaced = false;
+  // In 2-3 day splits (e.g. Mon/Wed/Fri), sessions already have rest days between them.
+  // Strict 48h & next-day pre-fatigue hard blocks apply to >= 4 day splits.
+  const consecutiveDayPenalty = daysPerWeek >= 4 ? 20000 : 400;
+
+  for (const m of sortedMuscles) {
+    if (hasBothBack && (m === 'lats' || m === 'upper_back')) {
+      if (backPairPlaced) continue;
+      backPairPlaced = true;
+
+      const latsSets = targetWeeklyVolume['lats'] || 0;
+      const ubSets = targetWeeklyVolume['upper_back'] || 0;
+      const freq = Math.max(computeFreq(latsSets), computeFreq(ubSets));
+      const combos = getDayCombinations(freq);
+
+      const latsBase = Math.floor(latsSets / freq);
+      const latsRem = latsSets % freq;
+      const ubBase = Math.floor(ubSets / freq);
+      const ubRem = ubSets % freq;
+
+      let bestCombo = combos[0];
+      let bestScore = Infinity;
+
+      for (const combo of combos) {
+        let penalty = 0;
+
+        // Strict 48h spacing check (no consecutive days when freq < daysPerWeek)
+        if (freq < daysPerWeek) {
+          for (let i = 0; i < combo.length - 1; i++) {
+            if (combo[i + 1] - combo[i] === 1) {
+              penalty += consecutiveDayPenalty;
+            }
+          }
+        }
+
+        // Strict synergist pre-fatigue guard: never place back the day after biceps,
+        // and prefer alternating days with chest when possible
+        combo.forEach((d) => {
+          const prevD = d - 1;
+          if (prevD >= 0 && (dayMuscleSets[prevD]['biceps'] || 0) > 0) {
+            penalty += consecutiveDayPenalty;
+          }
+          if ((dayMuscleSets[d]['chest'] || 0) > 0 && daysPerWeek >= 3) {
+            penalty += 300;
+          }
+        });
+
+        const simulatedTotals = [...dayTotalSets];
+        combo.forEach((d, idx) => {
+          simulatedTotals[d] += (latsBase + (idx < latsRem ? 1 : 0)) + (ubBase + (idx < ubRem ? 1 : 0));
+        });
+        const maxS = Math.max(...simulatedTotals);
+        const minS = Math.min(...simulatedTotals);
+        const sqDev = simulatedTotals.reduce((acc, s) => acc + Math.pow(s - targetSetsPerDay, 2), 0);
+        const overCapPenalty = simulatedTotals.reduce((acc, s) => acc + Math.max(0, s - Math.ceil(targetSetsPerDay + 3)) * 2000, 0);
+        penalty += (maxS - minS) * 1000 + sqDev * 80 + overCapPenalty;
+
+        if (penalty < bestScore) {
+          bestScore = penalty;
+          bestCombo = combo;
+        }
+      }
+
+      bestCombo.forEach((d, idx) => {
+        const lHere = latsBase + (idx < latsRem ? 1 : 0);
+        const uHere = ubBase + (idx < ubRem ? 1 : 0);
+        if (lHere > 0) {
+          dayMuscleSets[d]['lats'] = (dayMuscleSets[d]['lats'] || 0) + lHere;
+          dayTotalSets[d] += lHere;
+        }
+        if (uHere > 0) {
+          dayMuscleSets[d]['upper_back'] = (dayMuscleSets[d]['upper_back'] || 0) + uHere;
+          dayTotalSets[d] += uHere;
+        }
+      });
+      continue;
+    }
+
+    const totalSets = targetWeeklyVolume[m] || 0;
+    if (totalSets <= 0) continue;
+
+    // Frequency by weekly volume & intra-session junk volume cap (<= 9-10 direct sets/day)
+    const freq = computeFreq(totalSets);
 
     const base = Math.floor(totalSets / freq);
     const rem = totalSets % freq;
@@ -487,41 +576,42 @@ function allocateBalancedSessions(
     for (const combo of combos) {
       let penalty = 0;
 
-      // 1. 48h spacing check (no consecutive days for same muscle when freq < daysPerWeek)
+      // 1. Strict 48h spacing check (no consecutive days for ANY muscle when freq < daysPerWeek)
       if (freq < daysPerWeek) {
         for (let i = 0; i < combo.length - 1; i++) {
           if (combo[i + 1] - combo[i] === 1) {
-            penalty += 5000;
+            penalty += consecutiveDayPenalty;
           }
         }
       }
 
-      // 2. Asymmetric Synergist Interference check (soft preference = 400 so it never breaks +-3 set balance):
-      //    Prefer not placing heavy Triceps (>= 4 sets) on day d if Chest/Shoulders is on d+1
-      //    Prefer not placing heavy Biceps (>= 4 sets) on day d if Lats/Upper Back is on d+1
-      combo.forEach((d, idx) => {
-        const setsHere = base + (idx < rem ? 1 : 0);
+      // 2. Strict Asymmetric Synergist Interference guard:
+      //    NEVER place Triceps on day d if Chest is on d+1 (pre-fatigue)
+      //    NEVER place Biceps on day d if Lats/Upper Back is on d+1 (pre-fatigue)
+      combo.forEach((d) => {
         const nextD = d + 1;
         const prevD = d - 1;
 
-        if (m === 'triceps' && setsHere >= 4 && nextD < daysPerWeek) {
-          if ((dayMuscleSets[nextD]['chest'] || 0) > 0 || (dayMuscleSets[nextD]['shoulders'] || 0) > 0) {
+        if (m === 'triceps' && nextD < daysPerWeek) {
+          if ((dayMuscleSets[nextD]['chest'] || 0) > 0) {
+            penalty += consecutiveDayPenalty;
+          } else if ((dayMuscleSets[nextD]['shoulders'] || 0) > 0) {
             penalty += 400;
           }
         }
-        if ((m === 'chest' || m === 'shoulders') && prevD >= 0) {
-          if ((dayMuscleSets[prevD]['triceps'] || 0) >= 4) {
-            penalty += 400;
+        if (m === 'chest' && prevD >= 0) {
+          if ((dayMuscleSets[prevD]['triceps'] || 0) > 0) {
+            penalty += consecutiveDayPenalty;
           }
         }
-        if (m === 'biceps' && setsHere >= 4 && nextD < daysPerWeek) {
+        if (m === 'biceps' && nextD < daysPerWeek) {
           if ((dayMuscleSets[nextD]['lats'] || 0) > 0 || (dayMuscleSets[nextD]['upper_back'] || 0) > 0) {
-            penalty += 400;
+            penalty += consecutiveDayPenalty;
           }
         }
         if ((m === 'lats' || m === 'upper_back') && prevD >= 0) {
-          if ((dayMuscleSets[prevD]['biceps'] || 0) >= 4) {
-            penalty += 400;
+          if ((dayMuscleSets[prevD]['biceps'] || 0) > 0) {
+            penalty += consecutiveDayPenalty;
           }
         }
         if (m === 'calves' || m === 'adductors') {
@@ -666,6 +756,19 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
       pool = nonRedundant;
     }
 
+    // Hard biomechanical guard: NEVER pick two flat chest press machines in the same day
+    if (muscle === 'chest' && usedPatterns.has('chest_flat_press')) {
+      const nonFlat = pool.filter(t => getExercisePattern(t) !== 'chest_flat_press');
+      if (nonFlat.length > 0) {
+        pool = nonFlat;
+      } else {
+        const altChest = allowedExercises.filter(
+          t => t.muscle_group === 'chest' && getExercisePattern(t) !== 'chest_flat_press' && !usedIds.has(t.id)
+        );
+        if (altChest.length > 0) pool = altChest;
+      }
+    }
+
     // Apply biomechanical variant bias
     if (variantBias && pool.length > 1) {
       const biased = pool.filter(t => {
@@ -725,6 +828,13 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
 
   const routines: Routine[] = [];
   const globalUsedIds = new Set<string>();
+  const quadWeeklySets = targetWeeklyVolume['quadriceps'] || 0;
+  const hasAnyLegExtension = allowedExercises.some(
+    t => t.muscle_group === 'quadriceps' && getExercisePattern(t) === 'quad_leg_extension'
+  );
+  const totalQuadDays = Object.values(dayMuscleSets).filter(d => (d['quadriceps'] || 0) > 0).length;
+  let quadDaysSeen = 0;
+  let quadExtensionAssigned = false;
 
   for (let dayIdx = 0; dayIdx < daysPerWeek; dayIdx++) {
     const usedIds = new Set<string>();
@@ -755,6 +865,21 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
         }
       }
 
+      if (m === 'quadriceps') {
+        quadDaysSeen++;
+        if (
+          quadWeeklySets >= 6 &&
+          hasAnyLegExtension &&
+          !quadExtensionAssigned &&
+          quadDaysSeen === totalQuadDays &&
+          numExercises === 1 &&
+          setsForMuscle >= 4 &&
+          distinctPatterns >= 2
+        ) {
+          numExercises = 2;
+        }
+      }
+
       const baseSets = Math.floor(setsForMuscle / numExercises);
       const remSets = setsForMuscle % numExercises;
 
@@ -763,8 +888,19 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
         if (exSets <= 0) continue;
 
         let bias: DayQueueItem['bias'] = undefined;
-        if (m === 'quadriceps' && numExercises >= 2 && i === numExercises - 1) {
-          bias = 'quad_extension';
+        if (m === 'quadriceps') {
+          if (numExercises >= 2 && i === numExercises - 1) {
+            bias = 'quad_extension';
+            quadExtensionAssigned = true;
+          } else if (
+            quadWeeklySets >= 6 &&
+            hasAnyLegExtension &&
+            !quadExtensionAssigned &&
+            quadDaysSeen === totalQuadDays
+          ) {
+            bias = 'quad_extension';
+            quadExtensionAssigned = true;
+          }
         } else if (m === 'hamstrings' && i === 0) {
           // Mandatory knee flexion (Seated Leg Curl preferred) whenever hamstrings > 0
           bias = 'ham_knee_flexion';

@@ -18,7 +18,8 @@ import {
   ChevronRight,
   ArrowUp,
   ArrowDown,
-  GripVertical
+  GripVertical,
+  ZoomIn
 } from 'lucide-react';
 import { Routine, WorkoutExercise } from '../types/workout';
 import {
@@ -32,6 +33,7 @@ import {
   calculateEstimatedSessionDuration,
   generateWizardRoutines
 } from '../utils/routineGenerator';
+import { resolveCatalogMachine } from '../data/machineCatalog';
 import { MachineThumbnail } from './MachineThumbnail';
 
 interface SmartRoutineWizardModalProps {
@@ -60,6 +62,19 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
 }) => {
   // Wizard Step: 1 = Perfil/Disponibilidad, 2 = Equipamiento/Marcas, 3 = Volumen/Prioridades, 4 = Revisión
   const [step, setStep] = useState<number>(1);
+  const [detailExercise, setDetailExercise] = useState<WorkoutExercise | null>(null);
+
+  useEffect(() => {
+    if (!detailExercise) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setDetailExercise(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [detailExercise]);
 
   // Step 1: Perfil y Disponibilidad
   const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('intermedio');
@@ -271,9 +286,9 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                 </div>
                 <div className="grid grid-cols-5 gap-1.5">
                   {[
-                    { days: 2, label: '2 días', sub: 'Full Body Equilibrado' },
-                    { days: 3, label: '3 días', sub: 'Híbrido Equilibrado' },
-                    { days: 4, label: '4 días', sub: 'Híbrido Frecuencia 2' },
+                    { days: 2, label: '2 días', sub: 'Full Body' },
+                    { days: 3, label: '3 días', sub: 'Híbrido 3D' },
+                    { days: 4, label: '4 días', sub: 'Híbrido Frec. 2' },
                     { days: 5, label: '5 días', sub: 'Híbrido + Foco' },
                     { days: 6, label: '6 días', sub: 'Alta Frecuencia' }
                   ].map(opt => (
@@ -855,24 +870,33 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                   {/* Exercises List */}
                   <div className="space-y-2 max-h-[46vh] overflow-y-auto pr-1">
                     {generatedRoutines[selectedDayIndex].exercises.map((ex: WorkoutExercise, exIdx: number) => (
-                      <div
+                      <button
+                        type="button"
                         key={ex.id || exIdx}
-                        className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
+                        onClick={() => setDetailExercise(ex)}
+                        className="w-full text-left p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800/80 hover:border-blue-500/40 flex items-center justify-between gap-3 text-xs transition group"
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <MachineThumbnail
-                            imageUrl={ex.image_url}
-                            alt={ex.title}
-                            brand={ex.brand}
-                            modelName={ex.title}
-                            className="w-10 h-10 rounded-lg flex-shrink-0"
-                            imageClassName="w-full h-full object-contain p-0.5"
-                            showCurve={false}
-                          />
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="relative flex-shrink-0">
+                            <MachineThumbnail
+                              imageUrl={ex.image_url}
+                              alt={ex.title}
+                              brand={ex.brand}
+                              modelName={ex.title}
+                              className="w-[70px] h-[70px] rounded-xl flex-shrink-0"
+                              imageClassName="w-full h-full object-contain p-1"
+                              showCurve={false}
+                            />
+                            <span className="absolute bottom-1 right-1 p-0.5 rounded bg-slate-950/80 text-slate-400 group-hover:text-blue-400 opacity-75 group-hover:opacity-100 transition">
+                              <ZoomIn className="w-3 h-3" />
+                            </span>
+                          </div>
                           <div className="min-w-0">
-                            <div className="font-bold text-white truncate">{ex.title}</div>
-                            <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                              <span className="uppercase text-[9px] font-mono font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.2 rounded">
+                            <div className="font-bold text-white line-clamp-2 leading-snug group-hover:text-blue-200 transition">
+                              {ex.title}
+                            </div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-1">
+                              <span className="uppercase text-[9px] font-mono font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded">
                                 {ex.equipment_category}
                               </span>
                               {ex.equipment_category === 'cable' && (!ex.brand || ex.brand === 'General') ? (
@@ -890,7 +914,7 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
                             × {(ex as any).rep_range || (ex.sets[0]?.reps ? `${Math.max(6, ex.sets[0].reps - 2)}-${ex.sets[0].reps + 2}` : '8-12')} reps
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -968,6 +992,138 @@ export const SmartRoutineWizardModal: React.FC<SmartRoutineWizardModalProps> = (
         </div>
 
       </div>
+
+      {/* Exercise Detail Lightbox */}
+      {detailExercise && (() => {
+        const catalogMatch = resolveCatalogMachine({
+          id: detailExercise.id,
+          exercise_template_id: detailExercise.exercise_template_id,
+          title: detailExercise.title,
+          brand: detailExercise.brand,
+          catalog_machine_id: detailExercise.catalog_machine_id,
+          muscle_group: detailExercise.muscle_group
+        });
+        const profile = catalogMatch?.profile;
+        const weights = profile?.curveWeights;
+        const loadTypeLabel =
+          profile?.loadType === 'plate_loaded'
+            ? 'Discos'
+            : profile?.loadType === 'selectorized_stack'
+            ? 'Placas'
+            : detailExercise.equipment_category === 'cable'
+            ? 'Polea'
+            : detailExercise.equipment_category === 'barbell' || detailExercise.equipment_category === 'dumbbell'
+            ? 'Peso Libre'
+            : 'Máquina';
+        const muscleLabel =
+          catalogMatch?.muscleGroupLabel ||
+          ALL_DISPLAY_MUSCLES.find(m => m.key === detailExercise.muscle_group)?.label ||
+          detailExercise.muscle_group;
+        const repRangeStr =
+          (detailExercise as any).rep_range ||
+          (detailExercise.sets[0]?.reps
+            ? `${Math.max(6, detailExercise.sets[0].reps - 2)}-${detailExercise.sets[0].reps + 2}`
+            : '8-12');
+
+        return (
+          <div
+            className="fixed inset-0 z-[130] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setDetailExercise(null)}
+          >
+            <div
+              className="relative w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl p-5 space-y-4"
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setDetailExercise(null)}
+                aria-label="Cerrar detalle"
+                className="absolute top-3.5 right-3.5 p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Studio Spotlight Image */}
+              <div className="flex justify-center">
+                <div className="w-64 h-64 sm:w-72 sm:h-72 rounded-2xl bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.14)_0%,rgba(15,23,42,0.95)_72%)] border border-slate-800 flex items-center justify-center p-3">
+                  <MachineThumbnail
+                    imageUrl={detailExercise.image_url}
+                    alt={detailExercise.title}
+                    brand={detailExercise.brand}
+                    modelName={detailExercise.title}
+                    className="w-full h-full rounded-xl"
+                    imageClassName="w-full h-full object-contain p-2"
+                    showCurve={false}
+                  />
+                </div>
+              </div>
+
+              {/* Title & Badges */}
+              <div className="space-y-2">
+                <h3 className="text-base font-black text-white leading-snug pr-6">
+                  {detailExercise.title}
+                </h3>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  {detailExercise.brand && detailExercise.brand !== 'General' && (
+                    <span className="px-2 py-0.5 rounded-md bg-blue-950/70 border border-blue-500/30 text-blue-300 font-semibold">
+                      {detailExercise.brand}
+                    </span>
+                  )}
+                  <span className="px-2 py-0.5 rounded-md bg-cyan-950/70 border border-cyan-500/30 text-cyan-300 font-semibold">
+                    {loadTypeLabel}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-500/30 text-emerald-300 font-semibold">
+                    {muscleLabel}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200 font-mono font-bold">
+                    {detailExercise.sets.length} × {repRangeStr} reps
+                  </span>
+                </div>
+              </div>
+
+              {/* Biomechanical Resistance Curve */}
+              {weights && (
+                <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300 uppercase tracking-wider">
+                      Curva de Resistencia
+                    </span>
+                    <div className="flex items-center gap-2 font-mono text-[10px]">
+                      <span className="text-cyan-300">Est {Math.round(weights.stretch * 100)}%</span>
+                      <span className="text-blue-300">Med {Math.round(weights.mid * 100)}%</span>
+                      <span className="text-indigo-300">Aco {Math.round(weights.shortened * 100)}%</span>
+                    </div>
+                  </div>
+                  <svg viewBox="0 0 120 34" className="w-full h-8 overflow-visible">
+                    <path
+                      d={`M 6 ${30 - weights.stretch * 24} Q 60 ${30 - weights.mid * 24}, 114 ${30 - weights.shortened * 24}`}
+                      fill="none"
+                      stroke="url(#miaCurveGrad)"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                    />
+                    <defs>
+                      <linearGradient id="miaCurveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#22d3ee" />
+                        <stop offset="50%" stopColor="#3b82f6" />
+                        <stop offset="100%" stopColor="#818cf8" />
+                      </linearGradient>
+                    </defs>
+                    <circle cx="6" cy={30 - weights.stretch * 24} r="3" fill="#22d3ee" />
+                    <circle cx="60" cy={30 - weights.mid * 24} r="3" fill="#3b82f6" />
+                    <circle cx="114" cy={30 - weights.shortened * 24} r="3" fill="#818cf8" />
+                  </svg>
+                  {profile?.resistanceCurveDescription && (
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      {profile.resistanceCurveDescription}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
