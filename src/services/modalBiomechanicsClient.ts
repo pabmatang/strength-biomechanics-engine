@@ -542,7 +542,7 @@ export async function analyzeVideoWithModal(
         offset += chunkBlob.size;
       }
 
-      options?.onProgress?.('Optimizando vídeo en servidor...', 35);
+      options?.onProgress?.('Ejecutando RT-DETR + ViTPose en GPU...', 65);
       const completeTargetUrl = isCerebrium ? completeUrl : `${completeUrl}/${upload_id}`;
       const completeBody = {
         ...(isCerebrium ? { upload_id } : {}),
@@ -571,6 +571,7 @@ export async function analyzeVideoWithModal(
         body: JSON.stringify(completeBody)
       });
     } else {
+      options?.onProgress?.('Enviando clip optimizado a GPU...', 50);
       let base64Data = '';
       if (isCerebrium) {
         headers['Content-Type'] = 'application/json';
@@ -581,6 +582,7 @@ export async function analyzeVideoWithModal(
         }
       }
 
+      options?.onProgress?.('Ejecutando RT-DETR + ViTPose en GPU...', 65);
       const doFetch = async () => {
         if (isCerebrium) {
           return fetch(endpointUrl, {

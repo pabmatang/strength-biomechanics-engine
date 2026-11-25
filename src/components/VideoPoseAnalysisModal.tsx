@@ -1125,6 +1125,19 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const [analysisData, setAnalysisData] = useState<BiomechanicsAnalysisResponse | null>(null);
   const [currentFrame, setCurrentFrame] = useState<BiomechanicsFrame | null>(null);
 
+  // Smooth asymptotic progress while waiting synchronously for Cerebrium GPU response
+  useEffect(() => {
+    if (pipelineState !== 'analyzing') return;
+    const timer = window.setInterval(() => {
+      setPipelineProgress((prev) => {
+        if (prev < 45) return prev;
+        if (prev >= 93) return prev;
+        return Math.min(93, prev + (prev < 75 ? 3 : 1));
+      });
+    }, 650);
+    return () => window.clearInterval(timer);
+  }, [pipelineState]);
+
   // Dynamic telemetry
   const [currentPrimaryAngle, setCurrentPrimaryAngle] = useState<number>(180);
   const [currentPhase, setCurrentPhase] = useState<string>('IDLE');
@@ -1642,6 +1655,8 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         videoBlobToSend = preparedBlob;
       }
       compressedBlobRef.current = videoBlobToSend;
+      setPipelineProgress(45);
+      setPipelineState('analyzing');
 
       const manualActive = catalogMachine ? true : (isManualOverrideRef.current || isManualOverride);
       const exToSend = catalogMachine

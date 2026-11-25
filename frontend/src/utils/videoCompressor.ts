@@ -153,8 +153,8 @@ function runCanvasCompression(
         ];
         const chosenMime = preferredMimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 
-        const stream = canvas.captureStream(Math.min(30, targetFps * (clipDurationSec >= 6 ? 2 : 1)));
-        const speedFactor = clipDurationSec >= 6 ? 2.0 : 1.0;
+        const speedFactor = clipDurationSec >= 6 ? 2.5 : 1.0;
+        const stream = canvas.captureStream(Math.min(45, Math.ceil(targetFps * speedFactor)));
         let recorder: MediaRecorder;
         try {
           recorder = chosenMime
