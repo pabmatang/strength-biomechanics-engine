@@ -164,7 +164,7 @@ export function isMusclePrioritized(muscle: string, priorities: string[]): boole
 
 export interface DayQueueItem {
   muscle: string;
-  bias?: 'lats' | 'upper_back' | 'trapezius' | 'quad_extension' | 'shoulder_lateral' | 'shoulder_press' | 'ham_knee_flexion';
+  bias?: 'lats' | 'upper_back' | 'trapezius' | 'quad_extension' | 'shoulder_lateral' | 'shoulder_press' | 'ham_knee_flexion' | 'chest_fly' | 'calf_extended' | 'calf_seated';
   note?: string;
   isComplementary?: boolean;
 }
@@ -248,11 +248,25 @@ export function getTargetRepRangeForExercise(
 ): { reps: number; repRange: string } {
   const pattern = getExercisePattern(t);
   const m = t.muscle_group;
+  const id = (t.id || '').toLowerCase();
+  const title = (t.title || '').toLowerCase();
 
-  // 12-20 reps: accessories & maintenance (lateral delts, face pull, calves, adductors/abductors, abs)
+  const isYOrFrontRaise =
+    id.includes('y_raise') ||
+    id.includes('front_raise') ||
+    title.includes('elevaciones en y') ||
+    title.includes('elevaciones frontales');
+  const isCablePullThroughOrDeadlift =
+    id.includes('pull_through') ||
+    id.includes('cable_deadlift') ||
+    title.includes('pull-through') ||
+    title.includes('peso muerto en polea');
+
+  // 12-20 reps: accessories & maintenance (lateral delts, Y-raises, face pull, calves, adductors/abductors, abs)
   if (
     pattern === 'shoulder_lateral_raise' ||
     pattern === 'back_rear_delt' ||
+    isYOrFrontRaise ||
     m === 'calves' ||
     m === 'adductors' ||
     m === 'abductors' ||
@@ -261,7 +275,7 @@ export function getTargetRepRangeForExercise(
     return { reps: 15, repRange: '12-20' };
   }
 
-  // 10-15 reps: arm & leg isolations
+  // 10-15 reps: arm & leg isolations, pec fly, glute accessories & cable pull-through/deadlift
   if (
     m === 'biceps' ||
     m === 'triceps' ||
@@ -270,8 +284,15 @@ export function getTargetRepRangeForExercise(
     pattern === 'ham_lying_curl' ||
     pattern === 'chest_fly_pec_deck' ||
     pattern === 'glute_abductor' ||
-    pattern === 'glute_kickback_extension'
+    pattern === 'glute_kickback_extension' ||
+    pattern === 'glute_hinge_pull_through' ||
+    isCablePullThroughOrDeadlift
   ) {
+    return { reps: 12, repRange: '10-15' };
+  }
+
+  // Guard: never assign heavy 6-8 / 6-10 to unstable/accessory cables (except heavy back pulldown/row)
+  if (t.equipment_category === 'cable' && pattern !== 'back_vertical_pull' && pattern !== 'back_horizontal_row') {
     return { reps: 12, repRange: '10-15' };
   }
 
@@ -331,24 +352,33 @@ export function orderDayExercises(
   const finisherItems = queue.filter(i => isFinisher(i));
 
   const absTopMuscle = priorities && priorities.length > 0 ? priorities[0] : null;
-  const hasPushCompoundInDay = mainItems.some(i => i.muscle === 'chest' || i.muscle === 'shoulders');
+  const pushCompoundItems = mainItems.filter(
+    i => i.muscle === 'chest' || (i.muscle === 'shoulders' && i.bias === 'shoulder_press')
+  );
+  const hasPushCompoundInDay = pushCompoundItems.length > 0;
   const hasPullCompoundInDay = mainItems.some(i => i.muscle === 'lats' || i.muscle === 'upper_back');
 
   const getEffectiveRank = (muscle: string): number => {
     let r = getRank(muscle);
-    // Guard: never fry triceps before chest/shoulder compounds unless triceps is #1 absolute
-    if (muscle === 'triceps' && hasPushCompoundInDay && absTopMuscle !== 'triceps') {
-      const maxPushRank = Math.max(
-        ...mainItems.filter(i => i.muscle === 'chest' || i.muscle === 'shoulders').map(i => getRank(i.muscle))
-      );
-      r = Math.max(r, maxPushRank + 10);
+    // Guard: never fry triceps before chest or compound shoulder press unless triceps is #1 absolute.
+    // For lateral/rear delts (no shoulder_press), respect explicit priorityOrder if triceps is ranked higher;
+    // otherwise default to placing shoulders before triceps.
+    if (muscle === 'triceps' && absTopMuscle !== 'triceps') {
+      if (hasPushCompoundInDay) {
+        const maxPushRank = Math.max(...pushCompoundItems.map(i => getRank(i.muscle)));
+        r = Math.max(r, maxPushRank + 0.5);
+      }
+      const shRank = getRank('shoulders');
+      if (mainItems.some(i => i.muscle === 'shoulders') && !(r < shRank)) {
+        r = Math.max(r, shRank + 0.5);
+      }
     }
     // Guard: never fry biceps before back compounds unless biceps is #1 absolute
     if (muscle === 'biceps' && hasPullCompoundInDay && absTopMuscle !== 'biceps') {
       const maxPullRank = Math.max(
         ...mainItems.filter(i => i.muscle === 'lats' || i.muscle === 'upper_back').map(i => getRank(i.muscle))
       );
-      r = Math.max(r, maxPullRank + 10);
+      r = Math.max(r, maxPullRank + 0.5);
     }
     return r;
   };
@@ -617,6 +647,9 @@ function allocateBalancedSessions(
         if (m === 'calves' || m === 'adductors') {
           const hasLegs = (dayMuscleSets[d]['quadriceps'] || 0) > 0 || (dayMuscleSets[d]['hamstrings'] || 0) > 0;
           if (!hasLegs) penalty += 150;
+          if (m === 'adductors' && nextD < daysPerWeek && (dayMuscleSets[nextD]['quadriceps'] || 0) > 0) {
+            penalty += 900; // Prefer not placing adductors the day before heavy squats/leg press without breaking +-3 set balance
+          }
         }
       });
 
@@ -705,12 +738,18 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
   const chestVolume = targetWeeklyVolume['chest'] ?? 0;
   let shoulderPressDaysUsed = 0;
 
-  // Check if user has dedicated machines for leg extension / leg curl in allowedExercises
+  // Check if user has dedicated machines for isolations/legs in allowedExercises
   const hasDedicatedLegExtension = allowedExercises.some(
-    t => t.muscle_group === 'quadriceps' && (t.equipment_category === 'machine') && (t.id.includes('leg_extension') || t.title.toLowerCase().includes('leg extension') || t.title.toLowerCase().includes('extensión de cuádriceps'))
+    t => t.muscle_group === 'quadriceps' && t.equipment_category === 'machine' && (t.id.includes('leg_extension') || t.title.toLowerCase().includes('leg extension') || t.title.toLowerCase().includes('extensión de cuádriceps'))
   );
   const hasDedicatedLegCurl = allowedExercises.some(
-    t => t.muscle_group === 'hamstrings' && (t.equipment_category === 'machine') && (t.id.includes('leg_curl') || t.title.toLowerCase().includes('leg curl') || t.title.toLowerCase().includes('femoral'))
+    t => t.muscle_group === 'hamstrings' && t.equipment_category === 'machine' && (t.id.includes('leg_curl') || t.title.toLowerCase().includes('leg curl') || t.title.toLowerCase().includes('femoral'))
+  );
+  const hasDedicatedAdductor = allowedExercises.some(
+    t => t.muscle_group === 'adductors' && t.equipment_category === 'machine'
+  );
+  const hasDedicatedGlute = allowedExercises.some(
+    t => t.muscle_group === 'glutes' && t.equipment_category === 'machine'
   );
 
   const pickBestExercise = (
@@ -740,30 +779,69 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
       return allowedExercises[0] || EXERCISE_DATABASE[0];
     }
 
-    // Quality rule: NEVER degrade to unstable ankle cable extensions/curls when dedicated machine exists
+    // Quality rule: NEVER degrade to unstable/improvised cables when a dedicated machine exists
     if (muscle === 'quadriceps' && hasDedicatedLegExtension) {
       const stable = pool.filter(t => t.id !== 'cable_leg_extension' && !t.title.toLowerCase().includes('tobillera'));
       if (stable.length > 0) pool = stable;
     }
     if (muscle === 'hamstrings' && hasDedicatedLegCurl) {
-      const stable = pool.filter(t => t.id !== 'cable_standing_leg_curl' && t.id !== 'cable_seated_hamstring_curl' && !t.title.toLowerCase().includes('tobillera'));
+      const stable = pool.filter(
+        t =>
+          t.id !== 'cable_standing_leg_curl' &&
+          t.id !== 'cable_seated_hamstring_curl' &&
+          !t.id.includes('cable_deadlift') &&
+          !t.title.toLowerCase().includes('tobillera') &&
+          !t.title.toLowerCase().includes('polea baja')
+      );
       if (stable.length > 0) pool = stable;
+    }
+    if (muscle === 'adductors' && hasDedicatedAdductor) {
+      const stable = pool.filter(
+        t =>
+          t.equipment_category === 'machine' ||
+          (!t.id.includes('cable_hip_adduction') && !t.id.includes('cable_adduction') && !t.title.toLowerCase().includes('tobillera') && !t.title.toLowerCase().includes('polea baja'))
+      );
+      if (stable.length > 0) pool = stable;
+    }
+    if (muscle === 'glutes' && hasDedicatedGlute) {
+      const stable = pool.filter(
+        t =>
+          !t.id.includes('cable_deadlift') &&
+          !t.title.toLowerCase().includes('peso muerto en polea') &&
+          !t.title.toLowerCase().includes('tobillera')
+      );
+      if (stable.length > 0) pool = stable;
+    }
+    if (muscle === 'shoulders' && chestVolume >= 8) {
+      const noFront = pool.filter(
+        t => !t.id.includes('front_raise') && !t.title.toLowerCase().includes('elevaciones frontales')
+      );
+      if (noFront.length > 0) pool = noFront;
     }
 
     // Strict anti-redundancy: never repeat same biomechanical pattern within same session
-    const nonRedundant = pool.filter(t => !usedPatterns.has(getExercisePattern(t)));
+    // (For shoulder_lateral bias, keep lateral/rear options so it never degrades into an unwanted shoulder_press)
+    const nonRedundant = pool.filter(t => {
+      if (variantBias === 'shoulder_lateral' && getExercisePattern(t) === 'shoulder_press') return false;
+      return !usedPatterns.has(getExercisePattern(t));
+    });
     if (nonRedundant.length > 0) {
       pool = nonRedundant;
+    } else if (variantBias === 'shoulder_lateral') {
+      const lateralOnly = pool.filter(t => getExercisePattern(t) !== 'shoulder_press');
+      if (lateralOnly.length > 0) pool = lateralOnly;
     }
 
-    // Hard biomechanical guard: NEVER pick two flat chest press machines in the same day
-    if (muscle === 'chest' && usedPatterns.has('chest_flat_press')) {
-      const nonFlat = pool.filter(t => getExercisePattern(t) !== 'chest_flat_press');
-      if (nonFlat.length > 0) {
-        pool = nonFlat;
+    // Hard biomechanical guard: NEVER pick two flat/same-plane chest press machines in the same day
+    if (muscle === 'chest' && (usedPatterns.has('chest_flat_press') || usedPatterns.has('chest_decline_wide_press'))) {
+      const diffPlane = pool.filter(
+        t => getExercisePattern(t) !== 'chest_flat_press' && getExercisePattern(t) !== 'chest_decline_wide_press'
+      );
+      if (diffPlane.length > 0) {
+        pool = diffPlane;
       } else {
         const altChest = allowedExercises.filter(
-          t => t.muscle_group === 'chest' && getExercisePattern(t) !== 'chest_flat_press' && !usedIds.has(t.id)
+          t => t.muscle_group === 'chest' && getExercisePattern(t) !== 'chest_flat_press' && getExercisePattern(t) !== 'chest_decline_wide_press' && !usedIds.has(t.id)
         );
         if (altChest.length > 0) pool = altChest;
       }
@@ -788,6 +866,12 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
           return getExercisePattern(t) === 'shoulder_press';
         } else if (variantBias === 'ham_knee_flexion') {
           return id.includes('seated_leg_curl') || id.includes('leg_curl') || title.includes('curl');
+        } else if (variantBias === 'chest_fly') {
+          return getExercisePattern(t) === 'chest_fly_pec_deck';
+        } else if (variantBias === 'calf_extended') {
+          return getExercisePattern(t) === 'calf_standing';
+        } else if (variantBias === 'calf_seated') {
+          return getExercisePattern(t) === 'calf_seated';
         }
         return true;
       });
@@ -836,6 +920,13 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
   let quadDaysSeen = 0;
   let quadExtensionAssigned = false;
 
+  const hasAnyChestFly = allowedExercises.some(
+    t => t.muscle_group === 'chest' && getExercisePattern(t) === 'chest_fly_pec_deck'
+  );
+  const totalChestDays = Object.values(dayMuscleSets).filter(d => (d['chest'] || 0) > 0).length;
+  let chestDaysSeen = 0;
+  let chestFlyAssigned = false;
+
   for (let dayIdx = 0; dayIdx < daysPerWeek; dayIdx++) {
     const usedIds = new Set<string>();
     const usedPatterns = new Set<string>();
@@ -872,6 +963,20 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
           hasAnyLegExtension &&
           !quadExtensionAssigned &&
           quadDaysSeen === totalQuadDays &&
+          numExercises === 1 &&
+          setsForMuscle >= 4 &&
+          distinctPatterns >= 2
+        ) {
+          numExercises = 2;
+        }
+      }
+      if (m === 'chest') {
+        chestDaysSeen++;
+        if (
+          chestVolume >= 10 &&
+          hasAnyChestFly &&
+          !chestFlyAssigned &&
+          chestDaysSeen === totalChestDays &&
           numExercises === 1 &&
           setsForMuscle >= 4 &&
           distinctPatterns >= 2
@@ -916,6 +1021,16 @@ export function generateWizardRoutines(options: RoutineGeneratorOptions): Routin
           } else {
             bias = i === 0 ? 'shoulder_press' : 'shoulder_lateral';
           }
+        } else if (m === 'chest') {
+          if (chestVolume >= 10 && hasAnyChestFly && !chestFlyAssigned) {
+            if ((numExercises >= 2 && i === numExercises - 1) || chestDaysSeen === totalChestDays) {
+              bias = 'chest_fly';
+              chestFlyAssigned = true;
+            }
+          }
+        } else if (m === 'calves') {
+          // Kinoshita et al. (2023): extended-knee calf raises first; seated calf only as 2nd complementary exercise
+          bias = i === 0 ? 'calf_extended' : 'calf_seated';
         } else if (m === 'lats') {
           bias = i === 0 ? 'lats' : undefined;
         } else if (m === 'upper_back') {

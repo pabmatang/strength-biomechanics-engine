@@ -1289,7 +1289,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
       pro_hack: 'Hack: Inicia en posición neutra y rota a supino durante la subida.'
     },
     target_rep_range: '10-12',
-    image_url: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=800&q=80'
+    image_url: '/machines/matrix_ultra_arm_curl.png'
   },
 
   // ==========================================
@@ -1848,7 +1848,7 @@ export const SPANISH_GYM_MACHINES: ExerciseTemplate[] = [
       pro_hack: 'Hack: Realiza una contracción isométrica de 1 segundo en el punto de giro.'
     },
     target_rep_range: '12-15',
-    image_url: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80'
+    image_url: '/machines/matrix_ultra_rotary_torso.png'
   },
   {
     id: 'technogym_selection_shoulder_press',

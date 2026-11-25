@@ -3195,7 +3195,7 @@ export const CABLE_EXERCISES_DB: ExerciseTemplate[] = [
     exercise_type: 'weight_reps',
     description: 'Pushdown en polea alta con barra en V que permite aplicar máxima fuerza en la cabeza lateral y medial del tríceps.',
     setup_tips: ["Mantén los codos pegados a los costados y bloqueados en su posición", "Extiende los antebrazos hacia abajo hasta el bloqueo completo sin mover los hombros", "Controla el retorno hasta que los antebrazos alcancen 90 grados"],
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/cable-triceps-pushdown-v-bar.gif',
+    image_url: '/machines/cable_triceps_pushdown_v_bar.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/triceps/cable-triceps-pushdown-v-bar.gif'
   },
   {
@@ -3223,7 +3223,7 @@ export const CABLE_EXERCISES_DB: ExerciseTemplate[] = [
     exercise_type: 'weight_reps',
     description: 'Flexión espinal resistida con cuerda en polea alta que permite sobrecargar el recto abdominal con carga progresiva.',
     setup_tips: ["Ponte de rodillas frente a la polea y sujeta la cuerda a ambos lados de la cabeza", "Flexiona el tronco enrollando la columna hacia la pelvis sin mover las caderas", "Aprieta el abdomen 1 segundo y sube controlando el estiramiento"],
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/abs/cable-kneeling-crunch.gif',
+    image_url: '/machines/cable_kneeling_crunch.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/abs/cable-kneeling-crunch.gif'
   },
   {
@@ -3237,7 +3237,7 @@ export const CABLE_EXERCISES_DB: ExerciseTemplate[] = [
     exercise_type: 'weight_reps',
     description: 'Bisagra de cadera con tracción desde polea baja ideal para estímulo glúteo con tensión horizontal sostenida.',
     setup_tips: ["Coloca los pies al ancho de hombros y empuja la cadera hacia atrás", "Mantén la columna neutra y extiende la cadera apretando los glúteos arriba", "No flexiones excesivamente las rodillas para mantener el foco en la cadena posterior"],
-    image_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/cable-deadlift.gif',
+    image_url: '/machines/cable_deadlift.png',
     gif_url: 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@v1.1.0/glutes/cable-deadlift.gif'
   },
 ];

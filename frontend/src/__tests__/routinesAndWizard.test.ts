@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { EXERCISE_DATABASE } from '../data/exercises';
 import { Routine, WorkoutExercise } from '../types/workout';
-import { generateWizardRoutines as generateEngineRoutines } from '../utils/routineGenerator';
+import {
+  generateWizardRoutines as generateEngineRoutines,
+  getTargetRepRangeForExercise,
+  orderDayExercises
+} from '../utils/routineGenerator';
 
 const BROAD_GROUP_MAP: Record<string, string> = {
   lats: 'back',
@@ -1330,11 +1334,11 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
         }
       }
 
-      // Within same day, triceps never precedes chest or shoulder press
+      // Within same day, triceps never precedes chest or compound shoulder press
       routines.forEach(r => {
         const firstTricepsIdx = r.exercises.findIndex(e => e.muscle_group === 'triceps');
         const lastPushIdx = r.exercises.reduce((acc, e, idx) =>
-          (e.muscle_group === 'chest' || e.muscle_group === 'shoulders') ? idx : acc, -1);
+          (e.muscle_group === 'chest' || (e.muscle_group === 'shoulders' && (e.title.toLowerCase().includes('press') || e.exercise_template_id.includes('press')))) ? idx : acc, -1);
         if (firstTricepsIdx !== -1 && lastPushIdx !== -1) {
           expect(firstTricepsIdx).toBeGreaterThan(lastPushIdx);
         }
@@ -1454,6 +1458,97 @@ describe('Routine Management & Smart AI Routine Wizard', () => {
         });
         expect(flatPresses.length).toBeLessThanOrEqual(1);
       });
+    });
+
+    it('enforces dedicated machines, coherent rep ranges (>=10-15 on isolations/cables), extended-knee calves, chest fly & no front raises, priority triceps before lateral delts, and no adductors before squats', () => {
+      // 1. Hammer Strength + Matrix + Cable: dedicated machines chosen over improvised cables, extended-knee calves, pec fly, no front raises, no adductors before squat day
+      const routines = generateEngineRoutines({
+        experienceLevel: 'avanzado',
+        daysPerWeek: 4,
+        durationMinutes: 90,
+        baseEquipment: ['cable', 'generic_machine'],
+        machineBrands: ['Hammer Strength', 'Matrix'],
+        targetWeeklyVolume: {
+          chest: 12,
+          lats: 10,
+          upper_back: 10,
+          shoulders: 8,
+          biceps: 8,
+          triceps: 8,
+          quadriceps: 10,
+          hamstrings: 8,
+          glutes: 8,
+          calves: 4,
+          adductors: 4,
+          abdominals: 4
+        }
+      });
+
+      const allEx = routines.flatMap(r => r.exercises);
+
+      // Dedicated machines instead of improvised cables for leg curl & adductor
+      const hamEx = allEx.filter(e => e.muscle_group === 'hamstrings');
+      expect(hamEx.length).toBeGreaterThan(0);
+      hamEx.forEach(e => {
+        expect(e.exercise_template_id).not.toContain('cable_seated_hamstring_curl');
+        expect(e.exercise_template_id).not.toContain('cable_standing_leg_curl');
+      });
+
+      const addEx = allEx.filter(e => e.muscle_group === 'adductors');
+      expect(addEx.length).toBeGreaterThan(0);
+      addEx.forEach(e => {
+        expect(e.equipment_category).toBe('machine');
+      });
+
+      // Calves (4 sets/wk -> 1 exercise): extended-knee variant (NOT Seated Calf)
+      const calfEx = allEx.filter(e => e.muscle_group === 'calves');
+      expect(calfEx.length).toBe(1);
+      expect(calfEx[0].title.toLowerCase()).not.toContain('seated');
+      expect(calfEx[0].title.toLowerCase()).not.toContain('sentado');
+
+      // Chest >= 10: no Front Raises in shoulders & at least 1 Pec Fly / Pec Deck
+      const shEx = allEx.filter(e => e.muscle_group === 'shoulders');
+      shEx.forEach(e => {
+        expect(e.exercise_template_id).not.toContain('front_raise');
+        expect(e.title.toLowerCase()).not.toContain('elevaciones frontales');
+      });
+      const hasChestFly = allEx.some(e =>
+        e.muscle_group === 'chest' &&
+        (e.exercise_template_id.includes('pec') || e.title.toLowerCase().includes('pec') || e.title.toLowerCase().includes('fly') || e.title.toLowerCase().includes('cruce'))
+      );
+      expect(hasChestFly).toBe(true);
+
+      // Adductors must NOT be placed the day before a quadriceps/squat day
+      for (let d = 0; d < routines.length - 1; d++) {
+        const hasAdductorsToday = routines[d].exercises.some(e => e.muscle_group === 'adductors');
+        const hasQuadsTomorrow = routines[d + 1].exercises.some(e => e.muscle_group === 'quadriceps');
+        if (hasQuadsTomorrow) {
+          expect(hasAdductorsToday).toBe(false);
+        }
+      }
+
+      // 2. Elevaciones en Y & Cable Pull-Through never get 6-8 reps (even in avanzado as primary)
+      const yRaise = EXERCISE_DATABASE.find(t => t.id === 'cable_y_raise');
+      const pullThrough = EXERCISE_DATABASE.find(t => t.id === 'cable_pull_through');
+      expect(yRaise).toBeDefined();
+      expect(pullThrough).toBeDefined();
+      expect(getTargetRepRangeForExercise(yRaise!, true, 'avanzado').repRange).toBe('12-20');
+      expect(getTargetRepRangeForExercise(pullThrough!, true, 'avanzado').repRange).toBe('10-15');
+
+      // 3. Push day without compound Shoulder Press: #2 Triceps ordered before #4 Shoulders (lateral)
+      const ordered = orderDayExercises(
+        [
+          { muscle: 'chest', plannedSets: 4 } as any,
+          { muscle: 'shoulders', bias: 'shoulder_lateral', plannedSets: 4 } as any,
+          { muscle: 'triceps', plannedSets: 4 } as any
+        ],
+        ['chest', 'triceps', 'lats', 'shoulders'],
+        { chest: 12, triceps: 8, shoulders: 8 }
+      );
+      const triIdx = ordered.findIndex(i => i.muscle === 'triceps');
+      const shIdx = ordered.findIndex(i => i.muscle === 'shoulders');
+      expect(triIdx).toBeGreaterThan(0); // after chest
+      expect(triIdx).toBeLessThan(shIdx); // before lateral delts
     });
   });
 });
