@@ -2352,19 +2352,16 @@ def process_kinematics(
             y_arr = np.array([raw_keypoints[f].get(k_name, raw_keypoints[f].get("nose", {"y": 0.2}))["y"] for f in range(n_frames)], dtype=np.float64)
             s_arr = np.array([raw_keypoints[f].get(k_name, raw_keypoints[f].get("nose", {"score": 0.5}))["score"] for f in range(n_frames)], dtype=np.float64)
             
-            # Max Joint Jump Clamp: if wrist or elbow jumps > 0.07 in 1 frame (clothing flutter / baggy sweatshirt noise), clamp as outlier
-            if c_name in ["wrist", "elbow"] and n_frames > 1:
-                last_vx = None
-                last_vy = None
-                for f in range(n_frames):
-                    if s_arr[f] >= 0.25:
-                        if last_vx is not None:
-                            jump = math.hypot(x_arr[f] - last_vx, y_arr[f] - last_vy)
-                            if jump > 0.07:
-                                s_arr[f] = 0.0  # Mark outlier for smooth interpolation
-                                continue
-                        last_vx = x_arr[f]
-                        last_vy = y_arr[f]
+            # Isolated Spike Clamp: reject single-frame 1-frame teleport glitches without ever flat-lining real movement
+            if c_name in ["wrist", "elbow"] and n_frames > 2:
+                for f in range(1, n_frames - 1):
+                    if s_arr[f] >= 0.25 and s_arr[f - 1] >= 0.25 and s_arr[f + 1] >= 0.25:
+                        d_prev = math.hypot(x_arr[f] - x_arr[f - 1], y_arr[f] - y_arr[f - 1])
+                        d_next = math.hypot(x_arr[f] - x_arr[f + 1], y_arr[f] - y_arr[f + 1])
+                        d_span = math.hypot(x_arr[f + 1] - x_arr[f - 1], y_arr[f + 1] - y_arr[f - 1])
+                        # Only zero out if frame f jumped far away AND f+1 returned near f-1
+                        if d_prev > 0.14 and d_next > 0.14 and d_span < 0.10:
+                            s_arr[f] = 0.0
 
             x_clean = interpolate_isolated_frames(x_arr, s_arr, thresh=0.25)
             y_clean = interpolate_isolated_frames(y_arr, s_arr, thresh=0.25)
@@ -2400,7 +2397,16 @@ def process_kinematics(
     ))
     facing_dir = 1.0 if head_x_med >= mid_torso_x else -1.0
 
-    # Pre-calculate bilateral angular ROMs for robust auto-detection
+    # Pre-calculate bilateral angular ROMs for robust auto-detection (trimming floor/setup frames)
+    _auto_vis_u = np.maximum(
+        np.mean(np.vstack([all_smoothed["left_shoulder"]["score"], all_smoothed["left_elbow"]["score"], all_smoothed["left_wrist"]["score"]]), axis=0),
+        np.mean(np.vstack([all_smoothed["right_shoulder"]["score"], all_smoothed["right_elbow"]["score"], all_smoothed["right_wrist"]["score"]]), axis=0),
+    )
+    _auto_hip = np.maximum(all_smoothed["left_hip"]["score"], all_smoothed["right_hip"]["score"])
+    _auto_idx = np.where((_auto_vis_u >= 0.55) & (_auto_hip >= 0.40))[0]
+    if len(_auto_idx) < 5:
+        _auto_idx = np.arange(n_frames)
+
     l_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}, {"x": all_smoothed["left_elbow"]["x"][f], "y": all_smoothed["left_elbow"]["y"][f]}, {"x": all_smoothed["left_wrist"]["x"][f], "y": all_smoothed["left_wrist"]["y"][f]}) for f in range(n_frames)])
     r_el_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}, {"x": all_smoothed["right_elbow"]["x"][f], "y": all_smoothed["right_elbow"]["y"][f]}, {"x": all_smoothed["right_wrist"]["x"][f], "y": all_smoothed["right_wrist"]["y"][f]}) for f in range(n_frames)])
     l_kn_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_hip"]["x"][f], "y": all_smoothed["left_hip"]["y"][f]}, {"x": all_smoothed["left_knee"]["x"][f], "y": all_smoothed["left_knee"]["y"][f]}, {"x": all_smoothed["left_ankle"]["x"][f], "y": all_smoothed["left_ankle"]["y"][f]}) for f in range(n_frames)])
@@ -2408,12 +2414,12 @@ def process_kinematics(
     l_hp_angles = np.array([calculate_angle_2d({"x": all_smoothed["left_shoulder"]["x"][f], "y": all_smoothed["left_shoulder"]["y"][f]}, {"x": all_smoothed["left_hip"]["x"][f], "y": all_smoothed["left_hip"]["y"][f]}, {"x": all_smoothed["left_knee"]["x"][f], "y": all_smoothed["left_knee"]["y"][f]}) for f in range(n_frames)])
     r_hp_angles = np.array([calculate_angle_2d({"x": all_smoothed["right_shoulder"]["x"][f], "y": all_smoothed["right_shoulder"]["y"][f]}, {"x": all_smoothed["right_hip"]["x"][f], "y": all_smoothed["right_hip"]["y"][f]}, {"x": all_smoothed["right_knee"]["x"][f], "y": all_smoothed["right_knee"]["y"][f]}) for f in range(n_frames)])
 
-    left_el_rom = float(np.percentile(l_el_angles, 90) - np.percentile(l_el_angles, 10))
-    right_el_rom = float(np.percentile(r_el_angles, 90) - np.percentile(r_el_angles, 10))
-    left_kn_rom = float(np.percentile(l_kn_angles, 90) - np.percentile(l_kn_angles, 10))
-    right_kn_rom = float(np.percentile(r_kn_angles, 90) - np.percentile(r_kn_angles, 10))
-    left_hp_rom = float(np.percentile(l_hp_angles, 90) - np.percentile(l_hp_angles, 10))
-    right_hp_rom = float(np.percentile(r_hp_angles, 90) - np.percentile(r_hp_angles, 10))
+    left_el_rom = float(np.percentile(l_el_angles[_auto_idx], 90) - np.percentile(l_el_angles[_auto_idx], 10))
+    right_el_rom = float(np.percentile(r_el_angles[_auto_idx], 90) - np.percentile(r_el_angles[_auto_idx], 10))
+    left_kn_rom = float(np.percentile(l_kn_angles[_auto_idx], 90) - np.percentile(l_kn_angles[_auto_idx], 10))
+    right_kn_rom = float(np.percentile(r_kn_angles[_auto_idx], 90) - np.percentile(r_kn_angles[_auto_idx], 10))
+    left_hp_rom = float(np.percentile(l_hp_angles[_auto_idx], 90) - np.percentile(l_hp_angles[_auto_idx], 10))
+    right_hp_rom = float(np.percentile(r_hp_angles[_auto_idx], 90) - np.percentile(r_hp_angles[_auto_idx], 10))
 
     # Clinical Exercise Classification (Kinematic Pattern Recognition)
     vlm_result = None
@@ -2643,12 +2649,12 @@ def process_kinematics(
                     else:
                         right_pen = 0.05
 
-        # Selection of active foreground limb based on horizontal reach |wrist_x - shoulder_x|
-        left_horiz_reach = float(np.percentile(np.abs(l_wr_x - l_sh_x), 85))
-        right_horiz_reach = float(np.percentile(np.abs(r_wr_x - r_sh_x), 85))
+        # Selection of active foreground limb balancing visibility (unoccluded arm) and 2D Euclidean reach
+        left_reach = float(np.percentile(np.hypot(l_wr_x[vis_idx] - l_sh_x[vis_idx], l_wr_y[vis_idx] - l_sh_y[vis_idx]), 85))
+        right_reach = float(np.percentile(np.hypot(r_wr_x[vis_idx] - r_sh_x[vis_idx], r_wr_y[vis_idx] - r_sh_y[vis_idx]), 85))
 
-        left_score_total = (left_conf ** 2) * (left_horiz_reach ** 2) * (left_rom + 10.0) * left_pen
-        right_score_total = (right_conf ** 2) * (right_horiz_reach ** 2) * (right_rom + 10.0) * right_pen
+        left_score_total = (left_conf ** 3) * max(0.05, left_reach) * (left_rom + 10.0) * left_pen
+        right_score_total = (right_conf ** 3) * max(0.05, right_reach) * (right_rom + 10.0) * right_pen
 
         if has_valid_va:
             d_left = (

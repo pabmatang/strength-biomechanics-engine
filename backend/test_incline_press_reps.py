@@ -366,7 +366,95 @@ def test_incline_press_lateral_floor_intro_bottom_start_5_reps_fatigue():
     )
 
 
+def test_no_flatline_after_fast_transition_and_spike():
+    """
+    Reproduces Video_Project_5 failure mode:
+    - Floor/walk frames with >0.07/frame jump transitioning into seated Incline Press
+    - Fast concentric push (>0.07 wrist displacement in 1 frame)
+    - One single-frame spike glitch
+    Previously Max Joint Jump Clamp froze s_arr=0 forever after the first >0.07 jump,
+    flattening elbow angle at ~153° for the whole set. Must track all 4 reps cleanly.
+    """
+    fps = 15.0
+    dt = 1.0 / fps
+    n_frames = int(20.0 * fps)
+    timestamps = [f * dt for f in range(n_frames)]
+
+    angles = np.full(n_frames, 155.0)
+    # 4 reps starting at t=5.0s (frame 75)
+    for rep_i in range(4):
+        f_top = 75 + rep_i * 45
+        f_bot = f_top + 20
+        f_end = f_top + 38
+        for f in range(f_top, f_bot + 1):
+            frac = (f - f_top) / max(1, f_bot - f_top)
+            angles[f] = 155.0 - 90.0 * frac
+        for f in range(f_bot, f_end + 1):
+            frac = (f - f_bot) / max(1, f_end - f_bot)
+            angles[f] = 65.0 + 90.0 * frac
+
+    frames_keypoints = []
+    L_forearm = 0.25
+    for f in range(n_frames):
+        t = timestamps[f]
+        if t < 4.0:
+            # Floor/walk frames at totally different screen coords with >0.07 shift into seat
+            sh_x, sh_y = 0.20, 0.25
+            hp_x, hp_y = 0.22, 0.45
+            kn_x, kn_y = 0.25, 0.70
+            ak_x, ak_y = 0.25, 0.90
+            el_x, el_y = 0.15, 0.30
+            wr_x, wr_y = 0.12, 0.20
+            sc = 0.35  # high enough during walk to trigger old jump clamp!
+        else:
+            sh_x, sh_y = 0.65, 0.48
+            hp_x, hp_y = 0.58, 0.72
+            kn_x, kn_y = 0.45, 0.80
+            ak_x, ak_y = 0.42, 0.95
+            el_x, el_y = 0.62, 0.56
+            rad = math.radians(angles[f])
+            wr_x = el_x - L_forearm * math.sin(rad)
+            wr_y = el_y - L_forearm * math.cos(rad)
+            sc = 0.90
+
+        # Inject a single-frame spike glitch at f=160
+        if f == 160:
+            wr_x, wr_y = 0.95, 0.10
+
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": sc},
+            "left_elbow": {"x": el_x, "y": el_y, "score": sc},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": sc},
+            "left_hip": {"x": hp_x, "y": hp_y, "score": sc},
+            "left_knee": {"x": kn_x, "y": kn_y, "score": sc},
+            "left_ankle": {"x": ak_x, "y": ak_y, "score": sc},
+            "left_ear": {"x": 0.63, "y": 0.36, "score": sc},
+            "right_shoulder": {"x": sh_x - 0.18, "y": sh_y, "score": 0.85 if t >= 4.0 else 0.35},
+            "right_elbow": {"x": el_x - 0.22, "y": el_y, "score": 0.85 if t >= 4.0 else 0.35},
+            "right_wrist": {"x": wr_x - 0.12, "y": wr_y, "score": 0.85 if t >= 4.0 else 0.35},
+            "right_hip": {"x": hp_x - 0.12, "y": hp_y, "score": 0.85 if t >= 4.0 else 0.35},
+            "right_knee": {"x": kn_x - 0.10, "y": kn_y, "score": 0.85 if t >= 4.0 else 0.35},
+            "right_ankle": {"x": ak_x - 0.10, "y": ak_y, "score": 0.85 if t >= 4.0 else 0.35},
+            "right_ear": {"x": 0.50, "y": 0.36, "score": 0.85 if t >= 4.0 else 0.35},
+            "nose": {"x": 0.56, "y": 0.38, "score": sc},
+        })
+
+    res = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="auto",
+        exercise_name="",
+        target_muscle="auto",
+        load_type="auto",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert res.get("total_reps", 0) == 4, f"Expected 4 reps (no flatline!), got {res.get('total_reps')}"
+
+
 if __name__ == "__main__":
     test_incline_press_2_reps_in_13s()
     test_incline_press_4_reps_elbow_angle_55_to_150()
     test_incline_press_lateral_floor_intro_bottom_start_5_reps_fatigue()
+    test_no_flatline_after_fast_transition_and_spike()
