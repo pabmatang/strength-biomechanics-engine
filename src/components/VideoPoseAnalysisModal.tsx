@@ -1627,11 +1627,6 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       setPipelineState('ready');
       setPipelineMessage('');
       setBackendReadyWhileCheckIn(false);
-      if (resData.active_window && resData.active_window.start_sec > 3.0) {
-        setTrimStart(Math.max(0, resData.active_window.start_sec));
-        setTrimEnd(Math.max(resData.active_window.start_sec + 0.5, resData.active_window.end_sec));
-        setHasSuggestedActiveWindow(true);
-      }
     }
   }, []);
 

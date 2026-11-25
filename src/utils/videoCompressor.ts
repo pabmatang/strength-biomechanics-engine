@@ -818,15 +818,24 @@ async function runMp4BoxWebCodecsCompression(
   }
 }
 
-  // 1. Fast Sequential MP4Box + WebCodecs Pass (strict 10s watchdog; no <video> seek loops)
+  // 1. Fast Sequential MP4Box + WebCodecs Pass (duration + 15s watchdog; no <video> seek loops)
   const tCompressStart = performance.now();
-  let compressedBlob = await runMp4BoxWebCodecsCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress, 10_000);
+  const clipDurEst = range ? Math.max(1.0, range.endTime - range.startTime) : maxDurationSec;
+  const dynamicWatchdogMs = Math.max(15_000, Math.round((clipDurEst + 15.0) * 1000));
+  let compressedBlob = await runMp4BoxWebCodecsCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress, dynamicWatchdogMs);
   if (!compressedBlob) {
-    // If MP4Box+WebCodecs aborted or codec unsupported (e.g. HEVC), skip slow 110s <video> seek compression
-    // and return original file so server ffmpeg trims ultra-fast with -ss/-t -preset ultrafast.
-    console.info('[Compressor] Fallback rápido: enviando archivo original para recorte directo con ffmpeg en GPU.');
-    (file as any).__compressDurationSec = Number(((performance.now() - tCompressStart) / 1000).toFixed(3));
-    return file;
+    // Smooth continuous MediaRecorder fallback (never upload 238 MB raw 4K over 4G/5G)
+    console.info('[Compressor] MP4Box+WebCodecs no disponible para este códec; usando compresión continua MediaRecorder 480p@15fps.');
+    compressedBlob = await runCanvasCompression(file, maxWidth, targetFps, bitrate, maxDurationSec, range, onProgress);
+  }
+
+  // 2. Emergency Secondary Pass (360p / 12 FPS / 500 kbps) if result still > 15 MB
+  const maxSafeSizeBytes = 15 * 1024 * 1024;
+  if ((!compressedBlob || compressedBlob.size > maxSafeSizeBytes) && file.size > maxSafeSizeBytes) {
+    const emergencyBlob = await runCanvasCompression(file, 360, 12, 500_000, maxDurationSec, range, onProgress);
+    if (emergencyBlob) {
+      compressedBlob = emergencyBlob;
+    }
   }
 
   if (compressedBlob && !(compressedBlob as any).__compressDurationSec) {

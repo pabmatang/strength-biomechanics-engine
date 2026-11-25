@@ -947,11 +947,92 @@ def test_frontal_incline_press_close_grip_triceps_shift():
         img_h=1280,
         run_vlm=False,
     )
+    assert result.get("camera_plane") == "frontal", f"Expected camera_plane='frontal', got {result.get('camera_plane')}"
     af = result.get("alignment_frames", [])
     assert len(af) == 2
     assert af[0]["status"] == "caution"
     assert "Agarre estrecho" in af[0]["clinical_note"]
     assert result["effective_muscle_weights"]["triceps"] >= 0.40
+
+
+def test_seated_10s_intro_preserves_clip_offset_timestamps_and_ffmpeg_bypass():
+    """
+    1) When 10s of standing prep precede 3 seated incline_press reps, all returned
+       timestamps (reps, alignment_frames, key_moments) must include the >=10.0s offset
+       from 0.0s of the clip.
+    2) optimize_video_with_ffmpeg bypasses re-encoding when input is already <=480p and <=18fps.
+    """
+    import tempfile, cv2
+    import main as backend_main
+
+    fps = 15.0
+    dt = 1.0 / fps
+    prep_frames = int(10.0 * fps)
+    rep_tpl = [155.0 - 95.0 * (k / 15.0) for k in range(1, 16)] + [60.0 + 95.0 * (k / 15.0) for k in range(1, 16)]
+    seated_angles = [155.0] * 10 + rep_tpl * 3 + [155.0] * 10
+    n_frames = prep_frames + len(seated_angles)
+    timestamps = [f * dt for f in range(n_frames)]
+    frames_keypoints = []
+    L_forearm = 0.18
+    for f in range(n_frames):
+        is_prep = f < prep_frames
+        el_ang = 165.0 if is_prep else seated_angles[f - prep_frames]
+        sh_x, sh_y = (0.48, 0.22) if is_prep else (0.45, 0.40)
+        hp_x, hp_y = (0.48, 0.42) if is_prep else (0.55, 0.65)
+        kn_x, kn_y = (0.48, 0.68) if is_prep else (0.52, 0.85)
+        ak_x, ak_y = (0.50, 0.94) if is_prep else (0.50, 0.95)
+        el_x, el_y = (0.48, 0.38) if is_prep else (0.45, 0.60)
+        rad = math.radians(el_ang)
+        wr_x = el_x + L_forearm * math.sin(rad)
+        wr_y = el_y - L_forearm * math.cos(rad)
+        frames_keypoints.append({
+            "left_shoulder": {"x": sh_x, "y": sh_y, "score": 0.95},
+            "left_elbow": {"x": el_x, "y": el_y, "score": 0.95},
+            "left_wrist": {"x": wr_x, "y": wr_y, "score": 0.95},
+            "left_hip": {"x": hp_x, "y": hp_y, "score": 0.95},
+            "left_knee": {"x": kn_x, "y": kn_y, "score": 0.95},
+            "left_ankle": {"x": ak_x, "y": ak_y, "score": 0.95},
+            "left_ear": {"x": sh_x - 0.02, "y": sh_y - 0.08, "score": 0.95},
+            "right_shoulder": {"x": sh_x - 0.02, "y": sh_y, "score": 0.30},
+            "right_elbow": {"x": el_x - 0.02, "y": el_y, "score": 0.30},
+            "right_wrist": {"x": wr_x - 0.02, "y": wr_y, "score": 0.30},
+            "right_hip": {"x": hp_x - 0.02, "y": hp_y, "score": 0.30},
+            "right_knee": {"x": kn_x - 0.02, "y": kn_y, "score": 0.30},
+            "right_ankle": {"x": ak_x - 0.02, "y": ak_y, "score": 0.30},
+            "right_ear": {"x": sh_x - 0.04, "y": sh_y - 0.08, "score": 0.30},
+            "nose": {"x": sh_x - 0.02, "y": sh_y - 0.05, "score": 0.90},
+        })
+
+    res = process_kinematics(
+        raw_keypoints=frames_keypoints,
+        timestamps=timestamps,
+        exercise_type="incline_press",
+        target_muscle="chest",
+        load_type="machine",
+        img_w=720,
+        img_h=1280,
+        run_vlm=False,
+    )
+    assert res["total_reps"] == 3
+    for af_item in res.get("alignment_frames", []):
+        assert af_item["timestamp_sec"] >= 10.0, f"Expected >= 10.0s offset, got {af_item['timestamp_sec']}"
+    for km_item in res.get("key_moments", []):
+        assert km_item["timestamp_sec"] >= 10.0, f"Expected >= 10.0s offset in key_moments, got {km_item['timestamp_sec']}"
+
+    # Verify optimize_video_with_ffmpeg bypasses <=480p @ 15fps
+    fd, vid_path = tempfile.mkstemp(suffix=".mp4")
+    os.close(fd)
+    try:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        vw = cv2.VideoWriter(vid_path, fourcc, 15.0, (270, 480))
+        for _ in range(15):
+            vw.write(np.zeros((480, 270, 3), dtype=np.uint8))
+        vw.release()
+        out_p, was_trimmed = backend_main.optimize_video_with_ffmpeg(vid_path, max_h=480, target_fps=15, start_time=0.0, end_time=None)
+        assert out_p == vid_path and was_trimmed is False
+    finally:
+        if os.path.exists(vid_path):
+            os.unlink(vid_path)
 
 
 def test_hip_thrust_lateral_5_cycles_115_to_174_with_occluded_ankle():
@@ -1013,4 +1094,5 @@ if __name__ == "__main__":
     test_seated_incline_press_ignores_8s_standing_and_builds_alignment_frames()
     test_hip_thrust_5_reps_alignment_and_key_moments()
     test_frontal_incline_press_close_grip_triceps_shift()
+    test_seated_10s_intro_preserves_clip_offset_timestamps_and_ffmpeg_bypass()
     test_hip_thrust_lateral_5_cycles_115_to_174_with_occluded_ankle()

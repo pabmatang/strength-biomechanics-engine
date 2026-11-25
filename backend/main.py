@@ -1742,6 +1742,21 @@ def optimize_video_with_ffmpeg(
 
     raw_rot = get_video_rotation(input_path)
 
+    # Bypass ffmpeg completely if input is already trimmed, upright (rot==0), <=480p and <=18fps
+    if start_time <= 0.05 and end_time is None and raw_rot == 0:
+        try:
+            cap_chk = cv2.VideoCapture(input_path)
+            if cap_chk.isOpened():
+                in_w = int(cap_chk.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                in_h = int(cap_chk.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                in_fps = float(cap_chk.get(cv2.CAP_PROP_FPS) or 0.0)
+                cap_chk.release()
+                if in_w > 0 and in_h > 0 and min(in_w, in_h) <= max_h + 16 and 0.0 < in_fps <= 18.5:
+                    print(f"[FFmpeg Bypass] Clip already optimized ({in_w}x{in_h} @ {in_fps:.1f}fps, rot=0). Skipping re-encode.")
+                    return input_path, False
+        except Exception:
+            pass
+
     fd, out_path = tempfile.mkstemp(suffix="_opt.mp4")
     os.close(fd)
 
@@ -1761,9 +1776,10 @@ def optimize_video_with_ffmpeg(
     if end_time is not None and end_time > start_time:
         seek_args.extend(["-t", f"{(end_time - start_time):.2f}"])
 
+    hw_args = ["-hwaccel", "cuda"] if device == "cuda" else ["-threads", "4"]
     cmd = [
         ffmpeg_bin, "-y",
-        "-threads", "2",
+        *hw_args,
         *seek_args,
         "-i", input_path,
         "-vf", vf,
@@ -1777,6 +1793,22 @@ def optimize_video_with_ffmpeg(
     ]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        if res.returncode != 0 and device == "cuda":
+            # Clean fallback to CPU -threads 4 if NVDEC cannot decode the container/codec
+            cmd_cpu = [
+                ffmpeg_bin, "-y", "-threads", "4",
+                *seek_args,
+                "-i", input_path,
+                "-vf", vf,
+                "-metadata:s:v", "rotate=0",
+                "-metadata:s:v:0", "rotate=0",
+                "-preset", "ultrafast",
+                "-c:v", "libx264",
+                "-crf", "28",
+                "-an",
+                out_path
+            ]
+            res = subprocess.run(cmd_cpu, capture_output=True, text=True, timeout=90)
         if res.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
             # Verify output dimensions
             cap = cv2.VideoCapture(out_path)
@@ -2719,6 +2751,33 @@ def process_kinematics(
     camera_plane = "lateral_right"
     if vlm_result and vlm_result.get("camera_plane"):
         camera_plane = str(vlm_result["camera_plane"]).strip().lower()
+
+    # Deterministic frontal plane classifier: if both shoulders are clearly visible
+    # and shoulder_span / torso_height >= 0.42 across active frames, classify as "frontal".
+    try:
+        _sh_l_v = np.asarray(all_smoothed["left_shoulder"]["score"], dtype=np.float64)
+        _sh_r_v = np.asarray(all_smoothed["right_shoulder"]["score"], dtype=np.float64)
+        _both_sh_vis = float(np.median(np.minimum(_sh_l_v, _sh_r_v)))
+        _mid_sh_y = 0.5 * (
+            np.asarray(all_smoothed["left_shoulder"]["y"], dtype=np.float64) +
+            np.asarray(all_smoothed["right_shoulder"]["y"], dtype=np.float64)
+        )
+        _mid_hp_y = 0.5 * (
+            np.asarray(all_smoothed["left_hip"]["y"], dtype=np.float64) +
+            np.asarray(all_smoothed["right_hip"]["y"], dtype=np.float64)
+        )
+        _torso_h = np.maximum(0.05, np.abs(_mid_hp_y - _mid_sh_y))
+        _sh_span_ratio = float(np.median(
+            np.abs(
+                np.asarray(all_smoothed["left_shoulder"]["x"], dtype=np.float64) -
+                np.asarray(all_smoothed["right_shoulder"]["x"], dtype=np.float64)
+            ) / _torso_h
+        ))
+        if _both_sh_vis >= 0.60 and _sh_span_ratio >= 0.42:
+            camera_plane = "frontal"
+    except Exception:
+        pass
+
     moment_arms_2d_valid = camera_plane in ("lateral_left", "lateral_right")
 
     va = vlm_result.get("visual_anchors") if (vlm_result and isinstance(vlm_result.get("visual_anchors"), dict)) else None
@@ -3522,9 +3581,10 @@ def process_kinematics(
         if any(is_scene_cut[f] for f in range(start_frame, min(end_frame + 1, n_frames))):
             continue
 
-        t_start = timestamps[start_frame]
-        t_inflect = timestamps[bottom_frame]
-        t_end = timestamps[end_frame]
+        t0_clip = float(timestamps[0]) if timestamps else 0.0
+        t_start = max(0.0, float(timestamps[start_frame] - t0_clip))
+        t_inflect = max(0.0, float(timestamps[bottom_frame] - t0_clip))
+        t_end = max(0.0, float(timestamps[end_frame] - t0_clip))
         
         rep_min_angle = float(np.min(clean_primary[start_frame : end_frame + 1]))
         rep_max_angle = float(np.max(clean_primary[start_frame : end_frame + 1]))
