@@ -1078,8 +1078,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     setActiveTimelineCue(cue);
     if (videoElementRef.current) {
       const targetTime = Math.max(0, cue.timestamp_sec);
-      videoElementRef.current.currentTime = targetTime;
-      setVideoCurrentTime(targetTime);
+      safeSeekVideo(targetTime);
       handleSpeedChange(0.5);
       videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
     }
@@ -1133,6 +1132,44 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const smoothLineXRef = useRef<number | null>(null);
+  const pendingSeekTimeRef = useRef<number | null>(null);
+  const lastSeekTargetRef = useRef<number>(0);
+  const seekRestoreOnLoadRef = useRef<number | null>(null);
+  const seekRecoveryCountRef = useRef<number>(0);
+  const wasPlayingBeforeRecoveryRef = useRef<boolean>(false);
+
+  const safeSeekVideo = useCallback((targetTime: number) => {
+    const video = videoElementRef.current;
+    if (!video) return;
+
+    const minSeek = video.seekable && video.seekable.length > 0 ? video.seekable.start(0) : 0;
+    const rawMaxSeek = video.seekable && video.seekable.length > 0
+      ? video.seekable.end(video.seekable.length - 1)
+      : (video.duration || MAX_ANALYSIS_CLIP_SECONDS);
+    const maxSeek = Math.min(rawMaxSeek > 0 ? rawMaxSeek : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
+    const safeFloor = Math.max(minSeek, 0.04);
+    const clamped = Math.max(safeFloor, Math.min(Math.max(safeFloor, maxSeek - 0.02), targetTime));
+
+    lastSeekTargetRef.current = clamped;
+    setVideoCurrentTime(clamped);
+
+    if (video.readyState < 1) {
+      seekRestoreOnLoadRef.current = clamped;
+      return;
+    }
+
+    if (video.seeking) {
+      pendingSeekTimeRef.current = clamped;
+      return;
+    }
+
+    pendingSeekTimeRef.current = null;
+    try {
+      video.currentTime = clamped;
+    } catch {
+      pendingSeekTimeRef.current = clamped;
+    }
+  }, []);
   const smoothLineYRef = useRef<number | null>(null);
 
   // Cleanup on close
@@ -1450,7 +1487,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
       );
 
       if (videoElementRef.current) {
-        videoElementRef.current.currentTime = trimStart;
+        safeSeekVideo(trimStart);
         videoElementRef.current.playbackRate = 1.0;
         videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
       }
@@ -1512,7 +1549,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
         : (trimEnd - trimStart));
       const effectiveLoopEnd = Math.min(trimEnd, (trimStart || 0) + (maxAnalyzedDuration > 0 ? maxAnalyzedDuration : (trimEnd - trimStart)));
       if (!video.paused && !video.seeking && effectiveLoopEnd > trimStart && rawCurrentTime >= effectiveLoopEnd) {
-        video.currentTime = trimStart;
+        safeSeekVideo(trimStart);
       }
 
       if (analysisData && analysisData.frames.length > 0) {
@@ -2077,18 +2114,16 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
     if (!video) return;
     const current = video.currentTime || 0;
     const effectiveMax = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
-    const newTime = Math.max(0, Math.min(effectiveMax, current + seconds));
-    video.currentTime = newTime;
-    setVideoCurrentTime(newTime);
+    const newTime = Math.max(0.04, Math.min(effectiveMax, current + seconds));
+    safeSeekVideo(newTime);
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoElementRef.current;
     if (!video) return;
     const effectiveMax = Math.min(videoDuration > 0 ? videoDuration : MAX_ANALYSIS_CLIP_SECONDS, MAX_ANALYSIS_CLIP_SECONDS);
-    const target = Math.min(effectiveMax, Math.max(0, parseFloat(e.target.value)));
-    setVideoCurrentTime(target);
-    video.currentTime = target;
+    const target = Math.min(effectiveMax, Math.max(0.04, parseFloat(e.target.value)));
+    safeSeekVideo(target);
   };
 
   const handleSpeedChange = (speed: number) => {
@@ -2916,6 +2951,17 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                     const target = e.currentTarget;
                     const dur = target.duration || 0;
                     setVideoDuration(dur);
+                    setVideoCodecError(null);
+                    if (seekRestoreOnLoadRef.current !== null) {
+                      const restoreT = seekRestoreOnLoadRef.current;
+                      seekRestoreOnLoadRef.current = null;
+                      safeSeekVideo(restoreT);
+                      if (wasPlayingBeforeRecoveryRef.current) {
+                        wasPlayingBeforeRecoveryRef.current = false;
+                        target.play().then(() => setIsVideoPlaying(true)).catch(() => {});
+                      }
+                      return;
+                    }
                     setTrimStart(0);
                     const end = Math.min(dur, 30);
                     setTrimEnd(end);
@@ -2924,17 +2970,50 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                   onTimeUpdate={(e) => {
                     const target = e.currentTarget;
                     if (!target.paused && !target.seeking && trimEnd > trimStart && target.currentTime >= trimEnd) {
-                      target.currentTime = trimStart;
+                      safeSeekVideo(trimStart);
                     }
                   }}
-                  onEnded={(e) => {
-                    e.currentTarget.currentTime = trimStart;
-                    e.currentTarget.play().catch(() => {});
+                  onSeeked={() => {
+                    seekRecoveryCountRef.current = 0;
+                    setVideoCodecError(null);
+                    if (pendingSeekTimeRef.current !== null) {
+                      const nextT = pendingSeekTimeRef.current;
+                      pendingSeekTimeRef.current = null;
+                      safeSeekVideo(nextT);
+                    }
+                  }}
+                  onEnded={() => {
+                    safeSeekVideo(trimStart);
+                    videoElementRef.current?.play().catch(() => {});
                   }}
                   onError={(e) => {
-                    const err = e.currentTarget.error;
+                    const video = e.currentTarget;
+                    const err = video.error;
+                    const msg = err?.message || '';
+                    const isDemuxerSeek =
+                      /demuxer seek failed|PIPELINE_ERROR_READ/i.test(msg) ||
+                      (err?.code === 3 && Boolean(uploadedFileRef.current));
+
+                    if (isDemuxerSeek && uploadedFileRef.current && seekRecoveryCountRef.current < 2) {
+                      seekRecoveryCountRef.current += 1;
+                      wasPlayingBeforeRecoveryRef.current = !video.paused || isVideoPlaying;
+                      pendingSeekTimeRef.current = null;
+                      // Attempt 1: reload video & seek forward from 0; Attempt 2: reset cleanly near clip start
+                      const fallbackTarget = seekRecoveryCountRef.current === 1
+                        ? Math.max(0.05, lastSeekTargetRef.current)
+                        : Math.max(0.05, trimStart);
+                      seekRestoreOnLoadRef.current = fallbackTarget;
+                      setVideoCodecError(null);
+                      const freshUrl = URL.createObjectURL(uploadedFileRef.current);
+                      if (uploadedVideoUrl) {
+                        URL.revokeObjectURL(uploadedVideoUrl);
+                      }
+                      setUploadedVideoUrl(freshUrl);
+                      return;
+                    }
+
                     console.warn('[Video Player Error]', err);
-                    setVideoCodecError(err?.message || 'El formato o códec del vídeo no es compatible con el navegador.');
+                    setVideoCodecError(msg || 'El formato o códec del vídeo no es compatible con el navegador.');
                   }}
                   className="w-full h-full object-contain pointer-events-none"
                 />
@@ -3326,9 +3405,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
                             setTrimStart(val);
-                            if (videoElementRef.current) {
-                              videoElementRef.current.currentTime = val;
-                            }
+                            safeSeekVideo(val);
                           }}
                           className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
                         />
@@ -3347,9 +3424,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
                             setTrimEnd(val);
-                            if (videoElementRef.current) {
-                              videoElementRef.current.currentTime = val;
-                            }
+                            safeSeekVideo(val);
                           }}
                           className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
                         />
@@ -4284,7 +4359,7 @@ const VideoPoseAnalysisModalInner: React.FC<VideoPoseAnalysisModalProps> = ({
                         type="button"
                         onClick={() => {
                           if (videoElementRef.current) {
-                            videoElementRef.current.currentTime = rep.start_time;
+                            safeSeekVideo(rep.start_time);
                             videoElementRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
                           }
                         }}
